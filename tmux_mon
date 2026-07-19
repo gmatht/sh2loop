@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+"""tmux_mon — monitor a command in tmux and restart it on freeze.
+
+Runs <command> in a dedicated tmux session, takes a snapshot of the visible
+pane every <interval> seconds, and if the snapshot is identical to the
+previous one, logs the frozen output and restarts the command.
+"""
+
+import argparse
+import hashlib
+import logging
+import os
+import re
+import subprocess
+import sys
+import time
+
+
+def tmux(*args, check=True):
+    result = subprocess.run(
+        ["tmux"] + list(args),
+        capture_output=True, text=True,
+    )
+    if check and result.returncode != 0:
+        raise RuntimeError(f"tmux {' '.join(args)!r} failed: {result.stderr}")
+    return result.stdout
+
+
+def capture_pane(session):
+    return tmux("capture-pane", "-t", session, "-p")
+
+
+def has_session(name):
+    result = subprocess.run(
+        ["tmux", "has-session", "-t", name],
+        capture_output=True, text=True,
+    )
+    return result.returncode == 0
+
+
+def create_session(name, cmd):
+    tmux("new-session", "-d", "-s", name, cmd)
+
+
+def restart(session, cmd):
+    tmux("respawn-pane", "-k", "-t", f"{session}:0.0", cmd)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Monitor a tmux session for frozen commands."
+    )
+    parser.add_argument("-s", "--session", default="tmux_mon",
+                        help="tmux session name (default: tmux_mon)")
+    parser.add_argument("-i", "--interval", type=int, default=3600,
+                        help="check interval in seconds (default: 3600)")
+    parser.add_argument("-l", "--log", default="tmux_mon.log",
+                        help="log file (default: tmux_mon.log)")
+    parser.add_argument("--opencode", action="store_true",
+                        help="run opencode to fix each freeze before restarting")
+    parser.add_argument("--opencode-bin", default="opencode",
+                        help="path to opencode executable (default: opencode)")
+    parser.add_argument("--retry", action="store_true",
+                        help="keep restarting on failure; exit when RUN_AND_FIX_EXIT=0 appears on screen")
+    parser.add_argument("cmd", nargs=argparse.REMAINDER,
+                        help="command to run (use -- to separate from flags)")
+
+    args = parser.parse_args()
+
+    if not args.cmd:
+        print("error: no command specified", file=sys.stderr)
+        sys.exit(1)
+
+    command = " ".join(args.cmd)
+
+    logging.basicConfig(
+        filename=args.log, level=logging.INFO,
+        format="%(asctime)s  %(levelname)-8s  %(message)s",
+    )
+    logging.info("monitor started  session=%r  interval=%ss  cmd=%r",
+                 args.session, args.interval, command)
+
+    if not has_session(args.session):
+        create_session(args.session, command)
+        logging.info("created session %r, running %r", args.session, command)
+    else:
+        logging.info("attaching to existing session %r", args.session)
+
+    tmux("pipe-pane", "-t", f"{args.session}:0.0", f"cat > /proc/{os.getpid()}/fd/1")
+
+    prev_hash = None
+
+    while True:
+        time.sleep(args.interval)
+
+        try:
+            content = capture_pane(args.session)
+        except RuntimeError as e:
+            logging.error("capture failed: %s", e)
+            continue
+
+        h = hashlib.md5(content.encode()).hexdigest()
+
+        if prev_hash is not None and h == prev_hash:
+            logging.warning("FREEZE — screen unchanged for %ss", args.interval)
+            for line in content.splitlines():
+                logging.info("  | %s", line)
+
+            # --retry: check for the success marker printed by run_and_fix
+            if args.retry:
+                m = re.search(r"^RUN_AND_FIX_EXIT=(\d+)$", content, re.MULTILINE)
+                if m and m.group(1) == "0":
+                    logging.info("SUCCESS — run_and_fix reported exit code 0, stopping")
+                    print("run_and_fix succeeded, monitor exiting.")
+                    tmux("pipe-pane", "-t", f"{args.session}:0.0")
+                    tmux("kill-session", "-t", args.session)
+                    sys.exit(0)
+
+            if args.opencode:
+                logging.info("invoking opencode to fix the freeze...")
+                prompt = (
+                    f"The command {command!r} appears to have frozen in tmux. "
+                    f"Here is the last captured output:\n\n{content}\n\n"
+                    f"Please investigate the code and fix the issue."
+                )
+                try:
+                    subprocess.run(
+                        [args.opencode_bin, "run", "--dir", os.getcwd(), prompt],
+                    )
+                except FileNotFoundError:
+                    logging.error("opencode binary not found: %s", args.opencode_bin)
+                except Exception as e:
+                    logging.error("opencode invocation failed: %s", e)
+                else:
+                    logging.info("opencode finished")
+
+            tmux("pipe-pane", "-t", f"{args.session}:0.0")
+            restart(args.session, command)
+            logging.info("command restarted: %s", command)
+            tmux("pipe-pane", "-t", f"{args.session}:0.0", f"cat > /proc/{os.getpid()}/fd/1")
+            prev_hash = None
+        else:
+            prev_hash = h
+            logging.info("snapshot OK  hash=%s...", h[:12])
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        tmux("pipe-pane", "-t", f"{args.session}:0.0")
+        logging.info("monitor stopped by user")
+        print("Stopped.", file=sys.stderr)
+        sys.exit(0)
