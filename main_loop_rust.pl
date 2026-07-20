@@ -186,6 +186,11 @@ while (1) {
     if ($summary && $summary->{failed} == 0 && !$timed_out) {
         print "\nAll tests pass!\n";
         write_results_file($results_file, []);
+        if ($summary) {
+            open my $tcfh, '>', $trusted_count_file or warn "Cannot write $trusted_count_file: $!";
+            print $tcfh $summary->{failed}, "\n";
+            close $tcfh;
+        }
         system('git', '-C', "$project_root/sh2perl", 'add', $results_file);
         system('git', '-C', "$project_root/sh2perl", 'commit', '-m', "All tests passing");
         last;
@@ -298,15 +303,49 @@ while (1) {
     # Number of failures seen at start of loop (from test summary, or fallback to disk count)
     my $before_count = $summary ? $summary->{failed} : $new_diff->{old_count};
 
+    # Track the last "trusted" failure count to guard against false-positive fixes
+    # where pi claims "0 failures" because test output was garbled.
+    my $trusted_count_file = "$project_root/sh2perl/.last_trusted_count";
+    my $last_trusted = $on_disk_count;
+    if (open my $tcfh, '<', $trusted_count_file) {
+        my $val = <$tcfh>;
+        chomp $val if defined $val;
+        $last_trusted = $val + 0 if defined $val && $val ne '';
+        close $tcfh;
+    }
+
     # First run — no previous results file, just create it and commit baseline
     if (! -e $results_file) {
         write_results_file($results_file, $failed_tests);
         print "\nFirst run: committing baseline results...\n";
+        open my $tcfh, '>', $trusted_count_file or warn "Cannot write $trusted_count_file: $!";
+        print $tcfh ($summary ? $summary->{failed} : $new_diff->{new_count}), "\n";
+        close $tcfh;
         system('git', '-C', "$project_root/sh2perl", 'add', $results_file);
         my $msg = "Baseline test results: $summary->{passed} passed, $summary->{failed} failed";
         system('git', '-C', "$project_root/sh2perl", 'commit', '-m', $msg);
         log_decision('first', $on_disk_count, $before_count, $new_diff->{new_count});
     } elsif ($new_diff->{new_count} < $new_diff->{old_count}) {
+        # Sanity check: if failures drop suspiciously (e.g. to 0 or by >50% of last trusted),
+        # and the test output actually contains failure lines, the "fix" is probably false
+        # (garbled output or harness crash). Reject it and keep the last trusted count.
+        if ($new_diff->{new_count} == 0 && @{$failed_tests} > 0) {
+            print "\nWARNING: pi claims 0 failures but test output shows ", scalar(@{$failed_tests}), " failures. Resetting to last trusted count ($last_trusted).\n";
+            write_results_file($results_file, read_results_file($trusted_count_file));
+            system('git', '-C', "$project_root/sh2perl", 'add', $results_file);
+            system('git', '-C', "$project_root/sh2perl", 'checkout', '--', $results_file);
+            log_decision('reject', $on_disk_count, $before_count, $new_diff->{new_count});
+            next;
+        }
+        # Update trusted count only if we have a valid test summary (not a crash).
+        # Never trust 0 unless the summary explicitly reports 0 failures.
+        if ($summary) {
+            my $trusted_val = $summary->{failed};  # use summary count, not parsed
+            open my $tcfh, '>', $trusted_count_file or warn "Cannot write $trusted_count_file: $!";
+            print $tcfh $trusted_val, "\n";
+            close $tcfh;
+        }
+
         write_results_file($results_file, $failed_tests);
         print "\nTests improved ($new_diff->{old_count} -> $new_diff->{new_count} failures). Committing...\n";
         system('git', '-C', "$project_root/sh2perl", 'add', $results_file);
@@ -326,6 +365,11 @@ while (1) {
         my $decision = ($oc_out =~ /STASH/i) ? 'STASH' : 'KEEP';
         if ($decision eq 'STASH') {
             write_results_file($results_file, $failed_tests);
+            if ($summary) {
+                open my $tcfh, '>', $trusted_count_file or warn "Cannot write $trusted_count_file: $!";
+                print $tcfh $summary->{failed}, "\n";
+                close $tcfh;
+            }
             system('git', '-C', "$project_root/sh2perl", 'stash', 'push', '-m', "auto-stash: tests $new_diff->{old_count}->$new_diff->{new_count}");
             log_decision('stash', $on_disk_count, $before_count, $new_diff->{new_count});
         } else {
@@ -345,6 +389,13 @@ while (1) {
         my $msg = "Test results: $summary->{passed} passed, $summary->{failed} failed";
         system('git', '-C', "$project_root/sh2perl", 'commit', '-m', $msg);
         log_decision('same', $on_disk_count, $before_count, $new_diff->{new_count});
+    }
+
+    # Update trusted count on any non-stash outcome (confirms the current count is valid)
+    if ($summary) {
+        open my $tcfh, '>', $trusted_count_file or warn "Cannot write $trusted_count_file: $!";
+        print $tcfh $summary->{failed}, "\n";
+        close $tcfh;
     }
 
     # Restore examples to blessed commit (canonical test data)
