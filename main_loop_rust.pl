@@ -13,6 +13,7 @@ my $snapshot_script = "$FindBin::RealBin/ensure_examples_snapshot.pl";
 my $project_root = $FindBin::RealBin;
 my $results_file = "$project_root/sh2perl/failing_tests.txt";
 my $history_log = "$project_root/sh2perl/fix_history.log";
+my $trusted_count_file = "$project_root/sh2perl/.last_trusted_count";
 
 sub log_decision {
     my ($decision, $on_disk, $before, $after) = @_;
@@ -305,7 +306,6 @@ while (1) {
 
     # Track the last "trusted" failure count to guard against false-positive fixes
     # where pi claims "0 failures" because test output was garbled.
-    my $trusted_count_file = "$project_root/sh2perl/.last_trusted_count";
     my $last_trusted = $on_disk_count;
     if (open my $tcfh, '<', $trusted_count_file) {
         my $val = <$tcfh>;
