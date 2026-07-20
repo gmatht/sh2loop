@@ -4,11 +4,14 @@ use warnings;
 use Time::HiRes qw(sleep);
 use FindBin;
 use POSIX qw(:sys_wait_h);
+use JSON::PP;
 
 $| = 1;
 STDERR->autoflush(1);
 
 my $snapshot_script = "$FindBin::RealBin/ensure_examples_snapshot.pl";
+my $project_root = $FindBin::RealBin;
+my $results_file = "$project_root/sh2perl/failing_tests.txt";
 
 sub read_pipe_with_timeout {
     my ($timeout, $fh, $pid) = @_;
@@ -37,49 +40,11 @@ sub read_pipe_with_timeout {
     return ($output, $timed_out);
 }
 
-sub run_system_with_timeout {
-    my ($timeout, @cmd) = @_;
-    my $pid = fork();
-    return -1 unless defined $pid;
-    if ($pid == 0) {
-        exec @cmd;
-        exit(1);
-    }
-    my $deadline = time() + $timeout;
-    my $got_exit = 0;
-    while (1) {
-        my $remaining = $deadline - time();
-        last if $remaining <= 0;
-        my $kid = waitpid($pid, WNOHANG);
-        if ($kid == $pid) {
-            $got_exit = 1;
-            last;
-        }
-        Time::HiRes::sleep(0.1);
-    }
-    if ($got_exit) {
-        return $? >> 8;
-    }
-    print STDERR "WARNING: run_system_with_timeout timed out after ${timeout}s, killing PID $pid (@cmd)\n";
-    kill('TERM', $pid);
-    Time::HiRes::sleep(0.2);
-    kill('KILL', $pid) if kill(0, $pid);
-    waitpid($pid, 0);
-    return -1;
-}
 
-sub snapshot_capture {
-    run_system_with_timeout(30, 'perl', $snapshot_script, 'capture');
-}
-
-sub snapshot_restore {
-    run_system_with_timeout(30, 'perl', $snapshot_script, 'restore');
-}
-
-my $cached_summary_file = "$FindBin::RealBin/.cached_test_summary";
 
 sub print_cached_summary {
-    if (open my $cfh, '<', $cached_summary_file) {
+    my $file = "$project_root/.cached_test_summary";
+    if (open my $cfh, '<', $file) {
         my $cached = <$cfh>;
         close $cfh;
         chomp $cached if defined $cached;
@@ -87,37 +52,134 @@ sub print_cached_summary {
     }
 }
 
-my $test_cmd = './fail';
+# Parse failed test names+reasons from FAILED TESTS: section
+sub parse_failed_tests {
+    my ($output) = @_;
+    my @failed;
+    while ($output =~ /^  FAIL: ([^\[\s]+(?:\.[^\s]+)?) \[perl\] — (.+)$/gm) {
+        push @failed, { name => $1, reason => $2 };
+    }
+    return \@failed;
+}
+
+# Parse summary line
+sub parse_summary {
+    my ($output) = @_;
+    if ($output =~ /TESTS COMPLETED: (\d+) passed, (\d+) failed out of (\d+)/) {
+        return { passed => $1 + 0, failed => $2 + 0, total => $3 + 0 };
+    }
+    return undef;
+}
+
+# Read a results file (one failing test per line, tab-separated name and reason)
+sub read_results_file {
+    my $file = shift;
+    return [] unless -e $file;
+    open my $fh, '<', $file or return [];
+    my @lines;
+    while (<$fh>) {
+        chomp;
+        next if /^\s*$/;
+        my ($name, $reason) = split(/\t/, $_, 2);
+        $reason //= '';
+        push @lines, { name => $name, reason => $reason };
+    }
+    close $fh;
+    return \@lines;
+}
+
+# Write results file (one failing test per line)
+sub write_results_file {
+    my ($file, $failed) = @_;
+    open my $fh, '>', $file or warn "Cannot write $file: $!";
+    for my $f (@$failed) {
+        print $fh $f->{name}, "\t", $f->{reason}, "\n";
+    }
+    close $fh;
+}
+
+# Build a compact diff-style summary of changes
+sub diff_results {
+    my ($new, $old) = @_;
+    my %old_named = map { $_->{name} => 1 } @$old;
+    my %new_named = map { $_->{name} => 1 } @$new;
+
+    my @fixed   = grep { !$new_named{$_} } keys %old_named;
+    my @regressed = grep { !$old_named{$_} } keys %new_named;
+    my @stayed  = grep { $old_named{$_} } keys %new_named;
+
+    my $report = '';
+    if (@fixed) {
+        $report .= "FIXED (${\scalar @fixed}):\n";
+        $report .= "  $_\n" for @fixed;
+    }
+    if (@regressed) {
+        $report .= "REGRESSED (${\scalar @regressed}):\n";
+        $report .= "  $_\n" for @regressed;
+    }
+    if (@stayed) {
+        $report .= "STILL FAILING (${\scalar @stayed}):\n";
+        $report .= "  $_\n" for @stayed;
+    }
+    return {
+        fixed      => \@fixed,
+        regressed  => \@regressed,
+        stayed     => \@stayed,
+        old_count  => scalar @$old,
+        new_count  => scalar @$new,
+        text       => $report,
+    };
+}
+
+sub run_tests {
+    chdir "$project_root/sh2perl";
+    my $pipe_pid = open(my $pipe, '-|', './fail 2>&1');
+    die "Cannot run ./fail: $!" unless defined $pipe_pid;
+    my ($output, $timed_out) = read_pipe_with_timeout(120, $pipe, $pipe_pid);
+    close($pipe);
+    chdir $project_root;
+    return ($output, $timed_out);
+}
 
 while (1) {
-    my $output = '';
-    chdir 'sh2perl';
-    my $pipe_pid = open(my $pipe, '-|', "$test_cmd 2>&1");
-    die "Cannot run $test_cmd: $!" unless defined $pipe_pid;
-    ($output, my $timed_out) = read_pipe_with_timeout(120, $pipe, $pipe_pid);
-    close($pipe);
+    my ($output, $timed_out) = run_tests();
 
-    if ($output =~ /(TESTS COMPLETED: (\d+) passed, (\d+) failed out of \d+)/) {
-        my $summary_line = $1;
-        my $passed_count = $2 + 0;
-        my $failed_count = $3 + 0;
-        if ($passed_count > 1 || $failed_count > 1) {
-            open my $cfh, '>', $cached_summary_file or warn "Cannot write cached summary: $!";
-            print $cfh $summary_line;
-            close $cfh;
-        }
+    my $summary = parse_summary($output);
+    my $failed_tests = parse_failed_tests($output);
+    my $old_results = read_results_file($results_file);
+    my $diff = diff_results($failed_tests, $old_results);
+
+    # Print summary
+    if ($summary) {
+        print "\n$summary->{passed} passed, $summary->{failed} failed out of $summary->{total}\n";
     }
-    
-    my $exit_code = $? >> 8;
-    my $has_failures = ($output =~ /FAILED:|FAILURE|ERROR|mismatch/i);
+    if ($diff->{text}) {
+        print $diff->{text};
+    }
 
-    if ($exit_code == 0 && !$timed_out && !$has_failures) {
-        print "\nAll errors are fixed.\n";
+    # Check for complete success
+    if ($summary && $summary->{failed} == 0 && !$timed_out) {
+        print "\nAll tests pass!\n";
+        write_results_file($results_file, []);
+        system('git', '-C', "$project_root/sh2perl", 'add', $results_file);
+        system('git', '-C', "$project_root/sh2perl", 'commit', '-m', "All tests passing");
         last;
     }
 
-    print "\nInvoking opencode to fix the failure (Timed Out: $timed_out, Exit: $exit_code)...\n";
-    print_cached_summary();
+    # Build prompt for pi
+    my $test_report = '';
+    if ($diff->{fixed} && @{$diff->{fixed}}) {
+        $test_report .= "Since last run, these tests were FIXED:\n";
+        $test_report .= "  $_\n" for @{$diff->{fixed}};
+    }
+    if ($diff->{regressed} && @{$diff->{regressed}}) {
+        $test_report .= "Since last run, these tests REGRESSED (newly failing):\n";
+        $test_report .= "  $_\n" for @{$diff->{regressed}};
+    }
+    if ($diff->{stayed} && @{$diff->{stayed}}) {
+        $test_report .= "These tests are STILL FAILING:\n";
+        $test_report .= "  $_\n" for @{$diff->{stayed}};
+    }
 
     my @lines = split("\n", $output);
     if (@lines > 50) {
@@ -125,20 +187,126 @@ while (1) {
     }
 
     my $prompt = join("\n",
-        "Fix the failure reported by fail.",
-        "Use the output below as the task description and make the smallest correct code change.",
+        "Fix the failures reported by './fail'.",
+        "Make the smallest correct code change.",
         "",
+        $test_report,
+        "",
+        "--- Test output (truncated) ---",
         $output,
         "",
         "After fixing the issue, stop.",
     );
 
-    snapshot_capture();
-    my $rc = run_system_with_timeout(300, 'opencode', 'run', '-m', 'opencode-go/deepseek-v4-flash', '--variant', 'xhigh', $prompt);
-    if ($rc == -1) {
-        print STDERR "WARNING: opencode fix command timed out\n";
-    }
-    snapshot_restore();
+    print "\nInvoking pi to fix failures...\n";
+    print_cached_summary();
 
+    # Run pi with streaming JSON output
+    my $full_output = '';
+    my $pi_pid = open(my $pi_fh, '-|', 'pi', '--mode', 'json', '--provider', 'opencode-go', '--model', 'deepseek-v4-flash', '--thinking', 'xhigh', $prompt);
+    if (defined $pi_pid) {
+        my $pi_timeout = 3600;
+        my $pi_deadline = time() + $pi_timeout;
+        my $last_dot = time();
+        my $buffer = '';
+        while (1) {
+            my $remaining = $pi_deadline - time();
+            last if $remaining <= 0;
+            my $rin = '';
+            vec($rin, fileno($pi_fh), 1) = 1;
+            my $nfound = select($rin, undef, undef, 1);
+            if ($nfound > 0) {
+                my $buf;
+                my $read = sysread($pi_fh, $buf, 8192);
+                last unless defined $read && $read > 0;
+                $buffer .= $buf;
+                while ($buffer =~ s/^(.*)\n//) {
+                    my $line = $1;
+                    next if $line eq '';
+                    my $event = eval { JSON::PP::decode_json($line) };
+                    if ($@) { print STDERR "[JSON parse error: $@]\n"; next; }
+                    next unless ref $event eq 'HASH';
+                    my $type = $event->{type} // '';
+                    if ($type eq 'message_update') {
+                        my $msg = $event->{assistantMessageEvent};
+                        next unless ref $msg eq 'HASH';
+                        my $event_type = $msg->{type} // '';
+                        my $delta = $msg->{delta} // '';
+                        if ($event_type eq 'thinking_delta' && length $delta) {
+                            print "\e[2m$delta\e[0m";
+                            $full_output .= $delta;
+                        } elsif ($event_type eq 'text_delta' && length $delta) {
+                            print $delta;
+                            $full_output .= $delta;
+                        } elsif ($event_type eq 'tool_use_start') {
+                            my $name = $msg->{name} // '?';
+                            my $args = $msg->{arguments} // {};
+                            my $arg_str = (ref $args eq 'HASH') ? join(', ', map { "$_=$args->{$_}" } keys %$args) : '';
+                            print "\n\e[33m>>> tool: $name($arg_str)\e[0m\n";
+                        } elsif ($event_type eq 'tool_result') {
+                            print "\e[33m<<< tool result\e[0m\n";
+                        }
+                    }
+                    $last_dot = time();
+                }
+            }
+            if (time() - $last_dot >= 30) {
+                print STDERR ".";
+                $last_dot = time();
+            }
+        }
+        close($pi_fh);
+        print "\n" if $full_output ne '';
+    } else {
+        print STDERR "WARNING: Could not run pi: $!\n";
+    }
+
+    my $new_diff = diff_results($failed_tests, $old_results);
+
+    # First run — no previous results file, just create it and commit baseline
+    if (! -e $results_file) {
+        write_results_file($results_file, $failed_tests);
+        print "\nFirst run: committing baseline results...\n";
+        system('git', '-C', "$project_root/sh2perl", 'add', $results_file);
+        system('git', '-C', "$project_root/sh2perl", 'commit', '-m', "Baseline test results: $summary->{passed} passed, $summary->{failed} failed");
+    } elsif ($new_diff->{new_count} < $new_diff->{old_count}) {
+        write_results_file($results_file, $failed_tests);
+        print "\nTests improved ($new_diff->{old_count} -> $new_diff->{new_count} failures). Committing...\n";
+        system('git', '-C', "$project_root/sh2perl", 'add', $results_file);
+        my $msg = "Test results: $summary->{passed} passed, $summary->{failed} failed";
+        $msg .= " (fixed " . scalar(@{$new_diff->{fixed}}) . ")" if @{$new_diff->{fixed}};
+        system('git', '-C', "$project_root/sh2perl", 'commit', '-m', $msg);
+    } elsif ($new_diff->{new_count} > $new_diff->{old_count}) {
+        print "\nTests regressed ($new_diff->{old_count} -> $new_diff->{new_count} failures). Asking pi whether to keep or stash...\n";
+        my $decision_prompt = "Failing tests went from $new_diff->{old_count} to $new_diff->{new_count}. Should these changes be kept or stashed? Answer KEEP or STASH on the final line.";
+        my $oc_out = '';
+        my $pid = open(my $oc, '-|', 'pi', '-p', '--provider', 'opencode-go', '--model', 'deepseek-v4-flash', '--thinking', 'high', $decision_prompt);
+        if (defined $pid) {
+            ($oc_out, my $timed_out2) = read_pipe_with_timeout(600, $oc, $pid);
+            close $oc;
+        }
+        my $decision = ($oc_out =~ /STASH/i) ? 'STASH' : 'KEEP';
+        if ($decision eq 'STASH') {
+            write_results_file($results_file, $failed_tests);
+            system('git', '-C', "$project_root/sh2perl", 'stash', 'push', '-m', "auto-stash: tests $new_diff->{old_count}->$new_diff->{new_count}");
+        } else {
+            write_results_file($results_file, $failed_tests);
+            system('git', '-C', "$project_root/sh2perl", 'add', $results_file);
+            system('git', '-C', "$project_root/sh2perl", 'commit', '-m', "Test results: $summary->{passed} passed, $summary->{failed} failed (kept despite regression)");
+        }
+    } else {
+        write_results_file($results_file, $failed_tests);
+        if (@{$new_diff->{fixed}} || @{$new_diff->{regressed}}) {
+            print "\nSame failure count but tests changed. Committing...\n";
+        } else {
+            print "\nNo change in test results. Committing...\n";
+        }
+        system('git', '-C', "$project_root/sh2perl", 'add', $results_file);
+        my $msg = "Test results: $summary->{passed} passed, $summary->{failed} failed";
+        system('git', '-C', "$project_root/sh2perl", 'commit', '-m', $msg);
+    }
+
+    # Restore examples to blessed commit (canonical test data)
+    system('perl', $snapshot_script, 'restore');
     sleep 1;
 }
