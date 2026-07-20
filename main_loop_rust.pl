@@ -164,6 +164,19 @@ while (1) {
     # Print summary
     if ($summary) {
         print "\n$summary->{passed} passed, $summary->{failed} failed out of $summary->{total}\n";
+    } else {
+        # Test harness crashed or produced unparseable output.
+        # Log the raw output and skip this iteration instead of treating it as "0 failures".
+        my $crash_log = "$project_root/sh2perl/crash_output.log";
+        open my $clog, '>>', $crash_log or warn "Cannot append to $crash_log: $!";
+        print $clog "=== " . localtime() . " ===\n";
+        print $clog $output;
+        print $clog "\n=== (timed_out=$timed_out) ===\n\n";
+        close $clog;
+        print STDERR "\nWARNING: Test output had no summary line. Logged to $crash_log. Skipping iteration.\n";
+        log_decision('crash', scalar(@{$old_results}), '?', '?');
+        sleep 5;
+        next;
     }
     if ($diff->{text}) {
         print $diff->{text};
