@@ -12,6 +12,18 @@ STDERR->autoflush(1);
 my $snapshot_script = "$FindBin::RealBin/ensure_examples_snapshot.pl";
 my $project_root = $FindBin::RealBin;
 my $results_file = "$project_root/sh2perl/failing_tests.txt";
+my $history_log = "$project_root/sh2perl/fix_history.log";
+
+sub log_decision {
+    my ($decision, $on_disk, $before, $after) = @_;
+    $decision //= '?';
+    $on_disk  //= '?';
+    $before   //= '?';
+    $after    //= '?';
+    open my $fh, '>>', $history_log or warn "Cannot append to $history_log: $!";
+    print $fh join("\t", $decision, $on_disk, $before, $after), "\n";
+    close $fh;
+}
 
 sub read_pipe_with_timeout {
     my ($timeout, $fh, $pid) = @_;
@@ -196,6 +208,11 @@ while (1) {
         $output,
         "",
         "After fixing the issue, stop.",
+        "",
+        "Also maintain sh2perl/failing_notes.md — for each failing test that",
+        "remains after your changes, write a brief line on why it's challenging",
+        "to fix (e.g. 'eval inside function definition is hard to translate').",
+        "If you fixed a test, remove its entry from that file.",
     );
 
     print "\nInvoking pi to fix failures...\n";
@@ -263,12 +280,19 @@ while (1) {
 
     my $new_diff = diff_results($failed_tests, $old_results);
 
+    # Number of failing tests stored on disk before this loop
+    my $on_disk_count = scalar(@{$old_results});
+    # Number of failures seen at start of loop (from test summary, or fallback to disk count)
+    my $before_count = $summary ? $summary->{failed} : $new_diff->{old_count};
+
     # First run — no previous results file, just create it and commit baseline
     if (! -e $results_file) {
         write_results_file($results_file, $failed_tests);
         print "\nFirst run: committing baseline results...\n";
         system('git', '-C', "$project_root/sh2perl", 'add', $results_file);
-        system('git', '-C', "$project_root/sh2perl", 'commit', '-m', "Baseline test results: $summary->{passed} passed, $summary->{failed} failed");
+        my $msg = "Baseline test results: $summary->{passed} passed, $summary->{failed} failed";
+        system('git', '-C', "$project_root/sh2perl", 'commit', '-m', $msg);
+        log_decision('first', $on_disk_count, $before_count, $new_diff->{new_count});
     } elsif ($new_diff->{new_count} < $new_diff->{old_count}) {
         write_results_file($results_file, $failed_tests);
         print "\nTests improved ($new_diff->{old_count} -> $new_diff->{new_count} failures). Committing...\n";
@@ -276,6 +300,7 @@ while (1) {
         my $msg = "Test results: $summary->{passed} passed, $summary->{failed} failed";
         $msg .= " (fixed " . scalar(@{$new_diff->{fixed}}) . ")" if @{$new_diff->{fixed}};
         system('git', '-C', "$project_root/sh2perl", 'commit', '-m', $msg);
+        log_decision('keep', $on_disk_count, $before_count, $new_diff->{new_count});
     } elsif ($new_diff->{new_count} > $new_diff->{old_count}) {
         print "\nTests regressed ($new_diff->{old_count} -> $new_diff->{new_count} failures). Asking pi whether to keep or stash...\n";
         my $decision_prompt = "Failing tests went from $new_diff->{old_count} to $new_diff->{new_count}. Should these changes be kept or stashed? Answer KEEP or STASH on the final line.";
@@ -289,10 +314,12 @@ while (1) {
         if ($decision eq 'STASH') {
             write_results_file($results_file, $failed_tests);
             system('git', '-C', "$project_root/sh2perl", 'stash', 'push', '-m', "auto-stash: tests $new_diff->{old_count}->$new_diff->{new_count}");
+            log_decision('stash', $on_disk_count, $before_count, $new_diff->{new_count});
         } else {
             write_results_file($results_file, $failed_tests);
             system('git', '-C', "$project_root/sh2perl", 'add', $results_file);
             system('git', '-C', "$project_root/sh2perl", 'commit', '-m', "Test results: $summary->{passed} passed, $summary->{failed} failed (kept despite regression)");
+            log_decision('keep', $on_disk_count, $before_count, $new_diff->{new_count});
         }
     } else {
         write_results_file($results_file, $failed_tests);
@@ -304,6 +331,7 @@ while (1) {
         system('git', '-C', "$project_root/sh2perl", 'add', $results_file);
         my $msg = "Test results: $summary->{passed} passed, $summary->{failed} failed";
         system('git', '-C', "$project_root/sh2perl", 'commit', '-m', $msg);
+        log_decision('same', $on_disk_count, $before_count, $new_diff->{new_count});
     }
 
     # Restore examples to blessed commit (canonical test data)
