@@ -84,6 +84,17 @@ run_with_timeout() {
 }
 
 #git stash push examples ./fail.bat ./fail ./src/main.rs src/testing.rs src/execution.rs
+# Run shell-level qx{}/system() check on previously generated Perl
+# (independent of Rust checks so the auto-loop can't delete this)
+echo "Running qx{}/system() check on generated Perl..." | tee -a "$LOG_FILE"
+perl check_qx.pl 2>&1 | tee -a "$LOG_FILE"
+QX_EXIT="${PIPESTATUS[0]}"
+if [ "$QX_EXIT" -gt 0 ]; then
+    echo "FAILED: $QX_EXIT qx{}/system() violation(s) found in generated Perl" | tee -a "$LOG_FILE"
+else
+    echo "No qx{}/system() violations found." | tee -a "$LOG_FILE"
+fi
+
 echo "Compiling debashc..." | tee -a "$LOG_FILE"
 if ! cargo build --bin debashc 2>&1 | tee -a "$LOG_FILE"; then
     echo "Compilation failed, aborting other commands" | tee -a "$LOG_FILE"
