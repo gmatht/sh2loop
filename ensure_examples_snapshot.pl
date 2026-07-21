@@ -3,7 +3,7 @@ use strict;
 use warnings;
 use FindBin;
 
-my $blessed_commit = 'a51266321a5337d5d57fc559ac036f7a32a389ed';
+my $blessed_commit = 'b2fb7a7a814e263f5f92982691e201dde9179aea';
 my $cmd = shift @ARGV // '';
 
 if ($cmd eq 'capture') {
