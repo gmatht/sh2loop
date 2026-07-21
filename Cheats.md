@@ -136,3 +136,21 @@ full suite had regressions that weren't pre-existing.
 
 **Status:** Mitigated by the auto-loop running the full test suite after
 each fix attempt. Individual-test verification is insufficient.
+
+## 13. Output-Equivalent But Semantically Wrong
+
+The test harness only compares stdout, stderr, and exit code. It does
+NOT verify that side effects (file creation, directory structure, signal
+handling, environment variables, process state) match the original bash.
+
+A translation could produce identical output while creating files in
+the wrong place, using wrong permissions, or leaving stale artifacts.
+For example, `mkdir -p a/b/c` might create the directory tree but the
+Perl version could use `mkpath('a/b/c')` which behaves identically.
+However, more complex side effects like signal traps, background
+processes, or file descriptor manipulation have no direct Perl
+equivalent and the translator would omit them, producing correct
+output but missing side effects.
+
+**Status:** Inherent limitation of output-only comparison. No practical
+fix without extending the test harness to verify side effects.
