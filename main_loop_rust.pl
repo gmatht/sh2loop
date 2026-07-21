@@ -150,12 +150,13 @@ sub run_tests {
     die "Cannot run ../fail: $!" unless defined $pipe_pid;
     my ($output, $timed_out) = read_pipe_with_timeout(600, $pipe, $pipe_pid);
     close($pipe);
+    my $exit_code = $? >> 8;
     chdir $project_root;
-    return ($output, $timed_out);
+    return ($output, $timed_out, $exit_code);
 }
 
 while (1) {
-    my ($output, $timed_out) = run_tests();
+    my ($output, $timed_out, $test_exit) = run_tests();
 
     my $summary = parse_summary($output);
     my $failed_tests = parse_failed_tests($output);
