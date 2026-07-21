@@ -147,7 +147,7 @@ sub diff_results {
 sub run_tests {
     chdir "$project_root/sh2perl";
     my $pipe_pid = open(my $pipe, '-|', '../fail 2>&1');
-    die "Cannot run ./fail: $!" unless defined $pipe_pid;
+    die "Cannot run ../fail: $!" unless defined $pipe_pid;
     my ($output, $timed_out) = read_pipe_with_timeout(600, $pipe, $pipe_pid);
     close($pipe);
     chdir $project_root;

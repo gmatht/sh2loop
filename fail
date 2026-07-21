@@ -1,7 +1,7 @@
 #!/bin/bash
 set -o pipefail
 
-cd "$(dirname "$0")/sh2perl" || { echo "sh2perl/ not found"; exit 1; }
+cd "$(dirname "$(readlink -f "$0" || echo "$0")")/sh2perl" || { echo "sh2perl/ not found"; exit 1; }
 
 echo "To run this test: ./fail FAILING_TEST_PREFIX"
 echo "To run a specific test: ./fail TEST_PREFIX"
