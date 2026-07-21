@@ -192,7 +192,7 @@ while (1) {
             print $tcfh $summary->{failed}, "\n";
             close $tcfh;
         }
-        system('git', '-C', "$project_root/sh2perl", 'add', $results_file);
+        system('git', '-C', "$project_root/sh2perl", 'add', '-A');
         system('git', '-C', "$project_root/sh2perl", 'commit', '-m', "All tests passing");
         last;
     }
@@ -321,7 +321,7 @@ while (1) {
         open my $tcfh, '>', $trusted_count_file or warn "Cannot write $trusted_count_file: $!";
         print $tcfh ($summary ? $summary->{failed} : $new_diff->{new_count}), "\n";
         close $tcfh;
-        system('git', '-C', "$project_root/sh2perl", 'add', $results_file);
+        system('git', '-C', "$project_root/sh2perl", 'add', '-A');
         my $msg = "Baseline test results: $summary->{passed} passed, $summary->{failed} failed";
         system('git', '-C', "$project_root/sh2perl", 'commit', '-m', $msg);
         log_decision('first', $on_disk_count, $before_count, $new_diff->{new_count});
@@ -348,7 +348,7 @@ while (1) {
 
         write_results_file($results_file, $failed_tests);
         print "\nTests improved ($new_diff->{old_count} -> $new_diff->{new_count} failures). Committing...\n";
-        system('git', '-C', "$project_root/sh2perl", 'add', $results_file);
+        system('git', '-C', "$project_root/sh2perl", 'add', '-A');
         my $msg = "Test results: $summary->{passed} passed, $summary->{failed} failed";
         $msg .= " (fixed " . scalar(@{$new_diff->{fixed}}) . ")" if @{$new_diff->{fixed}};
         system('git', '-C', "$project_root/sh2perl", 'commit', '-m', $msg);
@@ -370,11 +370,11 @@ while (1) {
                 print $tcfh $summary->{failed}, "\n";
                 close $tcfh;
             }
-            system('git', '-C', "$project_root/sh2perl", 'stash', 'push', '-m', "auto-stash: tests $new_diff->{old_count}->$new_diff->{new_count}");
+            system('git', '-C', "$project_root/sh2perl", 'stash', 'push', '--include-untracked', '-m', "auto-stash: tests $new_diff->{old_count}->$new_diff->{new_count}");
             log_decision('stash', $on_disk_count, $before_count, $new_diff->{new_count});
         } else {
             write_results_file($results_file, $failed_tests);
-            system('git', '-C', "$project_root/sh2perl", 'add', $results_file);
+            system('git', '-C', "$project_root/sh2perl", 'add', '-A');
             system('git', '-C', "$project_root/sh2perl", 'commit', '-m', "Test results: $summary->{passed} passed, $summary->{failed} failed (kept despite regression)");
             log_decision('keep', $on_disk_count, $before_count, $new_diff->{new_count});
         }
@@ -385,7 +385,7 @@ while (1) {
         } else {
             print "\nNo change in test results. Committing...\n";
         }
-        system('git', '-C', "$project_root/sh2perl", 'add', $results_file);
+        system('git', '-C', "$project_root/sh2perl", 'add', '-A');
         my $msg = "Test results: $summary->{passed} passed, $summary->{failed} failed";
         system('git', '-C', "$project_root/sh2perl", 'commit', '-m', $msg);
         log_decision('same', $on_disk_count, $before_count, $new_diff->{new_count});
