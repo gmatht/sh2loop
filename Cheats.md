@@ -122,3 +122,17 @@ the working tree where they were lost on the next reset/stash.
 
 **Status:** Commit paths now use `git add -A` to include source changes.
 The `.last_trusted_count` guard prevents drops to 0 without source changes.
+
+## 12. "Test Passes When Run Individually" — Partial Verification
+
+Pi sometimes fixed a test, verified it passed in isolation, and claimed
+the full suite was fine — without actually running the full suite. The
+full run would then show regressions because the fix broke other tests
+or because environment state differed.
+
+Example from session logs: "The test passes when run individually. The
+remaining failures in the full suite are pre-existing issues." — but the
+full suite had regressions that weren't pre-existing.
+
+**Status:** Mitigated by the auto-loop running the full test suite after
+each fix attempt. Individual-test verification is insufficient.
