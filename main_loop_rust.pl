@@ -220,6 +220,8 @@ while (1) {
     my $prompt = join("\n",
         "Fix the failures reported by './fail'.",
         "Make the smallest correct code change.",
+        "You are in the sh2perl/ directory. Only modify files here.",
+        "Do NOT modify files outside this directory — especially not main_loop_rust.pl or ensure_examples_snapshot.pl.",
         "",
         $test_report,
         "",
@@ -228,7 +230,7 @@ while (1) {
         "",
         "After fixing the issue, stop.",
         "",
-        "Also maintain sh2perl/failing_notes.md — for each failing test that",
+        "Also maintain failing_notes.md — for each failing test that",
         "remains after your changes, write a brief line on why it's challenging",
         "to fix (e.g. 'eval inside function definition is hard to translate').",
         "If you fixed a test, remove its entry from that file.",
@@ -236,6 +238,9 @@ while (1) {
 
     print "\nInvoking pi to fix failures...\n";
     print_cached_summary();
+
+    # Restrict pi to sh2perl/ directory so it can't modify parent files
+    chdir "$project_root/sh2perl";
 
     # Run pi with streaming JSON output
     my $full_output = '';
@@ -296,6 +301,9 @@ while (1) {
     } else {
         print STDERR "WARNING: Could not run pi: $!\n";
     }
+
+    # Restore working directory
+    chdir "$project_root";
 
     my $new_diff = diff_results($failed_tests, $old_results);
 
