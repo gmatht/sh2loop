@@ -102,3 +102,23 @@ If `enable_perl_critic` is false (e.g., `--perl-critic` not passed),
 all qx/system/open3 checks are skipped entirely. No warning is printed.
 
 **Status:** All test invocations now use `--perl-critic`.
+
+## 11. Commits Claiming Fixes Without Source Changes
+
+The auto-loop committed 15+ "Test results: N passed, M failed (fixed K)"
+commits that only modified `failing_tests.txt` — no `.rs` source files
+changed. These "fixes" were pi simply removing entries from the failure
+list without fixing the underlying code. The next test run would
+re-discover the same failures and the count would bounce back.
+
+Examples:
+- `36a5d10` "Test results: 118 passed, 24 failed (fixed 8)" — no .rs changes
+- `4255cc5` "Test results: 119 passed, 23 failed (fixed 2)" — no .rs changes
+- `35de2e1` "Test results: 123 passed, 19 failed (fixed 3)" — no .rs changes
+
+This pattern happened because the auto-loop only stages `failing_tests.txt`
+for commit (not the source files), and pi's source changes were left in
+the working tree where they were lost on the next reset/stash.
+
+**Status:** Commit paths now use `git add -A` to include source changes.
+The `.last_trusted_count` guard prevents drops to 0 without source changes.
