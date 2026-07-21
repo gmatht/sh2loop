@@ -114,8 +114,8 @@ if [ $# -eq 0 ]; then
     echo "----------------------------------------" | tee -a "$LOG_FILE"
     if ! ./target/debug/debashc fail --perl-critic 2>&1 | tee -a "$LOG_FILE"
     then
-        echo "debashc failed, aborting other commands"
-        exit 1
+        echo "debashc tests failed (exit code $?)" | tee -a "$LOG_FILE"
+        DEBASHC_FAILED=1
     fi
 else
     # Arguments provided, pass them through (with --perl-critic enabled)
@@ -125,8 +125,8 @@ else
     echo "----------------------------------------" | tee -a "$LOG_FILE"
     if ! ./target/debug/debashc fail --perl-critic "$@" 2>&1 | tee -a "$LOG_FILE"
     then
-        echo "debashc failed, aborting other commands"
-        exit 1
+        echo "debashc tests failed (exit code $?)" | tee -a "$LOG_FILE"
+        DEBASHC_FAILED=1
     fi
 fi
 
@@ -136,9 +136,15 @@ perl check_qx.pl 2>&1 | tee -a "$LOG_FILE"
 QX_EXIT="${PIPESTATUS[0]}"
 if [ "$QX_EXIT" -gt 0 ]; then
     echo "FAILED: $QX_EXIT qx{}/system() violation(s) found in generated Perl" | tee -a "$LOG_FILE"
+fi
+if [ "$DEBASHC_FAILED" = 1 ]; then
+    echo "debashc test suite had failures." | tee -a "$LOG_FILE"
+fi
+# Exit with combined failure code (use qx count if any, else debashc status)
+if [ "$QX_EXIT" -gt 0 ]; then
     exit "$QX_EXIT"
-else
-    echo "No qx{}/system() violations found." | tee -a "$LOG_FILE"
+elif [ "$DEBASHC_FAILED" = 1 ]; then
+    exit 1
 fi
 
 # Check if we made progress and commit if so
