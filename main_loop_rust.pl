@@ -147,8 +147,11 @@ sub diff_results {
 sub run_tests {
     chdir "$project_root/sh2perl";
     my $out_file = "$project_root/sh2perl/last_test_run.log";
-    system("bash -c '../fail 2>&1' > $out_file");
+    # Run ./fail, tee to both the log file and stdout so tee's buffering
+    # doesn't lose the TESTS COMPLETED line when check_qx.pl exits early.
+    system("bash -c '../fail 2>&1 | tee "$project_root/sh2perl/last_test_run.log"'");
     my $exit_code = $? >> 8;
+    # Read the log file (tee already wrote everything here)
     open my $fh, '<', $out_file or die "Cannot read $out_file: $!";
     my $output = do { local $/; <$fh> };
     close $fh;
