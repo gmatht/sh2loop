@@ -315,7 +315,7 @@ while (1) {
     # Number of failing tests stored on disk before this loop
     my $on_disk_count = scalar(@{$old_results});
     # Number of failures seen at start of loop (from test summary, or fallback to disk count)
-    my $before_count = $summary ? $summary->{failed} : $new_diff->{old_count};
+    my $before_count = scalar(@{$failed_tests}) || $new_diff->{old_count};
 
     # Track the last "trusted" failure count to guard against false-positive fixes
     # where pi claims "0 failures" because test output was garbled.
