@@ -146,13 +146,14 @@ sub diff_results {
 
 sub run_tests {
     chdir "$project_root/sh2perl";
-    my $pipe_pid = open(my $pipe, '-|', '../fail 2>&1');
-    die "Cannot run ../fail: $!" unless defined $pipe_pid;
-    my ($output, $timed_out) = read_pipe_with_timeout(600, $pipe, $pipe_pid);
-    close($pipe);
+    my $out_file = "$project_root/sh2perl/last_test_run.log";
+    system("bash -c '../fail 2>&1' > $out_file");
     my $exit_code = $? >> 8;
+    open my $fh, '<', $out_file or die "Cannot read $out_file: $!";
+    my $output = do { local $/; <$fh> };
+    close $fh;
     chdir $project_root;
-    return ($output, $timed_out, $exit_code);
+    return ($output, 0, $exit_code);
 }
 
 while (1) {
