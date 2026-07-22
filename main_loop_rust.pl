@@ -188,8 +188,8 @@ while (1) {
         print $diff->{text};
     }
 
-    # Check for complete success
-    if ($summary && $summary->{failed} == 0 && !$timed_out) {
+    # Check for complete success (no Rust failures AND no check_qx.pl violations)
+    if ($summary && $summary->{failed} == 0 && !$timed_out && @{$failed_tests} == 0) {
         print "\nAll tests pass!\n";
         write_results_file($results_file, []);
         if ($summary) {
