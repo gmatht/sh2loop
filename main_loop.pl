@@ -5,8 +5,9 @@ use Time::HiRes qw(sleep);
 use File::Spec;
 use FindBin;
 use POSIX qw(:sys_wait_h);
+use JSON::PP;
 
-my $model='opencode-go/deepseek-v4-flash';
+my $model='deepseek-v4-flash';
 
 $| = 1; 
 print "Auto flush enabled\n";
@@ -51,6 +52,7 @@ sub read_pipe_with_timeout {
 sub run_system_with_timeout {
     my ($timeout, @cmd) = @_;
     my $pid = fork();
+    my $last_dot = time();
     return -1 unless defined $pid;
     if ($pid == 0) {
         exec @cmd;
@@ -66,9 +68,14 @@ sub run_system_with_timeout {
             $got_exit = 1;
             last;
         }
+        if (time() - $last_dot >= 30) {
+            print STDERR ".";
+            $last_dot = time();
+        }
         Time::HiRes::sleep(0.1);
     }
     if ($got_exit) {
+        print STDERR "\n";
         return $? >> 8;
     }
     print STDERR "WARNING: run_system_with_timeout timed out after ${timeout}s, killing PID $pid (@cmd)\n";
@@ -77,6 +84,79 @@ sub run_system_with_timeout {
     kill('KILL', $pid) if kill(0, $pid);
     waitpid($pid, 0);
     return -1;
+}
+
+sub run_pi_streaming {
+    my ($timeout, $prompt, $model, $thinking) = @_;
+    my $full_output = '';
+    my $pid = open(my $fh, '-|', 'pi', '--mode', 'json', '--provider', 'opencode-go', '--model', $model, '--thinking', $thinking, $prompt);
+    return '' unless defined $pid;
+    my $deadline = time() + $timeout;
+    my $last_dot = time();
+    my $buffer = '';
+    while (1) {
+        my $remaining = $deadline - time();
+        last if $remaining <= 0;
+        my $rin = '';
+        vec($rin, fileno($fh), 1) = 1;
+        my $nfound = select($rin, undef, undef, 1);
+        if ($nfound > 0) {
+            my $buf;
+            my $read = sysread($fh, $buf, 8192);
+            last unless defined $read && $read > 0;
+            $buffer .= $buf;
+            # Process complete lines
+            while ($buffer =~ s/^(.*)\n//) {
+                my $line = $1;
+                next if $line eq '';
+                my $event = eval { JSON::PP::decode_json($line) };
+                if ($@) { print STDERR "[JSON parse error: $@]\n"; next; }
+                next unless ref $event eq 'HASH';
+                my $type = $event->{type} // '';
+                if ($type eq 'message_update') {
+                    my $msg = $event->{assistantMessageEvent};
+                    next unless ref $msg eq 'HASH';
+                    my $event_type = $msg->{type} // '';
+                    my $delta = $msg->{delta} // '';
+                    if ($event_type eq 'thinking_delta' && length $delta) {
+                        print "\e[2m$delta\e[0m";
+                        $full_output .= $delta;
+                    } elsif ($event_type eq 'text_delta' && length $delta) {
+                        print $delta;
+                        $full_output .= $delta;
+                    } elsif ($event_type eq 'tool_use_start') {
+                        my $name = $msg->{name} // '?';
+                        my $args = $msg->{arguments} // {};
+                        my $arg_str = (ref $args eq 'HASH') ? join(', ', map { "$_=$args->{$_}" } keys %$args) : '';
+                        print "\n\e[33m>>> tool: $name($arg_str)\e[0m\n";
+                    } elsif ($event_type eq 'tool_result') {
+                        print "\e[33m<<< tool result\e[0m\n";
+                    }
+                }
+                $last_dot = time();
+            }
+        }
+        if (time() - $last_dot >= 30) {
+            print STDERR ".";
+            $last_dot = time();
+        }
+    }
+    close($fh);
+    my $rc = $? >> 8;
+    if ($rc != 0) {
+        print STDERR "WARNING: pi exited with code $rc\n";
+    }
+    print "\n" if $full_output ne '';
+    return $full_output;
+}
+
+sub build_project {
+    print "Building debashc...\n";
+    my $rc = run_system_with_timeout(120, 'cargo', 'build', '--manifest-path', "$FindBin::RealBin/sh2perl/Cargo.toml");
+    if ($rc != 0) {
+        print STDERR "WARNING: cargo build failed (exit: $rc)\n";
+    }
+    return $rc;
 }
 
 my $cached_summary_file = "$FindBin::RealBin/.cached_test_summary";
@@ -95,7 +175,7 @@ sub run_purify() {
     my $pid = open(my $pipe, '-|', 'perl', './test_purify.pl');
     die "Cannot run test_purify.pl: $!" unless defined $pid;
     open(my $out, '>', 'purify.out') or die "Cannot open purify.out: $!";
-    my ($output, $timed_out) = read_pipe_with_timeout(120, $pipe, $pid);
+    my ($output, $timed_out) = read_pipe_with_timeout(600, $pipe, $pid);
     print $output;
     print $out $output;
     close($out);
@@ -150,6 +230,9 @@ sub run_purify() {
     return $last_10k;
 }
 
+# Build before starting the loop
+build_project();
+
 while (1) {
     snapshot_capture();
 
@@ -162,7 +245,7 @@ while (1) {
         last;
     }
 
-    print "\nInvoking opencode to fix the failure...\n";
+    print "\nInvoking pi to fix the failure...\n";
     print_cached_summary();
 
     my $prompt = join("\n",
@@ -176,10 +259,11 @@ while (1) {
         "After fixing the issue, stop.",
     );
 
-    my $rc = run_system_with_timeout(300, 'opencode', 'run', '-m', $model, '--variant', 'high', $prompt);
-    if ($rc == -1) {
-        print STDERR "WARNING: opencode fix command timed out\n";
-    }
+    # Run pi with streaming JSON output so user can see thinking/actions
+    run_pi_streaming(3600, $prompt, $model, 'high');
+
+    # Rebuild after pi modifies code
+    build_project();
 
     snapshot_restore();
 
@@ -268,22 +352,22 @@ while (1) {
             my $prompt = "No new tests pass, should the git diff in progress be accepted into the main branch. The final line of your answer should contain 'KEEP' or 'STASH'";
             $prompt .= "\n\nTest output:\n" . $output . "\n";
 
-            print "\nInvoking opencode to ask whether to keep or stash changes...\n";
+            print "\nInvoking pi to ask whether to keep or stash changes...\n";
             print_cached_summary();
 
             my $oc_out = '';
-            my $pid = open(my $oc, '-|', 'opencode', 'run', '-m', $model, '--variant', 'high', $prompt);
+            my $pid = open(my $oc, '-|', 'pi', '-p', '--provider', 'opencode-go', '--model', $model, '--thinking', 'high', $prompt);
             if (defined $pid) {
-                ($oc_out, my $timed_out) = read_pipe_with_timeout(120, $oc, $pid);
+                ($oc_out, my $timed_out) = read_pipe_with_timeout(600, $oc, $pid);
                 close $oc;
                 if ($timed_out) {
-                    print STDERR "WARNING: opencode decision query timed out\n";
+                    print STDERR "WARNING: pi decision query timed out\n";
                 }
             } else {
-                warn "Could not run opencode: $!\n";
+                warn "Could not run pi: $!\n";
             }
 
-            print "opencode response:\n" . ($oc_out // '') . "\n";
+            print "pi response:\n" . ($oc_out // '') . "\n";
 
             my $decision = 'DEBUG';
             if (defined $oc_out && $oc_out ne '') {
@@ -303,7 +387,7 @@ while (1) {
             } else {
                 if ($decision eq 'STASH') {
                     print "Stashing changes...\n";
-                    system('git', 'stash', 'push', '-m', "auto-stash: tests ${old_max}->${passed}");
+                    system('git', 'stash', 'push', '--include-untracked', '-m', "auto-stash: tests ${old_max}->${passed}");
                 } else {
                     print "No Decision made! ($decision)";
                 }
@@ -313,22 +397,22 @@ while (1) {
         my $prompt = "The git diff results in a regression of tests passing. Is this the result of important refactoring that is worth keeping in and building on? In the final line of your answer say KEEP or STASH";
         $prompt .= "\n\nTest output:\n" . $output . "\n";
 
-        print "\nInvoking opencode to ask whether to keep or stash changes...\n";
+        print "\nInvoking pi to ask whether to keep or stash changes...\n";
         print_cached_summary();
 
         my $oc_out = '';
-        my $oc_pid = open(my $oc, '-|', 'opencode', 'run', '-m', $model, '--variant', 'high', $prompt);
+        my $oc_pid = open(my $oc, '-|', 'pi', '-p', '--provider', 'opencode-go', '--model', $model, '--thinking', 'high', $prompt);
         if (defined $oc_pid) {
-            ($oc_out, my $timed_out) = read_pipe_with_timeout(120, $oc, $oc_pid);
+            ($oc_out, my $timed_out) = read_pipe_with_timeout(600, $oc, $oc_pid);
             close $oc;
             if ($timed_out) {
-                print STDERR "WARNING: opencode decision query timed out\n";
+                print STDERR "WARNING: pi decision query timed out\n";
             }
         } else {
-            warn "Could not run opencode: $!\n";
+            warn "Could not run pi: $!\n";
         }
 
-        print "opencode response:\n" . ($oc_out // '') . "\n";
+        print "pi response:\n" . ($oc_out // '') . "\n";
 
         my $decision = 'DEBUG';
         if (defined $oc_out && $oc_out ne '') {
@@ -347,7 +431,7 @@ while (1) {
             system('git', 'commit', '.', '-m', $msg);
         } elsif ($decision eq 'STASH') {
             print "Stashing changes...\n";
-            system('git', 'stash', 'push', '-m', "auto-stash: tests ${old_max}->${passed}");
+            system('git', 'stash', 'push', '--include-untracked', '-m', "auto-stash: tests ${old_max}->${passed}");
         } else {
             print "No Decision made! ($decision)";
         }

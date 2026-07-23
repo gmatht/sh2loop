@@ -132,7 +132,7 @@ fi
 
 # Run qx{}/system() check on generated Perl (independent of Rust checks)
 echo "Running qx{}/system() check on generated Perl..." | tee -a "$LOG_FILE"
-perl check_qx.pl 2>&1 | tee -a "$LOG_FILE"
+perl "$(dirname "$(readlink -f "$0" || echo "$0")")/check_qx.pl" 2>&1 | tee -a "$LOG_FILE"
 QX_EXIT="${PIPESTATUS[0]}"
 if [ "$QX_EXIT" -gt 0 ]; then
     echo "FAILED: $QX_EXIT qx{}/system() violation(s) found in generated Perl" | tee -a "$LOG_FILE"

@@ -1,0 +1,17 @@
+[Unit]
+Description=sh2loop — automated test repair loop
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ai
+WorkingDirectory=/nvme/ai/sh2loop
+ExecStart=/nvme/ai/sh2loop/main_loop_rust.pl
+Restart=on-failure
+RestartSec=10
+StandardOutput=append:/nvme/ai/sh2loop/loop.log
+StandardError=append:/nvme/ai/sh2loop/loop.log
+
+[Install]
+WantedBy=multi-user.target
