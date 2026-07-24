@@ -1,0 +1,2 @@
+install.sh	sh2perl generation, exit=1
+submenu.sh	sh2perl generation, exit=1
