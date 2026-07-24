@@ -4,3 +4,4 @@
 bash -c
 ls -l
 diff
+/bin/ps

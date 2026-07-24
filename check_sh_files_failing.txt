@@ -1,6 +1,3 @@
 clean_dead_code_safe.sh	sh2perl generation, exit=1
-functions.sh	sh2perl generation, exit=1
-ifupdown.sh	sh2perl generation, exit=1
 install-linux-prereqs.sh	sh2perl generation, exit=1
-jobs.sh	check_qx
 submenu.sh	sh2perl generation, exit=1

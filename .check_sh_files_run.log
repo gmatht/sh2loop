@@ -205,8 +205,7 @@ Found 295 scripts to check.
 [199] enable_docker.sh ... ok
 [200] firewall.sh ... ok
 [201] functions-network.sh ... ok
-[202] functions.sh ... FAIL (sh2perl generation, exit=1)
-       Processing input file: /nvme/ai/sh2loop/sh/functions.sh
+[202] functions.sh ... ok
 [203] gather.sh ... ok
 [204] gen-sample-keys.sh ... ok
 [205] gengnuplot.sh ... ok
@@ -223,8 +222,7 @@ Found 295 scripts to check.
 [216] header.sh ... ok
 [217] healthd.sh ... ok
 [218] hwclock.sh ... ok
-[219] ifupdown.sh ... FAIL (sh2perl generation, exit=1)
-       Processing input file: /nvme/ai/sh2loop/sh/ifupdown.sh
+[219] ifupdown.sh ... ok
 [220] image.sh ... ok
 [221] init.sh ... ok
 [222] install-autossh-daemon.sh ... ok
@@ -237,12 +235,7 @@ Found 295 scripts to check.
 [228] install_qt.sh ... ok
 [229] install_ros.sh ... ok
 [230] interprocess-communicator.sh ... ok
-[231] jobs.sh ... FAIL (check_qx)
-         FAIL: sh2perl-0GAYCC2O.pl.sh [perl] — SYSTEM violation: system() call with builtin 'hostname'
-         FAIL: sh2perl-0GAYCC2O.pl.sh [perl] — OPEN3 violation: open3() with builtin 'cp'
-         FAIL: sh2perl-0GAYCC2O.pl.sh [perl] — OPEN3 violation: open3() with builtin 'cp'
-         FAIL: sh2perl-0GAYCC2O.pl.sh [perl] — OPEN3 violation: open3() with builtin 'cp'
-         FAIL: sh2perl-0GAYCC2O.pl.sh [perl] — OPEN3 violation: open3() with builtin 'cp'
+[231] jobs.sh ... ok
 [232] kaFu.sh ... ok
 [233] keyboard-setup.sh ... ok
 [234] less.sh ... ok
@@ -310,5 +303,5 @@ Found 295 scripts to check.
 [295] yzfa.sh ... ok
 
 ========================================================================
-SUMMARY: 295 tested, 289 passed, 6 failed
+SUMMARY: 295 tested, 292 passed, 3 failed
 ========================================================================
