@@ -181,8 +181,7 @@ Found 295 scripts to check.
 [176] check_side_effects_overlay.sh ... ok
 [177] chronyd-starter.sh ... ok
 [178] clean_dead_code.sh ... ok
-[179] clean_dead_code_safe.sh ... FAIL (sh2perl generation, exit=1)
-       Processing input file: /nvme/ai/sh2loop/sh/clean_dead_code_safe.sh
+[179] clean_dead_code_safe.sh ... ok
 [180] comment_debug.sh ... ok
 [181] compile_python.sh ... ok
 [182] completion.sh ... ok
@@ -226,16 +225,17 @@ Found 295 scripts to check.
 [220] image.sh ... ok
 [221] init.sh ... ok
 [222] install-autossh-daemon.sh ... ok
-[223] install-linux-prereqs.sh ... FAIL (sh2perl generation, exit=1)
-       Processing input file: /nvme/ai/sh2loop/sh/install-linux-prereqs.sh
-[224] install.sh ... ok
+[223] install-linux-prereqs.sh ... ok
+[224] install.sh ... FAIL (sh2perl generation, exit=1)
+       Processing input file: /nvme/ai/sh2loop/sh/install.sh
 [225] install_bt_panel.sh ... ok
 [226] install_btrfs_monitor.sh ... ok
 [227] install_docker.sh ... ok
 [228] install_qt.sh ... ok
 [229] install_ros.sh ... ok
 [230] interprocess-communicator.sh ... ok
-[231] jobs.sh ... ok
+[231] jobs.sh ... FAIL (sh2perl generation, exit=1)
+       Processing input file: /nvme/ai/sh2loop/sh/jobs.sh
 [232] kaFu.sh ... ok
 [233] keyboard-setup.sh ... ok
 [234] less.sh ... ok
