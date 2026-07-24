@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+# Automatically added by dh_installdeb/13.14.1ubuntu5
+dpkg-maintscript-helper rm_conffile /etc/init/docker.conf 5:24.0.5-1\~ -- "$@"
+# End automatically added section
+# Automatically added by dh_installinit/13.14.1ubuntu5
+if [ "$1" = "install" ] && [ -n "$2" ] && [ -e "/etc/init.d/docker" ] ; then
+	chmod +x "/etc/init.d/docker" >/dev/null || true
+fi
+# End automatically added section

@@ -1,0 +1,15 @@
+#!/bin/bash
+
+set -e
+
+# Pass maintainer script parameters to hook scripts
+export DEB_MAINT_PARAMS="$*"
+
+# Tell initramfs builder whether it's wanted
+export INITRD=Yes
+
+test -d /etc/kernel/postinst.d && run-parts --arg="6.1.31-sun50iw9" --arg="/boot/vmlinuz-6.1.31-sun50iw9" /etc/kernel/postinst.d
+
+ln -sf vmlinuz-6.1.31-sun50iw9 /boot/Image 2> /dev/null || cp /boot/vmlinuz-6.1.31-sun50iw9 /boot/Image
+touch /boot/.next
+exit 0

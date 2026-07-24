@@ -1,0 +1,59 @@
+[package]
+name = "debashl"
+version = "0.1.0"
+edition = "2021"
+default-run = "debashc"
+
+[[bin]]
+name = "debashc"
+path = "src/main.rs"
+
+
+
+
+
+
+[[bin]]
+name = "convert_examples"
+path = "src/bin/convert_examples.rs"
+
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+# WASM-specific optimizations
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# Use lighter alternatives where possible
+
+# Disable wasm-opt for now due to bulk memory issues
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[dependencies]
+logos = "0.15"
+thiserror = "2.0"
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["console"] }
+console_error_panic_hook = "0.1" 
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+md5 = "0.8"
+regex = "1.0"
+filetime = "0.2"
+lazy_static = "1.4"
+
+[dev-dependencies]
+paste = "1.0"
+
+# WASM size optimization profiles
+[profile.release]
+opt-level = "z"  # Optimize for size
+lto = true       # Link-time optimization
+codegen-units = 1
+panic = "abort"  # Remove panic unwinding code
+strip = true     # Strip symbols
+
+[profile.release.package."*"]
+opt-level = "z"

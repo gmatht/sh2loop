@@ -1,0 +1,33 @@
+#!/bin/sh
+
+set -e
+
+case "$1" in
+    (configure)
+        # Use setcap on Linux only (setuid setting see debian/rules)
+        if [ "$(uname -s)" = "Linux" ]; then
+            if ! setcap cap_net_raw+ep /usr/bin/fping; then
+                echo "WARNING: 'setcap cap_net_raw+ep /usr/bin/fping' failed." 1>&2
+                if dpkg-statoverride --list /usr/bin/fping > /dev/null; then
+                    if dpkg-statoverride --list /usr/bin/fping | fgrep -q 4755; then
+                        echo "/usr/bin/fping is already setuid root. Not trying to fix anything." 1>&2
+                    else
+                        echo "A local statoverride for /usr/bin/fping already exists. Not trying to fix anything." 1>&2
+                    fi
+               else
+                    echo "WARNING: Making /usr/bin/fping setuid instead. Use dpkg-statoverride(1) to change that if you're unhappy with it." 1>&2
+                    dpkg-statoverride --update --add root root 4755 /usr/bin/fping
+                fi
+            fi
+        fi
+    ;;
+    (abort-upgrade|abort-remove|abort-deconfigure)
+        exit 0
+    ;;
+    (*)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 0
+    ;;
+esac
+
+

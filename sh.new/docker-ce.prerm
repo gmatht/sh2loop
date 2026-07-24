@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+# Automatically added by dh_installsystemd/13.14.1ubuntu5
+if [ -z "${DPKG_ROOT:-}" ] && [ "$1" = remove ] && [ -d /run/systemd/system ] ; then
+	deb-systemd-invoke stop 'docker.service' 'docker.socket' >/dev/null || true
+fi
+# End automatically added section
+# Automatically added by dh_installinit/13.14.1ubuntu5
+if [ -z "${DPKG_ROOT:-}" ] && [ "$1" = remove ] && [ -x "/etc/init.d/docker" ] ; then
+	invoke-rc.d --skip-systemd-native docker stop || exit 1
+fi
+# End automatically added section
+# Automatically added by dh_installdeb/13.14.1ubuntu5
+dpkg-maintscript-helper rm_conffile /etc/init/docker.conf 5:24.0.5-1\~ -- "$@"
+# End automatically added section

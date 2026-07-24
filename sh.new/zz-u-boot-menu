@@ -1,0 +1,33 @@
+#!/bin/sh
+
+set -e
+
+. /usr/share/u-boot-menu/read-config
+
+version="$1"
+kernel="$2"
+
+if [ -e "${kernel}" ]
+then
+	# Kernel still exists, meaning it's being upgraded, not
+	# uninstalled; quit as we have nothing to do in such cases
+	exit 0
+fi
+
+dtbdir="${_BOOT_PATH}${_BOOT_DIRECTORY}${U_BOOT_FDT_DIR}${version}"
+
+# DTBs are synced if /boot is on a different partition than /
+# Ensure there's no leftover when removing a kernel
+if has_separate_boot && [ "${U_BOOT_SYNC_DTBS}" = "true" ] && [ -d "${dtbdir}" ]
+then
+	# Kernel has been removed, delete DTBs
+	echo "I: u-boot-menu: removing ${dtbdir}"
+	rm -rf "${dtbdir}"
+fi
+
+# Exit if u-boot-menu was removed (!= purged)
+if [ -x /usr/sbin/u-boot-update ]
+then
+	# Update extlinux configuration
+	u-boot-update
+fi

@@ -1,0 +1,30 @@
+=== Example 039: Subshell operations ===
+Simple subshell using backticks:
+Subshell 1
+Subshell 2
+Subshell 3
+
+Subshell with environment variables:
+subshell_value
+
+Subshell with multiple commands:
+total 4
+drwxr-xr-x 1 ai ai   42 Jul 19 16:01 .
+drwxr-xr-x 1 ai ai 2132 Jul 19 16:01 ..
+/nvme/ai/sh2loop/sh2perl/.test-work/purify/039_subshell_operations
+
+Subshell with error handling:
+Command 1
+Command 3
+
+Subshell with pipe operations:
+Lines with 'test': 3
+
+Subshell with file operations:
+temp1.txt
+temp2.txt
+
+Subshell with conditional execution:
+File exists
+
+Subshell with background processes:

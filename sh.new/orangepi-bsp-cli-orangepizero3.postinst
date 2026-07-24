@@ -1,0 +1,86 @@
+#!/bin/sh
+#
+# orangepizero3 BSP post installation script
+#
+
+[ -f /etc/lib/systemd/system/orangepi-ramlog.service ] && systemctl --no-reload enable orangepi-ramlog.service
+
+# check if it was disabled in config and disable in new service
+if [ -n "$(grep -w '^ENABLED=false' /etc/default/log2ram 2> /dev/null)" ]; then
+
+     sed -i "s/^ENABLED=.*/ENABLED=false/" /etc/default/orangepi-ramlog
+
+fi
+
+# fix boot delay "waiting for suspend/resume device"
+if [ -f "/etc/initramfs-tools/initramfs.conf" ]; then
+
+    if ! grep --quiet "RESUME=none" /etc/initramfs-tools/initramfs.conf; then
+         echo "RESUME=none" >> /etc/initramfs-tools/initramfs.conf
+    fi
+
+fi
+
+if [ ! -f /boot/boot.cmd ]; then
+
+# if boot script does not exits its recreated
+    # move bootscript to /usr/share/orangepi
+    # create a backup
+    [ -f /etc/orangepi-release ] &&  . /etc/orangepi-release
+    [ -z ${VERSION} ] && VERSION=`date +%s`
+    if [ -f /boot/boot.cmd ]; then
+       cp /boot/boot.cmd /usr/share/orangepi/boot.cmd-${VERSION} >/dev/null 2>&1
+       echo "NOTE: You can find previous bootscript versions in /usr/share/orangepi !"
+    fi
+
+    # cleanup old bootscript backup
+    ls /usr/share/orangepi/boot.cmd-* >/dev/null 2>&1 | head -n -5 | xargs rm -f --
+    ls /usr/share/orangepi/boot.ini-* >/dev/null 2>&1 | head -n -5 | xargs rm -f --
+
+    echo "Recreating boot script"
+    cp /usr/share/orangepi/boot.cmd /boot  >/dev/null 2>&1
+    rootdev=$(sed -e 's/^.*root=//' -e 's/ .*$//' < /proc/cmdline)
+    rootfstype=$(sed -e 's/^.*rootfstype=//' -e 's/ .*$//' < /proc/cmdline)
+
+    # recreate orangepiEnv.txt if it and extlinux does not exists
+    if [ ! -f /boot/orangepiEnv.txt ] && [ ! -f /boot/extlinux/extlinux.conf ]; then
+      cp /usr/share/orangepi/orangepiEnv.txt /boot  >/dev/null 2>&1
+      echo "rootdev="$rootdev >> /boot/orangepiEnv.txt
+      echo "rootfstype="$rootfstype >> /boot/orangepiEnv.txt
+    fi
+
+    [ -f /boot/boot.ini ] && sed -i "s/setenv rootdev.*/setenv rootdev \"$rootdev\"/" /boot/boot.ini
+    [ -f /boot/boot.ini ] && sed -i "s/setenv rootfstype.*/setenv rootfstype \"$rootfstype\"/" /boot/boot.ini
+    [ -f /boot/boot.cmd ] && mkimage -C none -A arm -T script -d /boot/boot.cmd /boot/boot.scr  >/dev/null 2>&1
+
+fi
+
+[ ! -f "/etc/network/interfaces" ] && [ -f "/etc/network/interfaces.default" ] && cp /etc/network/interfaces.default /etc/network/interfaces
+ln -sf /var/run/motd /etc/motd
+rm -f /etc/update-motd.d/00-header /etc/update-motd.d/10-help-text
+if [ -f "/boot/bin/orangepizero3.bin" ] && [ ! -f "/boot/script.bin" ]; then ln -sf bin/orangepizero3.bin /boot/script.bin >/dev/null 2>&1 || cp /boot/bin/orangepizero3.bin /boot/script.bin; fi
+if [ ! -f "/etc/default/orangepi-motd" ]; then
+mv /etc/default/orangepi-motd.dpkg-dist /etc/default/orangepi-motd
+fi
+if [ ! -f "/etc/default/orangepi-ramlog" ] && [ -f /etc/default/orangepi-ramlog.dpkg-dist ]; then
+mv /etc/default/orangepi-ramlog.dpkg-dist /etc/default/orangepi-ramlog
+fi
+if [ ! -f "/etc/default/orangepi-zram-config" ] && [ -f /etc/default/orangepi-zram-config.dpkg-dist ]; then
+mv /etc/default/orangepi-zram-config.dpkg-dist /etc/default/orangepi-zram-config
+fi
+
+if [ -L "/usr/lib/chromium-browser/master_preferences.dpkg-dist" ]; then
+mv /usr/lib/chromium-browser/master_preferences.dpkg-dist /usr/lib/chromium-browser/master_preferences
+fi
+
+# Read release value
+if [ -f /etc/lsb-release ]; then
+RELEASE=$(cat /etc/lsb-release | grep CODENAME | cut -d"=" -f2 | sed 's/.*/\u&/')
+sed -i "s/^PRETTY_NAME=.*/PRETTY_NAME=\"Orange Pi 1.0.6 "${RELEASE}"\"/" /etc/os-release
+echo "Orange Pi 1.0.6 ${RELEASE} \l \n" > /etc/issue
+echo "Orange Pi 1.0.6 ${RELEASE}" > /etc/issue.net
+fi
+
+# Reload services
+systemctl --no-reload enable orangepi-hardware-monitor.service orangepi-hardware-optimize.service orangepi-zram-config.service >/dev/null 2>&1
+exit 0

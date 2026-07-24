@@ -1,0 +1,154 @@
+#!/bin/sh -e
+
+# Copyright (C) 2013 Andrew Shadura
+
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU Library General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU Library General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307, USA.
+
+usage () {
+cat <<EOF
+
+Usage: add             [interface-name] [vlan_id]
+       rem             [vlan-name]
+       set_flag        [interface-name] [flag-num]       [0 | 1]
+       set_egress_map  [vlan-name]      [skb_priority]   [vlan_qos]
+       set_ingress_map [vlan-name]      [skb_priority]   [vlan_qos]
+       set_name_type   [name-type]
+
+* The [interface-name] is the name of the ethernet card that hosts
+  the VLAN you are talking about.
+* The vlan_id is the identifier (0-4095) of the VLAN you are operating on.
+* skb_priority is the priority in the socket buffer (sk_buff).
+* vlan_qos is the 3 bit priority in the VLAN header
+* name-type:  VLAN_PLUS_VID (vlan0005), VLAN_PLUS_VID_NO_PAD (vlan5),
+              DEV_PLUS_VID (eth0.0005), DEV_PLUS_VID_NO_PAD (eth0.5)
+* FLAGS:  1 REORDER_HDR  When this is set, the VLAN device will move the
+            ethernet header around to make it look exactly like a real
+            ethernet device.  This may help programs such as DHCPd which
+            read the raw ethernet packet and make assumptions about the
+            location of bytes.  If you don't need it, don't turn it on, because
+            there will be at least a small performance degradation.  Default
+            is OFF.
+EOF
+}
+
+ARGC=$(expr $# + 1)
+
+STATEDIR=/run/network/vlan
+
+echo "" >&2
+echo "Warning: vconfig is deprecated and might be removed in the future, please migrate to ip(route2) as soon as possible!" >&2
+echo "" >&2
+
+if [ $ARGC -lt 3 -o $ARGC -gt 5 ]
+then
+    echo "Expecting argc to be 3-5, inclusive.  Was: $ARGC" >&2
+    usage
+    exit 1
+fi
+
+ip () {
+    /sbin/ip "$@"
+}
+
+condret () {
+    [ "$1" = "$2" ] && echo -n "$3"
+}
+
+map () {
+    v="$1"
+    shift
+    for pq in "$@"
+    do
+        condret "$v" $pq && return 0
+    done
+    false
+}
+
+add () {
+    NAME_TYPE=DEV_PLUS_VID_NO_PAD
+    [ -r "$STATEDIR/name-type" ] && NAME_TYPE=$(cat "$STATEDIR/name-type")
+
+    VLAN_ID="$2"
+    IFACE="$1"
+
+    case "$NAME_TYPE" in
+        VLAN_PLUS_VID)
+            NAME="$(printf vlan%.4d "$VLAN_ID")"
+            ;;
+        VLAN_PLUS_VID_NO_PAD)
+            NAME="vlan$VLAN_ID"
+            ;;
+        DEV_PLUS_VID)
+            NAME="$(printf %s.%.4d "$IFACE" "$VLAN_ID")"
+            ;;
+        DEV_PLUS_VID_NO_PAD)
+            NAME="$IFACE.$VLAN_ID"
+            ;;
+    esac
+    ip link add link "$IFACE" name "$NAME" type vlan id "$VLAN_ID" || exit 3
+}
+
+rem () {
+    ip link del "$1" || exit 4
+}
+
+set_name_type () {
+    mkdir -p "$STATEDIR" || exit 8
+    echo "$1" > "$STATEDIR/name-type" || exit 8
+}
+
+set_flag () {
+    echo "$@"
+    if FLAG=$(map "$3" "0 off" "1 on")
+    then
+        ip link set dev "$1" type vlan reorder_hdr "$FLAG" || exit 7
+    else
+        echo "Invalid flag parameter specified" >&2
+        exit 7
+    fi
+}
+
+set_ingress_map () {
+    ip link set dev "$1" type vlan ingress-qos-map "$2:$3" || exit 6
+}
+
+set_egress_map () {
+    ip link set dev "$1" type vlan egress-qos-map "$2:$3" || exit 5
+}
+
+case "$1" in
+    add)
+        add "$2" "$3"
+        ;;
+    rem)
+        rem "$2"
+        ;;
+    set_flag)
+        set_flag "$2" "$3" "$4"
+        ;;
+    set_ingress_map)
+        set_ingress_map "$2" "$3" "$4"
+        ;;
+    set_egress_map)
+        set_egress_map "$2" "$3" "$4"
+        ;;
+    set_name_type)
+        set_name_type "$2"
+        ;;
+    *)
+        echo "Unknown command: $1" >&2
+        exit 5
+        ;;
+esac

@@ -166,31 +166,33 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
         }
     }
 
-    # Pattern 4: open3(..., 'bash', '-c', 'cmd') etc.
-    while ($code =~ /open3\s*\((.*?)\)/gs) {
-        my $call_args_str = $1;
-        my @all_quoted = extract_all_quoted_strings($call_args_str);
-        next if @all_quoted < 3;
+    # Pattern 4: open2(..., 'bash', '-c', 'cmd') or open3(..., 'bash', '-c', 'cmd') etc.
+    for my $func (qw(open2 open3)) {
+        while ($code =~ /\b$func\s*\((.*?)\)/gs) {
+            my $call_args_str = $1;
+            my @all_quoted = extract_all_quoted_strings($call_args_str);
+            next if @all_quoted < 3;
 
-        my $msg = check_call_args_for_bash_c($basename, @all_quoted);
-        if ($msg) {
-            print $msg;
-            $violations++;
-            next;
-        }
+            my $msg = check_call_args_for_bash_c($basename, @all_quoted);
+            if ($msg) {
+                print $msg;
+                $violations++;
+                next;
+            }
 
-        my $prog = '';
-        for my $q (@all_quoted) {
-            next if $q eq '>&STDERR' || $q eq '&STDERR' || $q eq '' || $q eq '&1';
-            $prog = $q;
-            last;
-        }
-        next if $prog eq '';
-        next if $is_exempt->($prog);
-        my $b = check_builtins_in_cmd($prog);
-        if (defined $b) {
-            print "  FAIL: $basename.sh [perl] — OPEN3 violation: open3() with builtin '$b'\n";
-            $violations++;
+            my $prog = '';
+            for my $q (@all_quoted) {
+                next if $q eq '>&STDERR' || $q eq '&STDERR' || $q eq '' || $q eq '&1';
+                $prog = $q;
+                last;
+            }
+            next if $prog eq '';
+            next if $is_exempt->($prog);
+            my $b = check_builtins_in_cmd($prog);
+            if (defined $b) {
+                print "  FAIL: $basename.sh [perl] — \U$func\E violation: $func() with builtin '$b'\n";
+                $violations++;
+            }
         }
     }
 

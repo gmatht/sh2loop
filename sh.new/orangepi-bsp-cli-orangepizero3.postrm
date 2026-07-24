@@ -1,0 +1,8 @@
+#!/bin/sh
+if [ remove = "$1" ] || [ abort-install = "$1" ]; then
+
+    systemctl disable orangepi-hardware-monitor.service orangepi-hardware-optimize.service >/dev/null 2>&1
+    systemctl disable orangepi-zram-config.service orangepi-ramlog.service >/dev/null 2>&1
+
+fi
+exit 0

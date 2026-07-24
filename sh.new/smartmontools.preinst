@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+# Automatically added by dh_installdeb/13.14.1ubuntu5
+dpkg-maintscript-helper rm_conffile /etc/smartd_warning.sh 6.3\+svn4002-2\~ -- "$@"
+dpkg-maintscript-helper rm_conffile /etc/init.d/smartd 6.1\+svn3812-1\~ -- "$@"
+dpkg-maintscript-helper rm_conffile /etc/smartmontools/run.d/10powersave-notify 7.0\~ -- "$@"
+# End automatically added section
+# Automatically added by dh_installinit/13.14.1ubuntu5
+if [ "$1" = "install" ] && [ -n "$2" ] && [ -e "/etc/init.d/smartmontools" ] ; then
+	chmod +x "/etc/init.d/smartmontools" >/dev/null || true
+fi
+# End automatically added section

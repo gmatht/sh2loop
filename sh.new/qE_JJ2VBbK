@@ -1,0 +1,64 @@
+=== Example 039: Subshell operations ===
+Simple subshell using backticks:
+Subshell 1
+Subshell 2
+Subshell 3
+
+Subshell with environment variables:
+subshell_value
+
+Subshell with multiple commands:
+total 4
+drwxr-xr-x 1 ai ai   42 Jul 19 16:01 .
+drwxr-xr-x 1 ai ai 2092 Jul 19 16:01 ..
+/nvme/ai/sh2loop/sh2perl/.test-work/purify/039_subshell_operations
+
+Subshell with error handling:
+Command 1
+Command 3
+
+Subshell with pipe operations:
+Lines with 'test': 3
+
+Subshell with file operations:
+temp1.txt
+temp2.txt
+
+Subshell with conditional execution:
+File exists
+
+Subshell with background processes:
+All background processes completed
+
+Subshell with variable assignment:
+VAR1: , VAR2: 
+
+Subshell with function calls:
+Function call 1
+Function call 2
+Function call 3
+
+Subshell with redirection:
+Output 1
+Output 2
+
+Subshell with complex operations:
+File in temp dir
+
+Subshell with error propagation:
+Success
+This should not appear
+
+Subshell with multiple subshells:
+Outer subshell
+Inner subshell 1
+Inner subshell 2
+Back to outer subshell
+
+Subshell with process substitution:
+Process 1
+Process 2
+
+Subshell with complex pipeline:
+3
+=== Example 039 completed successfully ===

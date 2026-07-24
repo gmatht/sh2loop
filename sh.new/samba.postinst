@@ -1,0 +1,212 @@
+#!/bin/sh
+
+set -e
+
+nmbd_error_handler() {
+    if [ -d /sys/class/net/lo ] && ls /sys/class/net | grep -qv ^lo$; then
+        # https://bugs.debian.org/893762
+        echo 'WARNING: nmbd failed to start as there is no non-loopback interfaces available.'
+        echo 'Either add an interface or set "disable netbios = yes" in smb.conf'
+        return 0
+    elif command -v ip > /dev/null && ip a show | grep '^[[:space:]]*inet ' | grep -vq ' lo$'; then
+        # https://bugs.debian.org/859526
+        echo 'WARNING: nmbd failed to start as there is no local IPv4 non-loopback interfaces available.'
+        echo 'Either add an IPv4 address or set "disable netbios = yes" in smb.conf'
+        return 0
+    else
+        echo 'ERROR: nmbd failed to start.'
+        return 1 # caught by set -e
+    fi
+}
+
+# We generate several files during the postinst, and we don't want
+#	them to be readable only by root.
+umask 022
+
+if [ configure = "$1" -a -z "$2" ] # only do this if not upgrading
+then
+    # add the sambashare group; --force: ok if group already exist
+    groupadd --force --system sambashare
+    dir=/var/lib/samba/usershares
+    [ -d $dir ] || install -d -m 1770 -g sambashare $dir
+fi
+
+# in 4.17.4+dfsg-3 we stopped masking services, unmask them here
+if [ configure = "$1" ] && dpkg --compare-versions "$2" lt-nl 2:4.17.4+dfsg-3~
+then
+    for s in nmbd smbd samba-ad-dc; do
+	if [ /dev/null = $(realpath /etc/systemd/system/$s.service) ]
+	then
+	    rm -f /etc/systemd/system/$s.service
+	fi
+    done
+fi
+
+# remove old spool directory (point it to /var/tmp if in use)
+if [ configure = "$1" ] && dpkg --compare-versions "$2" lt-nl 2:4.17.4+dfsg-3~
+then
+    dir=/var/spool/samba
+    pat="^(\\s*path\\s*=\\s*)$dir"
+    if grep -q -E "$pat\\s*$" /etc/samba/smb.conf ; then
+	echo "WARNING: fixing smb.conf, replacing $dir with /var/tmp" >&2
+	sed -ri "s|$pat\\s*$|\\1/var/tmp|" /etc/samba/smb.conf
+    fi
+    if [ -d $dir -a ! -L $dir ]; then
+	echo "W: removing old samba print spool $dir" >&2
+	rm -rf $dir
+    fi
+    # we can still have it in an include file (or have a subdir there?)
+    if testparm -s 2>/dev/null | grep -E "$pat\\b" >&2; then
+	echo "WARNING: $dir is still referenced in smb.conf. Please update smb.conf" >&2
+	if [ ! -L $dir ]; then
+	    echo "WARNING: redirecting $dir to /var/tmp" >&2
+	    ln -s ../tmp $dir
+	fi
+    fi
+fi
+
+# Automatically added by dh_installdeb/13.14.1ubuntu5
+dpkg-maintscript-helper rm_conffile /etc/cron.daily/samba 2:4.19.3\+dfsg-3\~ -- "$@"
+dpkg-maintscript-helper rm_conffile /etc/logrotate.d/samba 2:4.19.4\+dfsg-3\~ -- "$@"
+# End automatically added section
+# Automatically added by dh_installinit/13.14.1ubuntu5
+if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ] || [ "$1" = "abort-deconfigure" ] || [ "$1" = "abort-remove" ] ; then
+	if [ -z "${DPKG_ROOT:-}" ] && [ -x "/etc/init.d/smbd" ]; then
+		update-rc.d smbd defaults >/dev/null
+		if [ -n "$2" ]; then
+			_dh_action=restart
+		else
+			_dh_action=start
+		fi
+		invoke-rc.d --skip-systemd-native smbd $_dh_action || exit 1
+	fi
+fi
+# End automatically added section
+# Automatically added by dh_installinit/13.14.1ubuntu5
+if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ] || [ "$1" = "abort-deconfigure" ] || [ "$1" = "abort-remove" ] ; then
+	if [ -z "${DPKG_ROOT:-}" ] && [ -x "/etc/init.d/nmbd" ]; then
+		update-rc.d nmbd defaults >/dev/null
+		if [ -n "$2" ]; then
+			_dh_action=restart
+		else
+			_dh_action=start
+		fi
+		invoke-rc.d --skip-systemd-native nmbd $_dh_action || nmbd_error_handler
+	fi
+fi
+# End automatically added section
+# Automatically added by dh_installinit/13.14.1ubuntu5
+if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ] || [ "$1" = "abort-deconfigure" ] || [ "$1" = "abort-remove" ] ; then
+	if [ -z "${DPKG_ROOT:-}" ] && [ -x "/etc/init.d/samba-ad-dc" ]; then
+		update-rc.d samba-ad-dc defaults >/dev/null
+		if [ -n "$2" ]; then
+			_dh_action=restart
+		else
+			_dh_action=start
+		fi
+		invoke-rc.d --skip-systemd-native samba-ad-dc $_dh_action || exit 1
+	fi
+fi
+# End automatically added section
+# Automatically added by dh_installsystemd/13.14.1ubuntu5
+if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ] || [ "$1" = "abort-deconfigure" ] || [ "$1" = "abort-remove" ] ; then
+	# The following line should be removed in trixie or trixie+1
+	deb-systemd-helper unmask 'smbd.service' >/dev/null || true
+
+	# was-enabled defaults to true, so new installations run enable.
+	if deb-systemd-helper --quiet was-enabled 'smbd.service'; then
+		# Enables the unit on first installation, creates new
+		# symlinks on upgrades if the unit file has changed.
+		deb-systemd-helper enable 'smbd.service' >/dev/null || true
+	else
+		# Update the statefile to add new symlinks (if any), which need to be
+		# cleaned up on purge. Also remove old symlinks.
+		deb-systemd-helper update-state 'smbd.service' >/dev/null || true
+	fi
+fi
+# End automatically added section
+# Automatically added by dh_installsystemd/13.14.1ubuntu5
+if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ] || [ "$1" = "abort-deconfigure" ] || [ "$1" = "abort-remove" ] ; then
+	if [ -d /run/systemd/system ]; then
+		systemctl --system daemon-reload >/dev/null || true
+		if [ -n "$2" ]; then
+			_dh_action=restart
+		else
+			_dh_action=start
+		fi
+		deb-systemd-invoke $_dh_action 'smbd.service' >/dev/null || true
+	fi
+fi
+# End automatically added section
+# Automatically added by dh_installsystemd/13.14.1ubuntu5
+if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ] || [ "$1" = "abort-deconfigure" ] || [ "$1" = "abort-remove" ] ; then
+	# The following line should be removed in trixie or trixie+1
+	deb-systemd-helper unmask 'nmbd.service' >/dev/null || true
+
+	# was-enabled defaults to true, so new installations run enable.
+	if deb-systemd-helper --quiet was-enabled 'nmbd.service'; then
+		# Enables the unit on first installation, creates new
+		# symlinks on upgrades if the unit file has changed.
+		deb-systemd-helper enable 'nmbd.service' >/dev/null || true
+	else
+		# Update the statefile to add new symlinks (if any), which need to be
+		# cleaned up on purge. Also remove old symlinks.
+		deb-systemd-helper update-state 'nmbd.service' >/dev/null || true
+	fi
+fi
+# End automatically added section
+# Automatically added by dh_installsystemd/13.14.1ubuntu5
+if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ] || [ "$1" = "abort-deconfigure" ] || [ "$1" = "abort-remove" ] ; then
+	if [ -d /run/systemd/system ]; then
+		systemctl --system daemon-reload >/dev/null || true
+		if [ -n "$2" ]; then
+			_dh_action=restart
+		else
+			_dh_action=start
+		fi
+		deb-systemd-invoke $_dh_action 'nmbd.service' >/dev/null || true
+	fi
+fi
+# End automatically added section
+# Automatically added by dh_installsystemd/13.14.1ubuntu5
+if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ] || [ "$1" = "abort-deconfigure" ] || [ "$1" = "abort-remove" ] ; then
+	# The following line should be removed in trixie or trixie+1
+	deb-systemd-helper unmask 'samba-ad-dc.service' >/dev/null || true
+
+	# was-enabled defaults to true, so new installations run enable.
+	if deb-systemd-helper --quiet was-enabled 'samba-ad-dc.service'; then
+		# Enables the unit on first installation, creates new
+		# symlinks on upgrades if the unit file has changed.
+		deb-systemd-helper enable 'samba-ad-dc.service' >/dev/null || true
+	else
+		# Update the statefile to add new symlinks (if any), which need to be
+		# cleaned up on purge. Also remove old symlinks.
+		deb-systemd-helper update-state 'samba-ad-dc.service' >/dev/null || true
+	fi
+fi
+# End automatically added section
+# Automatically added by dh_installsystemd/13.14.1ubuntu5
+if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ] || [ "$1" = "abort-deconfigure" ] || [ "$1" = "abort-remove" ] ; then
+	if [ -d /run/systemd/system ]; then
+		systemctl --system daemon-reload >/dev/null || true
+		if [ -n "$2" ]; then
+			_dh_action=restart
+		else
+			_dh_action=start
+		fi
+		deb-systemd-invoke $_dh_action 'samba-ad-dc.service' >/dev/null || true
+	fi
+fi
+# End automatically added section
+
+
+# remove msg.sock/ directory (moved to /run/samba/)
+dir=/var/lib/samba/private/msg.sock
+if [ -d $dir -a configure = "$1" ] &&
+   dpkg --compare-versions "$2" lt-nl 2:4.16.0+dfsg-7~
+then
+    rm -f $dir/*
+    rmdir $dir
+fi
+
+exit 0

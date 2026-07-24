@@ -1,0 +1,43 @@
+#!/bin/sh
+set -e
+# Automatically added by dh_installmenu/13.14.1ubuntu5
+if [ "$1" = "configure" ] && [ -x "`command -v update-menus`" ] && [ -x "$DPKG_ROOT`command -v update-menus`" ]; then
+	update-menus
+fi
+# End automatically added section
+# Automatically added by dh_usrlocal/13.14.1ubuntu5
+if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ] || [ "$1" = "abort-deconfigure" ] || [ "$1" = "abort-remove" ]; then
+(
+	default_mode=0755
+	default_user=root
+	default_group=root
+	if [ -e /etc/staff-group-for-usr-local ]; then
+		default_mode=02775
+		default_group=staff
+	fi
+	while read line; do
+		set -- $line
+		dir="$1"; mode="$2"; user="$3"; group="$4"
+		if [ "$mode" = "default" ]; then
+			mode="$default_mode"
+			user="$default_user"
+			group="$default_group"
+		fi
+		if [ ! -e "$dir" ]; then
+			if mkdir "$dir" 2>/dev/null; then
+				if chown "$user":"$group" "$dir" ; then
+					chmod "$mode" "$dir" || true
+				fi
+			fi
+		fi
+	done
+) << DATA
+/usr/local/share default
+/usr/local/share/zsh default
+/usr/local/share/zsh/site-functions default
+DATA
+fi
+# End automatically added section
+# Automatically added by dh_installdeb/13.14.1ubuntu5
+dpkg-maintscript-helper symlink_to_dir /usr/share/doc/zsh zsh-common 5.0.7-3 -- "$@"
+# End automatically added section

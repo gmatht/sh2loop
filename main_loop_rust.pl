@@ -15,6 +15,13 @@ my $results_file = "$project_root/sh2perl/failing_tests.txt";
 my $history_log = "$project_root/sh2perl/fix_history.log";
 my $trusted_count_file = "$project_root/sh2perl/.last_trusted_count";
 
+# Separate tracking for check_sh_files.pl failures
+my $csf_results_file = "$project_root/check_sh_files_failing.txt";
+my $csf_trusted_count_file = "$project_root/.csf_last_trusted_count";
+
+# Stash history log — each entry: timestamp\twhat-it-tried\tregression\n
+my $stash_log_file = "$project_root/.stash_history.log";
+
 sub log_decision {
     my ($decision, $on_disk, $before, $after) = @_;
     $decision //= '?';
@@ -75,13 +82,51 @@ sub parse_failed_tests {
     return \@failed;
 }
 
-# Parse summary line
+# Parse summary line (from ./fail)
 sub parse_summary {
     my ($output) = @_;
     if ($output =~ /TESTS COMPLETED: (\d+) passed, (\d+) failed out of (\d+)/) {
         return { passed => $1 + 0, failed => $2 + 0, total => $3 + 0 };
     }
     return undef;
+}
+
+# Parse check_sh_files.pl summary line
+sub parse_csf_summary {
+    my ($output) = @_;
+    if ($output =~ /SUMMARY:\s+(\d+)\s+tested,\s+(\d+)\s+passed,\s+(\d+)\s+failed/) {
+        return { passed => $2 + 0, failed => $3 + 0, total => $1 + 0 };
+    }
+    return undef;
+}
+
+# Parse failed test names+reasons from check_sh_files.pl output.
+# Lines like:  [N] file.sh ... FAIL (reason)
+# Followed by indented detail lines.
+sub parse_csf_failures {
+    my ($output) = @_;
+    my @failed;
+    my @lines = split "\n", $output;
+    for (my $i = 0; $i < @lines; $i++) {
+        my $line = $lines[$i];
+        # Match the FAIL line:   [N] filename.sh ... FAIL (reason)
+        if ($line =~ /^\[\d+\]\s+(\S+)\s+\.\.\.\s+FAIL\s+\(([^)]+)\)/) {
+            my $name = $1;
+            my $reason = $2;
+            # Collect detail lines (indented) that follow
+            my @details;
+            $i++;
+            while ($i < @lines && $lines[$i] =~ /^\s{7,}/) {
+                my $detail = $lines[$i];
+                $detail =~ s/^\s+//;
+                push @details, $detail;
+                $i++;
+            }
+            $i--;  # step back for outer loop increment
+            push @failed, { name => $name, reason => $reason, details => \@details };
+        }
+    }
+    return \@failed;
 }
 
 # Read a results file (one failing test per line, tab-separated name and reason)
@@ -159,6 +204,17 @@ sub run_tests {
     return ($output, 0, $exit_code);
 }
 
+sub run_check_sh_files {
+    chdir $project_root;
+    my $out_file = "$project_root/.check_sh_files_run.log";
+    system("perl check_sh_files.pl 2>&1 | tee '$out_file'");
+    my $exit_code = $? >> 8;
+    open my $fh, '<', $out_file or die "Cannot read $out_file: $!";
+    my $output = do { local $/; <$fh> };
+    close $fh;
+    return ($output, 0, $exit_code);
+}
+
 while (1) {
     my ($output, $timed_out, $test_exit) = run_tests();
 
@@ -190,7 +246,7 @@ while (1) {
 
     # Check for complete success (no Rust failures AND no check_qx.pl violations)
     if ($summary && $summary->{failed} == 0 && !$timed_out && @{$failed_tests} == 0) {
-        print "\nAll tests pass!\n";
+        print "\nAll ./fail tests pass! Now checking sh/ files with check_sh_files.pl...\n";
         write_results_file($results_file, []);
         if ($summary) {
             open my $tcfh, '>', $trusted_count_file or warn "Cannot write $trusted_count_file: $!";
@@ -199,7 +255,208 @@ while (1) {
         }
         system('git', '-C', "$project_root/sh2perl", 'add', '-A');
         system('git', '-C', "$project_root/sh2perl", 'commit', '-m', "All tests passing");
-        last;
+
+        # Run check_sh_files.pl
+        my ($csf_output, $csf_timed, $csf_exit) = run_check_sh_files();
+        my $csf_summary = parse_csf_summary($csf_output);
+        my $csf_failed_tests = parse_csf_failures($csf_output);
+        my $csf_old_results = read_results_file($csf_results_file);
+
+        if ($csf_summary && $csf_summary->{failed} == 0 && @{$csf_failed_tests} == 0) {
+            print "\nAll check_sh_files.pl tests also pass! Done.\n";
+            write_results_file($csf_results_file, []);
+            system('git', '-C', $project_root, 'add', 'check_sh_files.pl');
+            system('git', '-C', "$project_root/sh2perl", 'commit', '-m', "All tests passing (including sh/ checks)", '--allow-empty');
+            last;
+        }
+
+        # check_sh_files has failures — enter a fix sub-loop
+        print "\n" . "=" x 72, "\n";
+        printf "check_sh_files.pl: %d tested, %d passed, %d failed\n",
+            $csf_summary->{total}, $csf_summary->{passed}, $csf_summary->{failed};
+        print "=" x 72, "\n\n";
+
+        if ($csf_summary->{failed} > 0) {
+            write_results_file($csf_results_file, $csf_failed_tests);
+
+            # Build a concise test report for pi
+            my $csf_report = '';
+            for my $f (@{$csf_failed_tests}) {
+                $csf_report .= "  FAIL: $f->{name} ($f->{reason})\n";
+                for my $d (@{$f->{details}}) {
+                    $csf_report .= "    $d\n";
+                }
+            }
+
+            # Truncate the raw output for the prompt
+            my $csf_short = $csf_output;
+            my @csf_lines = split "\n", $csf_short;
+            if (@csf_lines > 80) {
+                # Keep first 20 and last 60 lines
+                $csf_short = join("\n", @csf_lines[0..19]) . "\n...\n" . join("\n", @csf_lines[-60..-1]);
+            }
+
+            my $prompt = join("\n",
+                "Fix the failures reported by check_sh_files.pl.",
+                "The test iterates over all .sh files in the sh/ directory,",
+                "converts each to Perl with sh2perl, then checks that the",
+                "generated code passes check_qx.pl and Perl::Critic.",
+                "",
+                "Common failure types:",
+                "  - sh2perl generation (parse error): sh2perl can't parse the .sh file",
+                "  - check_qx: generated Perl uses qx{}/system()/open3() with shell builtins",
+                "  - perlcritic: generated Perl fails Perl::Critic style checks",
+                "",
+                "Make the smallest correct code change, typically in the Rust source.",
+                "You are in the sh2perl/ directory and the project root.",
+                "Do NOT modify main_loop_rust.pl or ensure_examples_snapshot.pl.",
+                "",
+                "Also, for EACH distinct failure pattern among the failing .sh files,",
+                "create a safe, minimal sample shell file in examples.new/ that",
+                "demonstrates the problem.  This ensures the scenario is covered by",
+                "the test suite going forward.",
+                "  - examples.new/ is at the project root (../examples.new).",
+                "  - Name the file something descriptive, e.g. 'parse-heredoc-tab.sh'.",
+                "  - Keep it short — just the few lines needed to trigger the issue.",
+                "  - Make it safe to run (no rm -rf, no destructive commands).",
+                "  - Create examples.new/ if it doesn't exist.",
+                "  - When testing each sample file, prepend 'timeout 10' so that",
+                "    a stuck debashc process is killed after 10 seconds.",
+                "",
+                (get_stash_summaries($stash_log_file) ne '' ? ("--- Previous failed attempts (learn from these) ---", get_stash_summaries($stash_log_file), "") : ()),
+                "--- Failing tests ---",
+                $csf_report,
+                "",
+                "--- Test output (truncated) ---",
+                $csf_short,
+                "",
+                "After fixing the issue and creating sample files, stop.",
+            );
+
+            print "\nInvoking pi to fix check_sh_files.pl failures...\n";
+
+            chdir "$project_root/sh2perl";
+
+            my $full_output = '';
+            my $pi_pid = open(my $pi_fh, '-|', 'pi', '--mode', 'json', '--provider', 'opencode-go', '--model', 'deepseek-v4-flash', '--thinking', 'xhigh', $prompt);
+            if (defined $pi_pid) {
+                my $pi_timeout = 3600;
+                my $pi_deadline = time() + $pi_timeout;
+                my $last_dot = time();
+                my $buffer = '';
+                while (1) {
+                    my $remaining = $pi_deadline - time();
+                    last if $remaining <= 0;
+                    my $rin = '';
+                    vec($rin, fileno($pi_fh), 1) = 1;
+                    my $nfound = select($rin, undef, undef, 1);
+                    if ($nfound > 0) {
+                        my $buf;
+                        my $read = sysread($pi_fh, $buf, 8192);
+                        last unless defined $read && $read > 0;
+                        $buffer .= $buf;
+                        while ($buffer =~ s/^(.*)\n//) {
+                            my $line = $1;
+                            next if $line eq '';
+                            my $event = eval { JSON::PP::decode_json($line) };
+                            if ($@) { print STDERR "[JSON parse error: $@]\n"; next; }
+                            next unless ref $event eq 'HASH';
+                            my $type = $event->{type} // '';
+                            if ($type eq 'message_update') {
+                                my $msg = $event->{assistantMessageEvent};
+                                next unless ref $msg eq 'HASH';
+                                my $event_type = $msg->{type} // '';
+                                my $delta = $msg->{delta} // '';
+                                if ($event_type eq 'thinking_delta' && length $delta) {
+                                    print "\e[2m$delta\e[0m";
+                                    $full_output .= $delta;
+                                } elsif ($event_type eq 'text_delta' && length $delta) {
+                                    print $delta;
+                                    $full_output .= $delta;
+                                } elsif ($event_type eq 'tool_use_start') {
+                                    my $name = $msg->{name} // '?';
+                                    my $args = $msg->{arguments} // {};
+                                    my $arg_str = (ref $args eq 'HASH') ? join(', ', map { "$_=$args->{$_}" } keys %$args) : '';
+                                    print "\n\e[33m>>> tool: $name($arg_str)\e[0m\n";
+                                } elsif ($event_type eq 'tool_result') {
+                                    print "\e[33m<<< tool result\e[0m\n";
+                                }
+                            }
+                            $last_dot = time();
+                        }
+                    }
+                    if (time() - $last_dot >= 30) {
+                        print STDERR ".";
+                        $last_dot = time();
+                    }
+                }
+                close($pi_fh);
+                print "\n" if $full_output ne '';
+            } else {
+                print STDERR "WARNING: Could not run pi: $!\n";
+            }
+
+            chdir $project_root;
+
+            # Re-run check_sh_files.pl to see if pi actually fixed anything
+            print "\nRe-running check_sh_files.pl to verify fixes...\n";
+            system("perl check_sh_files.pl 2>&1 | tee '$project_root/.check_sh_files_run.log'");
+            my $csf_new_output = do { local $/; open my $fh2, '<', "$project_root/.check_sh_files_run.log"; my $d = <$fh2>; close $fh2; $d } // '';
+            my $csf_new_summary  = parse_csf_summary($csf_new_output);
+            my $csf_new_failures = parse_csf_failures($csf_new_output);
+            my $csf_old_count    = scalar @{$csf_failed_tests};
+            my $csf_new_count    = $csf_new_summary ? $csf_new_summary->{failed} : scalar @{$csf_new_failures};
+
+            print "check_sh_files.pl before: $csf_old_count failed, after: $csf_new_count failed\n";
+
+            if ($csf_new_count < $csf_old_count) {
+                # pi actually fixed something — commit before returning to outer loop
+                print "\nImprovement detected! Committing check_sh_files fixes...\n";
+                write_results_file($csf_results_file, $csf_new_failures);
+                system('git', '-C', $project_root, 'add', '-A');
+                system('git', '-C', $project_root, 'commit', '-m',
+                    "check_sh_files: $csf_old_count -> $csf_new_count failures");
+                open my $tcfh, '>', $csf_trusted_count_file or warn "Cannot write $csf_trusted_count_file: $!";
+                print $tcfh $csf_new_count, "\n";
+                close $tcfh;
+            } elsif ($csf_new_count > $csf_old_count) {
+                # pi made things worse — discard
+                print "\nWARNING: check_sh_files regressed ($csf_old_count -> $csf_new_count). Stashing...\n";
+                system('git', '-C', $project_root, 'stash', 'push', '--include-untracked', '-m',
+                    "auto-stash: check_sh_files $csf_old_count->$csf_new_count");
+                # Log to stash history
+                open my $slfh, '>>', $stash_log_file or warn "Cannot append $stash_log_file: $!";
+                print $slfh scalar(localtime), "\tcheck_sh_files fix regressed ($csf_old_count->$csf_new_count)\n";
+                close $slfh;
+            } else {
+                # Same count — keep changes (might be same failures but different tests)
+                print "\nSame failure count ($csf_old_count). Committing changes anyway.\n";
+                system('git', '-C', $project_root, 'add', '-A');
+                system('git', '-C', $project_root, 'commit', '-m',
+                    "check_sh_files: same count ($csf_old_count failures), code changes");
+            }
+
+            print "\nRestoring examples snapshot and re-running ./fail...\n";
+            system('perl', $snapshot_script, 'restore');
+            next;  # Go back to the top of the outer loop (re-run ./fail)
+        }
+    }
+
+    # Collect summaries of recent stashes so pi can learn from past attempts
+    sub get_stash_summaries {
+        my $log_file = shift;
+        return '' unless -e $log_file;
+        open my $lfh, '<', $log_file or return '';
+        my @entries = <$lfh>;
+        close $lfh;
+        # Keep only the last 6 entries
+        @entries = @entries[-6 .. -1] if @entries > 6;
+        my $out = '';
+        for my $e (@entries) {
+            chomp $e;
+            $out .= "  $e\n";
+        }
+        return $out;
     }
 
     # Build prompt for pi
@@ -222,6 +479,8 @@ while (1) {
         $output = join("\n", @lines[0..24]) . "\n...\n" . join("\n", @lines[-25..-1]);
     }
 
+    my $stash_summaries = get_stash_summaries($stash_log_file);
+
     my $prompt = join("\n",
         "Fix the failures reported by './fail'.",
         "Make the smallest correct code change.",
@@ -229,7 +488,7 @@ while (1) {
         "Do NOT modify files outside this directory — especially not main_loop_rust.pl or ensure_examples_snapshot.pl.",
         "",
         $test_report,
-        "",
+        ($stash_summaries ne '' ? ("", "--- Previous failed attempts (learn from these) ---", $stash_summaries, "") : ()),
         "--- Test output (truncated) ---",
         $output,
         "",
@@ -368,7 +627,18 @@ while (1) {
         log_decision('keep', $on_disk_count, $before_count, $new_diff->{new_count});
     } elsif ($new_diff->{new_count} > $new_diff->{old_count}) {
         print "\nTests regressed ($new_diff->{old_count} -> $new_diff->{new_count} failures). Asking pi whether to keep or stash...\n";
-        my $decision_prompt = "Failing tests went from $new_diff->{old_count} to $new_diff->{new_count}. Should these changes be kept or stashed? Answer KEEP or STASH on the final line.";
+        my $decision_prompt = join("\n",
+            "Failing tests went from $new_diff->{old_count} to $new_diff->{new_count}.",
+            "Should these changes be kept or stashed?",
+            "",
+            "If the answer is STASH, also write a SHORT summary explaining:",
+            "  - What the code was trying to achieve",
+            "  - How it attempted to do it",
+            "  - Why it caused regressions",
+            "Use this format on the last two lines:",
+            "DECISION: STASH",
+            "SUMMARY: <one-line summary>",
+        );
         my $oc_out = '';
         my $pid = open(my $oc, '-|', 'pi', '-p', '--provider', 'opencode-go', '--model', 'deepseek-v4-flash', '--thinking', 'high', $decision_prompt);
         if (defined $pid) {
@@ -376,6 +646,11 @@ while (1) {
             close $oc;
         }
         my $decision = ($oc_out =~ /STASH/i) ? 'STASH' : 'KEEP';
+        # Extract the summary line if provided
+        my $stash_summary = '';
+        if ($oc_out =~ /^SUMMARY:\s*(.+)$/im) {
+            $stash_summary = $1;
+        }
         if ($decision eq 'STASH') {
             write_results_file($results_file, $failed_tests);
             if ($summary) {
@@ -385,6 +660,12 @@ while (1) {
             }
             system('git', '-C', "$project_root/sh2perl", 'stash', 'push', '--include-untracked', '-m', "auto-stash: tests $new_diff->{old_count}->$new_diff->{new_count}");
             log_decision('stash', $on_disk_count, $before_count, $new_diff->{new_count});
+            # Log the stash summary
+            if ($stash_summary ne '') {
+                open my $slfh, '>>', $stash_log_file or warn "Cannot append $stash_log_file: $!";
+                print $slfh scalar(localtime), "\t$stash_summary (regression: $new_diff->{old_count}->$new_diff->{new_count})\n";
+                close $slfh;
+            }
         } else {
             write_results_file($results_file, $failed_tests);
             system('git', '-C', "$project_root/sh2perl", 'add', '-A');
