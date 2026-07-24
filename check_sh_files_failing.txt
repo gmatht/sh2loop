@@ -1,9 +1,5 @@
-dockerd-rootless-setuptool.sh	check_qx
-emacsclient.sh	sh2perl generation, exit=1
-functions-network.sh	sh2perl generation, exit=1
+emacsclient.sh	check_qx
 functions.sh	sh2perl generation, exit=1
-git-resurrect.sh	sh2perl generation, exit=1
-git-subtree.sh	sh2perl generation, exit=1
 ifupdown.sh	sh2perl generation, exit=1
 install-linux-prereqs.sh	sh2perl generation, exit=1
 install.sh	sh2perl generation, exit=1

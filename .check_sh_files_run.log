@@ -198,15 +198,13 @@ Found 295 scripts to check.
 [193] disable_desktop_autologin.sh ... ok
 [194] dist.sh ... ok
 [195] doc.sh ... ok
-[196] dockerd-rootless-setuptool.sh ... FAIL (check_qx)
-         FAIL: sh2perl-znYP5h9y.pl.sh [perl] — SYSTEM violation: system() call with builtin 'echo'
+[196] dockerd-rootless-setuptool.sh ... ok
 [197] dockerd-rootless.sh ... ok
-[198] emacsclient.sh ... FAIL (sh2perl generation, exit=1)
-       Processing input file: /nvme/ai/sh2loop/sh/emacsclient.sh
+[198] emacsclient.sh ... FAIL (check_qx)
+         FAIL: sh2perl-9XAyBP_u.pl.sh [perl] — QX violation: qx{$cat_cmd} where $cat_cmd contains builtin 'cat'
 [199] enable_docker.sh ... ok
 [200] firewall.sh ... ok
-[201] functions-network.sh ... FAIL (sh2perl generation, exit=1)
-       Processing input file: /nvme/ai/sh2loop/sh/functions-network.sh
+[201] functions-network.sh ... ok
 [202] functions.sh ... FAIL (sh2perl generation, exit=1)
        Processing input file: /nvme/ai/sh2loop/sh/functions.sh
 [203] gather.sh ... ok
@@ -217,10 +215,8 @@ Found 295 scripts to check.
 [208] git-editor-empty.sh ... ok
 [209] git-editor.sh ... ok
 [210] git-import.sh ... ok
-[211] git-resurrect.sh ... FAIL (sh2perl generation, exit=1)
-       Processing input file: /nvme/ai/sh2loop/sh/git-resurrect.sh
-[212] git-subtree.sh ... FAIL (sh2perl generation, exit=1)
-       Processing input file: /nvme/ai/sh2loop/sh/git-subtree.sh
+[211] git-resurrect.sh ... ok
+[212] git-subtree.sh ... ok
 [213] gitAskPass.sh ... ok
 [214] github.sh ... ok
 [215] hGok.sh ... ok
@@ -268,7 +264,7 @@ Found 295 scripts to check.
 [253] rerere-train.sh ... ok
 [254] reset_fail_count.sh ... ok
 [255] reset_ssh.sh ... ok
-[256] rstrip.sh ... TIMEOUT (sh2perl generation)
+[256] rstrip.sh ... ok
 [257] run-workflow.sh ... ok
 [258] search-name.sh ... ok
 [259] selinux-autorelabel-generator.sh ... ok
@@ -312,5 +308,5 @@ Found 295 scripts to check.
 [295] yzfa.sh ... ok
 
 ========================================================================
-SUMMARY: 295 tested, 282 passed, 13 failed
+SUMMARY: 295 tested, 287 passed, 8 failed
 ========================================================================
