@@ -180,8 +180,10 @@ Found 295 scripts to check.
 [175] check-mac-address.sh ... ok
 [176] check_side_effects_overlay.sh ... ok
 [177] chronyd-starter.sh ... ok
-[178] clean_dead_code.sh ... ok
-[179] clean_dead_code_safe.sh ... ok
+[178] clean_dead_code.sh ... FAIL (sh2perl generation, exit=1)
+       Processing input file: /nvme/ai/sh2loop/sh/clean_dead_code.sh
+[179] clean_dead_code_safe.sh ... FAIL (sh2perl generation, exit=1)
+       Processing input file: /nvme/ai/sh2loop/sh/clean_dead_code_safe.sh
 [180] comment_debug.sh ... ok
 [181] compile_python.sh ... ok
 [182] completion.sh ... ok
@@ -200,8 +202,7 @@ Found 295 scripts to check.
 [195] doc.sh ... ok
 [196] dockerd-rootless-setuptool.sh ... ok
 [197] dockerd-rootless.sh ... ok
-[198] emacsclient.sh ... FAIL (check_qx)
-         FAIL: sh2perl-9XAyBP_u.pl.sh [perl] — QX violation: qx{$cat_cmd} where $cat_cmd contains builtin 'cat'
+[198] emacsclient.sh ... ok
 [199] enable_docker.sh ... ok
 [200] firewall.sh ... ok
 [201] functions-network.sh ... ok
@@ -238,8 +239,12 @@ Found 295 scripts to check.
 [228] install_qt.sh ... ok
 [229] install_ros.sh ... ok
 [230] interprocess-communicator.sh ... ok
-[231] jobs.sh ... FAIL (sh2perl generation, exit=1)
-       Processing input file: /nvme/ai/sh2loop/sh/jobs.sh
+[231] jobs.sh ... FAIL (check_qx)
+         FAIL: sh2perl-AH7OrEEa.pl.sh [perl] — SYSTEM violation: system() call with builtin 'hostname'
+         FAIL: sh2perl-AH7OrEEa.pl.sh [perl] — OPEN3 violation: open3() with builtin 'cp'
+         FAIL: sh2perl-AH7OrEEa.pl.sh [perl] — OPEN3 violation: open3() with builtin 'cp'
+         FAIL: sh2perl-AH7OrEEa.pl.sh [perl] — OPEN3 violation: open3() with builtin 'cp'
+         FAIL: sh2perl-AH7OrEEa.pl.sh [perl] — OPEN3 violation: open3() with builtin 'cp'
 [232] kaFu.sh ... ok
 [233] keyboard-setup.sh ... ok
 [234] less.sh ... ok
@@ -285,8 +290,7 @@ Found 295 scripts to check.
        Processing input file: /nvme/ai/sh2loop/sh/submenu.sh
 [274] systemd-bootchart-poststop.sh ... ok
 [275] t-git-credential-netrc.sh ... ok
-[276] t7900-subtree.sh ... FAIL (sh2perl generation, exit=1)
-       Processing input file: /nvme/ai/sh2loop/sh/t7900-subtree.sh
+[276] t7900-subtree.sh ... ok
 [277] tap-driver.sh ... ok
 [278] tellerstats.sh ... ok
 [279] terminateProcess.sh ... ok
