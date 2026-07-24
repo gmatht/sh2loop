@@ -1,8 +1,8 @@
 ========================================================================
-Checking all .sh files in /nvme/ai/sh2loop/sh
-Found 295 scripts to check.
+Checking 295 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 ========================================================================
 
+  progress: 0/8 workers done, filesets: [none]  progress: 0/8 workers done, filesets: [1,4,5,7,8]  progress: 0/8 workers done, filesets: [1,4,5,7,8]  progress: 0/8 workers done, filesets: [1,4,5,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 4/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 8/8 workers done, filesets: [1,2,3,4,5,6,7,8]
 [1] 000__02_output_formatting_commands.sh ... ok
 [2] 000__03_file_manipulation_commands.sh ... ok
 [3] 000__04_basic_backtick_usage.sh ... ok
@@ -225,17 +225,17 @@ Found 295 scripts to check.
 [220] image.sh ... ok
 [221] init.sh ... ok
 [222] install-autossh-daemon.sh ... ok
-[223] install-linux-prereqs.sh ... ok
+[223] install-linux-prereqs.sh ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/install-linux-prereqs.sh)
 [224] install.sh ... FAIL (sh2perl generation, exit=1)
-       Processing input file: /nvme/ai/sh2loop/sh/install.sh
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/install.sh)
 [225] install_bt_panel.sh ... ok
 [226] install_btrfs_monitor.sh ... ok
 [227] install_docker.sh ... ok
 [228] install_qt.sh ... ok
 [229] install_ros.sh ... ok
 [230] interprocess-communicator.sh ... ok
-[231] jobs.sh ... FAIL (sh2perl generation, exit=1)
-       Processing input file: /nvme/ai/sh2loop/sh/jobs.sh
+[231] jobs.sh ... ok
 [232] kaFu.sh ... ok
 [233] keyboard-setup.sh ... ok
 [234] less.sh ... ok
@@ -278,7 +278,7 @@ Found 295 scripts to check.
 [271] ssh-askpass-empty.sh ... ok
 [272] ssh-askpass.sh ... ok
 [273] submenu.sh ... FAIL (sh2perl generation, exit=1)
-       Processing input file: /nvme/ai/sh2loop/sh/submenu.sh
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/submenu.sh)
 [274] systemd-bootchart-poststop.sh ... ok
 [275] t-git-credential-netrc.sh ... ok
 [276] t7900-subtree.sh ... ok

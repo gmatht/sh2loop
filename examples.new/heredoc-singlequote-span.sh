@@ -1,10 +1,7 @@
 #!/bin/bash
-# Regression test: heredoc body containing a single quote causes
-# logos to start a SingleQuotedString that spans past the EOF
-# delimiter, consuming post-heredoc content.
-cat << EOF
-It's a sunny day in the neighborhood.
+# Minimal sample: heredoc with single quotes creates spanning strings in shell lexer
+cat > /tmp/x.py << 'EOF'
+x = re.search(r'`([^`]+)`', line)
+if x == '\'': pass
 EOF
-echo "after heredoc"
-data=$(echo "test" | grep -o '[0-9]\+')
-echo "$data"
+echo "ok"
