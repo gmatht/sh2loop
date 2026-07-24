@@ -1,1 +1,316 @@
-ERROR: Required file not found: /nvme/ai/sh2loop/sh2perl/target/debug/debashc
+========================================================================
+Checking all .sh files in /nvme/ai/sh2loop/sh
+Found 295 scripts to check.
+========================================================================
+
+[1] 000__02_output_formatting_commands.sh ... ok
+[2] 000__03_file_manipulation_commands.sh ... ok
+[3] 000__04_basic_backtick_usage.sh ... ok
+[4] 000__04_basic_backtick_usage_simple.sh ... ok
+[5] 000__04a_basic_command_substitution.sh ... ok
+[6] 000__04b_file_directory_operations.sh ... ok
+[7] 000__04c_text_processing_commands.sh ... ok
+[8] 000__04d_system_utilities.sh ... ok
+[9] 000__04e_file_manipulation.sh ... ok
+[10] 000__04f_output_formatting.sh ... ok
+[11] 000__04g_checksum_commands.sh ... ok
+[12] 000__04h_complex_examples.sh ... ok
+[13] 000__05_system_utilities.sh ... ok
+[14] 000__06_text_processing_commands.sh ... ok
+[15] 000__07_find_path_commands.sh ... ok
+[16] 001_simple.sh ... ok
+[17] 002_control_flow.sh ... ok
+[18] 003_pipeline.sh ... ok
+[19] 005_args.sh ... ok
+[20] 006_misc.sh ... ok
+[21] 008_simple_backup.sh ... ok
+[22] 009_arrays.sh ... ok
+[23] 010_pattern_matching.sh ... ok
+[24] 011_brace_expansion.sh ... ok
+[25] 012_process_substitution.sh ... ok
+[26] 013_parameter_expansion.sh ... ok
+[27] 014_ansi_quoting.sh ... ok
+[28] 015_grep_advanced.sh ... ok
+[29] 016_grep_basic.sh ... ok
+[30] 017_grep_context.sh ... ok
+[31] 018_grep_params.sh ... ok
+[32] 019_grep_regex.sh ... ok
+[33] 020_ansi_quoting_basic.sh ... ok
+[34] 021_ansi_quoting_escape.sh ... ok
+[35] 022_ansi_quoting_unicode.sh ... ok
+[36] 023_ansi_quoting_practical.sh ... ok
+[37] 024_parameter_expansion_case.sh ... ok
+[38] 025_parameter_expansion_advanced.sh ... ok
+[39] 026_parameter_expansion_more.sh ... ok
+[40] 027_parameter_expansion_defaults.sh ... ok
+[41] 028_arrays_indexed.sh ... ok
+[42] 029_arrays_associative.sh ... ok
+[43] 030_control_flow_if.sh ... ok
+[44] 031_control_flow_loops.sh ... ok
+[45] 032_control_flow_function.sh ... ok
+[46] 033_brace_expansion_basic.sh ... ok
+[47] 034_brace_expansion_advanced.sh ... ok
+[48] 035_brace_expansion_practical.sh ... ok
+[49] 036_pattern_matching_basic.sh ... ok
+[50] 037_pattern_matching_extglob.sh ... ok
+[51] 038_pattern_matching_nocase.sh ... ok
+[52] 039_process_substitution_here.sh ... ok
+[53] 03aP.sh ... ok
+[54] 040_process_substitution_comm.sh ... ok
+[55] 041_process_substitution_mapfile.sh ... ok
+[56] 042_process_substitution_advanced.sh ... ok
+[57] 045_shell_calling_perl.sh ... ok
+[58] 050_test_ls_star_dot_sh.sh ... ok
+[59] 051_primes.sh ... ok
+[60] 054_fibonacci.sh ... ok
+[61] 055_factorize.sh ... ok
+[62] 057_case.sh ... ok
+[63] 058_advanced_bash_idioms.sh ... ok
+[64] 061_test_local_names_preserved.sh ... ok
+[65] 062_01_ambiguous_operators.sh ... ok
+[66] 062_02_complex_parameter_expansions.sh ... ok
+[67] 062_03_complex_heredocs.sh ... ok
+[68] 062_04_nested_arithmetic.sh ... ok
+[69] 062_05_nested_command_substitution.sh ... ok
+[70] 062_06_process_substitution.sh ... ok
+[71] 062_07_complex_brace_expansion.sh ... ok
+[72] 062_08_simple_case.sh ... ok
+[73] 062_09_complex_function.sh ... ok
+[74] 062_10_simple_pipeline.sh ... ok
+[75] 062_11_mixed_arithmetic.sh ... ok
+[76] 062_12_complex_string_interpolation.sh ... ok
+[77] 062_13_simple_test_expressions.sh ... ok
+[78] 062_14_complex_array_operations.sh ... ok
+[79] 062_15_complex_local_variables.sh ... ok
+[80] 062_hard_to_lex.sh ... ok
+[81] 063_01_deeply_nested_arithmetic.sh ... ok
+[82] 063_02_complex_array_assignments.sh ... ok
+[83] 063_03_nested_command_substitutions.sh ... ok
+[84] 063_04_complex_parameter_expansion.sh ... ok
+[85] 063_05_heredoc_with_complex_content.sh ... ok
+[86] 063_06_complex_pipeline_background.sh ... ok
+[87] 063_07_nested_if_statements.sh ... ok
+[88] 063_08_complex_case_statement.sh ... ok
+[89] 063_09_complex_function_parameter_handling.sh ... ok
+[90] 063_11_complex_while_loop.sh ... ok
+[91] 063_12_complex_eval.sh ... ok
+[92] 063_13_nested_subshells.sh ... ok
+[93] 063_14_complex_redirects.sh ... ok
+[94] 063_15_complex_function_definition.sh ... ok
+[95] 063_16_complex_test_expressions.sh ... ok
+[96] 063_17_nested_brace_expansion.sh ... ok
+[97] 063_18_complex_here_string.sh ... ok
+[98] 063_19_complex_function_call.sh ... ok
+[99] 063_20_final_complex_construct.sh ... ok
+[100] 063_hard_to_parse.sh ... ok
+[101] 064_01_complex_nested_subshells.sh ... ok
+[102] 064_02_nested_brace_expansions.sh ... ok
+[103] 064_03_complex_parameter_expansion.sh ... ok
+[104] 064_04_extended_glob_patterns.sh ... ok
+[105] 064_05_complex_case_statement.sh ... ok
+[106] 064_06_nested_arithmetic_expressions.sh ... ok
+[107] 064_07_complex_array_operations.sh ... ok
+[108] 064_08_heredocs_with_variable_interpolation.sh ... ok
+[109] 064_09_process_substitution_pipeline.sh ... ok
+[110] 064_10_nested_function_definitions.sh ... ok
+[111] 064_11_complex_test_expressions.sh ... ok
+[112] 064_12_brace_expansion_nested_sequences.sh ... ok
+[113] 064_13_complex_string_manipulation.sh ... ok
+[114] 064_14_nested_command_substitution_arithmetic.sh ... ok
+[115] 064_15_complex_pipeline_multiple_redirects.sh ... ok
+[116] 064_16_function_complex_argument_handling.sh ... ok
+[117] 064_17_complex_while_loop_nested_conditionals.sh ... ok
+[118] 064_18_array_slicing_manipulation.sh ... ok
+[119] 064_19_complex_pattern_matching_extended_globs.sh ... ok
+[120] 064_20_nested_subshells_environment_variables.sh ... ok
+[121] 064_21_complex_string_interpolation_multiple_variables.sh ... ok
+[122] 064_22_function_returning_complex_data_structures.sh ... ok
+[123] 064_23_complex_error_handling_traps.sh ... ok
+[124] 064_24_advanced_parameter_expansion.sh ... ok
+[125] 064_hard_to_generate.sh ... ok
+[126] 070_cmp_basic.sh ... ok
+[127] 071_while_ifs_read.sh ... ok
+[128] 072_background_fork.sh ... ok
+[129] 073_trap_signal.sh ... ok
+[130] 074_shopt.sh ... ok
+[131] 075_eval_complex.sh ... ok
+[132] 076_brace_expansion_mixed.sh ... ok
+[133] 077_backslash_continuation.sh ... ok
+[134] 078_arithmetic_double_paren.sh ... ok
+[135] 079_heredoc_interpolation.sh ... ok
+[136] 080_process_sub_pipeline.sh ... ok
+[137] 081_nested_functions.sh ... ok
+[138] 082_sort_locale.sh ... ok
+[139] 083_process_sub_missing_files.sh ... ok
+[140] 084_while_pipeline.sh ... ok
+[141] 085_for_glob_pipe.sh ... ok
+[142] 086_if_condition_pipe.sh ... ok
+[143] 087_function_cmd_sub.sh ... ok
+[144] 088_while_read_ifs_sort.sh ... ok
+[145] 089_for_in_arith.sh ... ok
+[146] 090_nested_if_else.sh ... ok
+[147] 091_while_pipe_var.sh ... ok
+[148] 092_for_arith_func.sh ... ok
+[149] 093_case_esac.sh ... ok
+[150] 094_until_loop.sh ... ok
+[151] 095_select_menu.sh ... ok
+[152] 096_head_procsub.sh ... ok
+[153] DbRj.sh ... ok
+[154] GxEI.sh ... ok
+[155] J4wW.sh ... ok
+[156] Om8z.sh ... ok
+[157] UqfL.sh ... ok
+[158] Z99-cloud-locale-test.sh ... ok
+[159] Z99-cloudinit-warnings.sh ... ok
+[160] action_wpa.sh ... ok
+[161] appp.sh ... ok
+[162] archive.sh ... ok
+[163] askpass-empty.sh ... ok
+[164] askpass.sh ... ok
+[165] auto_login_cli.sh ... ok
+[166] benchmark.sh ... ok
+[167] blink.sh ... ok
+[168] bootsplash.sh ... ok
+[169] bridge-utils.sh ... ok
+[170] build-wasm.sh ... ok
+[171] cached_setup_font.sh ... ok
+[172] cached_setup_keyboard.sh ... ok
+[173] cached_setup_terminal.sh ... ok
+[174] cat_serial.sh ... ok
+[175] check-mac-address.sh ... ok
+[176] check_side_effects_overlay.sh ... ok
+[177] chronyd-starter.sh ... ok
+[178] clean_dead_code.sh ... ok
+[179] clean_dead_code_safe.sh ... ok
+[180] comment_debug.sh ... ok
+[181] compile_python.sh ... ok
+[182] completion.sh ... ok
+[183] complex_test.sh ... ok
+[184] confmodule.sh ... ok
+[185] console-setup.sh ... ok
+[186] coverage-diff.sh ... ok
+[187] cpuUsage.sh ... ok
+[188] cron-tasks-review.sh ... ok
+[189] debug_function.sh ... ok
+[190] debug_wc_redirect.sh ... ok
+[191] desktop_login.sh ... ok
+[192] determine-linux-distro.sh ... ok
+[193] disable_desktop_autologin.sh ... ok
+[194] dist.sh ... ok
+[195] doc.sh ... ok
+[196] dockerd-rootless-setuptool.sh ... FAIL (check_qx)
+         FAIL: sh2perl-znYP5h9y.pl.sh [perl] — SYSTEM violation: system() call with builtin 'echo'
+[197] dockerd-rootless.sh ... ok
+[198] emacsclient.sh ... FAIL (sh2perl generation, exit=1)
+       Processing input file: /nvme/ai/sh2loop/sh/emacsclient.sh
+[199] enable_docker.sh ... ok
+[200] firewall.sh ... ok
+[201] functions-network.sh ... FAIL (sh2perl generation, exit=1)
+       Processing input file: /nvme/ai/sh2loop/sh/functions-network.sh
+[202] functions.sh ... FAIL (sh2perl generation, exit=1)
+       Processing input file: /nvme/ai/sh2loop/sh/functions.sh
+[203] gather.sh ... ok
+[204] gen-sample-keys.sh ... ok
+[205] gengnuplot.sh ... ok
+[206] get-mac-address.sh ... ok
+[207] gettext.sh ... ok
+[208] git-editor-empty.sh ... ok
+[209] git-editor.sh ... ok
+[210] git-import.sh ... ok
+[211] git-resurrect.sh ... FAIL (sh2perl generation, exit=1)
+       Processing input file: /nvme/ai/sh2loop/sh/git-resurrect.sh
+[212] git-subtree.sh ... FAIL (sh2perl generation, exit=1)
+       Processing input file: /nvme/ai/sh2loop/sh/git-subtree.sh
+[213] gitAskPass.sh ... ok
+[214] github.sh ... ok
+[215] hGok.sh ... ok
+[216] header.sh ... ok
+[217] healthd.sh ... ok
+[218] hwclock.sh ... ok
+[219] ifupdown.sh ... FAIL (sh2perl generation, exit=1)
+       Processing input file: /nvme/ai/sh2loop/sh/ifupdown.sh
+[220] image.sh ... ok
+[221] init.sh ... ok
+[222] install-autossh-daemon.sh ... ok
+[223] install-linux-prereqs.sh ... FAIL (sh2perl generation, exit=1)
+       Processing input file: /nvme/ai/sh2loop/sh/install-linux-prereqs.sh
+[224] install.sh ... FAIL (sh2perl generation, exit=1)
+       Processing input file: /nvme/ai/sh2loop/sh/install.sh
+[225] install_bt_panel.sh ... ok
+[226] install_btrfs_monitor.sh ... ok
+[227] install_docker.sh ... ok
+[228] install_qt.sh ... ok
+[229] install_ros.sh ... ok
+[230] interprocess-communicator.sh ... ok
+[231] jobs.sh ... FAIL (sh2perl generation, exit=1)
+       Processing input file: /nvme/ai/sh2loop/sh/jobs.sh
+[232] kaFu.sh ... ok
+[233] keyboard-setup.sh ... ok
+[234] less.sh ... ok
+[235] lockout-not-enabled.sh ... ok
+[236] memtester.sh ... ok
+[237] miri.sh ... ok
+[238] misc.sh ... ok
+[239] mkzip.sh ... ok
+[240] oldconfigure.sh ... ok
+[241] openvpn-shutdown.sh ... ok
+[242] openvpn-startup.sh ... ok
+[243] orangepi-activate-profile-sync-daemon.sh ... ok
+[244] orangepi-check-first-login-reboot.sh ... ok
+[245] orangepi-check-first-login.sh ... ok
+[246] orangepi-ssh-title.sh ... ok
+[247] package.sh ... ok
+[248] pcmcia-compat.sh ... ok
+[249] ping-places.sh ... ok
+[250] ps.sh ... ok
+[251] remotes2config.sh ... ok
+[252] request-key-debug.sh ... ok
+[253] rerere-train.sh ... ok
+[254] reset_fail_count.sh ... ok
+[255] reset_ssh.sh ... ok
+[256] rstrip.sh ... TIMEOUT (sh2perl generation)
+[257] run-workflow.sh ... ok
+[258] search-name.sh ... ok
+[259] selinux-autorelabel-generator.sh ... ok
+[260] set_swap.sh ... ok
+[261] set_vnc.sh ... ok
+[262] settle-dad.sh ... ok
+[263] setup-gmail-download.sh ... ok
+[264] setup-grafana.sh ... ok
+[265] sh.sh ... ok
+[266] show-size-changes.sh ... ok
+[267] smartd_warning.sh ... ok
+[268] snap-debug-info.sh ... ok
+[269] snapd.core-fixup.sh ... ok
+[270] sound.sh ... ok
+[271] ssh-askpass-empty.sh ... ok
+[272] ssh-askpass.sh ... ok
+[273] submenu.sh ... FAIL (sh2perl generation, exit=1)
+       Processing input file: /nvme/ai/sh2loop/sh/submenu.sh
+[274] systemd-bootchart-poststop.sh ... ok
+[275] t-git-credential-netrc.sh ... ok
+[276] t7900-subtree.sh ... FAIL (sh2perl generation, exit=1)
+       Processing input file: /nvme/ai/sh2loop/sh/t7900-subtree.sh
+[277] tap-driver.sh ... ok
+[278] tellerstats.sh ... ok
+[279] terminateProcess.sh ... ok
+[280] test.sh ... ok
+[281] test_find.sh ... ok
+[282] test_pwm.sh ... ok
+[283] test_ros.sh ... ok
+[284] test_simple_function.sh ... ok
+[285] test_system_builtin.sh ... ok
+[286] text.sh ... ok
+[287] tsc-some-files.sh ... ok
+[288] ucf_helper_functions.sh ... ok
+[289] update_blessed.sh ... ok
+[290] update_unicode.sh ... ok
+[291] video.sh ... ok
+[292] wait-for-ll6.sh ... ok
+[293] wait-online.sh ... ok
+[294] web.sh ... ok
+[295] yzfa.sh ... ok
+
+========================================================================
+SUMMARY: 295 tested, 282 passed, 13 failed
+========================================================================
