@@ -180,8 +180,7 @@ Found 295 scripts to check.
 [175] check-mac-address.sh ... ok
 [176] check_side_effects_overlay.sh ... ok
 [177] chronyd-starter.sh ... ok
-[178] clean_dead_code.sh ... FAIL (sh2perl generation, exit=1)
-       Processing input file: /nvme/ai/sh2loop/sh/clean_dead_code.sh
+[178] clean_dead_code.sh ... ok
 [179] clean_dead_code_safe.sh ... FAIL (sh2perl generation, exit=1)
        Processing input file: /nvme/ai/sh2loop/sh/clean_dead_code_safe.sh
 [180] comment_debug.sh ... ok
@@ -240,11 +239,11 @@ Found 295 scripts to check.
 [229] install_ros.sh ... ok
 [230] interprocess-communicator.sh ... ok
 [231] jobs.sh ... FAIL (check_qx)
-         FAIL: sh2perl-AH7OrEEa.pl.sh [perl] — SYSTEM violation: system() call with builtin 'hostname'
-         FAIL: sh2perl-AH7OrEEa.pl.sh [perl] — OPEN3 violation: open3() with builtin 'cp'
-         FAIL: sh2perl-AH7OrEEa.pl.sh [perl] — OPEN3 violation: open3() with builtin 'cp'
-         FAIL: sh2perl-AH7OrEEa.pl.sh [perl] — OPEN3 violation: open3() with builtin 'cp'
-         FAIL: sh2perl-AH7OrEEa.pl.sh [perl] — OPEN3 violation: open3() with builtin 'cp'
+         FAIL: sh2perl-9FhKqv9K.pl.sh [perl] — SYSTEM violation: system() call with builtin 'hostname'
+         FAIL: sh2perl-9FhKqv9K.pl.sh [perl] — OPEN3 violation: open3() with builtin 'cp'
+         FAIL: sh2perl-9FhKqv9K.pl.sh [perl] — OPEN3 violation: open3() with builtin 'cp'
+         FAIL: sh2perl-9FhKqv9K.pl.sh [perl] — OPEN3 violation: open3() with builtin 'cp'
+         FAIL: sh2perl-9FhKqv9K.pl.sh [perl] — OPEN3 violation: open3() with builtin 'cp'
 [232] kaFu.sh ... ok
 [233] keyboard-setup.sh ... ok
 [234] less.sh ... ok
@@ -312,5 +311,5 @@ Found 295 scripts to check.
 [295] yzfa.sh ... ok
 
 ========================================================================
-SUMMARY: 295 tested, 287 passed, 8 failed
+SUMMARY: 295 tested, 288 passed, 7 failed
 ========================================================================
