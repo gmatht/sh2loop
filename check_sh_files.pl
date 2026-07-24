@@ -204,11 +204,14 @@ my $idx = 0;
 for my $sh_file (@all_sh) {
     my $name = basename($sh_file); $idx++;
     my $r = $by_name{$name} // { status => '?', detail => 'no result' };
-    printf "[%d] %s ... %s\n", $idx, $name, $r->{status};
     if ($r->{status} ne 'ok') {
-        print "       $r->{detail}\n" if $r->{detail};
         $failed++;
+        my $short = $r->{detail};
+        $short =~ s/\s*\(.*//;  # strip long parenthesised tail
+        printf "[%d] %s ... %s (%s)\n", $idx, $name, $r->{status}, $short;
+        print "       $r->{detail}\n" if $r->{detail};
     } else {
+        printf "[%d] %s ... %s\n", $idx, $name, $r->{status};
         $passed++;
     }
 }

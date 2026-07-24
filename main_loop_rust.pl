@@ -109,10 +109,12 @@ sub parse_csf_failures {
     my @lines = split "\n", $output;
     for (my $i = 0; $i < @lines; $i++) {
         my $line = $lines[$i];
-        # Match the FAIL line:   [N] filename.sh ... FAIL (reason)
-        if ($line =~ /^\[\d+\]\s+(\S+)\s+\.\.\.\s+FAIL\s+\(([^)]+)\)/) {
-            my $name = $1;
-            my $reason = $2;
+        # Match the FAIL line (two formats):
+        #   Old: [N] file.sh ... FAIL (reason)
+        #   New: [N] file.sh ... FAIL    (reason on next indented line)
+        if ($line =~ /^\[\d+\]\s+(\S+)\s+\.\.\.\s+FAIL(?:\s+\(([^)]+)\))?$/) {
+            my $name   = $1;
+            my $reason = $2 // '';
             # Collect detail lines (indented) that follow
             my @details;
             $i++;
@@ -123,6 +125,10 @@ sub parse_csf_failures {
                 $i++;
             }
             $i--;  # step back for outer loop increment
+            # If no parenthesised reason on the FAIL line, use the first detail line
+            if ($reason eq '' && @details) {
+                $reason = $details[0];
+            }
             push @failed, { name => $name, reason => $reason, details => \@details };
         }
     }
