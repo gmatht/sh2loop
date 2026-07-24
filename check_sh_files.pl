@@ -18,7 +18,7 @@ use POSIX qw(:sys_wait_h);
 # Does NOT run/execute the .sh files themselves.
 #==============================================================================
 
-use constant MAX_WORKERS => 8;   # parallel worker count
+use constant MAX_WORKERS => 8;
 
 my $ROOT      = realpath("$FindBin::RealBin");
 my $SH_DIR    = "$ROOT/sh";
@@ -27,15 +27,14 @@ my $CHECK_QX  = "$ROOT/check_qx.pl";
 my $CRITIC_WRAPPER = "$ROOT/sh2perl/perlcritic_wrapper.pl";
 my $CRITIC_PROFILE = "$ROOT/sh2perl/docs/perlcritic.conf";
 
-# Per-step timeouts (seconds)
 my $TIMEOUT_GEN    = 15;
 my $TIMEOUT_QX     = 15;
 my $TIMEOUT_CRITIC = 30;
 
 for my $path ($SH2PERL, $CHECK_QX, $CRITIC_WRAPPER, $CRITIC_PROFILE) {
-    die "ERROR: Required file not found: $path\n" unless -e $path;
+    die "ERROR: not found: $path\n" unless -e $path;
 }
-die "ERROR: sh/ directory not found: $SH_DIR\n" unless -d $SH_DIR;
+die "ERROR: sh/ not found: $SH_DIR\n" unless -d $SH_DIR;
 
 #==============================================================================
 # run_with_timeout — fork & exec with timeout, captures stdout
@@ -43,16 +42,13 @@ die "ERROR: sh/ directory not found: $SH_DIR\n" unless -d $SH_DIR;
 sub run_with_timeout {
     my ($timeout, @cmd) = @_;
     pipe(my $reader, my $writer) or die "pipe: $!";
-    my $pid = fork;
-    die "fork: $!" unless defined $pid;
+    my $pid = fork; die "fork: $!" unless defined $pid;
 
     if ($pid == 0) {
         close $reader;
         open STDOUT, '>&', $writer or die "dup: $!";
         open STDERR, '>', '/dev/null' or die "devnull: $!";
-        close $writer;
-        exec @cmd;
-        die "exec failed: $!\n";
+        close $writer; exec @cmd; die "exec: $!\n";
     }
 
     close $writer;
@@ -86,8 +82,6 @@ sub run_with_timeout {
 
 #==============================================================================
 # process_one_file($sh_file) -> ($name, $status, $detail)
-#   status: 'ok', 'FAIL', 'TIMEOUT'
-#   detail: short explanation string
 #==============================================================================
 sub process_one_file {
     my ($sh_file) = @_;
@@ -96,7 +90,6 @@ sub process_one_file {
     my ($tmp_fh, $tmp_path) = tempfile("sh2perl-XXXXXXXX", SUFFIX => '.pl', UNLINK => 1);
     close $tmp_fh;
 
-    # Step 1: Generate Perl
     my ($gen_out, $gen_exit, $gen_timed) = run_with_timeout($TIMEOUT_GEN, $SH2PERL, '-i', $sh_file, '-o', $tmp_path);
     if ($gen_timed)            { unlink $tmp_path if -f $tmp_path; return ($name, 'TIMEOUT', 'sh2perl generation'); }
     if ($gen_exit != 0 || !-s $tmp_path) {
@@ -105,27 +98,20 @@ sub process_one_file {
         return ($name, 'FAIL', "sh2perl generation, exit=$gen_exit ($err)");
     }
 
-    # Step 2: check_qx
     my ($qx_out, $qx_exit, $qx_timed) = run_with_timeout($TIMEOUT_QX, 'perl', $CHECK_QX, $tmp_path);
     if ($qx_timed)  { unlink $tmp_path if -f $tmp_path; return ($name, 'TIMEOUT', 'check_qx'); }
     if ($qx_exit != 0) {
-        my @lines = grep { !/^\s*$/ } split /\n/, $qx_out;
-        my $detail = 'check_qx';
-        $detail .= " — $lines[0]" if @lines;
-        unlink $tmp_path if -f $tmp_path;
-        return ($name, 'FAIL', $detail);
+        my @l = grep { !/^\s*$/ } split /\n/, $qx_out;
+        my $d = 'check_qx'; $d .= " — $l[0]" if @l;
+        unlink $tmp_path if -f $tmp_path; return ($name, 'FAIL', $d);
     }
 
-    # Step 3: Perl::Critic
-    my ($cr_out, $cr_exit, $cr_timed) = run_with_timeout($TIMEOUT_CRITIC, 'perl', $CRITIC_WRAPPER,
-        '--profile', $CRITIC_PROFILE, $tmp_path);
+    my ($cr_out, $cr_exit, $cr_timed) = run_with_timeout($TIMEOUT_CRITIC, 'perl', $CRITIC_WRAPPER, '--profile', $CRITIC_PROFILE, $tmp_path);
     if ($cr_timed)  { unlink $tmp_path if -f $tmp_path; return ($name, 'TIMEOUT', 'perlcritic'); }
     if ($cr_exit != 0) {
-        my @lines = grep { !/^\s*$/ } split /\n/, $cr_out;
-        my $detail = 'perlcritic';
-        $detail .= " — $lines[0]" if @lines;
-        unlink $tmp_path if -f $tmp_path;
-        return ($name, 'FAIL', $detail);
+        my @l = grep { !/^\s*$/ } split /\n/, $cr_out;
+        my $d = 'perlcritic'; $d .= " — $l[0]" if @l;
+        unlink $tmp_path if -f $tmp_path; return ($name, 'FAIL', $d);
     }
 
     unlink $tmp_path if -f $tmp_path;
@@ -133,85 +119,90 @@ sub process_one_file {
 }
 
 #==============================================================================
-# MAIN — parallel worker farm
+# MAIN — parallel via static chunking (no locking needed)
 #==============================================================================
 my @all_sh = sort glob("$SH_DIR/*.sh");
 my $total  = scalar @all_sh;
-my $next_idx = 0;            # next file index to hand out (locked update)
-my $result_fh;               # shared results file
-
-# Open a temp file to collect results from workers
-my ($res_fh, $res_path) = tempfile("csf-results-XXXXXXXX", UNLINK => 0);
-$result_fh = $res_fh;
 
 print "=" x 72, "\n";
 printf "Checking %d .sh files in %s (%d parallel workers)\n", $total, $SH_DIR, MAX_WORKERS;
 print "=" x 72, "\n\n";
+$| = 1;
 
-# We'll write results lines as they come in.  The parent reads the file
-# after all workers finish.  Use a lock file for atomic updates.
-my $lock_path = "$res_path.lock";
-
-sub get_next_file {
-    my ($lock_fh);
-    open $lock_fh, '>', $lock_path or die "lock: $!";
-    flock($lock_fh, 2) or die "flock: $!";  # exclusive lock
-    my $idx = $next_idx;
-    $next_idx++ if $idx < $total;
-    close $lock_fh;
-    return $idx < $total ? $all_sh[$idx] : undef;
+# Divide files into equal chunks
+my @chunks;
+my $base = int($total / MAX_WORKERS);
+my $rem  = $total % MAX_WORKERS;
+my $pos  = 0;
+for my $w (0 .. MAX_WORKERS - 1) {
+    my $n = $base + ($w < $rem ? 1 : 0);
+    push @chunks, [ @all_sh[$pos .. $pos + $n - 1] ];
+    $pos += $n;
 }
 
-sub write_result {
-    my ($name, $status, $detail) = @_;
-    open my $lfh, '>>', $res_path or die "append: $!";
-    flock($lfh, 2) or die "flock: $!";
-    printf $lfh "%s\t%s\t%s\n", $status, $name, $detail;
-    close $lfh;
-}
+my $res_dir = "$ROOT/check_sh_results";
+mkdir $res_dir unless -d $res_dir;
 
-# Fork workers
 my @worker_pids;
-for (1 .. MAX_WORKERS) {
-    my $pid = fork;
-    die "fork: $!" unless defined $pid;
+for my $w (0 .. MAX_WORKERS - 1) {
+    my $pid = fork; die "fork: $!" unless defined $pid;
     if ($pid == 0) {
-        # Child
-        close $res_fh;
-        while (my $file = get_next_file()) {
+        # Worker — process its chunk, write results to its own temp file
+        my $outfile = "$res_dir/worker_${w}.txt";
+        open my $wf, '>', $outfile or die "write $outfile: $!";
+        for my $file (@{$chunks[$w]}) {
             my ($name, $status, $detail) = process_one_file($file);
-            write_result($name, $status, $detail);
+            $detail =~ s/\t/ /g;
+            print $wf "$status\t$name\t$detail\n";
         }
+        close $wf;
         exit 0;
     }
     push @worker_pids, $pid;
 }
 
-# Parent: wait for all workers
-close $res_fh;
-for my $pid (@worker_pids) {
-    waitpid($pid, 0);
+# Parent: wait with progress
+my $done = 0;
+while ($done < MAX_WORKERS) {
+    $done = 0;
+    for my $pid (@worker_pids) {
+        my $kid = waitpid($pid, WNOHANG);
+        $done++ if $kid == $pid || $kid == -1;
+    }
+    # Count results files with >0 lines
+    my @completed_files;
+    for my $w (0 .. MAX_WORKERS - 1) {
+        my $f = "$res_dir/worker_${w}.txt";
+        next unless -f $f && -s $f;
+        open my $cf, '<', $f or next;
+        my @cl = <$cf>; close $cf;
+        push @completed_files, $w if @cl > 0;
+    }
+    my $files_label = @completed_files ? (join ',', map { $_ + 1 } @completed_files) : 'none';
+    printf "\r  progress: %d/%d workers done, filesets: [%s]", $done, MAX_WORKERS, $files_label;
+    sleep 1 if $done < MAX_WORKERS;
 }
-unlink $lock_path;
+print "\n";
 
-# Read and display results in order
-open my $rfh, '<', $res_path or die "read: $!";
-my @result_lines = <$rfh>;
-close $rfh;
-unlink $res_path;
-
+# Collect and display results in original order
 my (%by_name, $passed, $failed);
-for my $line (@result_lines) {
-    chomp $line;
-    my ($status, $name, $detail) = split /\t/, $line, 3;
-    $by_name{$name} = { status => $status, detail => $detail };
+for my $w (0 .. MAX_WORKERS - 1) {
+    my $f = "$res_dir/worker_${w}.txt";
+    next unless -f $f;
+    open my $wf, '<', $f or next;
+    while (<$wf>) {
+        chomp; next unless $_;
+        my ($status, $name, $detail) = split /\t/, $_, 3;
+        $by_name{$name} = { status => $status, detail => $detail // '' };
+    }
+    close $wf;
+    unlink $f;
 }
+rmdir $res_dir;
 
-# Print in original file order
 my $idx = 0;
 for my $sh_file (@all_sh) {
-    my $name = basename($sh_file);
-    $idx++;
+    my $name = basename($sh_file); $idx++;
     my $r = $by_name{$name} // { status => '?', detail => 'no result' };
     printf "[%d] %s ... %s\n", $idx, $name, $r->{status};
     if ($r->{status} ne 'ok') {
