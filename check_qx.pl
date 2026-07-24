@@ -42,6 +42,7 @@ sub check_builtins_in_cmd {
     my ($cmd) = @_;
     (my $check = $cmd) =~ s/<\([^)]*\)//g;
     $check =~ s/>\([^)]*\)//g;
+    $check =~ s!.*/!!;  # Strip directory path (e.g. /bin/cp -> cp)
     for my $b (@builtins) {
         if ($check =~ /\b\Q$b\E\b/) {
             return $b;

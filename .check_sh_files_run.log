@@ -230,8 +230,7 @@ Found 295 scripts to check.
 [222] install-autossh-daemon.sh ... ok
 [223] install-linux-prereqs.sh ... FAIL (sh2perl generation, exit=1)
        Processing input file: /nvme/ai/sh2loop/sh/install-linux-prereqs.sh
-[224] install.sh ... FAIL (sh2perl generation, exit=1)
-       Processing input file: /nvme/ai/sh2loop/sh/install.sh
+[224] install.sh ... ok
 [225] install_bt_panel.sh ... ok
 [226] install_btrfs_monitor.sh ... ok
 [227] install_docker.sh ... ok
@@ -239,11 +238,11 @@ Found 295 scripts to check.
 [229] install_ros.sh ... ok
 [230] interprocess-communicator.sh ... ok
 [231] jobs.sh ... FAIL (check_qx)
-         FAIL: sh2perl-9FhKqv9K.pl.sh [perl] — SYSTEM violation: system() call with builtin 'hostname'
-         FAIL: sh2perl-9FhKqv9K.pl.sh [perl] — OPEN3 violation: open3() with builtin 'cp'
-         FAIL: sh2perl-9FhKqv9K.pl.sh [perl] — OPEN3 violation: open3() with builtin 'cp'
-         FAIL: sh2perl-9FhKqv9K.pl.sh [perl] — OPEN3 violation: open3() with builtin 'cp'
-         FAIL: sh2perl-9FhKqv9K.pl.sh [perl] — OPEN3 violation: open3() with builtin 'cp'
+         FAIL: sh2perl-0GAYCC2O.pl.sh [perl] — SYSTEM violation: system() call with builtin 'hostname'
+         FAIL: sh2perl-0GAYCC2O.pl.sh [perl] — OPEN3 violation: open3() with builtin 'cp'
+         FAIL: sh2perl-0GAYCC2O.pl.sh [perl] — OPEN3 violation: open3() with builtin 'cp'
+         FAIL: sh2perl-0GAYCC2O.pl.sh [perl] — OPEN3 violation: open3() with builtin 'cp'
+         FAIL: sh2perl-0GAYCC2O.pl.sh [perl] — OPEN3 violation: open3() with builtin 'cp'
 [232] kaFu.sh ... ok
 [233] keyboard-setup.sh ... ok
 [234] less.sh ... ok
@@ -311,5 +310,5 @@ Found 295 scripts to check.
 [295] yzfa.sh ... ok
 
 ========================================================================
-SUMMARY: 295 tested, 288 passed, 7 failed
+SUMMARY: 295 tested, 289 passed, 6 failed
 ========================================================================
