@@ -2,7 +2,7 @@
 Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 ========================================================================
 
-  progress: 0/8 workers done, filesets: [7,8]  progress: 0/8 workers done, filesets: [3,7]  progress: 0/8 workers done, filesets: [2,3,4,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 4/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 4/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 8/8 workers done, filesets: [1,2,3,4,5,6,7,8]
+  progress: 0/8 workers done, filesets: [none]  progress: 0/8 workers done, filesets: [1,3,7,8]  progress: 0/8 workers done, filesets: [1,3,4,7,8]  progress: 0/8 workers done, filesets: [1,3,4,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 4/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 4/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 8/8 workers done, filesets: [1,2,3,4,5,6,7,8]
 [1] 00-entry-directory.install ... ok
 [2] 00-header ... ok
 [3] 0000usepeerdns ... ok
@@ -168,8 +168,7 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [163] 20-chrony-dhcp ... ok
 [164] 20-chrony-onoffline ... ok
 [165] 200-write ... ok
-[166] 30-orangepi-sysinfo ... FAIL (check_qx —   FAIL: sh2perl-BxFc0NSK.pl.sh [perl] — QX violation: qx{} call with builtin 'awk')
-       check_qx —   FAIL: sh2perl-BxFc0NSK.pl.sh [perl] — QX violation: qx{} call with builtin 'awk'
+[166] 30-orangepi-sysinfo ... ok
 [167] 35-orangepi-tips ... ok
 [168] 40-orangepi-updates ... ok
 [169] 400-notify-send ... ok
@@ -233,8 +232,7 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [225] alsa-utils.postrm ... ok
 [226] alsa-utils.preinst ... ok
 [227] alsa-utils.prerm ... ok
-[228] alsabat-test ... FAIL (check_qx —   FAIL: sh2perl-5qzrXkDH.pl.sh [perl] — OPEN3 violation: open3)
-       check_qx —   FAIL: sh2perl-5qzrXkDH.pl.sh [perl] — OPEN3 violation: open3() with builtin 'ps'
+[228] alsabat-test ... ok
 [229] alta ... ok
 [230] apparmor ... ok
 [231] apparmor.config ... ok
@@ -273,8 +271,7 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [261] automake.postinst ... ok
 [262] automake.preinst ... ok
 [263] automake.prerm ... ok
-[264] autossh ... FAIL (check_qx —   FAIL: sh2perl-NVqQd5ej.pl.sh [perl] — OPEN3 violation: open3)
-       check_qx —   FAIL: sh2perl-NVqQd5ej.pl.sh [perl] — OPEN3 violation: open3() with builtin 'printf'
+[264] autossh ... ok
 [265] autossh-argv0 ... ok
 [266] autossh.host ... ok
 [267] avahi-autoipd ... ok
@@ -331,10 +328,8 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [315] build-wasm.sh ... ok
 [316] burn_to_emmc ... FAIL (sh2perl generation, exit=1)
        sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/burn_to_emmc)
-[317] bzdiff ... FAIL (check_qx —   FAIL: sh2perl-gLmybiCb.pl.sh [perl] — SYSTEM violation: system)
-       check_qx —   FAIL: sh2perl-gLmybiCb.pl.sh [perl] — SYSTEM violation: system() call with builtin 'rm'
-[318] bzexe ... FAIL (sh2perl generation, exit=1)
-       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/bzexe)
+[317] bzdiff ... ok
+[318] bzexe ... ok
 [319] bzgrep ... ok
 [320] bzmore ... ok
 [321] c2z ... FAIL (sh2perl generation, exit=1)
@@ -450,7 +445,8 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [423] cups ... FAIL (sh2perl generation, exit=1)
        sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/cups)
 [424] cx ... ok
-[425] daemon.activate ... ok
+[425] daemon.activate ... FAIL (check_qx —   FAIL: sh2perl-RaGshA9o.pl.sh [perl] — SYSTEM violation: system)
+       check_qx —   FAIL: sh2perl-RaGshA9o.pl.sh [perl] — SYSTEM violation: system() call with builtin 'exec'
 [426] daemon.reload ... ok
 [427] daemon.start ... ok
 [428] daemon.stop ... ok
@@ -504,8 +500,7 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [474] dist.sh ... ok
 [475] dkms ... FAIL (sh2perl generation, exit=1)
        sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/dkms)
-[476] dkms-autopkgtest ... FAIL (check_qx —   FAIL: sh2perl-0nVggl6b.pl.sh [perl] — OPEN3 violation: open3)
-       check_qx —   FAIL: sh2perl-0nVggl6b.pl.sh [perl] — OPEN3 violation: open3() with builtin 'grep'
+[476] dkms-autopkgtest ... ok
 [477] dkms.postinst ... ok
 [478] dkms.postrm ... ok
 [479] dkms.preinst ... ok
@@ -578,8 +573,7 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
        sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/expect_timed-run)
 [537] ext2 ... ok
 [538] f3write.h2w ... ok
-[539] fail ... FAIL (check_qx —   FAIL: sh2perl-aA0oX7iN.pl.sh [perl] — OPEN3 violation: open3)
-       check_qx —   FAIL: sh2perl-aA0oX7iN.pl.sh [perl] — OPEN3 violation: open3() with builtin 'kill'
+[539] fail ... ok
 [540] fake-hwclock ... ok
 [541] fake-hwclock.postinst ... ok
 [542] fake-hwclock.postrm ... ok
@@ -660,8 +654,7 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [609] git-difftool--helper ... ok
 [610] git-editor-empty.sh ... ok
 [611] git-editor.sh ... ok
-[612] git-filter-branch ... FAIL (perlcritic — Bareword file handle opened at line 500, column 9.  See pages 202,204 of PBP.)
-       perlcritic — Bareword file handle opened at line 500, column 9.  See pages 202,204 of PBP.  (Severity: 5)
+[612] git-filter-branch ... ok
 [613] git-import.sh ... ok
 [614] git-instaweb ... ok
 [615] git-jump ... FAIL (sh2perl generation, exit=1)
@@ -711,8 +704,7 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [654] haveged.postrm ... ok
 [655] haveged.preinst ... ok
 [656] haveged.prerm ... ok
-[657] hdparm ... FAIL (check_qx —   FAIL: sh2perl-7egBG6zn.pl.sh [perl] — QX violation: qx{} call with builtin 'perl')
-       check_qx —   FAIL: sh2perl-7egBG6zn.pl.sh [perl] — QX violation: qx{} call with builtin 'perl'
+[657] hdparm ... ok
 [658] hdparm.postinst ... ok
 [659] hdparm.postrm ... ok
 [660] hdparm.preinst ... ok
@@ -791,17 +783,13 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [726] installkernel ... ok
 [727] interprocess-communicator.sh ... ok
 [728] intltoolize ... ok
-[729] invoke-rc.d ... FAIL (check_qx —   FAIL: sh2perl-7fp04ayT.pl.sh [perl] — OPEN3 violation: open3)
-       check_qx —   FAIL: sh2perl-7fp04ayT.pl.sh [perl] — OPEN3 violation: open3() with builtin 'ps'
+[729] invoke-rc.d ... ok
 [730] iotop.postinst ... ok
 [731] iotop.prerm ... ok
 [732] ip ... ok
-[733] ip-down ... FAIL (check_qx —   FAIL: sh2perl-m31iJPWh.pl.sh [perl] — OPEN3 violation: open3)
-       check_qx —   FAIL: sh2perl-m31iJPWh.pl.sh [perl] — OPEN3 violation: open3() with builtin 'basename'
-[734] ip-pre-up ... FAIL (check_qx —   FAIL: sh2perl-R67Nrq5f.pl.sh [perl] — OPEN3 violation: open3)
-       check_qx —   FAIL: sh2perl-R67Nrq5f.pl.sh [perl] — OPEN3 violation: open3() with builtin 'basename'
-[735] ip-up ... FAIL (check_qx —   FAIL: sh2perl-0oTgzKI6.pl.sh [perl] — OPEN3 violation: open3)
-       check_qx —   FAIL: sh2perl-0oTgzKI6.pl.sh [perl] — OPEN3 violation: open3() with builtin 'basename'
+[733] ip-down ... ok
+[734] ip-pre-up ... ok
+[735] ip-up ... ok
 [736] iperf3 ... ok
 [737] iperf3.config ... ok
 [738] iperf3.postinst ... ok
@@ -890,8 +878,7 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [818] lm-sensors.preinst ... ok
 [819] lm-sensors.prerm ... ok
 [820] loadcpufreq ... ok
-[821] locale-gen ... FAIL (check_qx —   FAIL: sh2perl-6grmLZkb.pl.sh [perl] — QX violation: qx{} call with builtin 'perl')
-       check_qx —   FAIL: sh2perl-6grmLZkb.pl.sh [perl] — QX violation: qx{} call with builtin 'perl'
+[821] locale-gen ... ok
 [822] locales.config ... ok
 [823] locales.postinst ... ok
 [824] locales.postrm ... ok
@@ -978,10 +965,9 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [898] mysql-server-8.0.prerm ... ok
 [899] mysql-systemd-start ... ok
 [900] mysqld_multi.server ... ok
-[901] mysqld_safe ... FAIL (check_qx —   FAIL: sh2perl-fwj9zoq5.pl.sh [perl] — OPEN3 violation: open3)
-       check_qx —   FAIL: sh2perl-fwj9zoq5.pl.sh [perl] — OPEN3 violation: open3() with builtin 'ps'
-[902] namespace.init ... FAIL (perlcritic — Integer with leading zeros: "0777" at line 121, column 42.  See page 58 of PBP.)
-       perlcritic — Integer with leading zeros: "0777" at line 121, column 42.  See page 58 of PBP.  (Severity: 5)
+[901] mysqld_safe ... FAIL (perlcritic — Integer with leading zeros: "-0640" at line 126, column 21.  See page 58 of PBP.)
+       perlcritic — Integer with leading zeros: "-0640" at line 126, column 21.  See page 58 of PBP.  (Severity: 5)
+[902] namespace.init ... ok
 [903] nand-sata-install ... FAIL (sh2perl generation, exit=1)
        sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/nand-sata-install)
 [904] nano.postinst ... ok
@@ -1028,8 +1014,7 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [945] nvidia-container-cli ... ok
 [946] office.up ... ok
 [947] ofm_df ... ok
-[948] ofm_grep ... FAIL (check_qx —   FAIL: sh2perl-79skwTA6.pl.sh [perl] — QX violation: qx{} call with builtin 'perl')
-       check_qx —   FAIL: sh2perl-79skwTA6.pl.sh [perl] — QX violation: qx{} call with builtin 'perl'
+[948] ofm_grep ... ok
 [949] oldconfigure.sh ... ok
 [950] open-iscsi ... ok
 [951] open-vm-tools ... ok
@@ -1055,8 +1040,7 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [971] openvpn.prerm ... ok
 [972] orangepi-activate-profile-sync-daemon.sh ... ok
 [973] orangepi-add-overlay ... ok
-[974] orangepi-apt-updates ... FAIL (sh2perl generation, exit=1)
-       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/orangepi-apt-updates)
+[974] orangepi-apt-updates ... ok
 [975] orangepi-audio-config ... ok
 [976] orangepi-bsp-cli-orangepizero3.postinst ... ok
 [977] orangepi-bsp-cli-orangepizero3.postrm ... ok
@@ -1067,19 +1051,16 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [982] orangepi-config ... ok
 [983] orangepi-firstlogin ... FAIL (sh2perl generation, exit=1)
        sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/orangepi-firstlogin)
-[984] orangepi-firstrun ... FAIL (check_qx —   FAIL: sh2perl-MRaUzI3Y.pl.sh [perl] — EXEC violation: exec bash/sh -c wrapping builtin 'sleep')
-       check_qx —   FAIL: sh2perl-MRaUzI3Y.pl.sh [perl] — EXEC violation: exec bash/sh -c wrapping builtin 'sleep'
+[984] orangepi-firstrun ... ok
 [985] orangepi-firstrun-config ... ok
 [986] orangepi-hardware-monitor ... ok
 [987] orangepi-hardware-optimization ... FAIL (sh2perl generation, exit=1)
        sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/orangepi-hardware-optimization)
 [988] orangepi-ram-logging ... ok
-[989] orangepi-ramlog ... FAIL (check_qx —   FAIL: sh2perl-oslcGSMI.pl.sh [perl] — OPEN3 violation: open3)
-       check_qx —   FAIL: sh2perl-oslcGSMI.pl.sh [perl] — OPEN3 violation: open3() with builtin 'cp'
+[989] orangepi-ramlog ... ok
 [990] orangepi-resize-filesystem ... ok
 [991] orangepi-ssh-title.sh ... ok
-[992] orangepi-truncate-logs ... FAIL (check_qx —   FAIL: sh2perl-Sz08eKdU.pl.sh [perl] — OPEN3 violation: open3)
-       check_qx —   FAIL: sh2perl-Sz08eKdU.pl.sh [perl] — OPEN3 violation: open3() with builtin 'find'
+[992] orangepi-truncate-logs ... ok
 [993] orangepi-zram-config ... ok
 [994] orangepi-zsh.postinst ... ok
 [995] orangepimonitor ... FAIL (sh2perl generation, exit=1)
@@ -1160,11 +1141,9 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
        sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/pre-commit.sample)
 [1066] pre-merge-commit.sample ... ok
 [1067] pre-push.sample ... ok
-[1068] pre-rebase.sample ... FAIL (check_qx —   FAIL: sh2perl-kQUnwzqP.pl.sh [perl] — SYSTEM violation: system)
-       check_qx —   FAIL: sh2perl-kQUnwzqP.pl.sh [perl] — SYSTEM violation: system() call with builtin 'perl'
+[1068] pre-rebase.sample ... ok
 [1069] pre-receive.sample ... ok
-[1070] prepare-commit-msg.sample ... FAIL (check_qx —   FAIL: sh2perl-q6w4nCmX.pl.sh [perl] — SYSTEM violation: system)
-       check_qx —   FAIL: sh2perl-q6w4nCmX.pl.sh [perl] — SYSTEM violation: system() call with builtin 'perl'
+[1070] prepare-commit-msg.sample ... ok
 [1071] prerm ... ok
 [1072] probe ... ok
 [1073] procps ... ok
@@ -1354,8 +1333,7 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [1255] samba.preinst ... ok
 [1256] samba.prerm ... ok
 [1257] saned ... ok
-[1258] sargraph ... FAIL (check_qx —   FAIL: sh2perl-gPJ5TLAy.pl.sh [perl] — QX violation: qx{$which_cmd} where $which_cmd contains builtin 'find')
-       check_qx —   FAIL: sh2perl-gPJ5TLAy.pl.sh [perl] — QX violation: qx{$which_cmd} where $which_cmd contains builtin 'find'
+[1258] sargraph ... ok
 [1259] sargraph2 ... FAIL (sh2perl generation, exit=1)
        sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/sargraph2)
 [1260] savelog ... ok
@@ -1371,8 +1349,7 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [1268] script ... ok
 [1269] search-name.sh ... ok
 [1270] select-editor ... ok
-[1271] selinux-autorelabel ... FAIL (check_qx —   FAIL: sh2perl-6oxR3QeV.pl.sh [perl] — OPEN3 violation: open3)
-       check_qx —   FAIL: sh2perl-6oxR3QeV.pl.sh [perl] — OPEN3 violation: open3() with builtin 'awk'
+[1271] selinux-autorelabel ... ok
 [1272] selinux-autorelabel-generator.sh ... ok
 [1273] selinux-policy-default.postinst ... ok
 [1274] selinux-policy-default.postrm ... ok
@@ -1395,8 +1372,7 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [1291] setup-utf8 ... ok
 [1292] setup-vars ... ok
 [1293] setup-zfs ... ok
-[1294] setupcon ... FAIL (check_qx —   FAIL: sh2perl-XZw6sidn.pl.sh [perl] — bash/sh -c wrapping builtin 'echo')
-       check_qx —   FAIL: sh2perl-XZw6sidn.pl.sh [perl] — bash/sh -c wrapping builtin 'echo'
+[1294] setupcon ... ok
 [1295] sgml-base.postinst ... ok
 [1296] sgml-base.postrm ... ok
 [1297] sgml-base.preinst ... ok
@@ -1430,8 +1406,7 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [1322] spatchcache ... FAIL (sh2perl generation, exit=1)
        sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/spatchcache)
 [1323] splash-client ... ok
-[1324] spotify ... FAIL (check_qx —   FAIL: sh2perl-WWe5tFWo.pl.sh [perl] — OPEN3 violation: open3)
-       check_qx —   FAIL: sh2perl-WWe5tFWo.pl.sh [perl] — OPEN3 violation: open3() with builtin 'grep'
+[1324] spotify ... ok
 [1325] ssh ... FAIL (sh2perl generation, exit=1)
        sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/ssh)
 [1326] ssh-argv0 ... ok
@@ -1459,7 +1434,8 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [1347] sysfsutils.prerm ... ok
 [1348] sysstat ... ok
 [1349] sysstat.config ... ok
-[1350] sysstat.postinst ... ok
+[1350] sysstat.postinst ... FAIL (check_qx —   FAIL: sh2perl-BilGtbdt.pl.sh [perl] — SYSTEM violation: system)
+       check_qx —   FAIL: sh2perl-BilGtbdt.pl.sh [perl] — SYSTEM violation: system() call with builtin 'return'
 [1351] sysstat.postrm ... ok
 [1352] sysstat.preinst ... ok
 [1353] sysstat.prerm ... ok
@@ -1568,7 +1544,8 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [1454] unar ... ok
 [1455] unattended-upgrades ... ok
 [1456] unattended-upgrades.config ... ok
-[1457] unattended-upgrades.postinst ... ok
+[1457] unattended-upgrades.postinst ... FAIL (check_qx —   FAIL: sh2perl-PIULfzm5.pl.sh [perl] — SYSTEM violation: system)
+       check_qx —   FAIL: sh2perl-PIULfzm5.pl.sh [perl] — SYSTEM violation: system() call with builtin 'local'
 [1458] unattended-upgrades.postrm ... ok
 [1459] unattended-upgrades.preinst ... ok
 [1460] uncloud-init ... FAIL (sh2perl generation, exit=1)
@@ -1585,8 +1562,7 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
        sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/update-apparmor-samba-profile)
 [1470] update-ca-certificates ... ok
 [1471] update-cracklib ... ok
-[1472] update-initramfs ... FAIL (check_qx —   FAIL: sh2perl-Xc6Q9u1g.pl.sh [perl] — OPEN3 violation: open3)
-       check_qx —   FAIL: sh2perl-Xc6Q9u1g.pl.sh [perl] — OPEN3 violation: open3() with builtin 'sort'
+[1472] update-initramfs ... ok
 [1473] update-motd-unattended-upgrades ... ok
 [1474] update-pciids ... FAIL (sh2perl generation, exit=1)
        sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/update-pciids)
@@ -1630,8 +1606,7 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [1510] vnstat.preinst ... ok
 [1511] vnstat.prerm ... ok
 [1512] vsdbg ... ok
-[1513] vsftpd ... FAIL (check_qx —   FAIL: sh2perl-paWZfvK4.pl.sh [perl] — OPEN3 violation: open3)
-       check_qx —   FAIL: sh2perl-paWZfvK4.pl.sh [perl] — OPEN3 violation: open3() with builtin 'ps'
+[1513] vsftpd ... ok
 [1514] w3m.postinst ... ok
 [1515] w3m.postrm ... ok
 [1516] w3m.prerm ... ok
@@ -1649,8 +1624,7 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
        sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/wireless-tools)
 [1528] wireless-tools.postinst ... ok
 [1529] wireless-tools.preinst ... ok
-[1530] wiringpi.postinst ... FAIL (check_qx —   FAIL: sh2perl-pYXKQKRO.pl.sh [perl] — SYSTEM violation: system)
-       check_qx —   FAIL: sh2perl-pYXKQKRO.pl.sh [perl] — SYSTEM violation: system() call with builtin 'chown'
+[1530] wiringpi.postinst ... ok
 [1531] wiringpi.postrm ... ok
 [1532] wpa_action ... ok
 [1533] wpasupplicant.postinst ... ok
@@ -1692,8 +1666,7 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
        sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/zdiff)
 [1565] zegrep ... ok
 [1566] zfgrep ... ok
-[1567] zforce ... FAIL (check_qx —   FAIL: sh2perl-YvgWa0G7.pl.sh [perl] — bash/sh -c wrapping builtin 'echo')
-       check_qx —   FAIL: sh2perl-YvgWa0G7.pl.sh [perl] — bash/sh -c wrapping builtin 'echo'
+[1567] zforce ... ok
 [1568] zgrep ... FAIL (sh2perl generation, exit=1)
        sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/zgrep)
 [1569] zipgrep ... ok
@@ -1716,5 +1689,5 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [1586] zzz_avahi-autoipd ... ok
 
 ========================================================================
-SUMMARY: 1586 tested, 1461 passed, 125 failed
+SUMMARY: 1586 tested, 1488 passed, 98 failed
 ========================================================================

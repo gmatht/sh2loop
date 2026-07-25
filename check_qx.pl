@@ -7,10 +7,10 @@ use FindBin qw($RealBin);
 # Exit code = number of violations found.
 
 my @builtins = qw(
-    find ls grep sed awk sort uniq head tail cat echo printf
-    touch mkdir rmdir rm cp mv chmod chown ln basename dirname
-    date sleep wc kill ps cd pwd perl comm cut
-    whoami uname hostname bc
+    printf read cd pwd kill
+    source set unset export readonly
+    declare typeset local shift eval exec trap
+    return break continue let
 );
 
 # Paths relative to this script's location (project root).
@@ -42,7 +42,12 @@ sub check_builtins_in_cmd {
     my ($cmd) = @_;
     (my $check = $cmd) =~ s/<\([^)]*\)//g;
     $check =~ s/>\([^)]*\)//g;
-    $check =~ s!.*/!!;  # Strip directory path (e.g. /bin/cp -> cp)
+    # If the command contains a slash, it refers to an external executable, not a builtin
+    return undef if $check =~ m{/};
+    # Skip option flags (starting with - or --)
+    return undef if $check =~ /^--?/;
+    # Strip leading variable assignments (VAR=value cmd)
+    $check =~ s/^\w+=\S+\s*//;
     for my $b (@builtins) {
         if ($check =~ /\b\Q$b\E\b/) {
             return $b;

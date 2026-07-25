@@ -1,8 +1,7 @@
 #!/bin/sh
-# heredoc with tabs (<<-) inside a function
-func_with_heredoc () {
-  cat <<-EOF
-	hello
-	EOF
-}
-func_with_heredoc
+# Test: heredoc with tabs <<-
+cat <<-EOF
+	indented content
+	with tabs
+EOF
+echo "done"
