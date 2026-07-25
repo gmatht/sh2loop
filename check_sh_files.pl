@@ -141,7 +141,14 @@ for my $w (0 .. MAX_WORKERS - 1) {
 }
 
 my $res_dir = "$ROOT/check_sh_results";
-mkdir $res_dir unless -d $res_dir;
+# Start fresh — remove any stale files from a killed previous run
+if (-d $res_dir) {
+    opendir(my $dh, $res_dir) or die "opendir $res_dir: $!";
+    while (my $e = readdir $dh) { unlink "$res_dir/$e" if $e =~ /^worker_/; }
+    closedir $dh;
+    rmdir $res_dir;
+}
+mkdir $res_dir;
 
 my @worker_pids;
 for my $w (0 .. MAX_WORKERS - 1) {
@@ -184,36 +191,42 @@ while ($done < MAX_WORKERS) {
 }
 print "\n";
 
-# Collect and display results in original order
+# Collect results from all workers
 my (%by_name, $passed, $failed);
 for my $w (0 .. MAX_WORKERS - 1) {
     my $f = "$res_dir/worker_${w}.txt";
-    next unless -f $f;
+    next unless -f $f && -s $f;  # skip missing/empty
     open my $wf, '<', $f or next;
     while (<$wf>) {
         chomp; next unless $_;
         my ($status, $name, $detail) = split /\t/, $_, 3;
-        $by_name{$name} = { status => $status, detail => $detail // '' };
+        # Only keep first result per name (avoid races if chunks overlap)
+        $by_name{$name} //= { status => $status, detail => $detail // '' };
     }
     close $wf;
     unlink $f;
 }
 rmdir $res_dir;
 
+# Display results in sorted filename order (deterministic)
 my $idx = 0;
-for my $sh_file (@all_sh) {
-    my $name = basename($sh_file); $idx++;
-    my $r = $by_name{$name} // { status => '?', detail => 'no result' };
+for my $name (sort keys %by_name) {
+    my $r = $by_name{$name}; $idx++;
     if ($r->{status} ne 'ok') {
         $failed++;
         my $short = $r->{detail};
-        $short =~ s/\s*\(.*//;  # strip long parenthesised tail
+        $short =~ s/\s*\(.*//;
         printf "[%d] %s ... %s (%s)\n", $idx, $name, $r->{status}, $short;
         print "       $r->{detail}\n" if $r->{detail};
     } else {
         printf "[%d] %s ... %s\n", $idx, $name, $r->{status};
         $passed++;
     }
+}
+# Warn about missing files (worker may have crashed)
+my $missing = $total - scalar(keys %by_name);
+if ($missing) {
+    printf "  (warning: %d files have no result — worker may have crashed)\n", $missing;
 }
 
 printf "\n%s\nSUMMARY: %d tested, %d passed, %d failed\n%s\n",
