@@ -1,0 +1,125 @@
+30-orangepi-sysinfo	check_qx —   FAIL: sh2perl-BxFc0NSK.pl.sh [perl] — QX violation: qx{} call with builtin 'awk'
+VampireDriversFunctions	sh2perl generation, exit=1
+alsa-info	sh2perl generation, exit=1
+alsabat-test	check_qx —   FAIL: sh2perl-5qzrXkDH.pl.sh [perl] — OPEN3 violation: open3
+apt-key	sh2perl generation, exit=1
+apt.systemd.daily	sh2perl generation, exit=1
+aptitude.postinst	sh2perl generation, exit=1
+autossh	check_qx —   FAIL: sh2perl-NVqQd5ej.pl.sh [perl] — OPEN3 violation: open3
+avahi-autoipd.postrm	sh2perl generation, exit=1
+bashbug	sh2perl generation, exit=1
+blkdeactivate	sh2perl generation, exit=1
+burn_to_emmc	sh2perl generation, exit=1
+bzdiff	check_qx —   FAIL: sh2perl-gLmybiCb.pl.sh [perl] — SYSTEM violation: system
+bzexe	sh2perl generation, exit=1
+c2z	sh2perl generation, exit=1
+changesetfs	sh2perl generation, exit=1
+common.postinst	sh2perl generation, exit=1
+compile	sh2perl generation, exit=1
+config.guess	sh2perl generation, exit=1
+config.sub	sh2perl generation, exit=1
+console-conf-write-login-details	sh2perl generation, exit=1
+create_ap	sh2perl generation, exit=1
+cups	sh2perl generation, exit=1
+depcomp	sh2perl generation, exit=1
+dhclient-script	sh2perl generation, exit=1
+dkms	sh2perl generation, exit=1
+dkms-autopkgtest	check_qx —   FAIL: sh2perl-0nVggl6b.pl.sh [perl] — OPEN3 violation: open3
+dkms_autoinstaller	sh2perl generation, exit=1
+docker	sh2perl generation, exit=1
+docker-compose	sh2perl generation, exit=1
+dpkg-realpath	sh2perl generation, exit=1
+ds-identify	sh2perl generation, exit=1
+e2scrub_all	sh2perl generation, exit=1
+exe_with_z64	sh2perl generation, exit=1
+exe_with_zip	sh2perl generation, exit=1
+expect_autopasswd	sh2perl generation, exit=1
+expect_timed-run	sh2perl generation, exit=1
+fail	check_qx —   FAIL: sh2perl-aA0oX7iN.pl.sh [perl] — OPEN3 violation: open3
+figlist	sh2perl generation, exit=1
+form1	sh2perl generation, exit=1
+form2	sh2perl generation, exit=1
+fsck	sh2perl generation, exit=1
+gauge2	sh2perl generation, exit=1
+get-arg	sh2perl generation, exit=1
+get_next_oid	sh2perl generation, exit=1
+gettextize	sh2perl generation, exit=1
+git-filter-branch	perlcritic — Bareword file handle opened at line 500, column 9.  See pages 202,204 of PBP.
+git-jump	sh2perl generation, exit=1
+git-quiltimport	sh2perl generation, exit=1
+git-submodule	sh2perl generation, exit=1
+growpart	sh2perl generation, exit=1
+gzexe	sh2perl generation, exit=1
+hdparm	check_qx —   FAIL: sh2perl-7egBG6zn.pl.sh [perl] — QX violation: qx{} call with builtin 'perl'
+init	sh2perl generation, exit=1
+inputmenu-stdout	sh2perl generation, exit=1
+inputmenu1	sh2perl generation, exit=1
+inputmenu2	sh2perl generation, exit=1
+inputmenu3	sh2perl generation, exit=1
+inputmenu4	sh2perl generation, exit=1
+install-sh	sh2perl generation, exit=1
+invoke-rc.d	check_qx —   FAIL: sh2perl-7fp04ayT.pl.sh [perl] — OPEN3 violation: open3
+ip-down	check_qx —   FAIL: sh2perl-m31iJPWh.pl.sh [perl] — OPEN3 violation: open3
+ip-pre-up	check_qx —   FAIL: sh2perl-R67Nrq5f.pl.sh [perl] — OPEN3 violation: open3
+ip-up	check_qx —   FAIL: sh2perl-0oTgzKI6.pl.sh [perl] — OPEN3 violation: open3
+kernel-install	sh2perl generation, exit=1
+kube-ps1.plugin.zsh	sh2perl generation, exit=1
+lirc-config-tool	sh2perl generation, exit=1
+locale-gen	check_qx —   FAIL: sh2perl-6grmLZkb.pl.sh [perl] — QX violation: qx{} call with builtin 'perl'
+makesetup	sh2perl generation, exit=1
+mdate-sh	sh2perl generation, exit=1
+mixedform	sh2perl generation, exit=1
+mixedform2	sh2perl generation, exit=1
+mysql	sh2perl generation, exit=1
+mysql-server-8.0.postrm	sh2perl generation, exit=1
+mysql-server-8.0.preinst	sh2perl generation, exit=1
+mysqld_safe	check_qx —   FAIL: sh2perl-fwj9zoq5.pl.sh [perl] — OPEN3 violation: open3
+namespace.init	perlcritic — Integer with leading zeros: "0777" at line 121, column 42.  See page 58 of PBP.
+nand-sata-install	sh2perl generation, exit=1
+ofm_grep	check_qx —   FAIL: sh2perl-79skwTA6.pl.sh [perl] — QX violation: qx{} call with builtin 'perl'
+orangepi-apt-updates	sh2perl generation, exit=1
+orangepi-firstlogin	sh2perl generation, exit=1
+orangepi-firstrun	check_qx —   FAIL: sh2perl-MRaUzI3Y.pl.sh [perl] — EXEC violation: exec bash/sh -c wrapping builtin 'sleep'
+orangepi-hardware-optimization	sh2perl generation, exit=1
+orangepi-ramlog	check_qx —   FAIL: sh2perl-oslcGSMI.pl.sh [perl] — OPEN3 violation: open3
+orangepi-truncate-logs	check_qx —   FAIL: sh2perl-Sz08eKdU.pl.sh [perl] — OPEN3 violation: open3
+orangepimonitor	sh2perl generation, exit=1
+plymouth-populate-initrd	sh2perl generation, exit=1
+postrm	sh2perl generation, exit=1
+pre-commit	sh2perl generation, exit=1
+pre-commit.sample	sh2perl generation, exit=1
+pre-rebase.sample	check_qx —   FAIL: sh2perl-kQUnwzqP.pl.sh [perl] — SYSTEM violation: system
+prepare-commit-msg.sample	check_qx —   FAIL: sh2perl-q6w4nCmX.pl.sh [perl] — SYSTEM violation: system
+project-id	sh2perl generation, exit=1
+py-compile	sh2perl generation, exit=1
+sargraph	check_qx —   FAIL: sh2perl-gPJ5TLAy.pl.sh [perl] — QX violation: qx{$which_cmd} where $which_cmd contains builtin 'find'
+sargraph2	sh2perl generation, exit=1
+sc	sh2perl generation, exit=1
+scd-event	sh2perl generation, exit=1
+selinux-autorelabel	check_qx —   FAIL: sh2perl-6oxR3QeV.pl.sh [perl] — OPEN3 violation: open3
+setupcon	check_qx —   FAIL: sh2perl-XZw6sidn.pl.sh [perl] — bash/sh -c wrapping builtin 'echo'
+shadowconfig	sh2perl generation, exit=1
+shell-proxy.plugin.zsh	sh2perl generation, exit=1
+softy	sh2perl generation, exit=1
+spatchcache	sh2perl generation, exit=1
+spotify	check_qx —   FAIL: sh2perl-WWe5tFWo.pl.sh [perl] — OPEN3 violation: open3
+ssh	sh2perl generation, exit=1
+ssh-copy-id	sh2perl generation, exit=1
+tzselect	sh2perl generation, exit=1
+ucf	sh2perl generation, exit=1
+uncloud-init	sh2perl generation, exit=1
+update-apparmor-samba-profile	sh2perl generation, exit=1
+update-initramfs	check_qx —   FAIL: sh2perl-Xc6Q9u1g.pl.sh [perl] — OPEN3 violation: open3
+update-pciids	sh2perl generation, exit=1
+update-smart-drivedb	sh2perl generation, exit=1
+usb-devices	sh2perl generation, exit=1
+vsftpd	check_qx —   FAIL: sh2perl-paWZfvK4.pl.sh [perl] — OPEN3 violation: open3
+wireless-tools	sh2perl generation, exit=1
+wiringpi.postinst	check_qx —   FAIL: sh2perl-pYXKQKRO.pl.sh [perl] — SYSTEM violation: system
+xdg-open	sh2perl generation, exit=1
+xzdiff	sh2perl generation, exit=1
+xzgrep	sh2perl generation, exit=1
+ylwrap	sh2perl generation, exit=1
+zdiff	sh2perl generation, exit=1
+zforce	check_qx —   FAIL: sh2perl-YvgWa0G7.pl.sh [perl] — bash/sh -c wrapping builtin 'echo'
+zgrep	sh2perl generation, exit=1

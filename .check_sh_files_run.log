@@ -1,306 +1,1720 @@
 ========================================================================
-Checking 295 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
+Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 ========================================================================
 
-  progress: 0/8 workers done, filesets: [none]  progress: 0/8 workers done, filesets: [2,3,5,8]  progress: 0/8 workers done, filesets: [2,3,5,8]  progress: 0/8 workers done, filesets: [2,3,5,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 4/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 8/8 workers done, filesets: [1,2,3,4,5,6,7,8]
-[1] 000__02_output_formatting_commands.sh ... ok
-[2] 000__03_file_manipulation_commands.sh ... ok
-[3] 000__04_basic_backtick_usage.sh ... ok
-[4] 000__04_basic_backtick_usage_simple.sh ... ok
-[5] 000__04a_basic_command_substitution.sh ... ok
-[6] 000__04b_file_directory_operations.sh ... ok
-[7] 000__04c_text_processing_commands.sh ... ok
-[8] 000__04d_system_utilities.sh ... ok
-[9] 000__04e_file_manipulation.sh ... ok
-[10] 000__04f_output_formatting.sh ... ok
-[11] 000__04g_checksum_commands.sh ... ok
-[12] 000__04h_complex_examples.sh ... ok
-[13] 000__05_system_utilities.sh ... ok
-[14] 000__06_text_processing_commands.sh ... ok
-[15] 000__07_find_path_commands.sh ... ok
-[16] 001_simple.sh ... ok
-[17] 002_control_flow.sh ... ok
-[18] 003_pipeline.sh ... ok
-[19] 005_args.sh ... ok
-[20] 006_misc.sh ... ok
-[21] 008_simple_backup.sh ... ok
-[22] 009_arrays.sh ... ok
-[23] 010_pattern_matching.sh ... ok
-[24] 011_brace_expansion.sh ... ok
-[25] 012_process_substitution.sh ... ok
-[26] 013_parameter_expansion.sh ... ok
-[27] 014_ansi_quoting.sh ... ok
-[28] 015_grep_advanced.sh ... ok
-[29] 016_grep_basic.sh ... ok
-[30] 017_grep_context.sh ... ok
-[31] 018_grep_params.sh ... ok
-[32] 019_grep_regex.sh ... ok
-[33] 020_ansi_quoting_basic.sh ... ok
-[34] 021_ansi_quoting_escape.sh ... ok
-[35] 022_ansi_quoting_unicode.sh ... ok
-[36] 023_ansi_quoting_practical.sh ... ok
-[37] 024_parameter_expansion_case.sh ... ok
-[38] 025_parameter_expansion_advanced.sh ... ok
-[39] 026_parameter_expansion_more.sh ... ok
-[40] 027_parameter_expansion_defaults.sh ... ok
-[41] 028_arrays_indexed.sh ... ok
-[42] 029_arrays_associative.sh ... ok
-[43] 030_control_flow_if.sh ... ok
-[44] 031_control_flow_loops.sh ... ok
-[45] 032_control_flow_function.sh ... ok
-[46] 033_brace_expansion_basic.sh ... ok
-[47] 034_brace_expansion_advanced.sh ... ok
-[48] 035_brace_expansion_practical.sh ... ok
-[49] 036_pattern_matching_basic.sh ... ok
-[50] 037_pattern_matching_extglob.sh ... ok
-[51] 038_pattern_matching_nocase.sh ... ok
-[52] 039_process_substitution_here.sh ... ok
-[53] 03aP.sh ... ok
-[54] 040_process_substitution_comm.sh ... ok
-[55] 041_process_substitution_mapfile.sh ... ok
-[56] 042_process_substitution_advanced.sh ... ok
-[57] 045_shell_calling_perl.sh ... ok
-[58] 050_test_ls_star_dot_sh.sh ... ok
-[59] 051_primes.sh ... ok
-[60] 054_fibonacci.sh ... ok
-[61] 055_factorize.sh ... ok
-[62] 057_case.sh ... ok
-[63] 058_advanced_bash_idioms.sh ... ok
-[64] 061_test_local_names_preserved.sh ... ok
-[65] 062_01_ambiguous_operators.sh ... ok
-[66] 062_02_complex_parameter_expansions.sh ... ok
-[67] 062_03_complex_heredocs.sh ... ok
-[68] 062_04_nested_arithmetic.sh ... ok
-[69] 062_05_nested_command_substitution.sh ... ok
-[70] 062_06_process_substitution.sh ... ok
-[71] 062_07_complex_brace_expansion.sh ... ok
-[72] 062_08_simple_case.sh ... ok
-[73] 062_09_complex_function.sh ... ok
-[74] 062_10_simple_pipeline.sh ... ok
-[75] 062_11_mixed_arithmetic.sh ... ok
-[76] 062_12_complex_string_interpolation.sh ... ok
-[77] 062_13_simple_test_expressions.sh ... ok
-[78] 062_14_complex_array_operations.sh ... ok
-[79] 062_15_complex_local_variables.sh ... ok
-[80] 062_hard_to_lex.sh ... ok
-[81] 063_01_deeply_nested_arithmetic.sh ... ok
-[82] 063_02_complex_array_assignments.sh ... ok
-[83] 063_03_nested_command_substitutions.sh ... ok
-[84] 063_04_complex_parameter_expansion.sh ... ok
-[85] 063_05_heredoc_with_complex_content.sh ... ok
-[86] 063_06_complex_pipeline_background.sh ... ok
-[87] 063_07_nested_if_statements.sh ... ok
-[88] 063_08_complex_case_statement.sh ... ok
-[89] 063_09_complex_function_parameter_handling.sh ... ok
-[90] 063_11_complex_while_loop.sh ... ok
-[91] 063_12_complex_eval.sh ... ok
-[92] 063_13_nested_subshells.sh ... ok
-[93] 063_14_complex_redirects.sh ... ok
-[94] 063_15_complex_function_definition.sh ... ok
-[95] 063_16_complex_test_expressions.sh ... ok
-[96] 063_17_nested_brace_expansion.sh ... ok
-[97] 063_18_complex_here_string.sh ... ok
-[98] 063_19_complex_function_call.sh ... ok
-[99] 063_20_final_complex_construct.sh ... ok
-[100] 063_hard_to_parse.sh ... ok
-[101] 064_01_complex_nested_subshells.sh ... ok
-[102] 064_02_nested_brace_expansions.sh ... ok
-[103] 064_03_complex_parameter_expansion.sh ... ok
-[104] 064_04_extended_glob_patterns.sh ... ok
-[105] 064_05_complex_case_statement.sh ... ok
-[106] 064_06_nested_arithmetic_expressions.sh ... ok
-[107] 064_07_complex_array_operations.sh ... ok
-[108] 064_08_heredocs_with_variable_interpolation.sh ... ok
-[109] 064_09_process_substitution_pipeline.sh ... ok
-[110] 064_10_nested_function_definitions.sh ... ok
-[111] 064_11_complex_test_expressions.sh ... ok
-[112] 064_12_brace_expansion_nested_sequences.sh ... ok
-[113] 064_13_complex_string_manipulation.sh ... ok
-[114] 064_14_nested_command_substitution_arithmetic.sh ... ok
-[115] 064_15_complex_pipeline_multiple_redirects.sh ... ok
-[116] 064_16_function_complex_argument_handling.sh ... ok
-[117] 064_17_complex_while_loop_nested_conditionals.sh ... ok
-[118] 064_18_array_slicing_manipulation.sh ... ok
-[119] 064_19_complex_pattern_matching_extended_globs.sh ... ok
-[120] 064_20_nested_subshells_environment_variables.sh ... ok
-[121] 064_21_complex_string_interpolation_multiple_variables.sh ... ok
-[122] 064_22_function_returning_complex_data_structures.sh ... ok
-[123] 064_23_complex_error_handling_traps.sh ... ok
-[124] 064_24_advanced_parameter_expansion.sh ... ok
-[125] 064_hard_to_generate.sh ... ok
-[126] 070_cmp_basic.sh ... ok
-[127] 071_while_ifs_read.sh ... ok
-[128] 072_background_fork.sh ... ok
-[129] 073_trap_signal.sh ... ok
-[130] 074_shopt.sh ... ok
-[131] 075_eval_complex.sh ... ok
-[132] 076_brace_expansion_mixed.sh ... ok
-[133] 077_backslash_continuation.sh ... ok
-[134] 078_arithmetic_double_paren.sh ... ok
-[135] 079_heredoc_interpolation.sh ... ok
-[136] 080_process_sub_pipeline.sh ... ok
-[137] 081_nested_functions.sh ... ok
-[138] 082_sort_locale.sh ... ok
-[139] 083_process_sub_missing_files.sh ... ok
-[140] 084_while_pipeline.sh ... ok
-[141] 085_for_glob_pipe.sh ... ok
-[142] 086_if_condition_pipe.sh ... ok
-[143] 087_function_cmd_sub.sh ... ok
-[144] 088_while_read_ifs_sort.sh ... ok
-[145] 089_for_in_arith.sh ... ok
-[146] 090_nested_if_else.sh ... ok
-[147] 091_while_pipe_var.sh ... ok
-[148] 092_for_arith_func.sh ... ok
-[149] 093_case_esac.sh ... ok
-[150] 094_until_loop.sh ... ok
-[151] 095_select_menu.sh ... ok
-[152] 096_head_procsub.sh ... ok
-[153] DbRj.sh ... ok
-[154] GxEI.sh ... ok
-[155] J4wW.sh ... ok
-[156] Om8z.sh ... ok
-[157] UqfL.sh ... ok
-[158] Z99-cloud-locale-test.sh ... ok
-[159] Z99-cloudinit-warnings.sh ... ok
-[160] action_wpa.sh ... ok
-[161] appp.sh ... ok
-[162] archive.sh ... ok
-[163] askpass-empty.sh ... ok
-[164] askpass.sh ... ok
-[165] auto_login_cli.sh ... ok
-[166] benchmark.sh ... ok
-[167] blink.sh ... ok
-[168] bootsplash.sh ... ok
-[169] bridge-utils.sh ... ok
-[170] build-wasm.sh ... ok
-[171] cached_setup_font.sh ... ok
-[172] cached_setup_keyboard.sh ... ok
-[173] cached_setup_terminal.sh ... ok
-[174] cat_serial.sh ... ok
-[175] check-mac-address.sh ... ok
-[176] check_side_effects_overlay.sh ... ok
-[177] chronyd-starter.sh ... ok
-[178] clean_dead_code.sh ... ok
-[179] clean_dead_code_safe.sh ... ok
-[180] comment_debug.sh ... ok
-[181] compile_python.sh ... ok
-[182] completion.sh ... ok
-[183] complex_test.sh ... ok
-[184] confmodule.sh ... ok
-[185] console-setup.sh ... ok
-[186] coverage-diff.sh ... ok
-[187] cpuUsage.sh ... ok
-[188] cron-tasks-review.sh ... ok
-[189] debug_function.sh ... ok
-[190] debug_wc_redirect.sh ... ok
-[191] desktop_login.sh ... ok
-[192] determine-linux-distro.sh ... ok
-[193] disable_desktop_autologin.sh ... ok
-[194] dist.sh ... ok
-[195] doc.sh ... ok
-[196] dockerd-rootless-setuptool.sh ... ok
-[197] dockerd-rootless.sh ... ok
-[198] emacsclient.sh ... ok
-[199] enable_docker.sh ... ok
-[200] firewall.sh ... ok
-[201] functions-network.sh ... ok
-[202] functions.sh ... ok
-[203] gather.sh ... ok
-[204] gen-sample-keys.sh ... ok
-[205] gengnuplot.sh ... ok
-[206] get-mac-address.sh ... ok
-[207] gettext.sh ... ok
-[208] git-editor-empty.sh ... ok
-[209] git-editor.sh ... ok
-[210] git-import.sh ... ok
-[211] git-resurrect.sh ... ok
-[212] git-subtree.sh ... ok
-[213] gitAskPass.sh ... ok
-[214] github.sh ... ok
-[215] hGok.sh ... ok
-[216] header.sh ... ok
-[217] healthd.sh ... ok
-[218] hwclock.sh ... ok
-[219] ifupdown.sh ... ok
-[220] image.sh ... ok
-[221] init.sh ... ok
-[222] install-autossh-daemon.sh ... ok
-[223] install-linux-prereqs.sh ... ok
-[224] install.sh ... ok
-[225] install_bt_panel.sh ... ok
-[226] install_btrfs_monitor.sh ... ok
-[227] install_docker.sh ... ok
-[228] install_qt.sh ... ok
-[229] install_ros.sh ... ok
-[230] interprocess-communicator.sh ... ok
-[231] jobs.sh ... ok
-[232] kaFu.sh ... ok
-[233] keyboard-setup.sh ... ok
-[234] less.sh ... ok
-[235] lockout-not-enabled.sh ... ok
-[236] memtester.sh ... ok
-[237] miri.sh ... ok
-[238] misc.sh ... ok
-[239] mkzip.sh ... ok
-[240] oldconfigure.sh ... ok
-[241] openvpn-shutdown.sh ... ok
-[242] openvpn-startup.sh ... ok
-[243] orangepi-activate-profile-sync-daemon.sh ... ok
-[244] orangepi-check-first-login-reboot.sh ... ok
-[245] orangepi-check-first-login.sh ... ok
-[246] orangepi-ssh-title.sh ... ok
-[247] package.sh ... ok
-[248] pcmcia-compat.sh ... ok
-[249] ping-places.sh ... ok
-[250] ps.sh ... ok
-[251] remotes2config.sh ... ok
-[252] request-key-debug.sh ... ok
-[253] rerere-train.sh ... ok
-[254] reset_fail_count.sh ... ok
-[255] reset_ssh.sh ... ok
-[256] rstrip.sh ... ok
-[257] run-workflow.sh ... ok
-[258] search-name.sh ... ok
-[259] selinux-autorelabel-generator.sh ... ok
-[260] set_swap.sh ... ok
-[261] set_vnc.sh ... ok
-[262] settle-dad.sh ... ok
-[263] setup-gmail-download.sh ... ok
-[264] setup-grafana.sh ... ok
-[265] sh.sh ... ok
-[266] show-size-changes.sh ... ok
-[267] smartd_warning.sh ... ok
-[268] snap-debug-info.sh ... ok
-[269] snapd.core-fixup.sh ... ok
-[270] sound.sh ... ok
-[271] ssh-askpass-empty.sh ... ok
-[272] ssh-askpass.sh ... ok
-[273] submenu.sh ... ok
-[274] systemd-bootchart-poststop.sh ... ok
-[275] t-git-credential-netrc.sh ... ok
-[276] t7900-subtree.sh ... ok
-[277] tap-driver.sh ... ok
-[278] tellerstats.sh ... ok
-[279] terminateProcess.sh ... ok
-[280] test.sh ... ok
-[281] test_find.sh ... ok
-[282] test_pwm.sh ... ok
-[283] test_ros.sh ... ok
-[284] test_simple_function.sh ... ok
-[285] test_system_builtin.sh ... ok
-[286] text.sh ... ok
-[287] tsc-some-files.sh ... ok
-[288] ucf_helper_functions.sh ... ok
-[289] update_blessed.sh ... ok
-[290] update_unicode.sh ... ok
-[291] video.sh ... ok
-[292] wait-for-ll6.sh ... ok
-[293] wait-online.sh ... ok
-[294] web.sh ... ok
-[295] yzfa.sh ... ok
-Use of uninitialized value $failed in printf at check_sh_files.pl line 219.
+  progress: 0/8 workers done, filesets: [7,8]  progress: 0/8 workers done, filesets: [3,7]  progress: 0/8 workers done, filesets: [2,3,4,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 4/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 4/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 8/8 workers done, filesets: [1,2,3,4,5,6,7,8]
+[1] 00-entry-directory.install ... ok
+[2] 00-header ... ok
+[3] 0000usepeerdns ... ok
+[4] 000__02_output_formatting_commands.sh ... ok
+[5] 000__03_file_manipulation_commands.sh ... ok
+[6] 000__04_basic_backtick_usage.sh ... ok
+[7] 000__04_basic_backtick_usage.sh.ORIGINAL ... ok
+[8] 000__04_basic_backtick_usage.sh.complex ... ok
+[9] 000__04_basic_backtick_usage_simple.sh ... ok
+[10] 000__04a_basic_command_substitution.sh ... ok
+[11] 000__04b_file_directory_operations.sh ... ok
+[12] 000__04c_text_processing_commands.sh ... ok
+[13] 000__04d_system_utilities.sh ... ok
+[14] 000__04e_file_manipulation.sh ... ok
+[15] 000__04f_output_formatting.sh ... ok
+[16] 000__04g_checksum_commands.sh ... ok
+[17] 000__04h_complex_examples.sh ... ok
+[18] 000__05_system_utilities.sh ... ok
+[19] 000__06_text_processing_commands.sh ... ok
+[20] 000__07_find_path_commands.sh ... ok
+[21] 001_simple.sh ... ok
+[22] 002_control_flow.sh ... ok
+[23] 003_pipeline.sh ... ok
+[24] 005_args.sh ... ok
+[25] 006_misc.sh ... ok
+[26] 008_simple_backup.sh ... ok
+[27] 009_arrays.sh ... ok
+[28] 010_pattern_matching.sh ... ok
+[29] 011_brace_expansion.sh ... ok
+[30] 012_process_substitution.sh ... ok
+[31] 013_parameter_expansion.sh ... ok
+[32] 014_ansi_quoting.sh ... ok
+[33] 015_grep_advanced.sh ... ok
+[34] 016_grep_basic.sh ... ok
+[35] 017_grep_context.sh ... ok
+[36] 018_grep_params.sh ... ok
+[37] 019_grep_regex.sh ... ok
+[38] 020_ansi_quoting_basic.sh ... ok
+[39] 021_ansi_quoting_escape.sh ... ok
+[40] 022_ansi_quoting_unicode.sh ... ok
+[41] 023_ansi_quoting_practical.sh ... ok
+[42] 024_parameter_expansion_case.sh ... ok
+[43] 025_parameter_expansion_advanced.sh ... ok
+[44] 026_parameter_expansion_more.sh ... ok
+[45] 027_parameter_expansion_defaults.sh ... ok
+[46] 028_arrays_indexed.sh ... ok
+[47] 029_arrays_associative.sh ... ok
+[48] 030_control_flow_if.sh ... ok
+[49] 031_control_flow_loops.sh ... ok
+[50] 032_control_flow_function.sh ... ok
+[51] 033_brace_expansion_basic.sh ... ok
+[52] 034_brace_expansion_advanced.sh ... ok
+[53] 035_brace_expansion_practical.sh ... ok
+[54] 036_pattern_matching_basic.sh ... ok
+[55] 037_pattern_matching_extglob.sh ... ok
+[56] 038_pattern_matching_nocase.sh ... ok
+[57] 039_process_substitution_here.sh ... ok
+[58] 03aP.sh ... ok
+[59] 040_process_substitution_comm.sh ... ok
+[60] 041_process_substitution_mapfile.sh ... ok
+[61] 042_process_substitution_advanced.sh ... ok
+[62] 045_shell_calling_perl.sh ... ok
+[63] 050_test_ls_star_dot_sh.sh ... ok
+[64] 051_primes.sh ... ok
+[65] 054_fibonacci.sh ... ok
+[66] 055_factorize.sh ... ok
+[67] 057_case.sh ... ok
+[68] 058_advanced_bash_idioms.sh ... ok
+[69] 061_test_local_names_preserved.sh ... ok
+[70] 062_01_ambiguous_operators.sh ... ok
+[71] 062_02_complex_parameter_expansions.sh ... ok
+[72] 062_03_complex_heredocs.sh ... ok
+[73] 062_04_nested_arithmetic.sh ... ok
+[74] 062_05_nested_command_substitution.sh ... ok
+[75] 062_06_process_substitution.sh ... ok
+[76] 062_07_complex_brace_expansion.sh ... ok
+[77] 062_08_simple_case.sh ... ok
+[78] 062_09_complex_function.sh ... ok
+[79] 062_10_simple_pipeline.sh ... ok
+[80] 062_11_mixed_arithmetic.sh ... ok
+[81] 062_12_complex_string_interpolation.sh ... ok
+[82] 062_13_simple_test_expressions.sh ... ok
+[83] 062_14_complex_array_operations.sh ... ok
+[84] 062_15_complex_local_variables.sh ... ok
+[85] 062_hard_to_lex.sh ... ok
+[86] 063_01_deeply_nested_arithmetic.sh ... ok
+[87] 063_02_complex_array_assignments.sh ... ok
+[88] 063_03_nested_command_substitutions.sh ... ok
+[89] 063_04_complex_parameter_expansion.sh ... ok
+[90] 063_05_heredoc_with_complex_content.sh ... ok
+[91] 063_06_complex_pipeline_background.sh ... ok
+[92] 063_07_nested_if_statements.sh ... ok
+[93] 063_08_complex_case_statement.sh ... ok
+[94] 063_09_complex_function_parameter_handling.sh ... ok
+[95] 063_11_complex_while_loop.sh ... ok
+[96] 063_12_complex_eval.sh ... ok
+[97] 063_13_nested_subshells.sh ... ok
+[98] 063_14_complex_redirects.sh ... ok
+[99] 063_15_complex_function_definition.sh ... ok
+[100] 063_16_complex_test_expressions.sh ... ok
+[101] 063_17_nested_brace_expansion.sh ... ok
+[102] 063_18_complex_here_string.sh ... ok
+[103] 063_19_complex_function_call.sh ... ok
+[104] 063_20_final_complex_construct.sh ... ok
+[105] 063_hard_to_parse.sh ... ok
+[106] 064_01_complex_nested_subshells.sh ... ok
+[107] 064_02_nested_brace_expansions.sh ... ok
+[108] 064_03_complex_parameter_expansion.sh ... ok
+[109] 064_04_extended_glob_patterns.sh ... ok
+[110] 064_05_complex_case_statement.sh ... ok
+[111] 064_06_nested_arithmetic_expressions.sh ... ok
+[112] 064_07_complex_array_operations.sh ... ok
+[113] 064_08_heredocs_with_variable_interpolation.sh ... ok
+[114] 064_09_process_substitution_pipeline.sh ... ok
+[115] 064_10_nested_function_definitions.sh ... ok
+[116] 064_11_complex_test_expressions.sh ... ok
+[117] 064_12_brace_expansion_nested_sequences.sh ... ok
+[118] 064_13_complex_string_manipulation.sh ... ok
+[119] 064_14_nested_command_substitution_arithmetic.sh ... ok
+[120] 064_15_complex_pipeline_multiple_redirects.sh ... ok
+[121] 064_16_function_complex_argument_handling.sh ... ok
+[122] 064_17_complex_while_loop_nested_conditionals.sh ... ok
+[123] 064_18_array_slicing_manipulation.sh ... ok
+[124] 064_19_complex_pattern_matching_extended_globs.sh ... ok
+[125] 064_20_nested_subshells_environment_variables.sh ... ok
+[126] 064_21_complex_string_interpolation_multiple_variables.sh ... ok
+[127] 064_22_function_returning_complex_data_structures.sh ... ok
+[128] 064_23_complex_error_handling_traps.sh ... ok
+[129] 064_24_advanced_parameter_expansion.sh ... ok
+[130] 064_hard_to_generate.sh ... ok
+[131] 070_cmp_basic.sh ... ok
+[132] 071_while_ifs_read.sh ... ok
+[133] 072_background_fork.sh ... ok
+[134] 073_trap_signal.sh ... ok
+[135] 074_shopt.sh ... ok
+[136] 075_eval_complex.sh ... ok
+[137] 076_brace_expansion_mixed.sh ... ok
+[138] 077_backslash_continuation.sh ... ok
+[139] 078_arithmetic_double_paren.sh ... ok
+[140] 079_heredoc_interpolation.sh ... ok
+[141] 080_process_sub_pipeline.sh ... ok
+[142] 081_nested_functions.sh ... ok
+[143] 082_sort_locale.sh ... ok
+[144] 083_process_sub_missing_files.sh ... ok
+[145] 084_while_pipeline.sh ... ok
+[146] 085_for_glob_pipe.sh ... ok
+[147] 086_if_condition_pipe.sh ... ok
+[148] 087_function_cmd_sub.sh ... ok
+[149] 088_while_read_ifs_sort.sh ... ok
+[150] 089_for_in_arith.sh ... ok
+[151] 090_nested_if_else.sh ... ok
+[152] 091_while_pipe_var.sh ... ok
+[153] 092_for_arith_func.sh ... ok
+[154] 093_case_esac.sh ... ok
+[155] 094_until_loop.sh ... ok
+[156] 095_select_menu.sh ... ok
+[157] 096_head_procsub.sh ... ok
+[158] 10-help-text ... ok
+[159] 10-mtu ... ok
+[160] 10-orangepi-header ... ok
+[161] 10_unattended-upgrades-hibernate ... ok
+[162] 10mail ... ok
+[163] 20-chrony-dhcp ... ok
+[164] 20-chrony-onoffline ... ok
+[165] 200-write ... ok
+[166] 30-orangepi-sysinfo ... FAIL (check_qx —   FAIL: sh2perl-BxFc0NSK.pl.sh [perl] — QX violation: qx{} call with builtin 'awk')
+       check_qx —   FAIL: sh2perl-BxFc0NSK.pl.sh [perl] — QX violation: qx{} call with builtin 'awk'
+[167] 35-orangepi-tips ... ok
+[168] 40-orangepi-updates ... ok
+[169] 400-notify-send ... ok
+[170] 41-orangepi-config ... ok
+[171] 50-depmod.install ... ok
+[172] 50-motd-news ... ok
+[173] 55-initrd.install ... ok
+[174] 600-mail ... ok
+[175] 60_wpa_supplicant ... ok
+[176] 70-net-conf ... ok
+[177] 85-initrd.install ... ok
+[178] 90-loaderentry.install ... ok
+[179] 90-uki-copy.install ... ok
+[180] 90-updates-available ... ok
+[181] 91-contract-ua-esm-status ... ok
+[182] 91-release-upgrade ... ok
+[183] 92-unattended-upgrades ... ok
+[184] 95-hwe-eol ... ok
+[185] 95hdparm-apm ... ok
+[186] 97-overlayroot ... ok
+[187] 98-fsck-at-reboot ... ok
+[188] 98-orangepi-autoreboot-warn ... ok
+[189] 98-reboot-required ... ok
+[190] 99-uboot ... ok
+[191] DbRj.sh ... ok
+[192] Example1 ... ok
+[193] Example2 ... ok
+[194] Example3 ... ok
+[195] Example4 ... ok
+[196] Example5 ... ok
+[197] Example6 ... ok
+[198] Example7 ... ok
+[199] Example8 ... ok
+[200] GxEI.sh ... ok
+[201] J4wW.sh ... ok
+[202] Om8z.sh ... ok
+[203] README.init.cs4236 ... ok
+[204] S40rkaiq_3A ... ok
+[205] UqfL.sh ... ok
+[206] VampireDriversFunctions ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/VampireDriversFunctions)
+[207] Xreset ... ok
+[208] Xsession ... ok
+[209] Z99-cloud-locale-test.sh ... ok
+[210] Z99-cloudinit-warnings.sh ... ok
+[211] aa-remove-unknown ... ok
+[212] aa-teardown ... ok
+[213] action_wpa.sh ... ok
+[214] acx ... ok
+[215] add-shell ... ok
+[216] addgnupghome ... ok
+[217] adduser.postrm ... ok
+[218] adduser.preinst ... ok
+[219] afmname ... ok
+[220] agent-launch ... ok
+[221] all_generic_ide ... ok
+[222] alsa-info ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/alsa-info)
+[223] alsa-utils ... ok
+[224] alsa-utils.postinst ... ok
+[225] alsa-utils.postrm ... ok
+[226] alsa-utils.preinst ... ok
+[227] alsa-utils.prerm ... ok
+[228] alsabat-test ... FAIL (check_qx —   FAIL: sh2perl-5qzrXkDH.pl.sh [perl] — OPEN3 violation: open3)
+       check_qx —   FAIL: sh2perl-5qzrXkDH.pl.sh [perl] — OPEN3 violation: open3() with builtin 'ps'
+[229] alta ... ok
+[230] apparmor ... ok
+[231] apparmor.config ... ok
+[232] apparmor.postinst ... ok
+[233] apparmor.postrm ... ok
+[234] apparmor.preinst ... ok
+[235] apparmor.prerm ... ok
+[236] apparmor.systemd ... ok
+[237] applygnupgdefaults ... ok
+[238] applypatch-msg.sample ... ok
+[239] apport ... ok
+[240] appp.sh ... ok
+[241] apt-compat ... ok
+[242] apt-key ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/apt-key)
+[243] apt.postinst ... ok
+[244] apt.postrm ... ok
+[245] apt.preinst ... ok
+[246] apt.prerm ... ok
+[247] apt.systemd.daily ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/apt.systemd.daily)
+[248] aptitude ... ok
+[249] aptitude-create-state-bundle ... ok
+[250] aptitude-run-state-bundle ... ok
+[251] aptitude.postinst ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/aptitude.postinst)
+[252] aptitude.postrm ... ok
+[253] aptitude.prerm ... ok
+[254] ar-lib ... ok
+[255] archive.sh ... ok
+[256] askpass-empty.sh ... ok
+[257] askpass.sh ... ok
+[258] audio ... ok
+[259] auto_login_cli.sh ... ok
+[260] autoconf ... ok
+[261] automake.postinst ... ok
+[262] automake.preinst ... ok
+[263] automake.prerm ... ok
+[264] autossh ... FAIL (check_qx —   FAIL: sh2perl-NVqQd5ej.pl.sh [perl] — OPEN3 violation: open3)
+       check_qx —   FAIL: sh2perl-NVqQd5ej.pl.sh [perl] — OPEN3 violation: open3() with builtin 'printf'
+[265] autossh-argv0 ... ok
+[266] autossh.host ... ok
+[267] avahi-autoipd ... ok
+[268] avahi-autoipd.action ... ok
+[269] avahi-autoipd.postinst ... ok
+[270] avahi-autoipd.postrm ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/avahi-autoipd.postrm)
+[271] avahi-autoipd.prerm ... ok
+[272] base-files.postinst ... ok
+[273] base-files.postrm ... ok
+[274] base-files.preinst ... ok
+[275] base-files.prerm ... ok
+[276] base-passwd.postinst ... ok
+[277] base-passwd.postrm ... ok
+[278] base-passwd.preinst ... ok
+[279] bash-completion.postinst ... ok
+[280] bash-completion.postrm ... ok
+[281] bash-completion.preinst ... ok
+[282] bash.postinst ... ok
+[283] bash.postrm ... ok
+[284] bash.prerm ... ok
+[285] bashbug ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/bashbug)
+[286] bc.postinst ... ok
+[287] bc.postrm ... ok
+[288] benchmark.sh ... ok
+[289] bison.postinst ... ok
+[290] bison.preinst ... ok
+[291] bison.prerm ... ok
+[292] bison.yacc ... ok
+[293] blacklist ... ok
+[294] blink.sh ... ok
+[295] blkdeactivate ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/blkdeactivate)
+[296] blkid ... ok
+[297] bluetooth ... ok
+[298] bluez.postinst ... ok
+[299] bluez.postrm ... ok
+[300] bluez.preinst ... ok
+[301] bluez.prerm ... ok
+[302] bootchart ... ok
+[303] bootsplash.sh ... ok
+[304] bpp ... ok
+[305] bridge-network-interface ... ok
+[306] bridge-start ... ok
+[307] bridge-stop ... ok
+[308] bridge-utils.postinst ... ok
+[309] bridge-utils.sh ... ok
+[310] bsdextrautils.preinst ... ok
+[311] bsh ... ok
+[312] btrfs ... ok
+[313] buginfo ... ok
+[314] build ... ok
+[315] build-wasm.sh ... ok
+[316] burn_to_emmc ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/burn_to_emmc)
+[317] bzdiff ... FAIL (check_qx —   FAIL: sh2perl-gLmybiCb.pl.sh [perl] — SYSTEM violation: system)
+       check_qx —   FAIL: sh2perl-gLmybiCb.pl.sh [perl] — SYSTEM violation: system() call with builtin 'rm'
+[318] bzexe ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/bzexe)
+[319] bzgrep ... ok
+[320] bzmore ... ok
+[321] c2z ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/c2z)
+[322] c89-gcc ... ok
+[323] c99-gcc ... ok
+[324] ca-certificates.config ... ok
+[325] ca-certificates.postinst ... ok
+[326] ca-certificates.postrm ... ok
+[327] cached_setup_font.sh ... ok
+[328] cached_setup_keyboard.sh ... ok
+[329] cached_setup_terminal.sh ... ok
+[330] calendar ... ok
+[331] calendar-stdout ... ok
+[332] calendar2 ... ok
+[333] calendar2-stdout ... ok
+[334] cat_serial.sh ... ok
+[335] changesetfs ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/changesetfs)
+[336] check-mac-address.sh ... ok
+[337] check_side_effects_overlay.sh ... ok
+[338] checklist ... ok
+[339] checklist-utf8 ... ok
+[340] checklist10 ... ok
+[341] chrony ... ok
+[342] chrony-helper ... ok
+[343] chrony.postinst ... ok
+[344] chrony.postrm ... ok
+[345] chrony.preinst ... ok
+[346] chrony.prerm ... ok
+[347] chronyd-starter.sh ... ok
+[348] clean_dead_code.sh ... ok
+[349] clean_dead_code_safe.sh ... ok
+[350] cloud-init-generator ... ok
+[351] cloud-init-per ... ok
+[352] comment_debug.sh ... ok
+[353] commit-msg.sample ... ok
+[354] common.postinst ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/common.postinst)
+[355] compile ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/compile)
+[356] compile_python.sh ... ok
+[357] completion.sh ... ok
+[358] complex_test.sh ... ok
+[359] config ... ok
+[360] config.guess ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/config.guess)
+[361] config.rpath ... ok
+[362] config.sub ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/config.sub)
+[363] configure ... ok
+[364] configure-symlinks ... ok
+[365] confmodule ... ok
+[366] confmodule.sh ... ok
+[367] connect-plug-ceph-conf ... ok
+[368] connect-plug-ovn-certificates ... ok
+[369] connect-plug-ovn-chassis ... ok
+[370] connect-plug-qemu-external ... ok
+[371] console-conf-check-error ... ok
+[372] console-conf-generator ... ok
+[373] console-conf-wrapper ... ok
+[374] console-conf-write-login-details ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/console-conf-write-login-details)
+[375] console-conf.rtupdate ... ok
+[376] console-setup-linux.postinst ... ok
+[377] console-setup-linux.postrm ... ok
+[378] console-setup-linux.preinst ... ok
+[379] console-setup-linux.prerm ... ok
+[380] console-setup.config ... ok
+[381] console-setup.postinst ... ok
+[382] console-setup.postrm ... ok
+[383] console-setup.sh ... ok
+[384] console_setup ... ok
+[385] containerd.io.postinst ... ok
+[386] containerd.io.postrm ... ok
+[387] containerd.io.prerm ... ok
+[388] core-sshd-host-keygen ... ok
+[389] coverage-diff.sh ... ok
+[390] cpio.postinst ... ok
+[391] cpio.prerm ... ok
+[392] cpp.postinst ... ok
+[393] cpp.postrm ... ok
+[394] cpp.preinst ... ok
+[395] cpp.prerm ... ok
+[396] cpuUsage.sh ... ok
+[397] cpufrequtils ... ok
+[398] cpufrequtils.postinst ... ok
+[399] cpufrequtils.postrm ... ok
+[400] cpufrequtils.preinst ... ok
+[401] cpufrequtils.prerm ... ok
+[402] cracklib-format ... ok
+[403] cracklib-runtime.postinst ... ok
+[404] cracklib-runtime.postrm ... ok
+[405] cracklib-runtime.preinst ... ok
+[406] cracklib-runtime.prerm ... ok
+[407] create-cracklib-dict ... ok
+[408] create_ap ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/create_ap)
+[409] cron ... ok
+[410] cron-daemon-common.postinst ... ok
+[411] cron-daemon-common.postrm ... ok
+[412] cron-tasks-review.sh ... ok
+[413] cron.postinst ... ok
+[414] cron.postrm ... ok
+[415] cron.preinst ... ok
+[416] cron.prerm ... ok
+[417] cryptdisks ... ok
+[418] cryptdisks-early ... ok
+[419] cryptdisks_start ... ok
+[420] cryptdisks_stop ... ok
+[421] cryptsetup ... ok
+[422] cryptsetup-bin ... ok
+[423] cups ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/cups)
+[424] cx ... ok
+[425] daemon.activate ... ok
+[426] daemon.reload ... ok
+[427] daemon.start ... ok
+[428] daemon.stop ... ok
+[429] dash.postrm ... ok
+[430] dbus ... ok
+[431] dbus-daemon.postinst ... ok
+[432] dbus-daemon.postrm ... ok
+[433] dbus-system-bus-common.postinst ... ok
+[434] dbus.postinst ... ok
+[435] dbus.postrm ... ok
+[436] dbus.preinst ... ok
+[437] dbus.prerm ... ok
+[438] dbus.service ... ok
+[439] debconf-utils.postinst ... ok
+[440] debconf.config ... ok
+[441] debconf.postinst ... ok
+[442] debian-sa1 ... ok
+[443] debian-start ... ok
+[444] debianutils.postinst ... ok
+[445] debianutils.postrm ... ok
+[446] debianutils.prerm ... ok
+[447] debug_function.sh ... ok
+[448] debug_wc_redirect.sh ... ok
+[449] debugpy ... ok
+[450] decrypt_derived ... ok
+[451] decrypt_gnupg ... ok
+[452] decrypt_gnupg-sc ... ok
+[453] decrypt_keyctl ... ok
+[454] decrypt_opensc ... ok
+[455] decrypt_ssl ... ok
+[456] depcomp ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/depcomp)
+[457] desktop_login.sh ... ok
+[458] determine-linux-distro.sh ... ok
+[459] devcontainer ... ok
+[460] dhclient-script ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/dhclient-script)
+[461] dhcpcd ... ok
+[462] dhcpcd-base.postinst ... ok
+[463] dhcpcd-base.postrm ... ok
+[464] dhcpcd-run-hooks ... ok
+[465] dirmngr.postinst ... ok
+[466] dirmngr.postrm ... ok
+[467] dirmngr.preinst ... ok
+[468] dirmngr.prerm ... ok
+[469] disable_desktop_autologin.sh ... ok
+[470] disconnect-plug-ceph-conf ... ok
+[471] disconnect-plug-ovn-certificates ... ok
+[472] disconnect-plug-ovn-chassis ... ok
+[473] disconnect-plug-qemu-external ... ok
+[474] dist.sh ... ok
+[475] dkms ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/dkms)
+[476] dkms-autopkgtest ... FAIL (check_qx —   FAIL: sh2perl-0nVggl6b.pl.sh [perl] — OPEN3 violation: open3)
+       check_qx —   FAIL: sh2perl-0nVggl6b.pl.sh [perl] — OPEN3 violation: open3() with builtin 'grep'
+[477] dkms.postinst ... ok
+[478] dkms.postrm ... ok
+[479] dkms.preinst ... ok
+[480] dkms.prerm ... ok
+[481] dkms_autoinstaller ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/dkms_autoinstaller)
+[482] dmsetup ... ok
+[483] dmsetup.postinst ... ok
+[484] dnsmasq ... ok
+[485] dnsmasq-base.postinst ... ok
+[486] dnsmasq-base.postrm ... ok
+[487] dnsmasq-base.preinst ... ok
+[488] dnsmasq-base.prerm ... ok
+[489] dnsmasq.postinst ... ok
+[490] dnsmasq.postrm ... ok
+[491] dnsmasq.preinst ... ok
+[492] dnsmasq.prerm ... ok
+[493] doc.sh ... ok
+[494] docker ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/docker)
+[495] docker-ce.postinst ... ok
+[496] docker-ce.postrm ... ok
+[497] docker-ce.preinst ... ok
+[498] docker-ce.prerm ... ok
+[499] docker-compose ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/docker-compose)
+[500] dockerd-rootless-setuptool.sh ... ok
+[501] dockerd-rootless.sh ... ok
+[502] dpkg ... ok
+[503] dpkg-db-backup ... ok
+[504] dpkg-db-keeper ... ok
+[505] dpkg-dev ... ok
+[506] dpkg-maintscript-helper ... ok
+[507] dpkg-realpath ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/dpkg-realpath)
+[508] dpkg.postinst ... ok
+[509] dpkg.postrm ... ok
+[510] ds-identify ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/ds-identify)
+[511] dtdiff ... ok
+[512] e2fsprogs.postinst ... ok
+[513] e2fsprogs.postrm ... ok
+[514] e2fsprogs.preinst ... ok
+[515] e2fsprogs.prerm ... ok
+[516] e2scrub ... ok
+[517] e2scrub_all ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/e2scrub_all)
+[518] e2scrub_all_cron ... ok
+[519] e2scrub_fail ... ok
+[520] echo_stderr ... ok
+[521] edit.indent.rc ... ok
+[522] editbox ... ok
+[523] editbox-utf8 ... ok
+[524] editbox2 ... ok
+[525] editor ... ok
+[526] egrep ... ok
+[527] emacsclient.sh ... ok
+[528] enable_docker.sh ... ok
+[529] ensureifup ... ok
+[530] ethtool ... ok
+[531] example_hook ... ok
+[532] example_script ... ok
+[533] exe_with_z64 ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/exe_with_z64)
+[534] exe_with_zip ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/exe_with_zip)
+[535] expect_autopasswd ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/expect_autopasswd)
+[536] expect_timed-run ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/expect_timed-run)
+[537] ext2 ... ok
+[538] f3write.h2w ... ok
+[539] fail ... FAIL (check_qx —   FAIL: sh2perl-aA0oX7iN.pl.sh [perl] — OPEN3 violation: open3)
+       check_qx —   FAIL: sh2perl-aA0oX7iN.pl.sh [perl] — OPEN3 violation: open3() with builtin 'kill'
+[540] fake-hwclock ... ok
+[541] fake-hwclock.postinst ... ok
+[542] fake-hwclock.postrm ... ok
+[543] fake-hwclock.preinst ... ok
+[544] fake-hwclock.prerm ... ok
+[545] fbset.postinst ... ok
+[546] fetch_macholib ... ok
+[547] fgrep ... ok
+[548] figlet.postinst ... ok
+[549] figlet.prerm ... ok
+[550] figlist ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/figlist)
+[551] finalrd ... ok
+[552] firewall.sh ... ok
+[553] fixfiles ... ok
+[554] fixrtc ... ok
+[555] flex.postinst ... ok
+[556] flex.prerm ... ok
+[557] fontconfig-config.postinst ... ok
+[558] fontconfig-config.postrm ... ok
+[559] fontconfig-config.preinst ... ok
+[560] fontconfig-config.prerm ... ok
+[561] fontconfig.postinst ... ok
+[562] fontconfig.postrm ... ok
+[563] fonts-dejavu-core.postinst ... ok
+[564] fonts-dejavu-core.postrm ... ok
+[565] fonts-dejavu-core.preinst ... ok
+[566] fonts-dejavu-core.prerm ... ok
+[567] foo.postinst ... ok
+[568] foo.postrm ... ok
+[569] foo.prerm ... ok
+[570] form1 ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/form1)
+[571] form2 ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/form2)
+[572] fping ... ok
+[573] fping.postinst ... ok
+[574] framebuffer ... ok
+[575] fsck ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/fsck)
+[576] fsck.btrfs ... ok
+[577] fselect ... ok
+[578] fselect-stdout ... ok
+[579] fselect1 ... ok
+[580] fselect1-stdout ... ok
+[581] fselect2 ... ok
+[582] fselect2-stdout ... ok
+[583] functions-network.sh ... ok
+[584] functions.sh ... ok
+[585] fuse ... ok
+[586] fuse3.postinst ... ok
+[587] fuse3.postrm ... ok
+[588] g++.postinst ... ok
+[589] g++.prerm ... ok
+[590] gather.sh ... ok
+[591] gauge ... ok
+[592] gauge0-input-fd ... ok
+[593] gauge2 ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/gauge2)
+[594] gcc.postinst ... ok
+[595] gcc.prerm ... ok
+[596] gen-sample-keys.sh ... ok
+[597] gengnuplot.sh ... ok
+[598] get-arg ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/get-arg)
+[599] get-libssl-abi ... ok
+[600] get-mac-address.sh ... ok
+[601] get-mode ... ok
+[602] get_next_oid ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/get_next_oid)
+[603] getopt-example.bash ... ok
+[604] gettext ... ok
+[605] gettext.sh ... ok
+[606] gettextize ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/gettextize)
+[607] gio-launch-desktop ... ok
+[608] git-common-hash ... ok
+[609] git-difftool--helper ... ok
+[610] git-editor-empty.sh ... ok
+[611] git-editor.sh ... ok
+[612] git-filter-branch ... FAIL (perlcritic — Bareword file handle opened at line 500, column 9.  See pages 202,204 of PBP.)
+       perlcritic — Bareword file handle opened at line 500, column 9.  See pages 202,204 of PBP.  (Severity: 5)
+[613] git-import.sh ... ok
+[614] git-instaweb ... ok
+[615] git-jump ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/git-jump)
+[616] git-merge-octopus ... ok
+[617] git-merge-one-file ... ok
+[618] git-merge-resolve ... ok
+[619] git-mergetool ... ok
+[620] git-new-workdir ... ok
+[621] git-quiltimport ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/git-quiltimport)
+[622] git-remote-bzr ... ok
+[623] git-remote-hg ... ok
+[624] git-request-pull ... ok
+[625] git-resurrect.sh ... ok
+[626] git-submodule ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/git-submodule)
+[627] git-subtree ... ok
+[628] git-subtree.sh ... ok
+[629] git-update ... ok
+[630] git-update-git-for-windows ... ok
+[631] git-web--browse ... ok
+[632] git.postinst ... ok
+[633] git.postrm ... ok
+[634] git.preinst ... ok
+[635] git.prerm ... ok
+[636] gitAskPass.sh ... ok
+[637] gitfs+ ... ok
+[638] github ... ok
+[639] github.sh ... ok
+[640] gpg-agent.postinst ... ok
+[641] gpg-agent.postrm ... ok
+[642] gpu-2404-custom-wrapper ... ok
+[643] gpu-2604-custom-wrapper ... ok
+[644] growpart ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/growpart)
+[645] gunzip ... ok
+[646] gzexe ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/gzexe)
+[647] gzip.postinst ... ok
+[648] gzip.preinst ... ok
+[649] hGok.sh ... ok
+[650] handle-writable-paths ... ok
+[651] harden ... ok
+[652] haveged ... ok
+[653] haveged.postinst ... ok
+[654] haveged.postrm ... ok
+[655] haveged.preinst ... ok
+[656] haveged.prerm ... ok
+[657] hdparm ... FAIL (check_qx —   FAIL: sh2perl-7egBG6zn.pl.sh [perl] — QX violation: qx{} call with builtin 'perl')
+       check_qx —   FAIL: sh2perl-7egBG6zn.pl.sh [perl] — QX violation: qx{} call with builtin 'perl'
+[658] hdparm.postinst ... ok
+[659] hdparm.postrm ... ok
+[660] hdparm.preinst ... ok
+[661] hdparm.prerm ... ok
+[662] header.sh ... ok
+[663] healthd.sh ... ok
+[664] help ... ok
+[665] hical ... ok
+[666] home.up ... ok
+[667] hook-hotplug ... ok
+[668] hostapd ... ok
+[669] hostapd.postinst ... ok
+[670] hostapd.postrm ... ok
+[671] hostapd.preinst ... ok
+[672] hostapd.prerm ... ok
+[673] hp48+ ... ok
+[674] htmldump ... ok
+[675] hwclock-set ... ok
+[676] hwclock.sh ... ok
+[677] i2c-tools.postinst ... ok
+[678] ifenslave ... ok
+[679] ifstate ... ok
+[680] ifupdown ... ok
+[681] ifupdown-hotplug ... ok
+[682] ifupdown.postinst ... ok
+[683] ifupdown.postrm ... ok
+[684] ifupdown.preinst ... ok
+[685] ifupdown.prerm ... ok
+[686] ifupdown.sh ... ok
+[687] image.sh ... ok
+[688] infobox ... ok
+[689] infobox2 ... ok
+[690] infobox3 ... ok
+[691] infobox4 ... ok
+[692] init ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/init)
+[693] init-d-script ... ok
+[694] init.sh ... ok
+[695] initramfs-tools ... ok
+[696] initramfs-tools-core.postinst ... ok
+[697] initramfs-tools-core.postrm ... ok
+[698] initramfs-tools.postinst ... ok
+[699] initramfs-tools.postrm ... ok
+[700] initramfs-tools.preinst ... ok
+[701] initramfs-tools.prerm ... ok
+[702] inputbox ... ok
+[703] inputbox1 ... ok
+[704] inputbox2 ... ok
+[705] inputbox3 ... ok
+[706] inputbox4 ... ok
+[707] inputbox5 ... ok
+[708] inputbox6-utf8 ... ok
+[709] inputbox7 ... ok
+[710] inputmenu-stdout ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/inputmenu-stdout)
+[711] inputmenu1 ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/inputmenu1)
+[712] inputmenu2 ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/inputmenu2)
+[713] inputmenu3 ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/inputmenu3)
+[714] inputmenu4 ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/inputmenu4)
+[715] install ... ok
+[716] install-autossh-daemon.sh ... ok
+[717] install-language-pack ... ok
+[718] install-linux-prereqs.sh ... ok
+[719] install-sh ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/install-sh)
+[720] install.sh ... ok
+[721] install_bt_panel.sh ... ok
+[722] install_btrfs_monitor.sh ... ok
+[723] install_docker.sh ... ok
+[724] install_qt.sh ... ok
+[725] install_ros.sh ... ok
+[726] installkernel ... ok
+[727] interprocess-communicator.sh ... ok
+[728] intltoolize ... ok
+[729] invoke-rc.d ... FAIL (check_qx —   FAIL: sh2perl-7fp04ayT.pl.sh [perl] — OPEN3 violation: open3)
+       check_qx —   FAIL: sh2perl-7fp04ayT.pl.sh [perl] — OPEN3 violation: open3() with builtin 'ps'
+[730] iotop.postinst ... ok
+[731] iotop.prerm ... ok
+[732] ip ... ok
+[733] ip-down ... FAIL (check_qx —   FAIL: sh2perl-m31iJPWh.pl.sh [perl] — OPEN3 violation: open3)
+       check_qx —   FAIL: sh2perl-m31iJPWh.pl.sh [perl] — OPEN3 violation: open3() with builtin 'basename'
+[734] ip-pre-up ... FAIL (check_qx —   FAIL: sh2perl-R67Nrq5f.pl.sh [perl] — OPEN3 violation: open3)
+       check_qx —   FAIL: sh2perl-R67Nrq5f.pl.sh [perl] — OPEN3 violation: open3() with builtin 'basename'
+[735] ip-up ... FAIL (check_qx —   FAIL: sh2perl-0oTgzKI6.pl.sh [perl] — OPEN3 violation: open3)
+       check_qx —   FAIL: sh2perl-0oTgzKI6.pl.sh [perl] — OPEN3 violation: open3() with builtin 'basename'
+[736] iperf3 ... ok
+[737] iperf3.config ... ok
+[738] iperf3.postinst ... ok
+[739] iperf3.postrm ... ok
+[740] iperf3.preinst ... ok
+[741] iperf3.prerm ... ok
+[742] iproute2.config ... ok
+[743] iproute2.postinst ... ok
+[744] iproute2.postrm ... ok
+[745] iptables-apply ... ok
+[746] iptables.postinst ... ok
+[747] iptables.prerm ... ok
+[748] iputils-arping.postinst ... ok
+[749] iputils-ping.postinst ... ok
+[750] ipv6-down ... ok
+[751] ipv6-up ... ok
+[752] irc ... ok
+[753] irman2lirc ... ok
+[754] is-configured ... ok
+[755] isc-dhcp-client.postinst ... ok
+[756] isc-dhcp-client.postrm ... ok
+[757] iscan ... ok
+[758] iscsid ... ok
+[759] iso9660 ... ok
+[760] jobs.sh ... ok
+[761] jpegtran.cgi ... ok
+[762] kaFu.sh ... ok
+[763] kbd ... ok
+[764] kernel-install ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/kernel-install)
+[765] keyboard-configuration.config ... ok
+[766] keyboard-configuration.postinst ... ok
+[767] keyboard-configuration.postrm ... ok
+[768] keyboard-configuration.preinst ... ok
+[769] keyboard-setup.sh ... ok
+[770] keyboxd.postinst ... ok
+[771] keyboxd.postrm ... ok
+[772] klibc-utils ... ok
+[773] klibc-utils.postinst ... ok
+[774] kmod ... ok
+[775] kmod.postinst ... ok
+[776] kmod.postrm ... ok
+[777] kmod.preinst ... ok
+[778] kube-ps1.plugin.zsh ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/kube-ps1.plugin.zsh)
+[779] lcf ... ok
+[780] ldconfig ... ok
+[781] ldd ... ok
+[782] less.postinst ... ok
+[783] less.preinst ... ok
+[784] less.prerm ... ok
+[785] less.sh ... ok
+[786] lesspipe ... ok
+[787] libc-bin.postinst ... ok
+[788] libcryptsetup12 ... ok
+[789] libdigest-sha-perl.postrm ... ok
+[790] libdigest-sha-perl.preinst ... ok
+[791] libdpkg-perl ... ok
+[792] libpam-modules-bin.postinst ... ok
+[793] libpam-modules-bin.postrm ... ok
+[794] libpam-modules-bin.prerm ... ok
+[795] libpam-runtime.postinst ... ok
+[796] libpam-runtime.postrm ... ok
+[797] libpam-runtime.prerm ... ok
+[798] linux-base.postinst ... ok
+[799] linux-base.postrm ... ok
+[800] linux-image-next-sun50iw9.postinst ... ok
+[801] linux-image-next-sun50iw9.postrm ... ok
+[802] linux-image-next-sun50iw9.preinst ... ok
+[803] linux-image-next-sun50iw9.prerm ... ok
+[804] lirc-config-tool ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/lirc-config-tool)
+[805] lirc-make-devinput ... ok
+[806] lirc-postinstall ... ok
+[807] lirc.postinst ... ok
+[808] lirc.postrm ... ok
+[809] lirc.preinst ... ok
+[810] lirc.prerm ... ok
+[811] lirc.rtupdate ... ok
+[812] lircd ... ok
+[813] lircmd ... ok
+[814] list ... ok
+[815] lm-sensors ... ok
+[816] lm-sensors.postinst ... ok
+[817] lm-sensors.postrm ... ok
+[818] lm-sensors.preinst ... ok
+[819] lm-sensors.prerm ... ok
+[820] loadcpufreq ... ok
+[821] locale-gen ... FAIL (check_qx —   FAIL: sh2perl-6grmLZkb.pl.sh [perl] — QX violation: qx{} call with builtin 'perl')
+       check_qx —   FAIL: sh2perl-6grmLZkb.pl.sh [perl] — QX violation: qx{} call with builtin 'perl'
+[822] locales.config ... ok
+[823] locales.postinst ... ok
+[824] locales.postrm ... ok
+[825] locales.prerm ... ok
+[826] lockout-not-enabled.sh ... ok
+[827] log-f3wr ... ok
+[828] login.postinst ... ok
+[829] login.postrm ... ok
+[830] login.preinst ... ok
+[831] login.prerm ... ok
+[832] logrotate ... ok
+[833] logrotate.postinst ... ok
+[834] logrotate.postrm ... ok
+[835] logrotate.prerm ... ok
+[836] lsb_release ... ok
+[837] lsinitramfs ... ok
+[838] lslR ... ok
+[839] lspgpot ... ok
+[840] lxc ... ok
+[841] lxc-checkconfig ... ok
+[842] lxc.mount.hook ... ok
+[843] lxc.reboot.hook ... ok
+[844] lxd ... ok
+[845] lxd-check-kernel ... ok
+[846] lxd-user ... ok
+[847] makesetup ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/makesetup)
+[848] man ... ok
+[849] man-db ... ok
+[850] man-db.config ... ok
+[851] man-db.postinst ... ok
+[852] man-db.postrm ... ok
+[853] man-db.prerm ... ok
+[854] mawk.postinst ... ok
+[855] mawk.prerm ... ok
+[856] mc.postinst ... ok
+[857] mc.postrm ... ok
+[858] mc.preinst ... ok
+[859] mc.prerm ... ok
+[860] mdate-sh ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/mdate-sh)
+[861] memtester.sh ... ok
+[862] menubox ... ok
+[863] menubox-utf8 ... ok
+[864] menubox1 ... ok
+[865] menubox10 ... ok
+[866] menubox11 ... ok
+[867] menubox2 ... ok
+[868] menubox3 ... ok
+[869] menubox4 ... ok
+[870] menubox5 ... ok
+[871] migrate-pubring-from-classic-gpg ... ok
+[872] miri.sh ... ok
+[873] misc.sh ... ok
+[874] missing ... ok
+[875] mixedform ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/mixedform)
+[876] mixedform2 ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/mixedform2)
+[877] mixedgauge ... ok
+[878] mk_modmap ... ok
+[879] mkinitramfs ... ok
+[880] mkinstalldirs ... ok
+[881] mkswapfile ... ok
+[882] mkzip.sh ... ok
+[883] moolets ... ok
+[884] msgbox ... ok
+[885] msgbox1 ... ok
+[886] msgbox2 ... ok
+[887] msgbox4-eucjp ... ok
+[888] msgbox4-utf8 ... ok
+[889] mysql ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/mysql)
+[890] mysql-common.postinst ... ok
+[891] mysql-common.postrm ... ok
+[892] mysql-common.preinst ... ok
+[893] mysql-common.prerm ... ok
+[894] mysql-server-8.0.config ... ok
+[895] mysql-server-8.0.postinst ... ok
+[896] mysql-server-8.0.postrm ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/mysql-server-8.0.postrm)
+[897] mysql-server-8.0.preinst ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/mysql-server-8.0.preinst)
+[898] mysql-server-8.0.prerm ... ok
+[899] mysql-systemd-start ... ok
+[900] mysqld_multi.server ... ok
+[901] mysqld_safe ... FAIL (check_qx —   FAIL: sh2perl-fwj9zoq5.pl.sh [perl] — OPEN3 violation: open3)
+       check_qx —   FAIL: sh2perl-fwj9zoq5.pl.sh [perl] — OPEN3 violation: open3() with builtin 'ps'
+[902] namespace.init ... FAIL (perlcritic — Integer with leading zeros: "0777" at line 121, column 42.  See page 58 of PBP.)
+       perlcritic — Integer with leading zeros: "0777" at line 121, column 42.  See page 58 of PBP.  (Severity: 5)
+[903] nand-sata-install ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/nand-sata-install)
+[904] nano.postinst ... ok
+[905] nano.prerm ... ok
+[906] ncmeter ... ok
+[907] ncp ... ok
+[908] neqn ... ok
+[909] netbase.postinst ... ok
+[910] netbase.postrm ... ok
+[911] netcat-openbsd.postinst ... ok
+[912] netcat-openbsd.prerm ... ok
+[913] netplan-generator.postinst ... ok
+[914] netplan-generator.preinst ... ok
+[915] netplan.io.preinst ... ok
+[916] network ... ok
+[917] network-manager-openvpn.postinst ... ok
+[918] network-manager-openvpn.postrm ... ok
+[919] network-manager.postinst ... ok
+[920] network-manager.postrm ... ok
+[921] network-manager.preinst ... ok
+[922] network-manager.prerm ... ok
+[923] networkd-dispatcher.postinst ... ok
+[924] networkd-dispatcher.postrm ... ok
+[925] networkd-dispatcher.prerm ... ok
+[926] networking ... ok
+[927] newVersion ... ok
+[928] nfs-common ... ok
+[929] nfs-common.postinst ... ok
+[930] nfs-common.postrm ... ok
+[931] nfs-common.preinst ... ok
+[932] nfs-common.prerm ... ok
+[933] nmbd ... ok
+[934] nocache ... ok
+[935] nroff ... ok
+[936] ntfs-3g.postinst ... ok
+[937] ntfs-3g.postrm ... ok
+[938] ntfs_3g ... ok
+[939] ntpdate ... ok
+[940] ntpdate-debian ... ok
+[941] ntpdate.postrm ... ok
+[942] ntpsec-ntpdate ... ok
+[943] ntpsec-ntpdate.postinst ... ok
+[944] nvidia ... ok
+[945] nvidia-container-cli ... ok
+[946] office.up ... ok
+[947] ofm_df ... ok
+[948] ofm_grep ... FAIL (check_qx —   FAIL: sh2perl-79skwTA6.pl.sh [perl] — QX violation: qx{} call with builtin 'perl')
+       check_qx —   FAIL: sh2perl-79skwTA6.pl.sh [perl] — QX violation: qx{} call with builtin 'perl'
+[949] oldconfigure.sh ... ok
+[950] open-iscsi ... ok
+[951] open-vm-tools ... ok
+[952] openssh-client.postinst ... ok
+[953] openssh-client.postrm ... ok
+[954] openssh-client.preinst ... ok
+[955] openssh-client.prerm ... ok
+[956] openssh-server.config ... ok
+[957] openssh-server.postinst ... ok
+[958] openssh-server.postrm ... ok
+[959] openssh-server.preinst ... ok
+[960] openssh-server.prerm ... ok
+[961] openssl.postinst ... ok
+[962] opensysusers-sysusers ... ok
+[963] openvpn ... ok
+[964] openvpn-generator ... ok
+[965] openvpn-shutdown.sh ... ok
+[966] openvpn-startup.sh ... ok
+[967] openvpn.config ... ok
+[968] openvpn.postinst ... ok
+[969] openvpn.postrm ... ok
+[970] openvpn.preinst ... ok
+[971] openvpn.prerm ... ok
+[972] orangepi-activate-profile-sync-daemon.sh ... ok
+[973] orangepi-add-overlay ... ok
+[974] orangepi-apt-updates ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/orangepi-apt-updates)
+[975] orangepi-audio-config ... ok
+[976] orangepi-bsp-cli-orangepizero3.postinst ... ok
+[977] orangepi-bsp-cli-orangepizero3.postrm ... ok
+[978] orangepi-bsp-cli-orangepizero3.preinst ... ok
+[979] orangepi-check-first-login-reboot.sh ... ok
+[980] orangepi-check-first-login.sh ... ok
+[981] orangepi-common ... ok
+[982] orangepi-config ... ok
+[983] orangepi-firstlogin ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/orangepi-firstlogin)
+[984] orangepi-firstrun ... FAIL (check_qx —   FAIL: sh2perl-MRaUzI3Y.pl.sh [perl] — EXEC violation: exec bash/sh -c wrapping builtin 'sleep')
+       check_qx —   FAIL: sh2perl-MRaUzI3Y.pl.sh [perl] — EXEC violation: exec bash/sh -c wrapping builtin 'sleep'
+[985] orangepi-firstrun-config ... ok
+[986] orangepi-hardware-monitor ... ok
+[987] orangepi-hardware-optimization ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/orangepi-hardware-optimization)
+[988] orangepi-ram-logging ... ok
+[989] orangepi-ramlog ... FAIL (check_qx —   FAIL: sh2perl-oslcGSMI.pl.sh [perl] — OPEN3 violation: open3)
+       check_qx —   FAIL: sh2perl-oslcGSMI.pl.sh [perl] — OPEN3 violation: open3() with builtin 'cp'
+[990] orangepi-resize-filesystem ... ok
+[991] orangepi-ssh-title.sh ... ok
+[992] orangepi-truncate-logs ... FAIL (check_qx —   FAIL: sh2perl-Sz08eKdU.pl.sh [perl] — OPEN3 violation: open3)
+       check_qx —   FAIL: sh2perl-Sz08eKdU.pl.sh [perl] — OPEN3 violation: open3() with builtin 'find'
+[993] orangepi-zram-config ... ok
+[994] orangepi-zsh.postinst ... ok
+[995] orangepimonitor ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/orangepimonitor)
+[996] package.sh ... ok
+[997] packagekit.postinst ... ok
+[998] packagekit.postrm ... ok
+[999] pam_namespace_helper ... ok
+[1000] panic-action ... ok
+[1001] parted.postinst ... ok
+[1002] parted.postrm ... ok
+[1003] parted.preinst ... ok
+[1004] parted.prerm ... ok
+[1005] passwd.postinst ... ok
+[1006] passwd.postrm ... ok
+[1007] passwd.preinst ... ok
+[1008] passwd.prerm ... ok
+[1009] password ... ok
+[1010] password1 ... ok
+[1011] password2 ... ok
+[1012] patchsetfs ... ok
+[1013] pause ... ok
+[1014] pciutils.postinst ... ok
+[1015] pciutils.postrm ... ok
+[1016] pciutils.preinst ... ok
+[1017] pcmcia-compat.sh ... ok
+[1018] pcre2-config ... ok
+[1019] perl-base.postinst ... ok
+[1020] perl-base.postrm ... ok
+[1021] perl-base.preinst ... ok
+[1022] perl-base.prerm ... ok
+[1023] perl.postinst ... ok
+[1024] perl.postrm ... ok
+[1025] perl.preinst ... ok
+[1026] perl.prerm ... ok
+[1027] perldoc ... ok
+[1028] pigz.prerm ... ok
+[1029] pinentry-curses.postinst ... ok
+[1030] pinentry-curses.prerm ... ok
+[1031] ping-places.sh ... ok
+[1032] pintest ... ok
+[1033] plocate ... ok
+[1034] plymouth ... ok
+[1035] plymouth-generate-initrd ... ok
+[1036] plymouth-log ... ok
+[1037] plymouth-populate-initrd ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/plymouth-populate-initrd)
+[1038] plymouth-theme-spinner.postinst ... ok
+[1039] plymouth-theme-spinner.postrm ... ok
+[1040] plymouth-themes.postinst ... ok
+[1041] plymouth-themes.postrm ... ok
+[1042] plymouth-themes.prerm ... ok
+[1043] plymouth-update-initrd ... ok
+[1044] plymouth.postinst ... ok
+[1045] plymouth.postrm ... ok
+[1046] plymouth.preinst ... ok
+[1047] pm-utils ... ok
+[1048] policycoreutils.postinst ... ok
+[1049] policycoreutils.postrm ... ok
+[1050] policycoreutils.preinst ... ok
+[1051] policycoreutils.prerm ... ok
+[1052] polkitd.postinst ... ok
+[1053] polkitd.postrm ... ok
+[1054] polkitd.preinst ... ok
+[1055] polkitd.prerm ... ok
+[1056] post-receive-email ... ok
+[1057] post-update.sample ... ok
+[1058] postinst ... ok
+[1059] postrm ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/postrm)
+[1060] poweroff-vm-default ... ok
+[1061] poweron-vm-default ... ok
+[1062] pre-applypatch.sample ... ok
+[1063] pre-auto-gc-battery ... ok
+[1064] pre-commit ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/pre-commit)
+[1065] pre-commit.sample ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/pre-commit.sample)
+[1066] pre-merge-commit.sample ... ok
+[1067] pre-push.sample ... ok
+[1068] pre-rebase.sample ... FAIL (check_qx —   FAIL: sh2perl-kQUnwzqP.pl.sh [perl] — SYSTEM violation: system)
+       check_qx —   FAIL: sh2perl-kQUnwzqP.pl.sh [perl] — SYSTEM violation: system() call with builtin 'perl'
+[1069] pre-receive.sample ... ok
+[1070] prepare-commit-msg.sample ... FAIL (check_qx —   FAIL: sh2perl-q6w4nCmX.pl.sh [perl] — SYSTEM violation: system)
+       check_qx —   FAIL: sh2perl-q6w4nCmX.pl.sh [perl] — SYSTEM violation: system() call with builtin 'perl'
+[1071] prerm ... ok
+[1072] probe ... ok
+[1073] procps ... ok
+[1074] procps.postinst ... ok
+[1075] procps.postrm ... ok
+[1076] procps.preinst ... ok
+[1077] procps.prerm ... ok
+[1078] profile-load ... ok
+[1079] project-id ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/project-id)
+[1080] proto ... ok
+[1081] ps.sh ... ok
+[1082] public_modules.rtinstall ... ok
+[1083] public_modules.rtremove ... ok
+[1084] push-to-checkout.sample ... ok
+[1085] py-compile ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/py-compile)
+[1086] python3-apt.postinst ... ok
+[1087] python3-apt.prerm ... ok
+[1088] python3-attr.postinst ... ok
+[1089] python3-attr.prerm ... ok
+[1090] python3-blinker.postinst ... ok
+[1091] python3-blinker.prerm ... ok
+[1092] python3-certifi.postinst ... ok
+[1093] python3-certifi.prerm ... ok
+[1094] python3-chardet.postinst ... ok
+[1095] python3-chardet.prerm ... ok
+[1096] python3-compose.postinst ... ok
+[1097] python3-compose.prerm ... ok
+[1098] python3-cryptography.postinst ... ok
+[1099] python3-cryptography.prerm ... ok
+[1100] python3-dbus.postinst ... ok
+[1101] python3-dbus.prerm ... ok
+[1102] python3-distro-info.postinst ... ok
+[1103] python3-distro-info.prerm ... ok
+[1104] python3-distro.postinst ... ok
+[1105] python3-distro.prerm ... ok
+[1106] python3-distutils-extra.postinst ... ok
+[1107] python3-distutils-extra.prerm ... ok
+[1108] python3-dnspython.postinst ... ok
+[1109] python3-dnspython.prerm ... ok
+[1110] python3-docker.postinst ... ok
+[1111] python3-docker.prerm ... ok
+[1112] python3-dockerpty.postinst ... ok
+[1113] python3-dockerpty.prerm ... ok
+[1114] python3-docopt.postinst ... ok
+[1115] python3-docopt.prerm ... ok
+[1116] python3-dotenv.postinst ... ok
+[1117] python3-dotenv.prerm ... ok
+[1118] python3-gi.postinst ... ok
+[1119] python3-gi.prerm ... ok
+[1120] python3-httplib2.postinst ... ok
+[1121] python3-httplib2.prerm ... ok
+[1122] python3-idna.postinst ... ok
+[1123] python3-idna.prerm ... ok
+[1124] python3-jsonschema.postinst ... ok
+[1125] python3-jsonschema.postrm ... ok
+[1126] python3-jsonschema.prerm ... ok
+[1127] python3-jwt.postinst ... ok
+[1128] python3-jwt.prerm ... ok
+[1129] python3-launchpadlib.postinst ... ok
+[1130] python3-launchpadlib.postrm ... ok
+[1131] python3-launchpadlib.prerm ... ok
+[1132] python3-lazr.restfulclient.postinst ... ok
+[1133] python3-lazr.restfulclient.prerm ... ok
+[1134] python3-lazr.uri.postinst ... ok
+[1135] python3-lazr.uri.prerm ... ok
+[1136] python3-ldb.postinst ... ok
+[1137] python3-ldb.prerm ... ok
+[1138] python3-lib2to3.postinst ... ok
+[1139] python3-lib2to3.prerm ... ok
+[1140] python3-markdown.postinst ... ok
+[1141] python3-markdown.prerm ... ok
+[1142] python3-minimal.postinst ... ok
+[1143] python3-minimal.prerm ... ok
+[1144] python3-ntp.postinst ... ok
+[1145] python3-ntp.prerm ... ok
+[1146] python3-oauthlib.postinst ... ok
+[1147] python3-oauthlib.prerm ... ok
+[1148] python3-packaging.postinst ... ok
+[1149] python3-packaging.prerm ... ok
+[1150] python3-pkg-resources.postinst ... ok
+[1151] python3-pkg-resources.prerm ... ok
+[1152] python3-pyparsing.postinst ... ok
+[1153] python3-pyparsing.prerm ... ok
+[1154] python3-requests.postinst ... ok
+[1155] python3-requests.prerm ... ok
+[1156] python3-samba.postinst ... ok
+[1157] python3-samba.prerm ... ok
+[1158] python3-setuptools.postinst ... ok
+[1159] python3-setuptools.prerm ... ok
+[1160] python3-six.postinst ... ok
+[1161] python3-six.prerm ... ok
+[1162] python3-software-properties.postinst ... ok
+[1163] python3-software-properties.prerm ... ok
+[1164] python3-tdb.postinst ... ok
+[1165] python3-tdb.prerm ... ok
+[1166] python3-texttable.postinst ... ok
+[1167] python3-texttable.prerm ... ok
+[1168] python3-urllib3.postinst ... ok
+[1169] python3-urllib3.prerm ... ok
+[1170] python3-wadllib.postinst ... ok
+[1171] python3-wadllib.prerm ... ok
+[1172] python3-websocket.postinst ... ok
+[1173] python3-websocket.prerm ... ok
+[1174] python3-yaml.postinst ... ok
+[1175] python3-yaml.prerm ... ok
+[1176] python3.12-minimal.postinst ... ok
+[1177] python3.12-minimal.postrm ... ok
+[1178] python3.12-minimal.preinst ... ok
+[1179] python3.12-minimal.prerm ... ok
+[1180] python3.12.postinst ... ok
+[1181] python3.12.prerm ... ok
+[1182] python3.postinst ... ok
+[1183] python3.postrm ... ok
+[1184] python3.preinst ... ok
+[1185] python3.prerm ... ok
+[1186] radiolist ... ok
+[1187] radiolist10 ... ok
+[1188] rc.apparmor.functions ... ok
+[1189] rc.local ... ok
+[1190] readline-common.postinst ... ok
+[1191] readline-common.postrm ... ok
+[1192] realpath ... ok
+[1193] refresh ... ok
+[1194] reload-apparmor-profile ... ok
+[1195] remote-viewer ... ok
+[1196] remoteProcessPickerScript ... ok
+[1197] remotes2config.sh ... ok
+[1198] remount-core-fs ... ok
+[1199] remove ... ok
+[1200] remove-language-pack ... ok
+[1201] remove-shell ... ok
+[1202] report-button ... ok
+[1203] report-edit ... ok
+[1204] report-string ... ok
+[1205] report-tempfile ... ok
+[1206] report-yesno ... ok
+[1207] request-key-debug.sh ... ok
+[1208] rerere-train.sh ... ok
+[1209] reset_fail_count.sh ... ok
+[1210] reset_ssh.sh ... ok
+[1211] resolved ... ok
+[1212] resolved-enter ... ok
+[1213] resume ... ok
+[1214] resume-vm-default ... ok
+[1215] rgrep ... ok
+[1216] routef ... ok
+[1217] routel ... ok
+[1218] rpcbind ... ok
+[1219] rpcbind.postinst ... ok
+[1220] rpcbind.postrm ... ok
+[1221] rpcbind.preinst ... ok
+[1222] rpcbind.prerm ... ok
+[1223] rpm ... ok
+[1224] rscreen ... ok
+[1225] rstrip.sh ... ok
+[1226] rsync ... ok
+[1227] rsync-no-vanished ... ok
+[1228] rsync-ssl ... ok
+[1229] rsync.postinst ... ok
+[1230] rsync.postrm ... ok
+[1231] rsync.preinst ... ok
+[1232] rsync.prerm ... ok
+[1233] rsyslog-rotate ... ok
+[1234] rsyslog.postinst ... ok
+[1235] rsyslog.postrm ... ok
+[1236] rsyslog.preinst ... ok
+[1237] rsyslog.prerm ... ok
+[1238] rtc-sys-time-init ... ok
+[1239] rtc-sys-time-init-generator ... ok
+[1240] run-host ... ok
+[1241] run-snapd-from-snap ... ok
+[1242] run-workflow.sh ... ok
+[1243] rust-gdb ... ok
+[1244] rust-gdbgui ... ok
+[1245] rust-lldb ... ok
+[1246] sa1 ... ok
+[1247] sa2 ... ok
+[1248] samba-ad-dc ... ok
+[1249] samba-common.postinst ... ok
+[1250] samba-common.postrm ... ok
+[1251] samba-common.preinst ... ok
+[1252] samba-common.prerm ... ok
+[1253] samba.postinst ... ok
+[1254] samba.postrm ... ok
+[1255] samba.preinst ... ok
+[1256] samba.prerm ... ok
+[1257] saned ... ok
+[1258] sargraph ... FAIL (check_qx —   FAIL: sh2perl-gPJ5TLAy.pl.sh [perl] — QX violation: qx{$which_cmd} where $which_cmd contains builtin 'find')
+       check_qx —   FAIL: sh2perl-gPJ5TLAy.pl.sh [perl] — QX violation: qx{$which_cmd} where $which_cmd contains builtin 'find'
+[1259] sargraph2 ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/sargraph2)
+[1260] savelog ... ok
+[1261] sc ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/sc)
+[1262] scd-event ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/scd-event)
+[1263] screen ... ok
+[1264] screen-cleanup ... ok
+[1265] screen.postinst ... ok
+[1266] screen.postrm ... ok
+[1267] screen.preinst ... ok
+[1268] script ... ok
+[1269] search-name.sh ... ok
+[1270] select-editor ... ok
+[1271] selinux-autorelabel ... FAIL (check_qx —   FAIL: sh2perl-6oxR3QeV.pl.sh [perl] — OPEN3 violation: open3)
+       check_qx —   FAIL: sh2perl-6oxR3QeV.pl.sh [perl] — OPEN3 violation: open3() with builtin 'awk'
+[1272] selinux-autorelabel-generator.sh ... ok
+[1273] selinux-policy-default.postinst ... ok
+[1274] selinux-policy-default.postrm ... ok
+[1275] selinux-policy-default.preinst ... ok
+[1276] selinux-policy-default.prerm ... ok
+[1277] sendemail-validate.sample ... ok
+[1278] sensible-browser ... ok
+[1279] sensible-editor ... ok
+[1280] sensible-pager ... ok
+[1281] sensible-terminal ... ok
+[1282] serial-console-generator ... ok
+[1283] service ... ok
+[1284] set_swap.sh ... ok
+[1285] set_vnc.sh ... ok
+[1286] settle-dad.sh ... ok
+[1287] setup-edit ... ok
+[1288] setup-gmail-download.sh ... ok
+[1289] setup-grafana.sh ... ok
+[1290] setup-tempfile ... ok
+[1291] setup-utf8 ... ok
+[1292] setup-vars ... ok
+[1293] setup-zfs ... ok
+[1294] setupcon ... FAIL (check_qx —   FAIL: sh2perl-XZw6sidn.pl.sh [perl] — bash/sh -c wrapping builtin 'echo')
+       check_qx —   FAIL: sh2perl-XZw6sidn.pl.sh [perl] — bash/sh -c wrapping builtin 'echo'
+[1295] sgml-base.postinst ... ok
+[1296] sgml-base.postrm ... ok
+[1297] sgml-base.preinst ... ok
+[1298] sgml-base.prerm ... ok
+[1299] sh.sh ... ok
+[1300] shadowconfig ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/shadowconfig)
+[1301] shell-proxy.plugin.zsh ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/shell-proxy.plugin.zsh)
+[1302] show-size-changes.sh ... ok
+[1303] showfigfonts ... ok
+[1304] smartd-runner ... ok
+[1305] smartd_warning.sh ... ok
+[1306] smartmontools ... ok
+[1307] smartmontools.postinst ... ok
+[1308] smartmontools.postrm ... ok
+[1309] smartmontools.preinst ... ok
+[1310] smartmontools.prerm ... ok
+[1311] smbd ... ok
+[1312] smbprint.sysv ... ok
+[1313] snap-debug-info.sh ... ok
+[1314] snap-mgmt ... ok
+[1315] snap-mgmt-selinux ... ok
+[1316] snapd.core-fixup.sh ... ok
+[1317] snapd.run-from-snap ... ok
+[1318] software-properties-common.postinst ... ok
+[1319] software-properties-common.prerm ... ok
+[1320] softy ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/softy)
+[1321] sound.sh ... ok
+[1322] spatchcache ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/spatchcache)
+[1323] splash-client ... ok
+[1324] spotify ... FAIL (check_qx —   FAIL: sh2perl-WWe5tFWo.pl.sh [perl] — OPEN3 violation: open3)
+       check_qx —   FAIL: sh2perl-WWe5tFWo.pl.sh [perl] — OPEN3 violation: open3() with builtin 'grep'
+[1325] ssh ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/ssh)
+[1326] ssh-argv0 ... ok
+[1327] ssh-askpass-empty.sh ... ok
+[1328] ssh-askpass.sh ... ok
+[1329] ssh-copy-id ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/ssh-copy-id)
+[1330] ssh-session-cleanup ... ok
+[1331] sshfs ... ok
+[1332] start-statd ... ok
+[1333] statechange.subr ... ok
+[1334] subiquitycore.rtupdate ... ok
+[1335] submenu.sh ... ok
+[1336] sudo.postinst ... ok
+[1337] sudo.postrm ... ok
+[1338] sudo.preinst ... ok
+[1339] sudo.prerm ... ok
+[1340] sunxi-tools.postinst ... ok
+[1341] suspend-vm-default ... ok
+[1342] swap ... ok
+[1343] sysfsutils ... ok
+[1344] sysfsutils.postinst ... ok
+[1345] sysfsutils.postrm ... ok
+[1346] sysfsutils.preinst ... ok
+[1347] sysfsutils.prerm ... ok
+[1348] sysstat ... ok
+[1349] sysstat.config ... ok
+[1350] sysstat.postinst ... ok
+[1351] sysstat.postrm ... ok
+[1352] sysstat.preinst ... ok
+[1353] sysstat.prerm ... ok
+[1354] sysstat.sleep ... ok
+[1355] systemd-bootchart-poststop.sh ... ok
+[1356] systemd-helper ... ok
+[1357] systemd-manager ... ok
+[1358] systemd-resolved.postinst ... ok
+[1359] systemd-resolved.postrm ... ok
+[1360] systemd-resolved.prerm ... ok
+[1361] systemd-sysv-install ... ok
+[1362] systemd-sysv.postinst ... ok
+[1363] systemd.postinst ... ok
+[1364] systemd.postrm ... ok
+[1365] systemd.preinst ... ok
+[1366] systemd.prerm ... ok
+[1367] sysv-init ... ok
+[1368] t-git-credential-netrc.sh ... ok
+[1369] t7900-subtree.sh ... ok
+[1370] tap-driver.sh ... ok
+[1371] tar.postinst ... ok
+[1372] tar.prerm ... ok
+[1373] tarcat ... ok
+[1374] tcl8.6.prerm ... ok
+[1375] tdb-tools.postinst ... ok
+[1376] tdb-tools.prerm ... ok
+[1377] team-address ... ok
+[1378] tellerstats.sh ... ok
+[1379] terminateProcess.sh ... ok
+[1380] test ... ok
+[1381] test-driver ... ok
+[1382] test.command-option-gpg ... ok
+[1383] test.git-config-gpg ... ok
+[1384] test.sh ... ok
+[1385] test_01 ... ok
+[1386] test_02 ... ok
+[1387] test_03 ... ok
+[1388] test_04 ... ok
+[1389] test_05 ... ok
+[1390] test_06 ... ok
+[1391] test_07 ... ok
+[1392] test_08 ... ok
+[1393] test_09 ... ok
+[1394] test_10 ... ok
+[1395] test_11 ... ok
+[1396] test_12 ... ok
+[1397] test_13 ... ok
+[1398] test_14 ... ok
+[1399] test_15 ... ok
+[1400] test_16 ... ok
+[1401] test_17 ... ok
+[1402] test_18 ... ok
+[1403] test_19 ... ok
+[1404] test_20 ... ok
+[1405] test_find.sh ... ok
+[1406] test_pwm.sh ... ok
+[1407] test_ros.sh ... ok
+[1408] test_simple_function.sh ... ok
+[1409] test_system_builtin.sh ... ok
+[1410] testsuite ... ok
+[1411] text.sh ... ok
+[1412] textbox ... ok
+[1413] textbox2 ... ok
+[1414] thermal ... ok
+[1415] timebox ... ok
+[1416] timebox-stdout ... ok
+[1417] timebox2 ... ok
+[1418] timebox2-stdout ... ok
+[1419] timedatectl ... ok
+[1420] toilet.postinst ... ok
+[1421] toilet.prerm ... ok
+[1422] trigger ... ok
+[1423] trpm ... ok
+[1424] tsc-some-files.sh ... ok
+[1425] tv_grab_file ... ok
+[1426] tzconfig ... ok
+[1427] tzdata.config ... ok
+[1428] tzdata.postinst ... ok
+[1429] tzdata.postrm ... ok
+[1430] tzselect ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/tzselect)
+[1431] u7z ... ok
+[1432] uace ... ok
+[1433] ualz ... ok
+[1434] uar ... ok
+[1435] uarc ... ok
+[1436] uarj ... ok
+[1437] ubuntu-keyring.postinst ... ok
+[1438] ucab ... ok
+[1439] ucf ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/ucf)
+[1440] ucf.postinst ... ok
+[1441] ucf.postrm ... ok
+[1442] ucf.preinst ... ok
+[1443] ucf_helper_functions.sh ... ok
+[1444] ucfr ... ok
+[1445] udev ... ok
+[1446] udev.postinst ... ok
+[1447] udev.postrm ... ok
+[1448] udev.preinst ... ok
+[1449] udev.prerm ... ok
+[1450] ufw ... ok
+[1451] uha ... ok
+[1452] ulha ... ok
+[1453] un_blkid ... ok
+[1454] unar ... ok
+[1455] unattended-upgrades ... ok
+[1456] unattended-upgrades.config ... ok
+[1457] unattended-upgrades.postinst ... ok
+[1458] unattended-upgrades.postrm ... ok
+[1459] unattended-upgrades.preinst ... ok
+[1460] uncloud-init ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/uncloud-init)
+[1461] uncompress ... ok
+[1462] unhide_ICH_SMBus ... ok
+[1463] unicode_start ... ok
+[1464] unicode_stop ... ok
+[1465] unmkinitramfs ... ok
+[1466] unzip.postinst ... ok
+[1467] unzip.postrm ... ok
+[1468] update ... ok
+[1469] update-apparmor-samba-profile ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/update-apparmor-samba-profile)
+[1470] update-ca-certificates ... ok
+[1471] update-cracklib ... ok
+[1472] update-initramfs ... FAIL (check_qx —   FAIL: sh2perl-Xc6Q9u1g.pl.sh [perl] — OPEN3 violation: open3)
+       check_qx —   FAIL: sh2perl-Xc6Q9u1g.pl.sh [perl] — OPEN3 violation: open3() with builtin 'sort'
+[1473] update-motd-unattended-upgrades ... ok
+[1474] update-pciids ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/update-pciids)
+[1475] update-resolv-conf ... ok
+[1476] update-shells ... ok
+[1477] update-smart-drivedb ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/update-smart-drivedb)
+[1478] update.sample ... ok
+[1479] update_blessed.sh ... ok
+[1480] update_unicode.sh ... ok
+[1481] urar ... ok
+[1482] usb-devices ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/usb-devices)
+[1483] usb_modeswitch ... ok
+[1484] user-email ... ok
+[1485] util-linux.postinst ... ok
+[1486] util-linux.postrm ... ok
+[1487] util-linux.prerm ... ok
+[1488] uuid ... ok
+[1489] uuidd ... ok
+[1490] uwim ... ok
+[1491] uzoo ... ok
+[1492] vconfig ... ok
+[1493] vcs-run ... ok
+[1494] video.sh ... ok
+[1495] vim-common.postinst ... ok
+[1496] vim-common.postrm ... ok
+[1497] vim-runtime.postinst ... ok
+[1498] vim-runtime.postrm ... ok
+[1499] vim-runtime.preinst ... ok
+[1500] vim.postinst ... ok
+[1501] vim.prerm ... ok
+[1502] vim_ide ... ok
+[1503] vimtutor ... ok
+[1504] virt-v2v-in-place ... ok
+[1505] vlan ... ok
+[1506] vlan-network-interface ... ok
+[1507] vnstat ... ok
+[1508] vnstat.postinst ... ok
+[1509] vnstat.postrm ... ok
+[1510] vnstat.preinst ... ok
+[1511] vnstat.prerm ... ok
+[1512] vsdbg ... ok
+[1513] vsftpd ... FAIL (check_qx —   FAIL: sh2perl-paWZfvK4.pl.sh [perl] — OPEN3 violation: open3)
+       check_qx —   FAIL: sh2perl-paWZfvK4.pl.sh [perl] — OPEN3 violation: open3() with builtin 'ps'
+[1514] w3m.postinst ... ok
+[1515] w3m.postrm ... ok
+[1516] w3m.prerm ... ok
+[1517] w3mdict.cgi ... ok
+[1518] wait-for-ll6.sh ... ok
+[1519] wait-online.sh ... ok
+[1520] web ... ok
+[1521] web.sh ... ok
+[1522] webproxy ... ok
+[1523] webrelay ... ok
+[1524] websearch ... ok
+[1525] which.debianutils ... ok
+[1526] whiptail.preinst ... ok
+[1527] wireless-tools ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/wireless-tools)
+[1528] wireless-tools.postinst ... ok
+[1529] wireless-tools.preinst ... ok
+[1530] wiringpi.postinst ... FAIL (check_qx —   FAIL: sh2perl-pYXKQKRO.pl.sh [perl] — SYSTEM violation: system)
+       check_qx —   FAIL: sh2perl-pYXKQKRO.pl.sh [perl] — SYSTEM violation: system() call with builtin 'chown'
+[1531] wiringpi.postrm ... ok
+[1532] wpa_action ... ok
+[1533] wpasupplicant.postinst ... ok
+[1534] wpasupplicant.postrm ... ok
+[1535] wpasupplicant.prerm ... ok
+[1536] wrap3m ... ok
+[1537] write-ssh-key-fingerprints ... ok
+[1538] x11-common ... ok
+[1539] xdg-open ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/xdg-open)
+[1540] xdg-settings ... ok
+[1541] xfs ... ok
+[1542] xfs_admin ... ok
+[1543] xml-core.postinst ... ok
+[1544] xml-core.postrm ... ok
+[1545] xml-core.preinst ... ok
+[1546] xml-core.prerm ... ok
+[1547] xx-initramfs-cleanup ... ok
+[1548] xx-update-initrd-links ... ok
+[1549] xz-utils.postinst ... ok
+[1550] xz-utils.prerm ... ok
+[1551] xzdiff ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/xzdiff)
+[1552] xzgrep ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/xzgrep)
+[1553] xzless ... ok
+[1554] xzmore ... ok
+[1555] yesno ... ok
+[1556] yesno2 ... ok
+[1557] yesno3 ... ok
+[1558] ylwrap ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/ylwrap)
+[1559] yp ... ok
+[1560] yu ... ok
+[1561] yzfa.sh ... ok
+[1562] zcat ... ok
+[1563] zcmp ... ok
+[1564] zdiff ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/zdiff)
+[1565] zegrep ... ok
+[1566] zfgrep ... ok
+[1567] zforce ... FAIL (check_qx —   FAIL: sh2perl-YvgWa0G7.pl.sh [perl] — bash/sh -c wrapping builtin 'echo')
+       check_qx —   FAIL: sh2perl-YvgWa0G7.pl.sh [perl] — bash/sh -c wrapping builtin 'echo'
+[1568] zgrep ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/zgrep)
+[1569] zipgrep ... ok
+[1570] zless ... ok
+[1571] zmore ... ok
+[1572] znew ... ok
+[1573] zsh ... ok
+[1574] zsh-common ... ok
+[1575] zsh-common.postinst ... ok
+[1576] zsh-common.postrm ... ok
+[1577] zsh-common.preinst ... ok
+[1578] zsh-common.prerm ... ok
+[1579] zsh.postinst ... ok
+[1580] zsh.postrm ... ok
+[1581] zsh.preinst ... ok
+[1582] zsh.prerm ... ok
+[1583] zz-busybox-initramfs ... ok
+[1584] zz-dhclient ... ok
+[1585] zz-u-boot-menu ... ok
+[1586] zzz_avahi-autoipd ... ok
 
 ========================================================================
-SUMMARY: 295 tested, 295 passed, 0 failed
+SUMMARY: 1586 tested, 1461 passed, 125 failed
 ========================================================================
-Use of uninitialized value $failed in exit at check_sh_files.pl line 222.

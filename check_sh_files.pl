@@ -121,7 +121,7 @@ sub process_one_file {
 #==============================================================================
 # MAIN — parallel via static chunking (no locking needed)
 #==============================================================================
-my @all_sh = sort glob("$SH_DIR/*.sh");
+my @all_sh = sort glob("$SH_DIR/*");
 my $total  = scalar @all_sh;
 
 print "=" x 72, "\n";
