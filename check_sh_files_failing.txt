@@ -16,7 +16,6 @@ config.sub	sh2perl generation, exit=1
 console-conf-write-login-details	sh2perl generation, exit=1
 create_ap	sh2perl generation, exit=1
 cups	sh2perl generation, exit=1
-daemon.activate	check_qx —   FAIL: sh2perl-RaGshA9o.pl.sh [perl] — SYSTEM violation: system
 depcomp	sh2perl generation, exit=1
 dhclient-script	sh2perl generation, exit=1
 dkms	sh2perl generation, exit=1
@@ -80,10 +79,8 @@ softy	sh2perl generation, exit=1
 spatchcache	sh2perl generation, exit=1
 ssh	sh2perl generation, exit=1
 ssh-copy-id	sh2perl generation, exit=1
-sysstat.postinst	check_qx —   FAIL: sh2perl-BilGtbdt.pl.sh [perl] — SYSTEM violation: system
 tzselect	sh2perl generation, exit=1
 ucf	sh2perl generation, exit=1
-unattended-upgrades.postinst	check_qx —   FAIL: sh2perl-PIULfzm5.pl.sh [perl] — SYSTEM violation: system
 uncloud-init	sh2perl generation, exit=1
 update-apparmor-samba-profile	sh2perl generation, exit=1
 update-pciids	sh2perl generation, exit=1

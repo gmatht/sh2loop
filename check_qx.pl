@@ -49,7 +49,10 @@ sub check_builtins_in_cmd {
     # Strip leading variable assignments (VAR=value cmd)
     $check =~ s/^\w+=\S+\s*//;
     for my $b (@builtins) {
-        if ($check =~ /\b\Q$b\E\b/) {
+        # Use negative lookbehind to avoid matching builtins inside hyphenated
+        # compound words like "aa-exec" (matches "exec") or "run-parts" (match none).
+        # Also require word boundary at the end.
+        if ($check =~ /(?<![-\w])\Q$b\E\b/) {
             return $b;
         }
     }
@@ -149,9 +152,15 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
     }
 
     # Pattern 3: system('builtin ...') / system("builtin ...") / system "builtin ..."
-    while ($code =~ /system\s*(?:\(\s*['"]\s*|['"]\s*)([^'"]+)['"]/g) {
+    # Require word boundary before 'system' so we don't match 'system' inside
+    # a string like '/run/systemd/system' (where the trailing ' would match quote).
+    while ($code =~ /\bsystem\s*(?:\(\s*['"]\s*|['"]\s*)([^'"]+)['"]/g) {
         my $system_body = $1;
         next if $is_exempt->($system_body);
+        # Skip if the captured text starts with a parenthesis or looks like
+        # it was captured from a non-system() context (e.g. bareword after 'system'
+        # in the middle of a string).
+        next if $system_body =~ /^\s*\)/;
         my $b = check_builtins_in_cmd($system_body);
         if (defined $b) {
             print "  FAIL: $basename.sh [perl] — SYSTEM violation: system() call with builtin '$b'\n";
