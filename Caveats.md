@@ -12,7 +12,20 @@ rewritten to use sorted key=value output instead.
 
 **Affected tests:** 064_22, 064_hard_to_generate (fixed)
 
-## `eval` with Dynamic Arguments
+## Feature-Gated Zsh Syntax
+
+Some `.sh`/`.zsh` files in the test corpus contain Zsh-specific syntax
+protected by feature gates (e.g. `case "$_KUBE_PS1_SHELL" in "zsh") …`).
+The translator parses both branches even though bash would never execute
+the Zsh path at runtime.  If the Zsh branch contains constructs that
+sh2perl cannot translate (e.g. `setopt`, `autoload`, `zmodload`), the
+file as a whole will fail generation even though it would work correctly
+when sourced under bash.
+
+**Mitigation:** Files with unguarded Zsh syntax should be moved to
+`sh.disabled/`.  Files with properly feature-gated Zsh syntax are
+acceptable but may produce false-positive failures during generation.
+
 
 `eval "$name() { $body }"` where `$name` and `$body` are runtime
 variables cannot be translated because the function name and body
