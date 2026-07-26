@@ -1,6 +1,5 @@
 burn_to_emmc	sh2perl generation, exit=1
 c2z	sh2perl generation, exit=1
-config.sub	sh2perl generation, exit=1
 console-conf-write-login-details	sh2perl generation, exit=1
 create_ap	sh2perl generation, exit=1
 docker	sh2perl generation, exit=1
@@ -22,7 +21,6 @@ mysql-server-8.0.preinst	sh2perl generation, exit=1
 nand-sata-install	sh2perl generation, exit=1
 orangepimonitor	sh2perl generation, exit=1
 plymouth-populate-initrd	sh2perl generation, exit=1
-project-id	sh2perl generation, exit=1
 shell-proxy.plugin.zsh	sh2perl generation, exit=1
 softy	sh2perl generation, exit=1
 systemd-resolved.postinst	sh2perl generation, exit=1
