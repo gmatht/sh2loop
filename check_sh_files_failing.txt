@@ -12,7 +12,6 @@ exe_with_z64	sh2perl generation, exit=1
 exe_with_zip	sh2perl generation, exit=1
 figlist	sh2perl generation, exit=1
 functions.sh	sh2perl generation, exit=1
-get_next_oid	sh2perl generation, exit=1
 git-submodule	sh2perl generation, exit=1
 growpart	sh2perl generation, exit=1
 initramfs-tools.preinst	sh2perl generation, exit=1
