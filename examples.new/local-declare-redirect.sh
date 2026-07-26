@@ -1,3 +1,7 @@
-#!/bin/bash
-# declare with output redirect should not cause a parse error
-declare -F foo >/dev/null && true
+# Demonstrate local/declare with redirect inside case body
+# Parser failed with: Unexpected token: RedirectOut
+case "x" in
+    $(echo "pattern") )
+        local testvar >/dev/null
+        ;;
+esac
