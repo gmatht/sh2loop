@@ -208,10 +208,19 @@ for my $w (0 .. MAX_WORKERS - 1) {
 }
 rmdir $res_dir;
 
-# Display results in sorted filename order (deterministic)
+# Display results by original filename (deterministic)
 my $idx = 0;
-for my $name (sort keys %by_name) {
-    my $r = $by_name{$name}; $idx++;
+my $present = 0;
+for my $sh_file (@all_sh) {
+    my $name = basename($sh_file); $idx++;
+    my $r = $by_name{$name};
+    if (!$r) {
+        # Worker may have crashed — file was never tested
+        printf "[%d] %s ... ? (no result — worker may have crashed)\n", $idx, $name;
+        $failed++;
+        next;
+    }
+    $present++;
     if ($r->{status} ne 'ok') {
         $failed++;
         my $short = $r->{detail};
@@ -223,8 +232,8 @@ for my $name (sort keys %by_name) {
         $passed++;
     }
 }
-# Warn about missing files (worker may have crashed)
-my $missing = $total - scalar(keys %by_name);
+# Warn if any files have no result
+my $missing = $total - $present;
 if ($missing) {
     printf "  (warning: %d files have no result — worker may have crashed)\n", $missing;
 }
