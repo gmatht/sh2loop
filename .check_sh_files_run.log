@@ -1,8 +1,8 @@
 ========================================================================
-Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
+Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 ========================================================================
 
-  progress: 0/8 workers done, filesets: [none]  progress: 0/8 workers done, filesets: [3,8]  progress: 0/8 workers done, filesets: [3,4,6,8]  progress: 0/8 workers done, filesets: [3,4,6,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 4/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 4/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 8/8 workers done, filesets: [1,2,3,4,5,6,7,8]
+  progress: 0/8 workers done, filesets: [none]  progress: 0/8 workers done, filesets: [1,2,4,5]  progress: 0/8 workers done, filesets: [1,2,3,4,5]  progress: 0/8 workers done, filesets: [1,2,3,4,5]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 4/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 4/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 4/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 4/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 4/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 4/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 4/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 4/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 8/8 workers done, filesets: [1,2,3,4,5,6,7,8]
 [1] 00-entry-directory.install ... ok
 [2] 00-header ... ok
 [3] 0000usepeerdns ... ok
@@ -318,8 +318,7 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [313] buginfo ... ok
 [314] build ... ok
 [315] build-wasm.sh ... ok
-[316] burn_to_emmc ... FAIL (sh2perl generation, exit=1)
-       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/burn_to_emmc)
+[316] burn_to_emmc ... ok
 [317] bzdiff ... ok
 [318] bzexe ... ok
 [319] bzgrep ... ok
@@ -413,8 +412,7 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [405] cracklib-runtime.preinst ... ok
 [406] cracklib-runtime.prerm ... ok
 [407] create-cracklib-dict ... ok
-[408] create_ap ... FAIL (sh2perl generation, exit=1)
-       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/create_ap)
+[408] create_ap ... ok
 [409] cron ... ok
 [410] cron-daemon-common.postinst ... ok
 [411] cron-daemon-common.postrm ... ok
@@ -517,8 +515,7 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [507] dpkg-realpath ... ok
 [508] dpkg.postinst ... ok
 [509] dpkg.postrm ... ok
-[510] ds-identify ... FAIL (sh2perl generation, exit=1)
-       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/ds-identify)
+[510] ds-identify ... ok
 [511] dtdiff ... ok
 [512] e2fsprogs.postinst ... ok
 [513] e2fsprogs.postrm ... ok
@@ -623,7 +620,8 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [609] git-difftool--helper ... ok
 [610] git-editor-empty.sh ... ok
 [611] git-editor.sh ... ok
-[612] git-filter-branch ... ok
+[612] git-filter-branch ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/git-filter-branch)
 [613] git-import.sh ... ok
 [614] git-instaweb ... ok
 [615] git-jump ... ok
@@ -791,829 +789,823 @@ Checking 1586 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [775] kmod.postinst ... ok
 [776] kmod.postrm ... ok
 [777] kmod.preinst ... ok
-[778] kube-ps1.plugin.zsh ... FAIL (sh2perl generation, exit=0)
-       sh2perl generation, exit=0 (Error reading input file /nvme/ai/sh2loop/sh/kube-ps1.plugin.zsh: No such file or directory (os error 2))
-[779] lcf ... ok
-[780] ldconfig ... ok
-[781] ldd ... ok
-[782] less.postinst ... ok
-[783] less.preinst ... ok
-[784] less.prerm ... ok
-[785] less.sh ... ok
-[786] lesspipe ... ok
-[787] libc-bin.postinst ... ok
-[788] libcryptsetup12 ... ok
-[789] libdigest-sha-perl.postrm ... ok
-[790] libdigest-sha-perl.preinst ... ok
-[791] libdpkg-perl ... ok
-[792] libpam-modules-bin.postinst ... ok
-[793] libpam-modules-bin.postrm ... ok
-[794] libpam-modules-bin.prerm ... ok
-[795] libpam-runtime.postinst ... ok
-[796] libpam-runtime.postrm ... ok
-[797] libpam-runtime.prerm ... ok
-[798] linux-base.postinst ... ok
-[799] linux-base.postrm ... ok
-[800] linux-image-next-sun50iw9.postinst ... ok
-[801] linux-image-next-sun50iw9.postrm ... ok
-[802] linux-image-next-sun50iw9.preinst ... ok
-[803] linux-image-next-sun50iw9.prerm ... ok
-[804] lirc-config-tool ... FAIL (sh2perl generation, exit=1)
+[778] lcf ... ok
+[779] ldconfig ... ok
+[780] ldd ... ok
+[781] less.postinst ... ok
+[782] less.preinst ... ok
+[783] less.prerm ... ok
+[784] less.sh ... ok
+[785] lesspipe ... ok
+[786] libc-bin.postinst ... ok
+[787] libcryptsetup12 ... ok
+[788] libdigest-sha-perl.postrm ... ok
+[789] libdigest-sha-perl.preinst ... ok
+[790] libdpkg-perl ... ok
+[791] libpam-modules-bin.postinst ... ok
+[792] libpam-modules-bin.postrm ... ok
+[793] libpam-modules-bin.prerm ... ok
+[794] libpam-runtime.postinst ... ok
+[795] libpam-runtime.postrm ... ok
+[796] libpam-runtime.prerm ... ok
+[797] linux-base.postinst ... ok
+[798] linux-base.postrm ... ok
+[799] linux-image-next-sun50iw9.postinst ... ok
+[800] linux-image-next-sun50iw9.postrm ... ok
+[801] linux-image-next-sun50iw9.preinst ... ok
+[802] linux-image-next-sun50iw9.prerm ... ok
+[803] lirc-config-tool ... FAIL (sh2perl generation, exit=1)
        sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/lirc-config-tool)
-[805] lirc-make-devinput ... ok
-[806] lirc-postinstall ... ok
-[807] lirc.postinst ... ok
-[808] lirc.postrm ... ok
-[809] lirc.preinst ... ok
-[810] lirc.prerm ... ok
-[811] lirc.rtupdate ... ok
-[812] lircd ... ok
-[813] lircmd ... ok
-[814] list ... ok
-[815] lm-sensors ... ok
-[816] lm-sensors.postinst ... ok
-[817] lm-sensors.postrm ... ok
-[818] lm-sensors.preinst ... ok
-[819] lm-sensors.prerm ... ok
-[820] loadcpufreq ... ok
-[821] locale-gen ... ok
-[822] locales.config ... ok
-[823] locales.postinst ... ok
-[824] locales.postrm ... ok
-[825] locales.prerm ... ok
-[826] lockout-not-enabled.sh ... ok
-[827] log-f3wr ... ok
-[828] login.postinst ... ok
-[829] login.postrm ... ok
-[830] login.preinst ... ok
-[831] login.prerm ... ok
-[832] logrotate ... ok
-[833] logrotate.postinst ... ok
-[834] logrotate.postrm ... ok
-[835] logrotate.prerm ... ok
-[836] lsb_release ... ok
-[837] lsinitramfs ... ok
-[838] lslR ... ok
-[839] lspgpot ... ok
-[840] lxc ... ok
-[841] lxc-checkconfig ... ok
-[842] lxc.mount.hook ... ok
-[843] lxc.reboot.hook ... ok
-[844] lxd ... ok
-[845] lxd-check-kernel ... ok
-[846] lxd-user ... ok
-[847] makesetup ... ok
-[848] man ... ok
-[849] man-db ... ok
-[850] man-db.config ... ok
-[851] man-db.postinst ... ok
-[852] man-db.postrm ... ok
-[853] man-db.prerm ... ok
-[854] mawk.postinst ... ok
-[855] mawk.prerm ... ok
-[856] mc.postinst ... ok
-[857] mc.postrm ... ok
-[858] mc.preinst ... ok
-[859] mc.prerm ... ok
-[860] mdate-sh ... ok
-[861] memtester.sh ... ok
-[862] menubox ... ok
-[863] menubox-utf8 ... ok
-[864] menubox1 ... ok
-[865] menubox10 ... ok
-[866] menubox11 ... ok
-[867] menubox2 ... ok
-[868] menubox3 ... ok
-[869] menubox4 ... ok
-[870] menubox5 ... ok
-[871] migrate-pubring-from-classic-gpg ... ok
-[872] miri.sh ... ok
-[873] misc.sh ... ok
-[874] missing ... ok
-[875] mixedform ... ok
-[876] mixedform2 ... ok
-[877] mixedgauge ... ok
-[878] mk_modmap ... ok
-[879] mkinitramfs ... ok
-[880] mkinstalldirs ... ok
-[881] mkswapfile ... ok
-[882] mkzip.sh ... ok
-[883] moolets ... ok
-[884] msgbox ... ok
-[885] msgbox1 ... ok
-[886] msgbox2 ... ok
-[887] msgbox4-eucjp ... ok
-[888] msgbox4-utf8 ... ok
-[889] mysql ... FAIL (sh2perl generation, exit=1)
+[804] lirc-make-devinput ... ok
+[805] lirc-postinstall ... ok
+[806] lirc.postinst ... ok
+[807] lirc.postrm ... ok
+[808] lirc.preinst ... ok
+[809] lirc.prerm ... ok
+[810] lirc.rtupdate ... ok
+[811] lircd ... ok
+[812] lircmd ... ok
+[813] list ... ok
+[814] lm-sensors ... ok
+[815] lm-sensors.postinst ... ok
+[816] lm-sensors.postrm ... ok
+[817] lm-sensors.preinst ... ok
+[818] lm-sensors.prerm ... ok
+[819] loadcpufreq ... ok
+[820] locale-gen ... ok
+[821] locales.config ... ok
+[822] locales.postinst ... ok
+[823] locales.postrm ... ok
+[824] locales.prerm ... ok
+[825] lockout-not-enabled.sh ... ok
+[826] log-f3wr ... ok
+[827] login.postinst ... ok
+[828] login.postrm ... ok
+[829] login.preinst ... ok
+[830] login.prerm ... ok
+[831] logrotate ... ok
+[832] logrotate.postinst ... ok
+[833] logrotate.postrm ... ok
+[834] logrotate.prerm ... ok
+[835] lsb_release ... ok
+[836] lsinitramfs ... ok
+[837] lslR ... ok
+[838] lspgpot ... ok
+[839] lxc ... ok
+[840] lxc-checkconfig ... ok
+[841] lxc.mount.hook ... ok
+[842] lxc.reboot.hook ... ok
+[843] lxd ... ok
+[844] lxd-check-kernel ... ok
+[845] lxd-user ... ok
+[846] makesetup ... ok
+[847] man ... ok
+[848] man-db ... ok
+[849] man-db.config ... ok
+[850] man-db.postinst ... ok
+[851] man-db.postrm ... ok
+[852] man-db.prerm ... ok
+[853] mawk.postinst ... ok
+[854] mawk.prerm ... ok
+[855] mc.postinst ... ok
+[856] mc.postrm ... ok
+[857] mc.preinst ... ok
+[858] mc.prerm ... ok
+[859] mdate-sh ... ok
+[860] memtester.sh ... ok
+[861] menubox ... ok
+[862] menubox-utf8 ... ok
+[863] menubox1 ... ok
+[864] menubox10 ... ok
+[865] menubox11 ... ok
+[866] menubox2 ... ok
+[867] menubox3 ... ok
+[868] menubox4 ... ok
+[869] menubox5 ... ok
+[870] migrate-pubring-from-classic-gpg ... ok
+[871] miri.sh ... ok
+[872] misc.sh ... ok
+[873] missing ... ok
+[874] mixedform ... ok
+[875] mixedform2 ... ok
+[876] mixedgauge ... ok
+[877] mk_modmap ... ok
+[878] mkinitramfs ... ok
+[879] mkinstalldirs ... ok
+[880] mkswapfile ... ok
+[881] mkzip.sh ... ok
+[882] moolets ... ok
+[883] msgbox ... ok
+[884] msgbox1 ... ok
+[885] msgbox2 ... ok
+[886] msgbox4-eucjp ... ok
+[887] msgbox4-utf8 ... ok
+[888] mysql ... FAIL (sh2perl generation, exit=1)
        sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/mysql)
-[890] mysql-common.postinst ... ok
-[891] mysql-common.postrm ... ok
-[892] mysql-common.preinst ... ok
-[893] mysql-common.prerm ... ok
-[894] mysql-server-8.0.config ... ok
-[895] mysql-server-8.0.postinst ... ok
-[896] mysql-server-8.0.postrm ... FAIL (sh2perl generation, exit=1)
+[889] mysql-common.postinst ... ok
+[890] mysql-common.postrm ... ok
+[891] mysql-common.preinst ... ok
+[892] mysql-common.prerm ... ok
+[893] mysql-server-8.0.config ... ok
+[894] mysql-server-8.0.postinst ... ok
+[895] mysql-server-8.0.postrm ... FAIL (sh2perl generation, exit=1)
        sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/mysql-server-8.0.postrm)
-[897] mysql-server-8.0.preinst ... FAIL (sh2perl generation, exit=1)
+[896] mysql-server-8.0.preinst ... FAIL (sh2perl generation, exit=1)
        sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/mysql-server-8.0.preinst)
-[898] mysql-server-8.0.prerm ... ok
-[899] mysql-systemd-start ... ok
-[900] mysqld_multi.server ... ok
-[901] mysqld_safe ... ok
-[902] namespace.init ... ok
-[903] nand-sata-install ... FAIL (sh2perl generation, exit=1)
-       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/nand-sata-install)
-[904] nano.postinst ... ok
-[905] nano.prerm ... ok
-[906] ncmeter ... ok
-[907] ncp ... ok
-[908] neqn ... ok
-[909] netbase.postinst ... ok
-[910] netbase.postrm ... ok
-[911] netcat-openbsd.postinst ... ok
-[912] netcat-openbsd.prerm ... ok
-[913] netplan-generator.postinst ... ok
-[914] netplan-generator.preinst ... ok
-[915] netplan.io.preinst ... ok
-[916] network ... ok
-[917] network-manager-openvpn.postinst ... ok
-[918] network-manager-openvpn.postrm ... ok
-[919] network-manager.postinst ... ok
-[920] network-manager.postrm ... ok
-[921] network-manager.preinst ... ok
-[922] network-manager.prerm ... ok
-[923] networkd-dispatcher.postinst ... ok
-[924] networkd-dispatcher.postrm ... ok
-[925] networkd-dispatcher.prerm ... ok
-[926] networking ... ok
-[927] newVersion ... ok
-[928] nfs-common ... ok
-[929] nfs-common.postinst ... ok
-[930] nfs-common.postrm ... ok
-[931] nfs-common.preinst ... ok
-[932] nfs-common.prerm ... ok
-[933] nmbd ... ok
-[934] nocache ... ok
-[935] nroff ... ok
-[936] ntfs-3g.postinst ... ok
-[937] ntfs-3g.postrm ... ok
-[938] ntfs_3g ... ok
-[939] ntpdate ... ok
-[940] ntpdate-debian ... ok
-[941] ntpdate.postrm ... ok
-[942] ntpsec-ntpdate ... ok
-[943] ntpsec-ntpdate.postinst ... ok
-[944] nvidia ... ok
-[945] nvidia-container-cli ... ok
-[946] office.up ... ok
-[947] ofm_df ... ok
-[948] ofm_grep ... ok
-[949] oldconfigure.sh ... ok
-[950] open-iscsi ... ok
-[951] open-vm-tools ... ok
-[952] openssh-client.postinst ... ok
-[953] openssh-client.postrm ... ok
-[954] openssh-client.preinst ... ok
-[955] openssh-client.prerm ... ok
-[956] openssh-server.config ... ok
-[957] openssh-server.postinst ... ok
-[958] openssh-server.postrm ... ok
-[959] openssh-server.preinst ... ok
-[960] openssh-server.prerm ... ok
-[961] openssl.postinst ... ok
-[962] opensysusers-sysusers ... ok
-[963] openvpn ... ok
-[964] openvpn-generator ... ok
-[965] openvpn-shutdown.sh ... ok
-[966] openvpn-startup.sh ... ok
-[967] openvpn.config ... ok
-[968] openvpn.postinst ... ok
-[969] openvpn.postrm ... ok
-[970] openvpn.preinst ... ok
-[971] openvpn.prerm ... ok
-[972] orangepi-activate-profile-sync-daemon.sh ... ok
-[973] orangepi-add-overlay ... ok
-[974] orangepi-apt-updates ... ok
-[975] orangepi-audio-config ... ok
-[976] orangepi-bsp-cli-orangepizero3.postinst ... ok
-[977] orangepi-bsp-cli-orangepizero3.postrm ... ok
-[978] orangepi-bsp-cli-orangepizero3.preinst ... ok
-[979] orangepi-check-first-login-reboot.sh ... ok
-[980] orangepi-check-first-login.sh ... ok
-[981] orangepi-common ... ok
-[982] orangepi-config ... ok
-[983] orangepi-firstlogin ... ok
-[984] orangepi-firstrun ... ok
-[985] orangepi-firstrun-config ... ok
-[986] orangepi-hardware-monitor ... ok
-[987] orangepi-hardware-optimization ... ok
-[988] orangepi-ram-logging ... ok
-[989] orangepi-ramlog ... ok
-[990] orangepi-resize-filesystem ... ok
-[991] orangepi-ssh-title.sh ... ok
-[992] orangepi-truncate-logs ... ok
-[993] orangepi-zram-config ... ok
-[994] orangepi-zsh.postinst ... ok
-[995] orangepimonitor ... FAIL (sh2perl generation, exit=1)
-       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/orangepimonitor)
-[996] package.sh ... ok
-[997] packagekit.postinst ... ok
-[998] packagekit.postrm ... ok
-[999] pam_namespace_helper ... ok
-[1000] panic-action ... ok
-[1001] parted.postinst ... ok
-[1002] parted.postrm ... ok
-[1003] parted.preinst ... ok
-[1004] parted.prerm ... ok
-[1005] passwd.postinst ... ok
-[1006] passwd.postrm ... ok
-[1007] passwd.preinst ... ok
-[1008] passwd.prerm ... ok
-[1009] password ... ok
-[1010] password1 ... ok
-[1011] password2 ... ok
-[1012] patchsetfs ... ok
-[1013] pause ... ok
-[1014] pciutils.postinst ... ok
-[1015] pciutils.postrm ... ok
-[1016] pciutils.preinst ... ok
-[1017] pcmcia-compat.sh ... ok
-[1018] pcre2-config ... ok
-[1019] perl-base.postinst ... ok
-[1020] perl-base.postrm ... ok
-[1021] perl-base.preinst ... ok
-[1022] perl-base.prerm ... ok
-[1023] perl.postinst ... ok
-[1024] perl.postrm ... ok
-[1025] perl.preinst ... ok
-[1026] perl.prerm ... ok
-[1027] perldoc ... ok
-[1028] pigz.prerm ... ok
-[1029] pinentry-curses.postinst ... ok
-[1030] pinentry-curses.prerm ... ok
-[1031] ping-places.sh ... ok
-[1032] pintest ... ok
-[1033] plocate ... ok
-[1034] plymouth ... ok
-[1035] plymouth-generate-initrd ... ok
-[1036] plymouth-log ... ok
-[1037] plymouth-populate-initrd ... ok
-[1038] plymouth-theme-spinner.postinst ... ok
-[1039] plymouth-theme-spinner.postrm ... ok
-[1040] plymouth-themes.postinst ... ok
-[1041] plymouth-themes.postrm ... ok
-[1042] plymouth-themes.prerm ... ok
-[1043] plymouth-update-initrd ... ok
-[1044] plymouth.postinst ... ok
-[1045] plymouth.postrm ... ok
-[1046] plymouth.preinst ... ok
-[1047] pm-utils ... ok
-[1048] policycoreutils.postinst ... ok
-[1049] policycoreutils.postrm ... ok
-[1050] policycoreutils.preinst ... ok
-[1051] policycoreutils.prerm ... ok
-[1052] polkitd.postinst ... ok
-[1053] polkitd.postrm ... ok
-[1054] polkitd.preinst ... ok
-[1055] polkitd.prerm ... ok
-[1056] post-receive-email ... ok
-[1057] post-update.sample ... ok
-[1058] postinst ... ok
-[1059] postrm ... ok
-[1060] poweroff-vm-default ... ok
-[1061] poweron-vm-default ... ok
-[1062] pre-applypatch.sample ... ok
-[1063] pre-auto-gc-battery ... ok
-[1064] pre-commit ... ok
-[1065] pre-commit.sample ... ok
-[1066] pre-merge-commit.sample ... ok
-[1067] pre-push.sample ... ok
-[1068] pre-rebase.sample ... ok
-[1069] pre-receive.sample ... ok
-[1070] prepare-commit-msg.sample ... ok
-[1071] prerm ... ok
-[1072] probe ... ok
-[1073] procps ... ok
-[1074] procps.postinst ... ok
-[1075] procps.postrm ... ok
-[1076] procps.preinst ... ok
-[1077] procps.prerm ... ok
-[1078] profile-load ... ok
-[1079] project-id ... ok
-[1080] proto ... ok
-[1081] ps.sh ... ok
-[1082] public_modules.rtinstall ... ok
-[1083] public_modules.rtremove ... ok
-[1084] push-to-checkout.sample ... ok
-[1085] py-compile ... ok
-[1086] python3-apt.postinst ... ok
-[1087] python3-apt.prerm ... ok
-[1088] python3-attr.postinst ... ok
-[1089] python3-attr.prerm ... ok
-[1090] python3-blinker.postinst ... ok
-[1091] python3-blinker.prerm ... ok
-[1092] python3-certifi.postinst ... ok
-[1093] python3-certifi.prerm ... ok
-[1094] python3-chardet.postinst ... ok
-[1095] python3-chardet.prerm ... ok
-[1096] python3-compose.postinst ... ok
-[1097] python3-compose.prerm ... ok
-[1098] python3-cryptography.postinst ... ok
-[1099] python3-cryptography.prerm ... ok
-[1100] python3-dbus.postinst ... ok
-[1101] python3-dbus.prerm ... ok
-[1102] python3-distro-info.postinst ... ok
-[1103] python3-distro-info.prerm ... ok
-[1104] python3-distro.postinst ... ok
-[1105] python3-distro.prerm ... ok
-[1106] python3-distutils-extra.postinst ... ok
-[1107] python3-distutils-extra.prerm ... ok
-[1108] python3-dnspython.postinst ... ok
-[1109] python3-dnspython.prerm ... ok
-[1110] python3-docker.postinst ... ok
-[1111] python3-docker.prerm ... ok
-[1112] python3-dockerpty.postinst ... ok
-[1113] python3-dockerpty.prerm ... ok
-[1114] python3-docopt.postinst ... ok
-[1115] python3-docopt.prerm ... ok
-[1116] python3-dotenv.postinst ... ok
-[1117] python3-dotenv.prerm ... ok
-[1118] python3-gi.postinst ... ok
-[1119] python3-gi.prerm ... ok
-[1120] python3-httplib2.postinst ... ok
-[1121] python3-httplib2.prerm ... ok
-[1122] python3-idna.postinst ... ok
-[1123] python3-idna.prerm ... ok
-[1124] python3-jsonschema.postinst ... ok
-[1125] python3-jsonschema.postrm ... ok
-[1126] python3-jsonschema.prerm ... ok
-[1127] python3-jwt.postinst ... ok
-[1128] python3-jwt.prerm ... ok
-[1129] python3-launchpadlib.postinst ... ok
-[1130] python3-launchpadlib.postrm ... ok
-[1131] python3-launchpadlib.prerm ... ok
-[1132] python3-lazr.restfulclient.postinst ... ok
-[1133] python3-lazr.restfulclient.prerm ... ok
-[1134] python3-lazr.uri.postinst ... ok
-[1135] python3-lazr.uri.prerm ... ok
-[1136] python3-ldb.postinst ... ok
-[1137] python3-ldb.prerm ... ok
-[1138] python3-lib2to3.postinst ... ok
-[1139] python3-lib2to3.prerm ... ok
-[1140] python3-markdown.postinst ... ok
-[1141] python3-markdown.prerm ... ok
-[1142] python3-minimal.postinst ... ok
-[1143] python3-minimal.prerm ... ok
-[1144] python3-ntp.postinst ... ok
-[1145] python3-ntp.prerm ... ok
-[1146] python3-oauthlib.postinst ... ok
-[1147] python3-oauthlib.prerm ... ok
-[1148] python3-packaging.postinst ... ok
-[1149] python3-packaging.prerm ... ok
-[1150] python3-pkg-resources.postinst ... ok
-[1151] python3-pkg-resources.prerm ... ok
-[1152] python3-pyparsing.postinst ... ok
-[1153] python3-pyparsing.prerm ... ok
-[1154] python3-requests.postinst ... ok
-[1155] python3-requests.prerm ... ok
-[1156] python3-samba.postinst ... ok
-[1157] python3-samba.prerm ... ok
-[1158] python3-setuptools.postinst ... ok
-[1159] python3-setuptools.prerm ... ok
-[1160] python3-six.postinst ... ok
-[1161] python3-six.prerm ... ok
-[1162] python3-software-properties.postinst ... ok
-[1163] python3-software-properties.prerm ... ok
-[1164] python3-tdb.postinst ... ok
-[1165] python3-tdb.prerm ... ok
-[1166] python3-texttable.postinst ... ok
-[1167] python3-texttable.prerm ... ok
-[1168] python3-urllib3.postinst ... ok
-[1169] python3-urllib3.prerm ... ok
-[1170] python3-wadllib.postinst ... ok
-[1171] python3-wadllib.prerm ... ok
-[1172] python3-websocket.postinst ... ok
-[1173] python3-websocket.prerm ... ok
-[1174] python3-yaml.postinst ... ok
-[1175] python3-yaml.prerm ... ok
-[1176] python3.12-minimal.postinst ... ok
-[1177] python3.12-minimal.postrm ... ok
-[1178] python3.12-minimal.preinst ... ok
-[1179] python3.12-minimal.prerm ... ok
-[1180] python3.12.postinst ... ok
-[1181] python3.12.prerm ... ok
-[1182] python3.postinst ... ok
-[1183] python3.postrm ... ok
-[1184] python3.preinst ... ok
-[1185] python3.prerm ... ok
-[1186] radiolist ... ok
-[1187] radiolist10 ... ok
-[1188] rc.apparmor.functions ... ok
-[1189] rc.local ... ok
-[1190] readline-common.postinst ... ok
-[1191] readline-common.postrm ... ok
-[1192] realpath ... ok
-[1193] refresh ... ok
-[1194] reload-apparmor-profile ... ok
-[1195] remote-viewer ... ok
-[1196] remoteProcessPickerScript ... ok
-[1197] remotes2config.sh ... ok
-[1198] remount-core-fs ... ok
-[1199] remove ... ok
-[1200] remove-language-pack ... ok
-[1201] remove-shell ... ok
-[1202] report-button ... ok
-[1203] report-edit ... ok
-[1204] report-string ... ok
-[1205] report-tempfile ... ok
-[1206] report-yesno ... ok
-[1207] request-key-debug.sh ... ok
-[1208] rerere-train.sh ... ok
-[1209] reset_fail_count.sh ... ok
-[1210] reset_ssh.sh ... ok
-[1211] resolved ... ok
-[1212] resolved-enter ... ok
-[1213] resume ... ok
-[1214] resume-vm-default ... ok
-[1215] rgrep ... ok
-[1216] routef ... ok
-[1217] routel ... ok
-[1218] rpcbind ... ok
-[1219] rpcbind.postinst ... ok
-[1220] rpcbind.postrm ... ok
-[1221] rpcbind.preinst ... ok
-[1222] rpcbind.prerm ... ok
-[1223] rpm ... ok
-[1224] rscreen ... ok
-[1225] rstrip.sh ... ok
-[1226] rsync ... ok
-[1227] rsync-no-vanished ... ok
-[1228] rsync-ssl ... ok
-[1229] rsync.postinst ... ok
-[1230] rsync.postrm ... ok
-[1231] rsync.preinst ... ok
-[1232] rsync.prerm ... ok
-[1233] rsyslog-rotate ... ok
-[1234] rsyslog.postinst ... ok
-[1235] rsyslog.postrm ... ok
-[1236] rsyslog.preinst ... ok
-[1237] rsyslog.prerm ... ok
-[1238] rtc-sys-time-init ... ok
-[1239] rtc-sys-time-init-generator ... ok
-[1240] run-host ... ok
-[1241] run-snapd-from-snap ... ok
-[1242] run-workflow.sh ... ok
-[1243] rust-gdb ... ok
-[1244] rust-gdbgui ... ok
-[1245] rust-lldb ... ok
-[1246] sa1 ... ok
-[1247] sa2 ... ok
-[1248] samba-ad-dc ... ok
-[1249] samba-common.postinst ... ok
-[1250] samba-common.postrm ... ok
-[1251] samba-common.preinst ... ok
-[1252] samba-common.prerm ... ok
-[1253] samba.postinst ... ok
-[1254] samba.postrm ... ok
-[1255] samba.preinst ... ok
-[1256] samba.prerm ... ok
-[1257] saned ... ok
-[1258] sargraph ... ok
-[1259] sargraph2 ... ok
-[1260] savelog ... ok
-[1261] sc ... ok
-[1262] scd-event ... ok
-[1263] screen ... ok
-[1264] screen-cleanup ... ok
-[1265] screen.postinst ... ok
-[1266] screen.postrm ... ok
-[1267] screen.preinst ... ok
-[1268] script ... ok
-[1269] search-name.sh ... ok
-[1270] select-editor ... ok
-[1271] selinux-autorelabel ... ok
-[1272] selinux-autorelabel-generator.sh ... ok
-[1273] selinux-policy-default.postinst ... ok
-[1274] selinux-policy-default.postrm ... ok
-[1275] selinux-policy-default.preinst ... ok
-[1276] selinux-policy-default.prerm ... ok
-[1277] sendemail-validate.sample ... ok
-[1278] sensible-browser ... ok
-[1279] sensible-editor ... ok
-[1280] sensible-pager ... ok
-[1281] sensible-terminal ... ok
-[1282] serial-console-generator ... ok
-[1283] service ... ok
-[1284] set_swap.sh ... ok
-[1285] set_vnc.sh ... ok
-[1286] settle-dad.sh ... ok
-[1287] setup-edit ... ok
-[1288] setup-gmail-download.sh ... ok
-[1289] setup-grafana.sh ... ok
-[1290] setup-tempfile ... ok
-[1291] setup-utf8 ... ok
-[1292] setup-vars ... ok
-[1293] setup-zfs ... ok
-[1294] setupcon ... ok
-[1295] sgml-base.postinst ... ok
-[1296] sgml-base.postrm ... ok
-[1297] sgml-base.preinst ... ok
-[1298] sgml-base.prerm ... ok
-[1299] sh.sh ... ok
-[1300] shadowconfig ... ok
-[1301] shell-proxy.plugin.zsh ... FAIL (sh2perl generation, exit=1)
-       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/shell-proxy.plugin.zsh)
-[1302] show-size-changes.sh ... ok
-[1303] showfigfonts ... ok
-[1304] smartd-runner ... ok
-[1305] smartd_warning.sh ... ok
-[1306] smartmontools ... ok
-[1307] smartmontools.postinst ... ok
-[1308] smartmontools.postrm ... ok
-[1309] smartmontools.preinst ... ok
-[1310] smartmontools.prerm ... ok
-[1311] smbd ... ok
-[1312] smbprint.sysv ... ok
-[1313] snap-debug-info.sh ... ok
-[1314] snap-mgmt ... ok
-[1315] snap-mgmt-selinux ... ok
-[1316] snapd.core-fixup.sh ... ok
-[1317] snapd.run-from-snap ... ok
-[1318] software-properties-common.postinst ... ok
-[1319] software-properties-common.prerm ... ok
-[1320] softy ... TIMEOUT (sh2perl generation)
+[897] mysql-server-8.0.prerm ... ok
+[898] mysql-systemd-start ... ok
+[899] mysqld_multi.server ... ok
+[900] mysqld_safe ... ok
+[901] namespace.init ... ok
+[902] nand-sata-install ... ok
+[903] nano.postinst ... ok
+[904] nano.prerm ... ok
+[905] ncmeter ... ok
+[906] ncp ... ok
+[907] neqn ... ok
+[908] netbase.postinst ... ok
+[909] netbase.postrm ... ok
+[910] netcat-openbsd.postinst ... ok
+[911] netcat-openbsd.prerm ... ok
+[912] netplan-generator.postinst ... ok
+[913] netplan-generator.preinst ... ok
+[914] netplan.io.preinst ... ok
+[915] network ... ok
+[916] network-manager-openvpn.postinst ... ok
+[917] network-manager-openvpn.postrm ... ok
+[918] network-manager.postinst ... ok
+[919] network-manager.postrm ... ok
+[920] network-manager.preinst ... ok
+[921] network-manager.prerm ... ok
+[922] networkd-dispatcher.postinst ... ok
+[923] networkd-dispatcher.postrm ... ok
+[924] networkd-dispatcher.prerm ... ok
+[925] networking ... ok
+[926] newVersion ... ok
+[927] nfs-common ... ok
+[928] nfs-common.postinst ... ok
+[929] nfs-common.postrm ... ok
+[930] nfs-common.preinst ... ok
+[931] nfs-common.prerm ... ok
+[932] nmbd ... ok
+[933] nocache ... ok
+[934] nroff ... ok
+[935] ntfs-3g.postinst ... ok
+[936] ntfs-3g.postrm ... ok
+[937] ntfs_3g ... ok
+[938] ntpdate ... ok
+[939] ntpdate-debian ... ok
+[940] ntpdate.postrm ... ok
+[941] ntpsec-ntpdate ... ok
+[942] ntpsec-ntpdate.postinst ... ok
+[943] nvidia ... ok
+[944] nvidia-container-cli ... ok
+[945] office.up ... ok
+[946] ofm_df ... ok
+[947] ofm_grep ... ok
+[948] oldconfigure.sh ... ok
+[949] open-iscsi ... ok
+[950] open-vm-tools ... ok
+[951] openssh-client.postinst ... ok
+[952] openssh-client.postrm ... ok
+[953] openssh-client.preinst ... ok
+[954] openssh-client.prerm ... ok
+[955] openssh-server.config ... ok
+[956] openssh-server.postinst ... ok
+[957] openssh-server.postrm ... ok
+[958] openssh-server.preinst ... ok
+[959] openssh-server.prerm ... ok
+[960] openssl.postinst ... ok
+[961] opensysusers-sysusers ... ok
+[962] openvpn ... ok
+[963] openvpn-generator ... ok
+[964] openvpn-shutdown.sh ... ok
+[965] openvpn-startup.sh ... ok
+[966] openvpn.config ... ok
+[967] openvpn.postinst ... ok
+[968] openvpn.postrm ... ok
+[969] openvpn.preinst ... ok
+[970] openvpn.prerm ... ok
+[971] orangepi-activate-profile-sync-daemon.sh ... ok
+[972] orangepi-add-overlay ... ok
+[973] orangepi-apt-updates ... ok
+[974] orangepi-audio-config ... ok
+[975] orangepi-bsp-cli-orangepizero3.postinst ... ok
+[976] orangepi-bsp-cli-orangepizero3.postrm ... ok
+[977] orangepi-bsp-cli-orangepizero3.preinst ... ok
+[978] orangepi-check-first-login-reboot.sh ... ok
+[979] orangepi-check-first-login.sh ... ok
+[980] orangepi-common ... ok
+[981] orangepi-config ... ok
+[982] orangepi-firstlogin ... ok
+[983] orangepi-firstrun ... ok
+[984] orangepi-firstrun-config ... ok
+[985] orangepi-hardware-monitor ... ok
+[986] orangepi-hardware-optimization ... ok
+[987] orangepi-ram-logging ... ok
+[988] orangepi-ramlog ... ok
+[989] orangepi-resize-filesystem ... ok
+[990] orangepi-ssh-title.sh ... ok
+[991] orangepi-truncate-logs ... ok
+[992] orangepi-zram-config ... ok
+[993] orangepi-zsh.postinst ... ok
+[994] orangepimonitor ... ok
+[995] package.sh ... ok
+[996] packagekit.postinst ... ok
+[997] packagekit.postrm ... ok
+[998] pam_namespace_helper ... ok
+[999] panic-action ... ok
+[1000] parted.postinst ... ok
+[1001] parted.postrm ... ok
+[1002] parted.preinst ... ok
+[1003] parted.prerm ... ok
+[1004] passwd.postinst ... ok
+[1005] passwd.postrm ... ok
+[1006] passwd.preinst ... ok
+[1007] passwd.prerm ... ok
+[1008] password ... ok
+[1009] password1 ... ok
+[1010] password2 ... ok
+[1011] patchsetfs ... ok
+[1012] pause ... ok
+[1013] pciutils.postinst ... ok
+[1014] pciutils.postrm ... ok
+[1015] pciutils.preinst ... ok
+[1016] pcmcia-compat.sh ... ok
+[1017] pcre2-config ... ok
+[1018] perl-base.postinst ... ok
+[1019] perl-base.postrm ... ok
+[1020] perl-base.preinst ... ok
+[1021] perl-base.prerm ... ok
+[1022] perl.postinst ... ok
+[1023] perl.postrm ... ok
+[1024] perl.preinst ... ok
+[1025] perl.prerm ... ok
+[1026] perldoc ... ok
+[1027] pigz.prerm ... ok
+[1028] pinentry-curses.postinst ... ok
+[1029] pinentry-curses.prerm ... ok
+[1030] ping-places.sh ... ok
+[1031] pintest ... ok
+[1032] plocate ... ok
+[1033] plymouth ... ok
+[1034] plymouth-generate-initrd ... ok
+[1035] plymouth-log ... ok
+[1036] plymouth-populate-initrd ... ok
+[1037] plymouth-theme-spinner.postinst ... ok
+[1038] plymouth-theme-spinner.postrm ... ok
+[1039] plymouth-themes.postinst ... ok
+[1040] plymouth-themes.postrm ... ok
+[1041] plymouth-themes.prerm ... ok
+[1042] plymouth-update-initrd ... ok
+[1043] plymouth.postinst ... ok
+[1044] plymouth.postrm ... ok
+[1045] plymouth.preinst ... ok
+[1046] pm-utils ... ok
+[1047] policycoreutils.postinst ... ok
+[1048] policycoreutils.postrm ... ok
+[1049] policycoreutils.preinst ... ok
+[1050] policycoreutils.prerm ... ok
+[1051] polkitd.postinst ... ok
+[1052] polkitd.postrm ... ok
+[1053] polkitd.preinst ... ok
+[1054] polkitd.prerm ... ok
+[1055] post-receive-email ... ok
+[1056] post-update.sample ... ok
+[1057] postinst ... ok
+[1058] postrm ... ok
+[1059] poweroff-vm-default ... ok
+[1060] poweron-vm-default ... ok
+[1061] pre-applypatch.sample ... ok
+[1062] pre-auto-gc-battery ... ok
+[1063] pre-commit ... ok
+[1064] pre-commit.sample ... ok
+[1065] pre-merge-commit.sample ... ok
+[1066] pre-push.sample ... ok
+[1067] pre-rebase.sample ... ok
+[1068] pre-receive.sample ... ok
+[1069] prepare-commit-msg.sample ... ok
+[1070] prerm ... ok
+[1071] probe ... ok
+[1072] procps ... ok
+[1073] procps.postinst ... ok
+[1074] procps.postrm ... ok
+[1075] procps.preinst ... ok
+[1076] procps.prerm ... ok
+[1077] profile-load ... ok
+[1078] project-id ... ok
+[1079] proto ... ok
+[1080] ps.sh ... ok
+[1081] public_modules.rtinstall ... ok
+[1082] public_modules.rtremove ... ok
+[1083] push-to-checkout.sample ... ok
+[1084] py-compile ... ok
+[1085] python3-apt.postinst ... ok
+[1086] python3-apt.prerm ... ok
+[1087] python3-attr.postinst ... ok
+[1088] python3-attr.prerm ... ok
+[1089] python3-blinker.postinst ... ok
+[1090] python3-blinker.prerm ... ok
+[1091] python3-certifi.postinst ... ok
+[1092] python3-certifi.prerm ... ok
+[1093] python3-chardet.postinst ... ok
+[1094] python3-chardet.prerm ... ok
+[1095] python3-compose.postinst ... ok
+[1096] python3-compose.prerm ... ok
+[1097] python3-cryptography.postinst ... ok
+[1098] python3-cryptography.prerm ... ok
+[1099] python3-dbus.postinst ... ok
+[1100] python3-dbus.prerm ... ok
+[1101] python3-distro-info.postinst ... ok
+[1102] python3-distro-info.prerm ... ok
+[1103] python3-distro.postinst ... ok
+[1104] python3-distro.prerm ... ok
+[1105] python3-distutils-extra.postinst ... ok
+[1106] python3-distutils-extra.prerm ... ok
+[1107] python3-dnspython.postinst ... ok
+[1108] python3-dnspython.prerm ... ok
+[1109] python3-docker.postinst ... ok
+[1110] python3-docker.prerm ... ok
+[1111] python3-dockerpty.postinst ... ok
+[1112] python3-dockerpty.prerm ... ok
+[1113] python3-docopt.postinst ... ok
+[1114] python3-docopt.prerm ... ok
+[1115] python3-dotenv.postinst ... ok
+[1116] python3-dotenv.prerm ... ok
+[1117] python3-gi.postinst ... ok
+[1118] python3-gi.prerm ... ok
+[1119] python3-httplib2.postinst ... ok
+[1120] python3-httplib2.prerm ... ok
+[1121] python3-idna.postinst ... ok
+[1122] python3-idna.prerm ... ok
+[1123] python3-jsonschema.postinst ... ok
+[1124] python3-jsonschema.postrm ... ok
+[1125] python3-jsonschema.prerm ... ok
+[1126] python3-jwt.postinst ... ok
+[1127] python3-jwt.prerm ... ok
+[1128] python3-launchpadlib.postinst ... ok
+[1129] python3-launchpadlib.postrm ... ok
+[1130] python3-launchpadlib.prerm ... ok
+[1131] python3-lazr.restfulclient.postinst ... ok
+[1132] python3-lazr.restfulclient.prerm ... ok
+[1133] python3-lazr.uri.postinst ... ok
+[1134] python3-lazr.uri.prerm ... ok
+[1135] python3-ldb.postinst ... ok
+[1136] python3-ldb.prerm ... ok
+[1137] python3-lib2to3.postinst ... ok
+[1138] python3-lib2to3.prerm ... ok
+[1139] python3-markdown.postinst ... ok
+[1140] python3-markdown.prerm ... ok
+[1141] python3-minimal.postinst ... ok
+[1142] python3-minimal.prerm ... ok
+[1143] python3-ntp.postinst ... ok
+[1144] python3-ntp.prerm ... ok
+[1145] python3-oauthlib.postinst ... ok
+[1146] python3-oauthlib.prerm ... ok
+[1147] python3-packaging.postinst ... ok
+[1148] python3-packaging.prerm ... ok
+[1149] python3-pkg-resources.postinst ... ok
+[1150] python3-pkg-resources.prerm ... ok
+[1151] python3-pyparsing.postinst ... ok
+[1152] python3-pyparsing.prerm ... ok
+[1153] python3-requests.postinst ... ok
+[1154] python3-requests.prerm ... ok
+[1155] python3-samba.postinst ... ok
+[1156] python3-samba.prerm ... ok
+[1157] python3-setuptools.postinst ... ok
+[1158] python3-setuptools.prerm ... ok
+[1159] python3-six.postinst ... ok
+[1160] python3-six.prerm ... ok
+[1161] python3-software-properties.postinst ... ok
+[1162] python3-software-properties.prerm ... ok
+[1163] python3-tdb.postinst ... ok
+[1164] python3-tdb.prerm ... ok
+[1165] python3-texttable.postinst ... ok
+[1166] python3-texttable.prerm ... ok
+[1167] python3-urllib3.postinst ... ok
+[1168] python3-urllib3.prerm ... ok
+[1169] python3-wadllib.postinst ... ok
+[1170] python3-wadllib.prerm ... ok
+[1171] python3-websocket.postinst ... ok
+[1172] python3-websocket.prerm ... ok
+[1173] python3-yaml.postinst ... ok
+[1174] python3-yaml.prerm ... ok
+[1175] python3.12-minimal.postinst ... ok
+[1176] python3.12-minimal.postrm ... ok
+[1177] python3.12-minimal.preinst ... ok
+[1178] python3.12-minimal.prerm ... ok
+[1179] python3.12.postinst ... ok
+[1180] python3.12.prerm ... ok
+[1181] python3.postinst ... ok
+[1182] python3.postrm ... ok
+[1183] python3.preinst ... ok
+[1184] python3.prerm ... ok
+[1185] radiolist ... ok
+[1186] radiolist10 ... ok
+[1187] rc.apparmor.functions ... ok
+[1188] rc.local ... ok
+[1189] readline-common.postinst ... ok
+[1190] readline-common.postrm ... ok
+[1191] realpath ... ok
+[1192] refresh ... ok
+[1193] reload-apparmor-profile ... ok
+[1194] remote-viewer ... ok
+[1195] remoteProcessPickerScript ... ok
+[1196] remotes2config.sh ... ok
+[1197] remount-core-fs ... ok
+[1198] remove ... ok
+[1199] remove-language-pack ... ok
+[1200] remove-shell ... ok
+[1201] report-button ... ok
+[1202] report-edit ... ok
+[1203] report-string ... ok
+[1204] report-tempfile ... ok
+[1205] report-yesno ... ok
+[1206] request-key-debug.sh ... ok
+[1207] rerere-train.sh ... ok
+[1208] reset_fail_count.sh ... ok
+[1209] reset_ssh.sh ... ok
+[1210] resolved ... ok
+[1211] resolved-enter ... ok
+[1212] resume ... ok
+[1213] resume-vm-default ... ok
+[1214] rgrep ... ok
+[1215] routef ... ok
+[1216] routel ... ok
+[1217] rpcbind ... ok
+[1218] rpcbind.postinst ... ok
+[1219] rpcbind.postrm ... ok
+[1220] rpcbind.preinst ... ok
+[1221] rpcbind.prerm ... ok
+[1222] rpm ... ok
+[1223] rscreen ... ok
+[1224] rstrip.sh ... ok
+[1225] rsync ... ok
+[1226] rsync-no-vanished ... ok
+[1227] rsync-ssl ... ok
+[1228] rsync.postinst ... ok
+[1229] rsync.postrm ... ok
+[1230] rsync.preinst ... ok
+[1231] rsync.prerm ... ok
+[1232] rsyslog-rotate ... ok
+[1233] rsyslog.postinst ... ok
+[1234] rsyslog.postrm ... ok
+[1235] rsyslog.preinst ... ok
+[1236] rsyslog.prerm ... ok
+[1237] rtc-sys-time-init ... ok
+[1238] rtc-sys-time-init-generator ... ok
+[1239] run-host ... ok
+[1240] run-snapd-from-snap ... ok
+[1241] run-workflow.sh ... ok
+[1242] rust-gdb ... ok
+[1243] rust-gdbgui ... ok
+[1244] rust-lldb ... ok
+[1245] sa1 ... ok
+[1246] sa2 ... ok
+[1247] samba-ad-dc ... ok
+[1248] samba-common.postinst ... ok
+[1249] samba-common.postrm ... ok
+[1250] samba-common.preinst ... ok
+[1251] samba-common.prerm ... ok
+[1252] samba.postinst ... ok
+[1253] samba.postrm ... ok
+[1254] samba.preinst ... ok
+[1255] samba.prerm ... ok
+[1256] saned ... ok
+[1257] sargraph ... ok
+[1258] sargraph2 ... ok
+[1259] savelog ... ok
+[1260] sc ... ok
+[1261] scd-event ... ok
+[1262] screen ... ok
+[1263] screen-cleanup ... ok
+[1264] screen.postinst ... ok
+[1265] screen.postrm ... ok
+[1266] screen.preinst ... ok
+[1267] script ... ok
+[1268] search-name.sh ... ok
+[1269] select-editor ... ok
+[1270] selinux-autorelabel ... ok
+[1271] selinux-autorelabel-generator.sh ... ok
+[1272] selinux-policy-default.postinst ... ok
+[1273] selinux-policy-default.postrm ... ok
+[1274] selinux-policy-default.preinst ... ok
+[1275] selinux-policy-default.prerm ... ok
+[1276] sendemail-validate.sample ... ok
+[1277] sensible-browser ... ok
+[1278] sensible-editor ... ok
+[1279] sensible-pager ... ok
+[1280] sensible-terminal ... ok
+[1281] serial-console-generator ... ok
+[1282] service ... ok
+[1283] set_swap.sh ... ok
+[1284] set_vnc.sh ... ok
+[1285] settle-dad.sh ... ok
+[1286] setup-edit ... ok
+[1287] setup-gmail-download.sh ... ok
+[1288] setup-grafana.sh ... ok
+[1289] setup-tempfile ... ok
+[1290] setup-utf8 ... ok
+[1291] setup-vars ... ok
+[1292] setup-zfs ... ok
+[1293] setupcon ... ok
+[1294] sgml-base.postinst ... ok
+[1295] sgml-base.postrm ... ok
+[1296] sgml-base.preinst ... ok
+[1297] sgml-base.prerm ... ok
+[1298] sh.sh ... ok
+[1299] shadowconfig ... ok
+[1300] show-size-changes.sh ... ok
+[1301] showfigfonts ... ok
+[1302] smartd-runner ... ok
+[1303] smartd_warning.sh ... ok
+[1304] smartmontools ... ok
+[1305] smartmontools.postinst ... ok
+[1306] smartmontools.postrm ... ok
+[1307] smartmontools.preinst ... ok
+[1308] smartmontools.prerm ... ok
+[1309] smbd ... ok
+[1310] smbprint.sysv ... ok
+[1311] snap-debug-info.sh ... ok
+[1312] snap-mgmt ... ok
+[1313] snap-mgmt-selinux ... ok
+[1314] snapd.core-fixup.sh ... ok
+[1315] snapd.run-from-snap ... ok
+[1316] software-properties-common.postinst ... ok
+[1317] software-properties-common.prerm ... ok
+[1318] softy ... TIMEOUT (sh2perl generation)
        sh2perl generation
-[1321] sound.sh ... ok
-[1322] spatchcache ... ok
-[1323] splash-client ... ok
-[1324] spotify ... ok
-[1325] ssh ... ok
-[1326] ssh-argv0 ... ok
-[1327] ssh-askpass-empty.sh ... ok
-[1328] ssh-askpass.sh ... ok
-[1329] ssh-copy-id ... ok
-[1330] ssh-session-cleanup ... ok
-[1331] sshfs ... ok
-[1332] start-statd ... ok
-[1333] statechange.subr ... ok
-[1334] subiquitycore.rtupdate ... ok
-[1335] submenu.sh ... ok
-[1336] sudo.postinst ... ok
-[1337] sudo.postrm ... ok
-[1338] sudo.preinst ... ok
-[1339] sudo.prerm ... ok
-[1340] sunxi-tools.postinst ... ok
-[1341] suspend-vm-default ... ok
-[1342] swap ... ok
-[1343] sysfsutils ... ok
-[1344] sysfsutils.postinst ... ok
-[1345] sysfsutils.postrm ... ok
-[1346] sysfsutils.preinst ... ok
-[1347] sysfsutils.prerm ... ok
-[1348] sysstat ... ok
-[1349] sysstat.config ... ok
-[1350] sysstat.postinst ... ok
-[1351] sysstat.postrm ... ok
-[1352] sysstat.preinst ... ok
-[1353] sysstat.prerm ... ok
-[1354] sysstat.sleep ... ok
-[1355] systemd-bootchart-poststop.sh ... ok
-[1356] systemd-helper ... ok
-[1357] systemd-manager ... ok
-[1358] systemd-resolved.postinst ... FAIL (sh2perl generation, exit=1)
+[1319] sound.sh ... ok
+[1320] spatchcache ... ok
+[1321] splash-client ... ok
+[1322] spotify ... ok
+[1323] ssh ... ok
+[1324] ssh-argv0 ... ok
+[1325] ssh-askpass-empty.sh ... ok
+[1326] ssh-askpass.sh ... ok
+[1327] ssh-copy-id ... ok
+[1328] ssh-session-cleanup ... ok
+[1329] sshfs ... ok
+[1330] start-statd ... ok
+[1331] statechange.subr ... ok
+[1332] subiquitycore.rtupdate ... ok
+[1333] submenu.sh ... ok
+[1334] sudo.postinst ... ok
+[1335] sudo.postrm ... ok
+[1336] sudo.preinst ... ok
+[1337] sudo.prerm ... ok
+[1338] sunxi-tools.postinst ... ok
+[1339] suspend-vm-default ... ok
+[1340] swap ... ok
+[1341] sysfsutils ... ok
+[1342] sysfsutils.postinst ... ok
+[1343] sysfsutils.postrm ... ok
+[1344] sysfsutils.preinst ... ok
+[1345] sysfsutils.prerm ... ok
+[1346] sysstat ... ok
+[1347] sysstat.config ... ok
+[1348] sysstat.postinst ... ok
+[1349] sysstat.postrm ... ok
+[1350] sysstat.preinst ... ok
+[1351] sysstat.prerm ... ok
+[1352] sysstat.sleep ... ok
+[1353] systemd-bootchart-poststop.sh ... ok
+[1354] systemd-helper ... ok
+[1355] systemd-manager ... ok
+[1356] systemd-resolved.postinst ... FAIL (sh2perl generation, exit=1)
        sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/systemd-resolved.postinst)
-[1359] systemd-resolved.postrm ... ok
-[1360] systemd-resolved.prerm ... ok
-[1361] systemd-sysv-install ... ok
-[1362] systemd-sysv.postinst ... ok
-[1363] systemd.postinst ... ok
-[1364] systemd.postrm ... ok
-[1365] systemd.preinst ... ok
-[1366] systemd.prerm ... ok
-[1367] sysv-init ... ok
-[1368] t-git-credential-netrc.sh ... ok
-[1369] t7900-subtree.sh ... ok
-[1370] tap-driver.sh ... ok
-[1371] tar.postinst ... ok
-[1372] tar.prerm ... ok
-[1373] tarcat ... ok
-[1374] tcl8.6.prerm ... ok
-[1375] tdb-tools.postinst ... ok
-[1376] tdb-tools.prerm ... ok
-[1377] team-address ... ok
-[1378] tellerstats.sh ... ok
-[1379] terminateProcess.sh ... ok
-[1380] test ... ok
-[1381] test-driver ... ok
-[1382] test.command-option-gpg ... ok
-[1383] test.git-config-gpg ... ok
-[1384] test.sh ... ok
-[1385] test_01 ... ok
-[1386] test_02 ... ok
-[1387] test_03 ... ok
-[1388] test_04 ... ok
-[1389] test_05 ... ok
-[1390] test_06 ... ok
-[1391] test_07 ... ok
-[1392] test_08 ... ok
-[1393] test_09 ... ok
-[1394] test_10 ... ok
-[1395] test_11 ... ok
-[1396] test_12 ... ok
-[1397] test_13 ... ok
-[1398] test_14 ... ok
-[1399] test_15 ... ok
-[1400] test_16 ... ok
-[1401] test_17 ... ok
-[1402] test_18 ... ok
-[1403] test_19 ... ok
-[1404] test_20 ... ok
-[1405] test_find.sh ... ok
-[1406] test_pwm.sh ... ok
-[1407] test_ros.sh ... ok
-[1408] test_simple_function.sh ... ok
-[1409] test_system_builtin.sh ... ok
-[1410] testsuite ... ok
-[1411] text.sh ... ok
-[1412] textbox ... ok
-[1413] textbox2 ... ok
-[1414] thermal ... ok
-[1415] timebox ... ok
-[1416] timebox-stdout ... ok
-[1417] timebox2 ... ok
-[1418] timebox2-stdout ... ok
-[1419] timedatectl ... ok
-[1420] toilet.postinst ... ok
-[1421] toilet.prerm ... ok
-[1422] trigger ... ok
-[1423] trpm ... ok
-[1424] tsc-some-files.sh ... ok
-[1425] tv_grab_file ... ok
-[1426] tzconfig ... ok
-[1427] tzdata.config ... ok
-[1428] tzdata.postinst ... ok
-[1429] tzdata.postrm ... ok
-[1430] tzselect ... FAIL (sh2perl generation, exit=1)
-       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/tzselect)
-[1431] u7z ... ok
-[1432] uace ... ok
-[1433] ualz ... ok
-[1434] uar ... ok
-[1435] uarc ... ok
-[1436] uarj ... ok
-[1437] ubuntu-keyring.postinst ... ok
-[1438] ucab ... ok
-[1439] ucf ... FAIL (sh2perl generation, exit=1)
+[1357] systemd-resolved.postrm ... ok
+[1358] systemd-resolved.prerm ... ok
+[1359] systemd-sysv-install ... ok
+[1360] systemd-sysv.postinst ... ok
+[1361] systemd.postinst ... ok
+[1362] systemd.postrm ... ok
+[1363] systemd.preinst ... ok
+[1364] systemd.prerm ... ok
+[1365] sysv-init ... ok
+[1366] t-git-credential-netrc.sh ... ok
+[1367] t7900-subtree.sh ... ok
+[1368] tap-driver.sh ... ok
+[1369] tar.postinst ... ok
+[1370] tar.prerm ... ok
+[1371] tarcat ... ok
+[1372] tcl8.6.prerm ... ok
+[1373] tdb-tools.postinst ... ok
+[1374] tdb-tools.prerm ... ok
+[1375] team-address ... ok
+[1376] tellerstats.sh ... ok
+[1377] terminateProcess.sh ... ok
+[1378] test ... ok
+[1379] test-driver ... ok
+[1380] test.command-option-gpg ... ok
+[1381] test.git-config-gpg ... ok
+[1382] test.sh ... ok
+[1383] test_01 ... ok
+[1384] test_02 ... ok
+[1385] test_03 ... ok
+[1386] test_04 ... ok
+[1387] test_05 ... ok
+[1388] test_06 ... ok
+[1389] test_07 ... ok
+[1390] test_08 ... ok
+[1391] test_09 ... ok
+[1392] test_10 ... ok
+[1393] test_11 ... ok
+[1394] test_12 ... ok
+[1395] test_13 ... ok
+[1396] test_14 ... ok
+[1397] test_15 ... ok
+[1398] test_16 ... ok
+[1399] test_17 ... ok
+[1400] test_18 ... ok
+[1401] test_19 ... ok
+[1402] test_20 ... ok
+[1403] test_find.sh ... ok
+[1404] test_pwm.sh ... ok
+[1405] test_ros.sh ... ok
+[1406] test_simple_function.sh ... ok
+[1407] test_system_builtin.sh ... ok
+[1408] testsuite ... ok
+[1409] text.sh ... ok
+[1410] textbox ... ok
+[1411] textbox2 ... ok
+[1412] thermal ... ok
+[1413] timebox ... ok
+[1414] timebox-stdout ... ok
+[1415] timebox2 ... ok
+[1416] timebox2-stdout ... ok
+[1417] timedatectl ... ok
+[1418] toilet.postinst ... ok
+[1419] toilet.prerm ... ok
+[1420] trigger ... ok
+[1421] trpm ... ok
+[1422] tsc-some-files.sh ... ok
+[1423] tv_grab_file ... ok
+[1424] tzconfig ... ok
+[1425] tzdata.config ... ok
+[1426] tzdata.postinst ... ok
+[1427] tzdata.postrm ... ok
+[1428] tzselect ... ok
+[1429] u7z ... ok
+[1430] uace ... ok
+[1431] ualz ... ok
+[1432] uar ... ok
+[1433] uarc ... ok
+[1434] uarj ... ok
+[1435] ubuntu-keyring.postinst ... ok
+[1436] ucab ... ok
+[1437] ucf ... FAIL (sh2perl generation, exit=1)
        sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/ucf)
-[1440] ucf.postinst ... ok
-[1441] ucf.postrm ... ok
-[1442] ucf.preinst ... ok
-[1443] ucf_helper_functions.sh ... ok
-[1444] ucfr ... ok
-[1445] udev ... ok
-[1446] udev.postinst ... ok
-[1447] udev.postrm ... ok
-[1448] udev.preinst ... ok
-[1449] udev.prerm ... ok
-[1450] ufw ... ok
-[1451] uha ... ok
-[1452] ulha ... ok
-[1453] un_blkid ... ok
-[1454] unar ... ok
-[1455] unattended-upgrades ... ok
-[1456] unattended-upgrades.config ... ok
-[1457] unattended-upgrades.postinst ... ok
-[1458] unattended-upgrades.postrm ... ok
-[1459] unattended-upgrades.preinst ... ok
-[1460] uncloud-init ... ok
-[1461] uncompress ... ok
-[1462] unhide_ICH_SMBus ... ok
-[1463] unicode_start ... ok
-[1464] unicode_stop ... ok
-[1465] unmkinitramfs ... ok
-[1466] unzip.postinst ... ok
-[1467] unzip.postrm ... ok
-[1468] update ... ok
-[1469] update-apparmor-samba-profile ... ok
-[1470] update-ca-certificates ... ok
-[1471] update-cracklib ... ok
-[1472] update-initramfs ... ok
-[1473] update-motd-unattended-upgrades ... ok
-[1474] update-pciids ... FAIL (sh2perl generation, exit=1)
+[1438] ucf.postinst ... ok
+[1439] ucf.postrm ... ok
+[1440] ucf.preinst ... ok
+[1441] ucf_helper_functions.sh ... ok
+[1442] ucfr ... ok
+[1443] udev ... ok
+[1444] udev.postinst ... ok
+[1445] udev.postrm ... ok
+[1446] udev.preinst ... ok
+[1447] udev.prerm ... ok
+[1448] ufw ... ok
+[1449] uha ... ok
+[1450] ulha ... ok
+[1451] un_blkid ... ok
+[1452] unar ... ok
+[1453] unattended-upgrades ... ok
+[1454] unattended-upgrades.config ... ok
+[1455] unattended-upgrades.postinst ... ok
+[1456] unattended-upgrades.postrm ... ok
+[1457] unattended-upgrades.preinst ... ok
+[1458] uncloud-init ... ok
+[1459] uncompress ... ok
+[1460] unhide_ICH_SMBus ... ok
+[1461] unicode_start ... ok
+[1462] unicode_stop ... ok
+[1463] unmkinitramfs ... ok
+[1464] unzip.postinst ... ok
+[1465] unzip.postrm ... ok
+[1466] update ... ok
+[1467] update-apparmor-samba-profile ... ok
+[1468] update-ca-certificates ... ok
+[1469] update-cracklib ... ok
+[1470] update-initramfs ... ok
+[1471] update-motd-unattended-upgrades ... ok
+[1472] update-pciids ... FAIL (sh2perl generation, exit=1)
        sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/update-pciids)
-[1475] update-resolv-conf ... ok
-[1476] update-shells ... ok
-[1477] update-smart-drivedb ... ok
-[1478] update.sample ... ok
-[1479] update_blessed.sh ... ok
-[1480] update_unicode.sh ... ok
-[1481] urar ... ok
-[1482] usb-devices ... ok
-[1483] usb_modeswitch ... ok
-[1484] user-email ... ok
-[1485] util-linux.postinst ... ok
-[1486] util-linux.postrm ... ok
-[1487] util-linux.prerm ... ok
-[1488] uuid ... ok
-[1489] uuidd ... ok
-[1490] uwim ... ok
-[1491] uzoo ... ok
-[1492] vconfig ... ok
-[1493] vcs-run ... ok
-[1494] video.sh ... ok
-[1495] vim-common.postinst ... ok
-[1496] vim-common.postrm ... ok
-[1497] vim-runtime.postinst ... ok
-[1498] vim-runtime.postrm ... ok
-[1499] vim-runtime.preinst ... ok
-[1500] vim.postinst ... ok
-[1501] vim.prerm ... ok
-[1502] vim_ide ... ok
-[1503] vimtutor ... ok
-[1504] virt-v2v-in-place ... ok
-[1505] vlan ... ok
-[1506] vlan-network-interface ... ok
-[1507] vnstat ... ok
-[1508] vnstat.postinst ... ok
-[1509] vnstat.postrm ... ok
-[1510] vnstat.preinst ... ok
-[1511] vnstat.prerm ... ok
-[1512] vsdbg ... ok
-[1513] vsftpd ... ok
-[1514] w3m.postinst ... ok
-[1515] w3m.postrm ... ok
-[1516] w3m.prerm ... ok
-[1517] w3mdict.cgi ... ok
-[1518] wait-for-ll6.sh ... ok
-[1519] wait-online.sh ... ok
-[1520] web ... ok
-[1521] web.sh ... ok
-[1522] webproxy ... ok
-[1523] webrelay ... ok
-[1524] websearch ... ok
-[1525] which.debianutils ... ok
-[1526] whiptail.preinst ... ok
-[1527] wireless-tools ... ok
-[1528] wireless-tools.postinst ... ok
-[1529] wireless-tools.preinst ... ok
-[1530] wiringpi.postinst ... ok
-[1531] wiringpi.postrm ... ok
-[1532] wpa_action ... ok
-[1533] wpasupplicant.postinst ... ok
-[1534] wpasupplicant.postrm ... ok
-[1535] wpasupplicant.prerm ... ok
-[1536] wrap3m ... ok
-[1537] write-ssh-key-fingerprints ... ok
-[1538] x11-common ... ok
-[1539] xdg-open ... ok
-[1540] xdg-settings ... ok
-[1541] xfs ... ok
-[1542] xfs_admin ... ok
-[1543] xml-core.postinst ... ok
-[1544] xml-core.postrm ... ok
-[1545] xml-core.preinst ... ok
-[1546] xml-core.prerm ... ok
-[1547] xx-initramfs-cleanup ... ok
-[1548] xx-update-initrd-links ... ok
-[1549] xz-utils.postinst ... ok
-[1550] xz-utils.prerm ... ok
-[1551] xzdiff ... ok
-[1552] xzgrep ... ok
-[1553] xzless ... ok
-[1554] xzmore ... ok
-[1555] yesno ... ok
-[1556] yesno2 ... ok
-[1557] yesno3 ... ok
-[1558] ylwrap ... ok
-[1559] yp ... ok
-[1560] yu ... ok
-[1561] yzfa.sh ... ok
-[1562] zcat ... ok
-[1563] zcmp ... ok
-[1564] zdiff ... ok
-[1565] zegrep ... ok
-[1566] zfgrep ... ok
-[1567] zforce ... ok
-[1568] zgrep ... ok
-[1569] zipgrep ... ok
-[1570] zless ... ok
-[1571] zmore ... ok
-[1572] znew ... ok
-[1573] zsh ... ok
-[1574] zsh-common ... ok
-[1575] zsh-common.postinst ... ok
-[1576] zsh-common.postrm ... ok
-[1577] zsh-common.preinst ... ok
-[1578] zsh-common.prerm ... ok
-[1579] zsh.postinst ... ok
-[1580] zsh.postrm ... ok
-[1581] zsh.preinst ... ok
-[1582] zsh.prerm ... ok
-[1583] zz-busybox-initramfs ... ok
-[1584] zz-dhclient ... ok
-[1585] zz-u-boot-menu ... ok
-[1586] zzz_avahi-autoipd ... ok
+[1473] update-resolv-conf ... ok
+[1474] update-shells ... ok
+[1475] update-smart-drivedb ... ok
+[1476] update.sample ... ok
+[1477] update_blessed.sh ... ok
+[1478] update_unicode.sh ... ok
+[1479] urar ... ok
+[1480] usb-devices ... ok
+[1481] usb_modeswitch ... ok
+[1482] user-email ... ok
+[1483] util-linux.postinst ... ok
+[1484] util-linux.postrm ... ok
+[1485] util-linux.prerm ... ok
+[1486] uuid ... ok
+[1487] uuidd ... ok
+[1488] uwim ... ok
+[1489] uzoo ... ok
+[1490] vconfig ... ok
+[1491] vcs-run ... ok
+[1492] video.sh ... ok
+[1493] vim-common.postinst ... ok
+[1494] vim-common.postrm ... ok
+[1495] vim-runtime.postinst ... ok
+[1496] vim-runtime.postrm ... ok
+[1497] vim-runtime.preinst ... ok
+[1498] vim.postinst ... ok
+[1499] vim.prerm ... ok
+[1500] vim_ide ... ok
+[1501] vimtutor ... ok
+[1502] virt-v2v-in-place ... ok
+[1503] vlan ... ok
+[1504] vlan-network-interface ... ok
+[1505] vnstat ... ok
+[1506] vnstat.postinst ... ok
+[1507] vnstat.postrm ... ok
+[1508] vnstat.preinst ... ok
+[1509] vnstat.prerm ... ok
+[1510] vsdbg ... ok
+[1511] vsftpd ... ok
+[1512] w3m.postinst ... ok
+[1513] w3m.postrm ... ok
+[1514] w3m.prerm ... ok
+[1515] w3mdict.cgi ... ok
+[1516] wait-for-ll6.sh ... ok
+[1517] wait-online.sh ... ok
+[1518] web ... ok
+[1519] web.sh ... ok
+[1520] webproxy ... ok
+[1521] webrelay ... ok
+[1522] websearch ... ok
+[1523] which.debianutils ... ok
+[1524] whiptail.preinst ... ok
+[1525] wireless-tools ... ok
+[1526] wireless-tools.postinst ... ok
+[1527] wireless-tools.preinst ... ok
+[1528] wiringpi.postinst ... ok
+[1529] wiringpi.postrm ... ok
+[1530] wpa_action ... ok
+[1531] wpasupplicant.postinst ... ok
+[1532] wpasupplicant.postrm ... ok
+[1533] wpasupplicant.prerm ... ok
+[1534] wrap3m ... ok
+[1535] write-ssh-key-fingerprints ... ok
+[1536] x11-common ... ok
+[1537] xdg-open ... ok
+[1538] xdg-settings ... ok
+[1539] xfs ... ok
+[1540] xfs_admin ... ok
+[1541] xml-core.postinst ... ok
+[1542] xml-core.postrm ... ok
+[1543] xml-core.preinst ... ok
+[1544] xml-core.prerm ... ok
+[1545] xx-initramfs-cleanup ... ok
+[1546] xx-update-initrd-links ... ok
+[1547] xz-utils.postinst ... ok
+[1548] xz-utils.prerm ... ok
+[1549] xzdiff ... ok
+[1550] xzgrep ... FAIL (sh2perl generation, exit=1)
+       sh2perl generation, exit=1 (Processing input file: /nvme/ai/sh2loop/sh/xzgrep)
+[1551] xzless ... ok
+[1552] xzmore ... ok
+[1553] yesno ... ok
+[1554] yesno2 ... ok
+[1555] yesno3 ... ok
+[1556] ylwrap ... ok
+[1557] yp ... ok
+[1558] yu ... ok
+[1559] yzfa.sh ... ok
+[1560] zcat ... ok
+[1561] zcmp ... ok
+[1562] zdiff ... ok
+[1563] zegrep ... ok
+[1564] zfgrep ... ok
+[1565] zforce ... ok
+[1566] zgrep ... ok
+[1567] zipgrep ... ok
+[1568] zless ... ok
+[1569] zmore ... ok
+[1570] znew ... ok
+[1571] zsh ... ok
+[1572] zsh-common ... ok
+[1573] zsh-common.postinst ... ok
+[1574] zsh-common.postrm ... ok
+[1575] zsh-common.preinst ... ok
+[1576] zsh-common.prerm ... ok
+[1577] zsh.postinst ... ok
+[1578] zsh.postrm ... ok
+[1579] zsh.preinst ... ok
+[1580] zsh.prerm ... ok
+[1581] zz-busybox-initramfs ... ok
+[1582] zz-dhclient ... ok
+[1583] zz-u-boot-menu ... ok
+[1584] zzz_avahi-autoipd ... ok
 
 ========================================================================
-SUMMARY: 1586 tested, 1562 passed, 24 failed
+SUMMARY: 1584 tested, 1566 passed, 18 failed
 ========================================================================
