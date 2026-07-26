@@ -4,3 +4,5 @@ Sat Jul 25 07:54:03 2026	Regenerating sh2perl cached outputs and translation fil
 Sat Jul 25 10:18:40 2026	check_sh_files fix regressed (125->280)
 Sat Jul 25 10:47:32 2026	Lexer DQS-recovery rewrite fixed some truncation edge cases but reordered emitted Perl declarations and broke pipeline codegen, causing 5 test regressions. (regression: 0->5)
 Sat Jul 25 18:49:27 2026	check_sh_files fix regressed (70->97)
+Sat Jul 25 23:38:42 2026	check_sh_files fix regressed (63->68)
+Sun Jul 26 00:04:47 2026	The code attempted to disambiguate `((` arithmetic evaluation from nested subshells `( (cmd) )` by adding a lookahead scan and mutating the token stream, but the fragile token-insertion and imperfect lookahead misclassify legitimate arithmetic expressions as subshells, causing 3 test regressions. (regression: 0->3)
