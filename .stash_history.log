@@ -14,3 +14,4 @@ Sun Jul 26 22:28:25 2026	Parser refactoring removed standalone-assignment detect
 Mon Jul 27 04:14:49 2026	check_sh_files fix regressed (13->46)
 Mon Jul 27 09:44:43 2026	check_sh_files fix regressed (41->115)
 Mon Jul 27 17:17:06 2026	check_sh_files fix regressed (12->18)
+Mon Jul 27 20:57:00 2026	check_sh_files fix regressed (13->14)
