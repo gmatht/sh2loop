@@ -1,7 +1,8 @@
-#!/bin/bash
-# Demonstrates heredoc parsing failure when the content after the heredoc
-# delimiter causes unexpected end of input.  Minimal pattern: a heredoc
-# followed by variable interpolation and redirect.
-cat <<EOF
-some text
+#!/bin/sh
+# Heredoc with subshell and redirects on same line
+# sh2perl fails with "Unexpected end of input"
+( echo test ) <<EOF 2>&1 >/dev/null
+first line
+second line
 EOF
+echo "after"

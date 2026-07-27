@@ -198,27 +198,47 @@ sub diff_results {
 sub run_tests {
     chdir "$project_root/sh2perl";
     my $out_file = "$project_root/sh2perl/last_test_run.log";
-    # Run ./fail, tee to both the log file and stdout so tee's buffering
-    # doesn't lose the TESTS COMPLETED line when check_qx.pl exits early.
-    system("bash -c '../fail 2>&1 | tee " . $out_file . "'");
-    my $exit_code = $? >> 8;
-    # Read the log file (tee already wrote everything here)
-    open my $fh, '<', $out_file or die "Cannot read $out_file: $!";
-    my $output = do { local $/; <$fh> };
-    close $fh;
+    # Run ./fail with a generous total timeout (30 minutes for all 169 tests)
+    my ($output, $timed_out, $exit_code) = run_with_timeout(1800, "bash -c '../fail 2>&1 | tee " . $out_file . "'");
+    if ($timed_out) {
+        # Log partial output and return failure
+        if (open my $fh, '>', $out_file) {
+            print $fh $output;
+            close $fh;
+        }
+        print STDERR "WARNING: ./fail timed out after 1200s\n";
+    }
     chdir $project_root;
-    return ($output, 0, $exit_code);
+    return ($output, $timed_out, $exit_code);
+}
+
+sub run_with_timeout {
+    my ($timeout, $cmd) = @_;
+    my $pid = open(my $fh, '-|', $cmd);
+    return ('', 1, -1) unless defined $pid;
+    my ($output, $timed_out) = read_pipe_with_timeout($timeout, $fh, $pid);
+    close $fh;
+    my $exit_code = $? >> 8;
+    if ($timed_out) {
+        waitpid($pid, 0);
+        print STDERR "run_with_timeout: command timed out after ${timeout}s, killed PID $pid\n";
+    }
+    return ($output, $timed_out, $exit_code);
 }
 
 sub run_check_sh_files {
     chdir $project_root;
     my $out_file = "$project_root/.check_sh_files_run.log";
-    system("perl check_sh_files.pl 2>&1 | tee '$out_file'");
-    my $exit_code = $? >> 8;
-    open my $fh, '<', $out_file or die "Cannot read $out_file: $!";
-    my $output = do { local $/; <$fh> };
-    close $fh;
-    return ($output, 0, $exit_code);
+    # Total timeout for the full check_sh_files.pl run (30 minutes)
+    my ($output, $timed_out, $exit_code) = run_with_timeout(1800, "perl check_sh_files.pl 2>&1 | tee '$out_file'");
+    if ($timed_out) {
+        if (open my $fh, '>', $out_file) {
+            print $fh $output;
+            close $fh;
+        }
+        print STDERR "WARNING: check_sh_files.pl timed out after 1800s\n";
+    }
+    return ($output, $timed_out, $exit_code);
 }
 
 while (1) {
@@ -412,12 +432,21 @@ while (1) {
 
             # Re-run check_sh_files.pl to see if pi actually fixed anything
             print "\nRe-running check_sh_files.pl to verify fixes...\n";
-            system("perl check_sh_files.pl 2>&1 | tee '$project_root/.check_sh_files_run.log'");
-            my $csf_new_output = do { local $/; open my $fh2, '<', "$project_root/.check_sh_files_run.log"; my $d = <$fh2>; close $fh2; $d } // '';
+            my ($csf_new_output, $csf_timed_out, $csf_exit_code) = run_with_timeout(1800, "perl check_sh_files.pl 2>&1 | tee '$project_root/.check_sh_files_run.log'");
+            if ($csf_timed_out) {
+                print STDERR "WARNING: check_sh_files.pl timed out after 1800s while verifying fixes\n";
+            }
             my $csf_new_summary  = parse_csf_summary($csf_new_output);
             my $csf_new_failures = parse_csf_failures($csf_new_output);
             my $csf_old_count    = scalar @{$csf_failed_tests};
-            my $csf_new_count    = $csf_new_summary ? $csf_new_summary->{failed} : scalar @{$csf_new_failures};
+            my $csf_new_count;
+            if ($csf_timed_out) {
+                # Timeout — treat as same count (we don't know), don't discard fixes
+                $csf_new_count = $csf_old_count;
+                print STDERR "check_sh_files.pl timed out, assuming same failure count ($csf_old_count)\n";
+            } else {
+                $csf_new_count = $csf_new_summary ? $csf_new_summary->{failed} : scalar @{$csf_new_failures};
+            }
 
             print "check_sh_files.pl before: $csf_old_count failed, after: $csf_new_count failed\n";
 

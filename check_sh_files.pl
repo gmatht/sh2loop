@@ -27,7 +27,7 @@ my $CHECK_QX  = "$ROOT/check_qx.pl";
 my $CRITIC_WRAPPER = "$ROOT/sh2perl/perlcritic_wrapper.pl";
 my $CRITIC_PROFILE = "$ROOT/sh2perl/docs/perlcritic.conf";
 
-my $TIMEOUT_GEN    = 15;
+my $TIMEOUT_GEN    = 10;
 my $TIMEOUT_QX     = 15;
 my $TIMEOUT_CRITIC = 30;
 

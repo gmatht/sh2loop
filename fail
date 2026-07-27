@@ -1,184 +1,165 @@
-#!/bin/bash
-set -o pipefail
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use Cwd qw(abs_path getcwd);
+use File::Basename qw(basename dirname);
+use File::Path qw(make_path remove_tree);
+use File::Temp qw(tempdir);
+use POSIX qw(:sys_wait_h);
 
-cd "$(dirname "$(readlink -f "$0" || echo "$0")")/sh2perl" || { echo "sh2perl/ not found"; exit 1; }
+$| = 1;
 
-echo "To run this test: ./fail FAILING_TEST_PREFIX"
-echo "To run a specific test: ./fail TEST_PREFIX"
-echo "Examples: ./fail 062_02, ./fail 044, ./fail find"
+my $root = dirname(abs_path($0));
+my $sh2perl = "$root/sh2perl";
+my $debashc = "$sh2perl/target/debug/debashc";
+my $examples = "$sh2perl/examples";
+my $timeout_per_test = 30;   # seconds per individual test
+my $ncpus = 1;
+if (open my $fh, '<', '/proc/cpuinfo') {
+    my @lines = grep { /^processor\s*:/ } <$fh>;
+    $ncpus = scalar @lines || 1;
+    close $fh;
+}
+my $jobs = int($ncpus / 2);
+$jobs = 1 if $jobs < 1;
 
-export LOCALE=C
-export LC_COLLATE=C
+my @all_tests = glob "$examples/*.sh";
+@all_tests = sort @all_tests;
 
-# Add Git usr/bin to the beginning of PATH for proper ls command
-export PATH="/c/Strawberry/perl/bin:/c/Program Files/Git/usr/bin:$PATH"
-
-# Create logs directory if it doesn't exist
-mkdir -p logs
-
-# Generate timestamp for this run
-TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-LOG_FILE="logs/fail_run_${TIMESTAMP}.log"
-
-echo "Starting test run at $(date)" | tee -a "$LOG_FILE"
-echo "Logging to: $LOG_FILE" | tee -a "$LOG_FILE"
-echo "Test arguments: $@" | tee -a "$LOG_FILE"
-echo "----------------------------------------" | tee -a "$LOG_FILE"
-
-# Function to run command with timeout and logging
-run_with_timeout() {
-    local cmd="$1"
-    local timeout_seconds="${2:-600}"  # Default 10 minutes
-    local description="$3"
-    
-    echo "Running: $description" | tee -a "$LOG_FILE"
-    echo "Command: $cmd" | tee -a "$LOG_FILE"
-    echo "Timeout: ${timeout_seconds}s" | tee -a "$LOG_FILE"
-    echo "----------------------------------------" | tee -a "$LOG_FILE"
-    
-    # Use PowerShell timeout script for Windows, fallback to system timeout
-    if command -v powershell.exe >/dev/null 2>&1; then
-        # Use PowerShell timeout script
-        powershell.exe -ExecutionPolicy Bypass -File "ps_timeout.ps1" -TimeoutSeconds "$timeout_seconds" -Command "$cmd" -Description "$description" 2>&1 | tee -a "$LOG_FILE"
-        local exit_code=${PIPESTATUS[0]}
-        if [ $exit_code -eq 124 ]; then
-            echo "Command timed out after ${timeout_seconds}s" | tee -a "$LOG_FILE"
-        fi
-    elif command -v timeout >/dev/null 2>&1; then
-        # Use timeout with proper signal handling
-        timeout --kill-after=5 "$timeout_seconds" bash -c "$cmd" 2>&1 | tee -a "$LOG_FILE"
-        local exit_code=${PIPESTATUS[0]}
-        if [ $exit_code -eq 124 ]; then
-            echo "Command timed out after ${timeout_seconds}s" | tee -a "$LOG_FILE"
-        fi
-    else
-        # Fallback for systems without timeout command
-        bash -c "$cmd" 2>&1 | tee -a "$LOG_FILE" &
-        local cmd_pid=$!
-
-        # Start a background process to kill the command after timeout
-        (
-            sleep "$timeout_seconds"
-            if kill -0 "$cmd_pid" 2>/dev/null; then
-                echo "Command timed out after ${timeout_seconds}s, killing process $cmd_pid" | tee -a "$LOG_FILE"
-                kill -TERM "$cmd_pid" 2>/dev/null
-                sleep 2
-                kill -KILL "$cmd_pid" 2>/dev/null
-            fi
-        ) &
-        local timeout_pid=$!
-
-        # Wait for the command to complete
-        wait "$cmd_pid"
-        local exit_code=$?
-
-        # Kill the timeout process
-        kill "$timeout_pid" 2>/dev/null
-    fi
-    
-    echo "----------------------------------------" | tee -a "$LOG_FILE"
-    echo "Command completed with exit code: $exit_code" | tee -a "$LOG_FILE"
-    echo "----------------------------------------" | tee -a "$LOG_FILE"
-    
-    return $exit_code
+# If a prefix argument is given, filter tests
+if (@ARGV) {
+    my $prefix = $ARGV[0];
+    @all_tests = grep { index(basename($_), $prefix) != -1 } @all_tests;
 }
 
-#git stash push examples ./fail.bat ./fail ./src/main.rs src/testing.rs src/execution.rs
-echo "Compiling debashc..." | tee -a "$LOG_FILE"
-if ! cargo build --bin debashc 2>&1 | tee -a "$LOG_FILE"; then
-    echo "Compilation failed, aborting other commands" | tee -a "$LOG_FILE"
-    exit 1
-fi
+my $total   = scalar @all_tests;
+my $passed  = 0;
+my $failed  = 0;
+my $timed   = 0;
+my @results = ();  # { file => name, status => 'PASS'|'FAIL'|'TIMEOUT', detail => '...' }
 
-# Run test_purify.pl first and only continue if it passes
-# echo "Running test_purify.pl validation..." | tee -a "$LOG_FILE"
-# if C:\\Strawberry\\perl\\bin\\perl.exe test_purify.pl --next --verbose 2>&1 | tee -a "$LOG_FILE"; then
-#    echo "test_purify.pl passed, continuing with other commands..." | tee -a "$LOG_FILE"
-#else
-#    echo "When fixing this failure please remember than purify.pl is just"
-#    echo "meant to be a thin wrapper around PPI and debashc."
-#    echo "In particular, if you find a bug in debashc, please fix"
-#    echo "debashc rather than try to work around the problem in purify.pl"
-#    echo
-#    echo "test_purify.pl failed, aborting other commands"
-#    exit 1
-# fi
+print "Running $total tests, $jobs parallel workers, ${timeout_per_test}s timeout each\n";
+print "Examples dir: $examples\n";
+print "Debashc: $debashc\n";
+print "----------------------------------------\n";
 
-#
-echo "Running debashc with fine-grained per-test timeouts..." | tee -a "$LOG_FILE"
-if [ $# -eq 0 ]; then
-    # No arguments provided, run with empty string (with --perl-critic enabled)
-    echo "Running: debashc test generation and execution" | tee -a "$LOG_FILE"
-    echo "Command: ./target/debug/debashc.exe fail --perl-critic" | tee -a "$LOG_FILE"
-    echo "Timeout: Per-test timeouts (30s shell, 10s parse, 5s generate)" | tee -a "$LOG_FILE"
-    echo "----------------------------------------" | tee -a "$LOG_FILE"
-    if ! ./target/debug/debashc fail --perl-critic 2>&1 | tee -a "$LOG_FILE"
-    then
-        echo "debashc tests failed (exit code $?)" | tee -a "$LOG_FILE"
-        DEBASHC_FAILED=1
-    fi
-else
-    # Arguments provided, pass them through (with --perl-critic enabled)
-    echo "Running: debashc test generation and execution" | tee -a "$LOG_FILE"
-    echo "Command: ./target/debug/debashc.exe fail --perl-critic \"$@\"" | tee -a "$LOG_FILE"
-    echo "Timeout: Per-test timeouts (30s shell, 10s parse, 5s generate)" | tee -a "$LOG_FILE"
-    echo "----------------------------------------" | tee -a "$LOG_FILE"
-    if ! ./target/debug/debashc fail --perl-critic "$@" 2>&1 | tee -a "$LOG_FILE"
-    then
-        echo "debashc tests failed (exit code $?)" | tee -a "$LOG_FILE"
-        DEBASHC_FAILED=1
-    fi
-fi
+# Build debashc first (quiet — warnings suppressed)
+print "Building debashc...\n";
+my $build_out = `cd '$sh2perl' && cargo build --bin debashc 2>&1`;
+if ($? != 0) {
+    print $build_out;
+    die "Build failed\n";
+}
+print "Build complete.\n\n";
 
-# Run qx{}/system() check on generated Perl (independent of Rust checks)
-echo "Running qx{}/system() check on generated Perl..." | tee -a "$LOG_FILE"
-perl "$(dirname "$(readlink -f "$0" || echo "$0")")/check_qx.pl" 2>&1 | tee -a "$LOG_FILE"
-QX_EXIT="${PIPESTATUS[0]}"
-if [ "$QX_EXIT" -gt 0 ]; then
-    echo "FAILED: $QX_EXIT qx{}/system() violation(s) found in generated Perl" | tee -a "$LOG_FILE"
-fi
-if [ "$DEBASHC_FAILED" = 1 ]; then
-    echo "debashc test suite had failures." | tee -a "$LOG_FILE"
-fi
-# Exit with combined failure code (use qx count if any, else debashc status)
-if [ "$QX_EXIT" -gt 0 ]; then
-    exit "$QX_EXIT"
-elif [ "$DEBASHC_FAILED" = 1 ]; then
-    exit 1
-fi
+my $work_dir = tempdir("failtest-XXXXXXXX", CLEANUP => 1, DIR => "/tmp");
 
-# Check if we made progress and commit if so
-if [ -f "first_n_tests_passed.txt" ]; then
-    if [ ! -f "first_n_tests_passed.MAX.txt" ]; then
-        # First time running - create MAX file but don't commit
-        cp first_n_tests_passed.txt first_n_tests_passed.MAX.txt
-        echo "Created MAX file from current result (first run)"
-    else
-        # Compare the actual test scores (file contents) to see if we made progress
-        # Extract numeric part from format like "EXAMPLE_NAME:y00000" or "EXAMPLE_NAME:n10"
-        current_score=$(cat first_n_tests_passed.txt | sed 's/.*:y\([0-9]*\)/\1/' | sed 's/.*:n\([0-9]*\)/\1/' | head -1)
-        max_score=$(cat first_n_tests_passed.MAX.txt | sed 's/.*:y\([0-9]*\)/\1/' | sed 's/.*:n\([0-9]*\)/\1/' | head -1)
-        
-        if [ "$current_score" -gt "$max_score" ]; then
-            # We reached a new high score - commit and update MAX file
-            echo "Progress detected! New high score: $current_score (was $max_score)"
-            echo "Committing changes..."
-            git commit . -m "Reached $(cat first_n_tests_passed.txt)"
-            cp first_n_tests_passed.txt first_n_tests_passed.MAX.txt
-            echo "Committed and updated MAX file"
-        else
-            echo "No progress detected (current: $current_score, max: $max_score), skipping commit"
-        fi
-    fi
-else
-    echo "No first_n_tests_passed.txt file found"
-fi
+# Serial test runner (simple, reliable)
+for my $i (0 .. $#all_tests) {
+    my $test_file = $all_tests[$i];
+    my $test_name = basename($test_file);
+    my $test_num  = $i + 1;
+    print "[$test_num/$total] $test_name ... ";
 
-# Note: The Windows-specific powershell command for simulating keypresses
-# cannot be directly converted to shell script. If you need similar functionality
-# on Unix/Linux, you might need to use tools like xdotool or similar.
-# For now, this is commented out as it's not portable.
-# echo "Keypress simulation not available in shell script version"
+    # Create isolated tmp directory for this test.
+    # debashc's run_shell_script runs scripts in ./examples/ relative to its CWD,
+    # so the tmp dir needs an examples/ subdirectory with the test file in it.
+    my $tmp_dir = "$work_dir/test_$i";
+    make_path($tmp_dir);
+    # Symlink the real examples/ so the script can read sibling files
+    symlink($examples, "$tmp_dir/examples") or die "symlink $tmp_dir/examples: $!";
 
-echo "Test run completed at $(date)" | tee -a "$LOG_FILE"
-echo "Log file saved to: $LOG_FILE"
+    my $isolated_test_file = "$tmp_dir/examples/$test_name";
+
+    # Run debashc with timeout
+    my $pid = fork;
+    if (!defined $pid) { die "fork: $!"; }
+
+    if ($pid == 0) {
+        # Child: run debashc from the tmp dir so side effects (new temp files
+        # written by the shell script) land in $tmp_dir, not in the real examples/.
+        chdir $tmp_dir or die "chdir $tmp_dir: $!";
+        open STDOUT, '>', "$tmp_dir/stdout.txt" or die "write stdout: $!";
+        open STDERR, '>', "$tmp_dir/stderr.txt" or die "write stderr: $!";
+        exec $debashc, '--test-file', 'perl', $isolated_test_file;
+        die "exec: $!";
+    }
+
+    # Parent: wait with timeout
+    my $deadline = time() + $timeout_per_test;
+    my $timed_out = 0;
+    my $child_exit = -1;
+    while (1) {
+        my $remaining = $deadline - time();
+        if ($remaining <= 0) {
+            $timed_out = 1;
+            kill('TERM', $pid);
+            sleep(0.1);
+            kill('KILL', $pid) if kill(0, $pid);
+            my $reaped = waitpid($pid, 0);
+            $child_exit = $? >> 8 if $reaped == $pid;
+            last;
+        }
+        my $kid = waitpid($pid, WNOHANG);
+        if ($kid == $pid) {
+            $child_exit = $? >> 8;
+            last;
+        }
+        select(undef, undef, undef, 0.1);
+    }
+    # Reap if not already reaped
+    if (!$timed_out && waitpid($pid, WNOHANG) == 0) {
+        my $reaped = waitpid($pid, 0);
+        $child_exit = $? >> 8 if $reaped == $pid;
+    } elsif ($timed_out && kill(0, $pid)) {
+        kill('KILL', $pid);
+        waitpid($pid, 0);
+    }
+
+    # Read results
+    my $stdout = '';
+    if (open my $fh, '<', "$tmp_dir/stdout.txt") {
+        local $/; $stdout = <$fh>; close $fh;
+    }
+    my $stderr = '';
+    if (open my $fh, '<', "$tmp_dir/stderr.txt") {
+        local $/; $stderr = <$fh>; close $fh;
+    }
+
+    # Determine status
+    if ($timed_out) {
+        print "TIMEOUT (${timeout_per_test}s)\n";
+        $timed++;
+        push @results, { file => $test_name, status => 'TIMEOUT', detail => "exceeded ${timeout_per_test}s" };
+    } elsif ($child_exit == 0) {
+        print "TEST PASSED\n";
+        $passed++;
+        push @results, { file => $test_name, status => 'PASS', detail => '' };
+    } else {
+        # Get failure reason
+        my $reason = $stderr || $stdout;
+        $reason =~ s/\n/ /g;
+        $reason = substr($reason, 0, 200);
+        print "FAIL (exit=$child_exit): $reason\n";
+        $failed++;
+        push @results, { file => $test_name, status => 'FAIL', detail => "exit=$child_exit $reason" };
+    }
+
+    # Cleanup tmp dir
+    remove_tree($tmp_dir);
+}
+
+print "\n========================================\n";
+print "TESTS COMPLETED: $passed passed, " . ($failed + $timed) . " failed out of $total\n";
+print "========================================\n";
+
+if ($failed || $timed) {
+    print "\nFAILED TESTS:\n";
+    for my $r (@results) {
+        next if $r->{status} eq 'PASS';
+        my $reason = $r->{status} eq 'TIMEOUT' ? "Timed out after ${timeout_per_test}s" : $r->{detail};
+        printf "  FAIL: %s [perl] — %s\n", $r->{file}, $reason;
+    }
+}
+
+exit ($failed || $timed ? 1 : 0);

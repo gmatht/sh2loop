@@ -1,0 +1,79 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use Carp;
+use English qw(-no_match_vars $ERRNO $EVAL_ERROR $INPUT_RECORD_SEPARATOR $OS_ERROR $PROGRAM_NAME);
+use locale;
+use IPC::Open3;
+
+my $main_exit_code = 0;
+my $ls_success     = 0;
+my $__set_e        = 0;
+my $output         = q{};
+our $CHILD_ERROR;
+
+$__set_e = 1;
+$main_exit_code = system('dpkg-maintscript-helper', 'rm_conffile', '/etc/cron.daily/samba', "2:4.19.3\\+dfsg-3\\~", '--', "@ARGV") >> 8;
+$main_exit_code = system('dpkg-maintscript-helper', 'rm_conffile', '/etc/logrotate.d/samba', "2:4.19.4\\+dfsg-3\\~", '--', "@ARGV") >> 8;
+if ((("$1" eq "install" && "$2" ne q{}) && (-e "/etc/init.d/smbd"))) {
+        do {
+        open my $original_stdout, '>&', STDOUT
+      or die "Cannot save STDOUT: $OS_ERROR\n";
+        open STDOUT, '>', '/dev/null'
+      or die "Cannot open file: $OS_ERROR\n";
+        my $tmp = do {
+chmod(oct('+x'), ("/etc/init.d/smbd")) or warn "chmod failed: $OS_ERROR\n";
+$CHILD_ERROR = 0;
+        };
+        print $tmp;
+        open STDOUT, '>&', $original_stdout
+      or die "Cannot restore STDOUT: $OS_ERROR\n";
+        close $original_stdout
+      or die "Close failed: $OS_ERROR\n";
+    };
+    if ($CHILD_ERROR != 0) {
+        1;
+    }
+}
+if ((("$1" eq "install" && "$2" ne q{}) && (-e "/etc/init.d/nmbd"))) {
+        do {
+        open my $original_stdout, '>&', STDOUT
+      or die "Cannot save STDOUT: $OS_ERROR\n";
+        open STDOUT, '>', '/dev/null'
+      or die "Cannot open file: $OS_ERROR\n";
+        my $tmp = do {
+chmod(oct('+x'), ("/etc/init.d/nmbd")) or warn "chmod failed: $OS_ERROR\n";
+$CHILD_ERROR = 0;
+        };
+        print $tmp;
+        open STDOUT, '>&', $original_stdout
+      or die "Cannot restore STDOUT: $OS_ERROR\n";
+        close $original_stdout
+      or die "Close failed: $OS_ERROR\n";
+    };
+    if ($CHILD_ERROR != 0) {
+        1;
+    }
+}
+if ((("$1" eq "install" && "$2" ne q{}) && (-e "/etc/init.d/samba-ad-dc"))) {
+        do {
+        open my $original_stdout, '>&', STDOUT
+      or die "Cannot save STDOUT: $OS_ERROR\n";
+        open STDOUT, '>', '/dev/null'
+      or die "Cannot open file: $OS_ERROR\n";
+        my $tmp = do {
+chmod(oct('+x'), ("/etc/init.d/samba-ad-dc")) or warn "chmod failed: $OS_ERROR\n";
+$CHILD_ERROR = 0;
+        };
+        print $tmp;
+        open STDOUT, '>&', $original_stdout
+      or die "Cannot restore STDOUT: $OS_ERROR\n";
+        close $original_stdout
+      or die "Close failed: $OS_ERROR\n";
+    };
+    if ($CHILD_ERROR != 0) {
+        1;
+    }
+}
+
+exit $main_exit_code;
