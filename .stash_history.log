@@ -11,3 +11,4 @@ Sun Jul 26 09:53:30 2026	Parser changes to words.rs/commands.rs aimed to improve
 Sun Jul 26 11:10:15 2026	Parser changes adding $[...] arithmetic and refactoring shopt/parameter-expansion parsing broke downstream tests (regression from all-pass to failing after 063_12_complex_eval); the core parser modifications need more careful testing and edge-case handling before they can be merged. (regression: 0->1)
 Sun Jul 26 21:57:21 2026	check_sh_files fix regressed (21->22)
 Sun Jul 26 22:28:25 2026	Parser refactoring removed standalone-assignment detection in favor of parse_pipeline, but broke array and complex construct handling, causing 10 test regressions (regression: 0->10)
+Mon Jul 27 04:14:49 2026	check_sh_files fix regressed (13->46)
