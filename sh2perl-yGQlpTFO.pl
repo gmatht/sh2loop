@@ -11,6 +11,6 @@ my $__set_e        = 0;
 my $output         = q{};
 our $CHILD_ERROR;
 
-$main_exit_code = system('bash', 'sh/git-mergetool') >> 8;
+$main_exit_code = system('bash', '/nvme/ai/sh2loop/sh/console-conf-write-login-details') >> 8;
 
 exit $main_exit_code;

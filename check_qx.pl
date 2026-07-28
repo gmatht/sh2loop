@@ -55,8 +55,10 @@ sub check_builtins_in_cmd {
     for my $b (@builtins) {
         # Use negative lookbehind to avoid matching builtins inside hyphenated
         # compound words like "aa-exec" (matches "exec") or "run-parts" (match none).
+        # Use negative lookahead to avoid matching builtins that are prefixes
+        # of hyphenated compound commands like "cd-discid" (matches "cd").
         # Also require word boundary at the end.
-        if ($first_word =~ /(?<![-\w])\Q$b\E\b/) {
+        if ($first_word =~ /(?<![-\w])\Q$b\E\b(?!-)/) {
             return $b;
         }
     }
