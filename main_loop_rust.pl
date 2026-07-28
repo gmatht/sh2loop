@@ -289,11 +289,93 @@ while (1) {
         my $csf_old_results = read_results_file($csf_results_file);
 
         if ($csf_summary && $csf_summary->{failed} == 0 && @{$csf_failed_tests} == 0) {
-            print "\nAll check_sh_files.pl tests also pass! Done.\n";
+            print "\nAll check_sh_files.pl tests also pass!\n";
             write_results_file($csf_results_file, []);
             system('git', '-C', $project_root, 'add', 'check_sh_files.pl');
             system('git', '-C', "$project_root/sh2perl", 'commit', '-m', "All tests passing (including sh/ checks)", '--allow-empty');
-            last;
+
+            # All tests pass — move to idiom-fixing mode
+            print "\n" . "=" x 72 . "\n";
+            print "All tests pass. Running idiom review to find IR-fixable patterns...\n";
+            print "=" x 72 . "\n\n";
+
+            chdir "$project_root/sh2perl";
+            my $ir_prompt = `./next-ideom-review 2>&1`;
+            my $ir_exit = $? >> 8;
+            chdir $project_root;
+
+            if ($ir_exit == 0 && $ir_prompt =~ /Review saved to/) {
+                # A review was generated — extract the filename
+                my ($review_file) = $ir_prompt =~ /Review saved to (.+)/;
+                print "\nIdiom review generated: $review_file\n";
+                print "Invoking pi to fix IR-fixable patterns...\n";
+
+                # Read the review to build a focused prompt
+                my $review_content = '';
+                if (open my $rfh, '<', $review_file) {
+                    local $/; $review_content = <$rfh>; close $rfh;
+                }
+
+                my $ir_fix_prompt = join("\n",
+                    "The idiom review below identifies patterns in the generated Perl that",
+                    "an IR-based optimizing backend could fix automatically.",
+                    "",
+                    "For each pattern marked 'IR-fixable: Yes', migrate the relevant",
+                    "generator function in src/generator/ to emit IR nodes from src/ir.rs",
+                    "instead of raw format!() strings. Then update ir_to_perl() in src/ir.rs",
+                    "to produce cleaner, more idiomatic Perl from those nodes.",
+                    "",
+                    "The goal is to make the generated Perl look like native Perl, not a",
+                    "line-by-line transliteration from bash.",
+                    "",
+                    "See docs/ir-design.md for the IR architecture and migration strategy.",
+                    "Do NOT modify main_loop_rust.pl or next-ideom-review.",
+                    "",
+                    "--- Idiom review ---",
+                    $review_content,
+                );
+
+                # Run pi with the IR-fix prompt
+                my $pi_pid = open(my $pi_fh, '-|', 'pi', '--mode', 'json',
+                    '--provider', 'opencode-go', '--model', 'deepseek-v4-flash',
+                    '--thinking', 'xhigh', $ir_fix_prompt);
+                if (defined $pi_pid) {
+                    my $buffer = '';
+                    while (<$pi_fh>) {
+                        $buffer .= $_;
+                        while ($buffer =~ s/^(.*)\n//) {
+                            my $line = $1;
+                            next if $line eq '';
+                            my $event = eval { JSON::PP::decode_json($line) };
+                            if ($@) { print STDERR "."; next; }
+                            next unless ref $event eq 'HASH';
+                            my $type = $event->{type} // '';
+                            if ($type eq 'message_update') {
+                                my $msg = $event->{assistantMessageEvent};
+                                next unless ref $msg eq 'HASH';
+                                my $dt = $msg->{delta} // '';
+                                my $et = $msg->{type} // '';
+                                if ($et eq 'text_delta' && length $dt) { print $dt; }
+                            }
+                        }
+                    }
+                    close $pi_fh;
+                    print "\n";
+                }
+
+                # Commit the IR migration changes
+                system('git', '-C', "$project_root/sh2perl", 'add', '-A');
+                system('git', '-C', "$project_root/sh2perl", 'commit', '-m',
+                    "IR: migrate patterns from idiom review", '--allow-empty');
+            } else {
+                # No more reviews available, or review generation failed
+                print "No more idiom reviews available. Done.\n";
+                last;
+            }
+
+            # Restore examples snapshot and re-run tests to verify IR changes
+            system('perl', $snapshot_script, 'restore');
+            next;
         }
 
         # check_sh_files has failures — enter a fix sub-loop
@@ -340,6 +422,13 @@ while (1) {
                 "When you encounter an existing string-level hack that is causing",
                 "problems or blocking progress, refactor it into proper AST-level",
                 "code instead of piling on more string patching.",
+                "",
+                "IMPORTANT: The IR infrastructure in src/ir.rs is being built to fix",
+                "non-idiomatic output.  PRESERVE it — do not revert, remove, or comment",
+                "out src/ir.rs or docs/ir-design.md.  When fixing code generation,",
+                "prefer emitting IR nodes and updating ir_to_perl() over direct",
+                "format!() string emission.",
+                "",
                 "You are in the sh2perl/ directory and the project root.",
                 "Do NOT modify main_loop_rust.pl or ensure_examples_snapshot.pl.",
                 "",
@@ -531,6 +620,13 @@ while (1) {
         "When you encounter an existing string-level hack that is causing",
         "problems or blocking progress, refactor it into proper AST-level",
         "code instead of piling on more string patching.",
+        "",
+        "IMPORTANT: The IR infrastructure in src/ir.rs is being built to fix",
+        "non-idiomatic output.  PRESERVE it — do not revert, remove, or comment",
+        "out src/ir.rs or docs/ir-design.md.  When fixing code generation,",
+        "prefer emitting IR nodes and updating ir_to_perl() over direct",
+        "format!() string emission.",
+        "",
         "You are in the sh2perl/ directory. Only modify files here.",
         "Do NOT modify files outside this directory — especially not main_loop_rust.pl or ensure_examples_snapshot.pl.",
         "",
@@ -677,6 +773,13 @@ while (1) {
         my $decision_prompt = join("\n",
             "Failing tests went from $new_diff->{old_count} to $new_diff->{new_count}.",
             "Should these changes be kept or stashed?",
+            "",
+            "NOTE: The IR infrastructure in src/ir.rs and docs/ir-design.md is",
+            "being built to fix non-idiomatic output.  Changes to these files",
+            "should be KEPT even if they cause temporary regressions, because",
+            "the IR migration is an ongoing effort that may break tests before",
+            "it fixes them.  Only STASH if the changes are clearly wrong or",
+            "there is a better approach.",
             "",
             "If the answer is STASH, also write a SHORT summary explaining:",
             "  - What the code was trying to achieve",
