@@ -1,9 +1,7 @@
 alsa-info	perlcritic — Nested named subroutine at line 294, column 1.  Declaring a named sub inside another named sub does not prevent the inner sub from being global.
-autoconf	perlcritic — Variable declared in conditional statement at line 761, column 5.  Declare variables outside of the condition.
-cron	perlcritic — Variable declared in conditional statement at line 43, column 51.  Declare variables outside of the condition.
-fixfiles	perlcritic — Nested named subroutine at line 628, column 1.  Declaring a named sub inside another named sub does not prevent the inner sub from being global.
+autoconf	perlcritic — Variable declared in conditional statement at line 764, column 5.  Declare variables outside of the condition.
+fixfiles	perlcritic — Nested named subroutine at line 633, column 1.  Declaring a named sub inside another named sub does not prevent the inner sub from being global.
 loadcpufreq	perlcritic — Nested named subroutine at line 168, column 1.  Declaring a named sub inside another named sub does not prevent the inner sub from being global.
-orangepi-zram-config	perlcritic — Variable declared in conditional statement at line 676, column 5.  Declare variables outside of the condition.
-sargraph2	perlcritic — Nested named subroutine at line 375, column 1.  Declaring a named sub inside another named sub does not prevent the inner sub from being global.
-ucf	perlcritic — Variable declared in conditional statement at line 1847, column 60.  Declare variables outside of the condition.
-update-ca-certificates	perlcritic — Nested named subroutine at line 195, column 1.  Declaring a named sub inside another named sub does not prevent the inner sub from being global.
+orangepi-zram-config	perlcritic — Variable declared in conditional statement at line 678, column 5.  Declare variables outside of the condition.
+sargraph2	perlcritic — Nested named subroutine at line 377, column 1.  Declaring a named sub inside another named sub does not prevent the inner sub from being global.
+update-ca-certificates	perlcritic — Nested named subroutine at line 196, column 1.  Declaring a named sub inside another named sub does not prevent the inner sub from being global.
