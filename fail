@@ -36,7 +36,79 @@ my $total   = scalar @all_tests;
 my $passed  = 0;
 my $failed  = 0;
 my $timed   = 0;
+my $side_effect_fails = 0;
 my @results = ();  # { file => name, status => 'PASS'|'FAIL'|'TIMEOUT', detail => '...' }
+
+# ── Side-effect checking helpers ─────────────────────────────────────
+
+# Extract /tmp/ paths referenced in a shell script
+sub extract_tmp_paths {
+    my ($file) = @_;
+    open my $fh, '<', $file or return [];
+    my $content = do { local $/; <$fh> };
+    close $fh;
+    my @paths;
+    # Match /tmp/... patterns: /tmp/word, /tmp/word.word, /tmp/word-word
+    while ($content =~ m{/tmp/[-_.a-zA-Z0-9/+*?]+}g) {
+        my $path = $&;
+        # Skip if this is a glob pattern (contains * or ?) — likely a cleanup rm -f
+        next if $path =~ /[*?]/;
+        # Skip if this is a mktemp template (XXXXXX suffix — actual file has random chars)
+        next if $path =~ /XXXXXX/;
+        # Skip if this is in an rm -f / rm -rf context (cleanup, not creation)
+        next if $path =~ m{/tmp/\*};  # /tmp/* pattern
+        next if $path =~ m{/tmp/temp_};  # temp_ prefix (likely cleanup)
+        # Normalize: remove trailing punctuation that isn't part of the path
+        $path =~ s{[^a-zA-Z0-9_./+-]\$}{};
+        push @paths, $path;
+    }
+    # Deduplicate
+    my %seen;
+    @paths = grep { !$seen{$_}++ } @paths;
+    return \@paths;
+}
+
+# Snapshot a list of paths: returns a hash of { path => "exists|sha256|missing" }
+sub snapshot_paths {
+    my ($paths) = @_;
+    my %snap;
+    for my $p (@$paths) {
+        # Try as glob first (handles mktemp patterns like foo.XXXXXX -> foo.abc123)
+        my @matches = glob $p;
+        if (@matches) {
+            for my $m (@matches) {
+                if (-f $m && !-l $m) {
+                    my $hash = `sha256sum "$m" 2>/dev/null`;
+                    chomp $hash;
+                    $snap{$m} = $hash;
+                } else {
+                    $snap{$m} = 'EXISTS';
+                }
+            }
+        } elsif (-e $p) {
+            if (-f $p && !-l $p) {
+                my $hash = `sha256sum "$p" 2>/dev/null`;
+                chomp $hash;
+                $snap{$p} = $hash;
+            } else {
+                $snap{$p} = 'EXISTS';
+            }
+        } else {
+            $snap{$p} = 'MISSING';
+        }
+    }
+    return \%snap;
+}
+
+sub paths_equal {
+    my ($a, $b) = @_;
+    for my $p (keys %$a, keys %$b) {
+        my $va = $a->{$p} // 'MISSING';
+        my $vb = $b->{$p} // 'MISSING';
+        return 0 if $va ne $vb;
+    }
+    return 1;
+}
 
 print "Running $total tests, $jobs parallel workers, ${timeout_per_test}s timeout each\n";
 print "Examples dir: $examples\n";
@@ -126,23 +198,42 @@ for my $i (0 .. $#all_tests) {
         local $/; $stderr = <$fh>; close $fh;
     }
 
-    # Determine status
+    # Side-effect check: scan for /tmp/ paths in the test script
+    my $se_msg = '';
+    my $tmp_paths = extract_tmp_paths($test_file);
+    if (@$tmp_paths) {
+        my $after = snapshot_paths($tmp_paths);
+        my @missing;
+        for my $p (@$tmp_paths) {
+            push @missing, $p if $after->{$p} eq 'MISSING';
+        }
+        if (@missing) {
+            $se_msg = 'side-effect: missing /tmp/ files: ' . join(', ', @missing);
+        }
+    }
+
+    # Determine status (check side effects first)
     if ($timed_out) {
         print "TIMEOUT (${timeout_per_test}s)\n";
         $timed++;
         push @results, { file => $test_name, status => 'TIMEOUT', detail => "exceeded ${timeout_per_test}s" };
-    } elsif ($child_exit == 0) {
-        print "TEST PASSED\n";
-        $passed++;
-        push @results, { file => $test_name, status => 'PASS', detail => '' };
-    } else {
-        # Get failure reason
+    } elsif ($child_exit != 0) {
         my $reason = $stderr || $stdout;
         $reason =~ s/\n/ /g;
         $reason = substr($reason, 0, 200);
+        if ($se_msg) { $reason .= " ($se_msg)"; }
         print "FAIL (exit=$child_exit): $reason\n";
         $failed++;
         push @results, { file => $test_name, status => 'FAIL', detail => "exit=$child_exit $reason" };
+    } elsif ($se_msg) {
+        print "FAIL: $se_msg\n";
+        $failed++;
+        $side_effect_fails++;
+        push @results, { file => $test_name, status => 'FAIL', detail => $se_msg };
+    } else {
+        print "TEST PASSED\n";
+        $passed++;
+        push @results, { file => $test_name, status => 'PASS', detail => '' };
     }
 
     # Cleanup tmp dir
@@ -150,7 +241,8 @@ for my $i (0 .. $#all_tests) {
 }
 
 print "\n========================================\n";
-print "TESTS COMPLETED: $passed passed, " . ($failed + $timed) . " failed out of $total\n";
+my $extra = $side_effect_fails ? " ($side_effect_fails side-effect)" : '';
+print "TESTS COMPLETED: $passed passed, " . ($failed + $timed) . " failed out of $total$extra\n";
 print "========================================\n";
 
 if ($failed || $timed) {
