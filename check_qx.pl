@@ -94,6 +94,43 @@ sub extract_all_quoted_strings {
     return @args;
 }
 
+sub extract_array_element {
+    my ($assign_text, $idx) = @_;
+    # Parse parenthesized list: ( elem, elem, ... )
+    # Handle nested parens and quoted strings.
+    $assign_text =~ s/^\s*\(//;
+    $assign_text =~ s/\)\s*$//;
+    my $depth = 0;
+    my @parts;
+    my $cur = '';
+    for my $ch (split //, $assign_text) {
+        if ($ch eq '(') { $depth++; $cur .= $ch; }
+        elsif ($ch eq ')') { $depth--; $cur .= $ch; }
+        elsif ($depth == 0 && $ch eq ',') {
+            push @parts, $cur;
+            $cur = '';
+        }
+        else { $cur .= $ch; }
+    }
+    push @parts, $cur if $cur ne '';
+    my $elem = $parts[$idx] // '';
+    $elem =~ s/^\s+//;
+    $elem =~ s/\s+$//;
+    # Strip surrounding quotes: q{...}, "...", '...'
+    if ($elem =~ /^q\{/) {
+        $elem =~ s/^q\{//;
+        $elem =~ s/\}$//;
+    } elsif ($elem =~ /^"/) {
+        $elem =~ s/^"//;
+        $elem =~ s/"$//;
+        $elem =~ s/\\(.)/$1/g;
+    } elsif ($elem =~ /^'/) {
+        $elem =~ s/^'//;
+        $elem =~ s/'$//;
+    }
+    return $elem;
+}
+
 my $violations = 0;
 
 for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
@@ -147,6 +184,31 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
         my $b = check_builtins_in_cmd($check_cmd);
         if (defined $b) {
             print "  FAIL: $basename.sh [perl] — QX violation: qx{$var} where $var contains builtin '$b'\n";
+            $violations++;
+        }
+    }
+
+    # Pattern 2b: qx{$array[idx]} where the array was assigned a command string.
+    # Catches cheats like qx{$_qx_cmd[0]} which bypasses Pattern 1's 'starts-with-$' guard.
+    while ($code =~ /qx\{(\$\w+)\[(\d+)\]\}/g) {
+        my $avar   = $1;      # e.g. $_qx_cmd
+        my $idx    = $2;      # e.g. 0
+        my $pos    = pos($code);
+        my $before = substr($code, 0, $pos);
+        my $aname  = substr($avar, 1);   # strip leading $
+        my $last_assign = '';
+        # Look for: my @array = ( ... )
+        while ($before =~ /my\s+\@\Q$aname\E\s*=\s*\(([^)]*)\)/sg) {
+            $last_assign = $1;
+        }
+        next if $last_assign eq '';
+        my $elem = extract_array_element($last_assign, $idx);
+        next if $elem eq '';
+        next if $is_exempt->($elem);
+        my $b = check_builtins_in_cmd($elem);
+        if (defined $b) {
+            my $disp = ${avar} . '[' . $idx . ']';
+            print "  FAIL: $basename.sh [perl] — QX violation: qx{$disp} where array element contains builtin '$b'\n";
             $violations++;
         }
     }
