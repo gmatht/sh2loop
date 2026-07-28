@@ -1,6 +1,6 @@
 #!/bin/sh
 # Dangling || after heredoc (no right operand)
-cat >/tmp/file <<EOF ||
+cat >/tmp/parse_heredoc_or_dangling_file <<EOF ||
 content
 EOF
 echo done

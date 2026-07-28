@@ -1,0 +1,4 @@
+VampireDriversFunctions	perlcritic — Nested named subroutine at line 1171, column 1.  Declaring a named sub inside another named sub does not prevent the inner sub from being global.
+orangepi-zram-config	perlcritic — Nested named subroutine at line 519, column 1.  Declaring a named sub inside another named sub does not prevent the inner sub from being global.
+snap-mgmt	perlcritic — Nested named subroutine at line 2744, column 1.  Declaring a named sub inside another named sub does not prevent the inner sub from being global.
+urar	perlcritic — Nested named subroutine at line 162, column 1.  Declaring a named sub inside another named sub does not prevent the inner sub from being global.

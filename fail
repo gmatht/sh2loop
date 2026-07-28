@@ -26,7 +26,6 @@ $jobs = 1 if $jobs < 1;
 my @all_tests = glob "$examples/*.sh";
 @all_tests = sort @all_tests;
 
-# If a prefix argument is given, filter tests
 if (@ARGV) {
     my $prefix = $ARGV[0];
     @all_tests = grep { index(basename($_), $prefix) != -1 } @all_tests;
@@ -37,43 +36,34 @@ my $passed  = 0;
 my $failed  = 0;
 my $timed   = 0;
 my $side_effect_fails = 0;
-my @results = ();  # { file => name, status => 'PASS'|'FAIL'|'TIMEOUT', detail => '...' }
+my @results = ();
 
 # ── Side-effect checking helpers ─────────────────────────────────────
 
-# Extract /tmp/ paths referenced in a shell script
 sub extract_tmp_paths {
     my ($file) = @_;
     open my $fh, '<', $file or return [];
     my $content = do { local $/; <$fh> };
     close $fh;
     my @paths;
-    # Match /tmp/... patterns: /tmp/word, /tmp/word.word, /tmp/word-word
     while ($content =~ m{/tmp/[-_.a-zA-Z0-9/+*?]+}g) {
         my $path = $&;
-        # Skip if this is a glob pattern (contains * or ?) — likely a cleanup rm -f
         next if $path =~ /[*?]/;
-        # Skip if this is a mktemp template (XXXXXX suffix — actual file has random chars)
         next if $path =~ /XXXXXX/;
-        # Skip if this is in an rm -f / rm -rf context (cleanup, not creation)
-        next if $path =~ m{/tmp/\*};  # /tmp/* pattern
-        next if $path =~ m{/tmp/temp_};  # temp_ prefix (likely cleanup)
-        # Normalize: remove trailing punctuation that isn't part of the path
+        next if $path =~ m{/tmp/\*};
+        next if $path =~ m{/tmp/temp_};
         $path =~ s{[^a-zA-Z0-9_./+-]\$}{};
         push @paths, $path;
     }
-    # Deduplicate
     my %seen;
     @paths = grep { !$seen{$_}++ } @paths;
     return \@paths;
 }
 
-# Snapshot a list of paths: returns a hash of { path => "exists|sha256|missing" }
 sub snapshot_paths {
     my ($paths) = @_;
     my %snap;
     for my $p (@$paths) {
-        # Try as glob first (handles mktemp patterns like foo.XXXXXX -> foo.abc123)
         my @matches = glob $p;
         if (@matches) {
             for my $m (@matches) {
@@ -100,56 +90,21 @@ sub snapshot_paths {
     return \%snap;
 }
 
-sub paths_equal {
-    my ($a, $b) = @_;
-    for my $p (keys %$a, keys %$b) {
-        my $va = $a->{$p} // 'MISSING';
-        my $vb = $b->{$p} // 'MISSING';
-        return 0 if $va ne $vb;
-    }
-    return 1;
-}
+# ── Run a single test (fork + exec) ─────────────────────────────────
 
-print "Running $total tests, $jobs parallel workers, ${timeout_per_test}s timeout each\n";
-print "Examples dir: $examples\n";
-print "Debashc: $debashc\n";
-print "----------------------------------------\n";
+sub run_one_test {
+    my ($test_file, $test_name, $test_num, $work_dir) = @_;
 
-# Build debashc first (quiet — warnings suppressed)
-print "Building debashc...\n";
-my $build_out = `cd '$sh2perl' && cargo build --bin debashc 2>&1`;
-if ($? != 0) {
-    print $build_out;
-    die "Build failed\n";
-}
-print "Build complete.\n\n";
-
-my $work_dir = tempdir("failtest-XXXXXXXX", CLEANUP => 1, DIR => "/tmp");
-
-# Serial test runner (simple, reliable)
-for my $i (0 .. $#all_tests) {
-    my $test_file = $all_tests[$i];
-    my $test_name = basename($test_file);
-    my $test_num  = $i + 1;
-    print "[$test_num/$total] $test_name ... ";
-
-    # Create isolated tmp directory for this test.
-    # debashc's run_shell_script runs scripts in ./examples/ relative to its CWD,
-    # so the tmp dir needs an examples/ subdirectory with the test file in it.
-    my $tmp_dir = "$work_dir/test_$i";
+    my $tmp_dir = "$work_dir/test_$test_num";
     make_path($tmp_dir);
-    # Symlink the real examples/ so the script can read sibling files
     symlink($examples, "$tmp_dir/examples") or die "symlink $tmp_dir/examples: $!";
 
     my $isolated_test_file = "$tmp_dir/examples/$test_name";
 
-    # Run debashc with timeout
     my $pid = fork;
     if (!defined $pid) { die "fork: $!"; }
 
     if ($pid == 0) {
-        # Child: run debashc from the tmp dir so side effects (new temp files
-        # written by the shell script) land in $tmp_dir, not in the real examples/.
         chdir $tmp_dir or die "chdir $tmp_dir: $!";
         open STDOUT, '>', "$tmp_dir/stdout.txt" or die "write stdout: $!";
         open STDERR, '>', "$tmp_dir/stderr.txt" or die "write stderr: $!";
@@ -157,7 +112,6 @@ for my $i (0 .. $#all_tests) {
         die "exec: $!";
     }
 
-    # Parent: wait with timeout
     my $deadline = time() + $timeout_per_test;
     my $timed_out = 0;
     my $child_exit = -1;
@@ -179,7 +133,6 @@ for my $i (0 .. $#all_tests) {
         }
         select(undef, undef, undef, 0.1);
     }
-    # Reap if not already reaped
     if (!$timed_out && waitpid($pid, WNOHANG) == 0) {
         my $reaped = waitpid($pid, 0);
         $child_exit = $? >> 8 if $reaped == $pid;
@@ -188,7 +141,6 @@ for my $i (0 .. $#all_tests) {
         waitpid($pid, 0);
     }
 
-    # Read results
     my $stdout = '';
     if (open my $fh, '<', "$tmp_dir/stdout.txt") {
         local $/; $stdout = <$fh>; close $fh;
@@ -198,7 +150,7 @@ for my $i (0 .. $#all_tests) {
         local $/; $stderr = <$fh>; close $fh;
     }
 
-    # Side-effect check: scan for /tmp/ paths in the test script
+    # Side-effect check
     my $se_msg = '';
     my $tmp_paths = extract_tmp_paths($test_file);
     if (@$tmp_paths) {
@@ -212,32 +164,143 @@ for my $i (0 .. $#all_tests) {
         }
     }
 
-    # Determine status (check side effects first)
+    remove_tree($tmp_dir);
+
+    my $result;
     if ($timed_out) {
-        print "TIMEOUT (${timeout_per_test}s)\n";
-        $timed++;
-        push @results, { file => $test_name, status => 'TIMEOUT', detail => "exceeded ${timeout_per_test}s" };
+        $result = { status => 'TIMEOUT', detail => "exceeded ${timeout_per_test}s" };
     } elsif ($child_exit != 0) {
         my $reason = $stderr || $stdout;
         $reason =~ s/\n/ /g;
         $reason = substr($reason, 0, 200);
         if ($se_msg) { $reason .= " ($se_msg)"; }
-        print "FAIL (exit=$child_exit): $reason\n";
-        $failed++;
-        push @results, { file => $test_name, status => 'FAIL', detail => "exit=$child_exit $reason" };
+        $result = { status => 'FAIL', detail => "exit=$child_exit $reason" };
     } elsif ($se_msg) {
-        print "FAIL: $se_msg\n";
-        $failed++;
-        $side_effect_fails++;
-        push @results, { file => $test_name, status => 'FAIL', detail => $se_msg };
+        $result = { status => 'FAIL', detail => $se_msg, side_effect => 1 };
     } else {
-        print "TEST PASSED\n";
-        $passed++;
-        push @results, { file => $test_name, status => 'PASS', detail => '' };
+        $result = { status => 'PASS', detail => '' };
     }
 
-    # Cleanup tmp dir
-    remove_tree($tmp_dir);
+    return $result;
+}
+
+# ── Main ────────────────────────────────────────────────────────────
+
+print "Running $total tests, $jobs parallel workers, ${timeout_per_test}s timeout each\n";
+print "Examples dir: $examples\n";
+print "Debashc: $debashc\n";
+print "----------------------------------------\n";
+
+print "Building debashc...\n";
+my $build_out = `cd '$sh2perl' && cargo build --bin debashc 2>&1`;
+if ($? != 0) {
+    print $build_out;
+    die "Build failed\n";
+}
+print "Build complete.\n\n";
+
+my $work_dir = tempdir("failtest-XXXXXXXX", CLEANUP => 1, DIR => "/tmp");
+
+# Map from child PID to { test_num => N, test_name => "str", res_file => "path" }
+my %child_info;
+my $next_idx = 0;
+
+# Helper: dispatch one test
+sub dispatch {
+    my ($idx) = @_;
+    my $test_file = $all_tests[$idx];
+    my $test_name = basename($test_file);
+    my $test_num  = $idx + 1;
+
+    # Fork a child that runs the test, writes result JSON, then exits.
+    my $pid = fork;
+    if (!defined $pid) { die "fork: $!"; }
+
+    if ($pid == 0) {
+        my $result = run_one_test($test_file, $test_name, $test_num, $work_dir);
+        $result->{file} = $test_name;
+
+        require JSON::PP;
+        my $res_file = "$work_dir/result_$test_num.json";
+        open my $rfh, '>', $res_file or die "write $res_file: $!";
+        print $rfh JSON::PP::encode_json($result);
+        close $rfh;
+
+        exit(0);
+    }
+
+    $child_info{$pid} = {
+        test_num  => $test_num,
+        test_name => $test_name,
+        res_file  => "$work_dir/result_$test_num.json",
+    };
+}
+
+# Dispatch initial batch
+while ($next_idx < $total && scalar(keys %child_info) < $jobs) {
+    dispatch($next_idx);
+    $next_idx++;
+}
+
+# Helper to print result for a completed child
+sub print_result {
+    my ($info) = @_;
+    my $res_file = $info->{res_file};
+    my $test_name = $info->{test_name};
+    my $test_num  = $info->{test_num};
+
+    my $result;
+    if (open my $rfh, '<', $res_file) {
+        local $/;
+        my $json = <$rfh>;
+        close $rfh;
+        $result = eval { JSON::PP::decode_json($json) };
+    }
+
+    unless ($result) {
+        $result = { status => 'FAIL', detail => 'missing result', file => $test_name };
+    }
+
+    push @results, $result;
+
+    my $mark = $result->{status} eq 'PASS' ? 'TEST PASSED'
+             : $result->{status} eq 'TIMEOUT' ? "TIMEOUT (${timeout_per_test}s)"
+             : 'FAIL';
+
+    printf "[%d/%d] %s ... %s", $test_num, $total, $test_name, $mark;
+    if ($result->{detail}) {
+        my $d = $result->{detail};
+        $d =~ s/\n/ /g;
+        $d = substr($d, 0, 200);
+        printf ": %s", $d;
+    }
+    print "\n";
+}
+
+require JSON::PP;
+
+# Main reap-dispatch loop
+while (scalar(keys %child_info) > 0) {
+    my $reaped = waitpid(-1, 0);
+    last if $reaped <= 0;
+
+    if (exists $child_info{$reaped}) {
+        my $info = delete $child_info{$reaped};
+        print_result($info);
+    }
+
+    # Dispatch more work
+    while ($next_idx < $total && scalar(keys %child_info) < $jobs) {
+        dispatch($next_idx);
+        $next_idx++;
+    }
+}
+
+# Tally
+for my $r (@results) {
+    if ($r->{status} eq 'PASS')       { $passed++; }
+    elsif ($r->{status} eq 'TIMEOUT') { $timed++; }
+    else                              { $failed++; $side_effect_fails++ if $r->{side_effect}; }
 }
 
 print "\n========================================\n";

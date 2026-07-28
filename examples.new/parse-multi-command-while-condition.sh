@@ -2,7 +2,7 @@
 # while loop with multiple commands in the condition
 while
 	echo "checking..."
-	test -f /tmp/somefile
+	test -f /tmp/while_condition_somefile
 do
 	echo "file exists"
 	break
