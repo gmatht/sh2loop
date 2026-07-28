@@ -1,2 +1,0 @@
-timebox	check_qx —   FAIL: sh2perl-078PBwd5.pl.sh [perl] — QX violation: qx{$_qx_cmd[0]} where array element contains builtin 'set'
-timebox2	check_qx —   FAIL: sh2perl-1TdzfR6i.pl.sh [perl] — QX violation: qx{$_qx_cmd[0]} where array element contains builtin 'set'

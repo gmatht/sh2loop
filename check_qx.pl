@@ -48,11 +48,15 @@ sub check_builtins_in_cmd {
     return undef if $check =~ /^--?/;
     # Strip leading variable assignments (VAR=value cmd)
     $check =~ s/^\w+=\S+\s*//;
+    # Only check the first word (the command name).  A builtin word that appears
+    # in an argument (e.g. 'Please set the time...') is not an invocation.
+    my ($first_word) = $check =~ /^(\S+)/;
+    return undef unless defined $first_word;
     for my $b (@builtins) {
         # Use negative lookbehind to avoid matching builtins inside hyphenated
         # compound words like "aa-exec" (matches "exec") or "run-parts" (match none).
         # Also require word boundary at the end.
-        if ($check =~ /(?<![-\w])\Q$b\E\b/) {
+        if ($first_word =~ /(?<![-\w])\Q$b\E\b/) {
             return $b;
         }
     }
@@ -204,6 +208,9 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
         next if $last_assign eq '';
         my $elem = extract_array_element($last_assign, $idx);
         next if $elem eq '';
+        # If the element contains a variable reference ($), the actual command
+        # is determined at runtime — we can't statically check it.
+        next if $elem =~ /\$/;
         next if $is_exempt->($elem);
         my $b = check_builtins_in_cmd($elem);
         if (defined $b) {
