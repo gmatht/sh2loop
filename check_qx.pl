@@ -11,6 +11,8 @@ my @builtins = qw(
     source set unset export readonly
     declare typeset local shift eval exec trap
     return break continue let
+    echo head tee wc sort uniq
+    cat grep sed awk find strings
 );
 
 # Paths relative to this script's location (project root).
