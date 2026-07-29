@@ -16,6 +16,8 @@ my @builtins = qw(
     ls seq tail paste yes cut
     test true false
     type wait time
+    basename dirname expr hostname id
+    readlink realpath uname whoami tty stat
 );
 
 # Paths relative to this script's location (project root).
