@@ -14,7 +14,7 @@ my @builtins = qw(
     echo head tee wc sort uniq
     cat grep sed awk find strings
     ls seq tail paste yes cut
-    diff gzip test true false
+    test true false
     type wait time
 );
 
