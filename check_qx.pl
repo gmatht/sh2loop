@@ -181,7 +181,7 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
             $tmp =~ s/#[^\n]*//g;
             $tmp =~ s/\\$//mg;
             $tmp =~ s/'.+?'//g;
-            $tmp =~ s/[|&;(){}<>]/ /g;
+            $tmp =~ s/[|&;(){}<>\`]/ /g;
             $tmp =~ s/\b(?:if|then|else|elif|fi|for|while|do|done|until|case|esac|function|in|select|time)\b//g;
             my @tokens = split /\s+/, $tmp;
             my $expect_cmd = 1;
@@ -196,7 +196,7 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
                     $input_commands{$cmd} = 1 if $cmd ne ' ';
                     $expect_cmd = 0;
                 }
-                if ($tok =~ /^(?:\||&|&&|\|\||;|\(|\{|then|do|else)$/) {
+                if ($tok =~ /^(?:\||&|&&|\|\||;|\(|\{|then|do|else|\`)$/) {
                     $expect_cmd = 1;
                 }
             }
