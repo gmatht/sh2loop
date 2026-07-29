@@ -173,8 +173,34 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
         if ($sh_file) {
             my $sh_code = do { local $/; <$sfh> };
             close $sfh;
-            $input_has_command = ($sh_code =~ /\bcommand\b/) ? 1 : 0;
-            $input_has_env     = ($sh_code =~ /\benv\b/) ? 1 : 0;
+            # Collect ALL command names from the bash input.
+            my %input_commands;
+            my @keywords = qw(if then else elif fi for while do done until case esac function in select time);
+            my %kw = map { $_ => 1 } @keywords;
+            my $tmp = $sh_code;
+            $tmp =~ s/#[^\n]*//g;
+            $tmp =~ s/\\$//mg;
+            $tmp =~ s/'.+?'//g;
+            $tmp =~ s/[|&;(){}<>]/ /g;
+            $tmp =~ s/\b(?:if|then|else|elif|fi|for|while|do|done|until|case|esac|function|in|select|time)\b//g;
+            my @tokens = split /\s+/, $tmp;
+            my $expect_cmd = 1;
+            for my $tok (@tokens) {
+                next if $tok eq ' ';
+                if ($tok =~ /^\w+=/) { $expect_cmd = 0; next }
+                if ($tok =~ /^\d*[<>]/) { next }
+                if ($expect_cmd) {
+                    my $cmd = $tok;
+                    $cmd =~ s{.*/}{};
+                    $cmd =~ s/[^a-zA-Z0-9_\-]//g;
+                    $input_commands{$cmd} = 1 if $cmd ne ' ';
+                    $expect_cmd = 0;
+                }
+                if ($tok =~ /^(?:\||&|&&|\|\||;|\(|\{|then|do|else)$/) {
+                    $expect_cmd = 1;
+                }
+            }
+            my $input_has_command = $input_commands{'command'} // 0;
         }
     }
 
