@@ -23,7 +23,7 @@ my @builtins = qw(
     command env
     basename dirname expr hostname id
     readlink realpath uname whoami tty stat
-    gunzip zstd
+    gunzip zstd execvp
 );
 
 # Paths relative to this script's location (project root).
