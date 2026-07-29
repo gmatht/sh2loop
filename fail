@@ -119,17 +119,17 @@ sub run_one_test {
     print $pfh $perl_code;
     close $pfh;
 
-    my ($perl_stdout, $perl_stderr);
-    my $perl_exit = system('perl', $perl_file);
-    $perl_exit >>= 8;
-    if (open my $fh, '>', "$tmp_dir/perl_stdout.txt") {
-        # Not capturing; system() output goes to terminal.
-        # Instead use backticks.
-    }
-
     # Run Perl with 5.010 features (say, etc.) and capture stdout/stderr
-    my $perl_out = `perl -M5.010 '$perl_file' 2>"$tmp_dir/perl_stderr.txt"`;
-    my $perl_exit2 = $? >> 8;
+    my ($perl_out, $perl_stdout, $perl_stderr);
+    eval {
+        local $SIG{ALRM} = sub { die "ALARM\n" };
+        alarm($timeout_per_test);
+        $perl_out = `perl -M5.010 '$perl_file' 2>"$tmp_dir/perl_stderr.txt"`;
+        alarm(0);
+    };
+    if ($@) {
+        $perl_out = 'TIMEOUT';
+    }
     if (open my $fh, '<', "$tmp_dir/perl_stderr.txt") {
         local $/; $perl_stderr = <$fh>; close $fh;
     } else {
@@ -137,9 +137,20 @@ sub run_one_test {
     }
     $perl_stdout = $perl_out // q{};
 
-    # Step 3: Run bash on the original script
-    my $bash_out = `bash '$test_file' 2>"$tmp_dir/bash_stderr.txt"`;
-    my $bash_exit = $? >> 8;
+    # Step 3: Run bash on the original script with timeout
+    my $bash_out;
+    my $bash_exit;
+    eval {
+        local $SIG{ALRM} = sub { die "ALARM\n" };
+        alarm($timeout_per_test);
+        $bash_out = `bash '$test_file' 2>"$tmp_dir/bash_stderr.txt"`;
+        $bash_exit = $? >> 8;
+        alarm(0);
+    };
+    if ($@) {
+        $bash_out = 'TIMEOUT';
+        $bash_exit = 124;
+    }
     my $bash_stdout = $bash_out // q{};
     my $bash_stderr = '';
     if (open my $fh, '<', "$tmp_dir/bash_stderr.txt") {
