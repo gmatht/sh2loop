@@ -18,6 +18,7 @@ my @builtins = qw(
     type wait time
     basename dirname expr hostname id
     readlink realpath uname whoami tty stat
+    gunzip
 );
 
 # Paths relative to this script's location (project root).
