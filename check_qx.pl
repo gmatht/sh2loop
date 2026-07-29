@@ -16,7 +16,8 @@ my @builtins = qw(
     ls seq tail paste yes cut
     test true false
     type wait time
-    command basename dirname expr hostname id
+    command
+    basename dirname expr hostname id
     readlink realpath uname whoami tty stat
     gunzip zstd
 );
@@ -51,6 +52,7 @@ sub check_builtins_in_cmd {
     (my $check = $cmd) =~ s/<\([^)]*\)//g;
     $check =~ s/>\([^)]*\)//g;
     # If the command contains a slash, it refers to an external executable, not a builtin
+    return undef if $check =~ m{/};
     # Skip option flags (starting with - or --)
     return undef if $check =~ /^--?/;
     # Strip leading variable assignments (VAR=value cmd)
@@ -59,13 +61,16 @@ sub check_builtins_in_cmd {
     # in an argument (e.g. 'Please set the time...') is not an invocation.
     my ($first_word) = $check =~ /^(\S+)/;
     return undef unless defined $first_word;
+    # If the first word contains a slash, it refers to an external executable,
+    # not a shell builtin, so it is never a violation.
+    return undef if $first_word =~ m{/};
     for my $b (@builtins) {
         # Use negative lookbehind to avoid matching builtins inside hyphenated
         # compound words like "aa-exec" (matches "exec") or "run-parts" (match none).
         # Use negative lookahead to avoid matching builtins that are prefixes
         # of hyphenated compound commands like "cd-discid" (matches "cd").
-        # Also require word boundary at the end.
-        if ($first_word =~ /(?<![-\w])\Q$b\E\b(?!-)/) {
+        # Also require the builtin is NOT followed by a word character so that "systemd" does not match builtin "system".
+        if ($first_word =~ /(?<![-\w])\Q$b\E(?![-\w])/) {
             return $b;
         }
     }
