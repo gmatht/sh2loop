@@ -420,9 +420,14 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
     }
 
     # Pattern 5: exec('builtin') / exec 'builtin' (single command)
-    while ($code =~ /exec\s*(?:\(\s*['"]\s*|['"]\s*)(\w+)(?:\s*['"]|['"]\s*\))/g) {
+    while ($code =~ /\bexec\s*(?:\(\s*['"]\s*|['"]\s*)(\w+)(?:\s*['"]|['"]\s*\))/g) {
         my $exec_cmd = $1;
         next if $is_exempt->($exec_cmd);
+        # Skip if exec appears inside a string literal (preceded by quote)
+        my $pre = substr($code, 0, pos($code) - length($&));
+        my $in_dq = ($pre =~ tr/"//) % 2;
+        my $in_sq = ($pre =~ tr/'//) % 2;
+        next if $in_dq || $in_sq;
         my $b = check_builtins_in_cmd($exec_cmd);
         if (defined $b) {
             print "  FAIL: $basename [perl] — EXEC violation: exec() with builtin '$b'\n";
