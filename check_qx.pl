@@ -13,6 +13,9 @@ my @builtins = qw(
     return break continue let
     echo head tee wc sort uniq
     cat grep sed awk find strings
+    ls seq tail paste yes
+    diff gzip test true false
+    type wait time
 );
 
 # Paths relative to this script's location (project root).
