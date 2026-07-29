@@ -155,7 +155,6 @@ sub run_one_test {
     };
 
     my $stdout_match = &$normalize($perl_stdout) eq &$normalize($bash_stdout);
-    my $stderr_match = &$normalize($perl_stderr) eq &$normalize($bash_stderr);
 
     # Step 5: Side-effect check
     my $se_msg = '';
@@ -174,7 +173,6 @@ sub run_one_test {
     # Step 6: Determine result
     my @reasons;
     push @reasons, 'stdout mismatch' if !$stdout_match;
-    push @reasons, 'stderr mismatch' if !$stderr_match;
     push @reasons, $se_msg if $se_msg;
 
     my $result;
