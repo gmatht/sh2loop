@@ -89,7 +89,7 @@ sub check_call_args_for_bash_c {
             next if $is_exempt->($inner);
             my $b = check_builtins_in_cmd($inner);
             if (defined $b) {
-                return "  FAIL: $file_basename.sh [perl] — bash/sh -c wrapping builtin '$b'\n";
+                return "  FAIL: $file_basename [perl] — bash/sh -c wrapping builtin '$b'\n";
             }
         }
     }
@@ -154,6 +154,9 @@ my $violations = 0;
 
 for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
     next unless -f $file;
+    # Only scan generated .pl files — the optional second argument is the
+    # original .sh file used only for exemption analysis above.
+    next if $file !~ /\.pl$/;
     open my $fh, '<', $file or next;
     my $code = do { local $/; <$fh> };
     close $fh;
@@ -226,7 +229,7 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
             }
         }
         if (defined $b) {
-            print "  FAIL: $basename.sh [perl] — QX violation: qx{} call with builtin '$b'\n";
+            print "  FAIL: $basename [perl] — QX violation: qx{} call with builtin '$b'\n";
             $violations++;
         }
     }
@@ -249,7 +252,7 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
             }
         }
         if (defined $b) {
-            print "  FAIL: $basename.sh [perl] — QX violation: qx'...' call with builtin '$b'\n";
+            print "  FAIL: $basename [perl] — QX violation: qx'...' call with builtin '$b'\n";
             $violations++;
         }
     }
@@ -272,7 +275,7 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
             }
         }
         if (defined $b) {
-            print "  FAIL: $basename.sh [perl] — QX violation: qx(...) call with builtin '$b'\n";
+            print "  FAIL: $basename [perl] — QX violation: qx(...) call with builtin '$b'\n";
             $violations++;
         }
     }
@@ -302,7 +305,7 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
         next if $is_exempt->($check_cmd);
         my $b = check_builtins_in_cmd($check_cmd);
         if (defined $b) {
-            print "  FAIL: $basename.sh [perl] — QX violation: qx{$var} where $var contains builtin '$b'\n";
+            print "  FAIL: $basename [perl] — QX violation: qx{$var} where $var contains builtin '$b'\n";
             $violations++;
         }
     }
@@ -330,7 +333,7 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
         my $b = check_builtins_in_cmd($elem);
         if (defined $b) {
             my $disp = ${avar} . '[' . $idx . ']';
-            print "  FAIL: $basename.sh [perl] — QX violation: qx{$disp} where array element contains builtin '$b'\n";
+            print "  FAIL: $basename [perl] — QX violation: qx{$disp} where array element contains builtin '$b'\n";
             $violations++;
         }
     }
@@ -347,7 +350,7 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
         next if $system_body =~ /^\s*\)/;
         my $b = check_builtins_in_cmd($system_body);
         if (defined $b) {
-            print "  FAIL: $basename.sh [perl] — SYSTEM violation: system() call with builtin '$b'\n";
+            print "  FAIL: $basename [perl] — SYSTEM violation: system() call with builtin '$b'\n";
             $violations++;
         }
     }
@@ -382,7 +385,7 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
         next if $is_exempt->($elem);
         my $b = check_builtins_in_cmd($elem);
         if (defined $b) {
-            print "  FAIL: $basename.sh [perl] — SYSTEM violation: system(\@$aname) where array element contains builtin '$b'\n";
+            print "  FAIL: $basename [perl] — SYSTEM violation: system(\@$aname) where array element contains builtin '$b'\n";
             $violations++;
         }
     }
@@ -411,7 +414,7 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
             next if $is_exempt->($prog);
             my $b = check_builtins_in_cmd($prog);
             if (defined $b) {
-                print "  FAIL: $basename.sh [perl] — \U$func\E violation: $func() with builtin '$b'\n";
+                print "  FAIL: $basename [perl] — \U$func\E violation: $func() with builtin '$b'\n";
                 $violations++;
             }
         }
@@ -423,7 +426,7 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
         next if $is_exempt->($exec_cmd);
         my $b = check_builtins_in_cmd($exec_cmd);
         if (defined $b) {
-            print "  FAIL: $basename.sh [perl] — EXEC violation: exec() with builtin '$b'\n";
+            print "  FAIL: $basename [perl] — EXEC violation: exec() with builtin '$b'\n";
             $violations++;
         }
     }
@@ -434,7 +437,7 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
         next if $is_exempt->($inner);
         my $b = check_builtins_in_cmd($inner);
         if (defined $b) {
-            print "  FAIL: $basename.sh [perl] — EXEC violation: exec bash/sh -c wrapping builtin '$b'\n";
+            print "  FAIL: $basename [perl] — EXEC violation: exec bash/sh -c wrapping builtin '$b'\n";
             $violations++;
         }
     }
