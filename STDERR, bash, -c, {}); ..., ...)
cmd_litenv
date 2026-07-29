@@ -1,0 +1,6 @@
+Command 'But' not found, did you mean:
+  command 'nut' from deb nutsqlite (2.0.6-4)
+  command 'hut' from deb hut (0.4.0-1ubuntu0.3)
+  command 'cut' from deb coreutils (9.4-3ubuntu6.2)
+  command 'lut' from deb tracetuner (3.0.6~beta+dfsg-3)
+Try: apt install <deb name>
