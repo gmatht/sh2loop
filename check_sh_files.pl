@@ -98,7 +98,7 @@ sub process_one_file {
         return ($name, 'FAIL', "sh2perl generation, exit=$gen_exit ($err)");
     }
 
-    my ($qx_out, $qx_exit, $qx_timed) = run_with_timeout($TIMEOUT_QX, 'perl', $CHECK_QX, $tmp_path);
+    my ($qx_out, $qx_exit, $qx_timed) = run_with_timeout($TIMEOUT_QX, 'perl', $CHECK_QX, $tmp_path, $sh_file);
     if ($qx_timed)  { unlink $tmp_path if -f $tmp_path; return ($name, 'TIMEOUT', 'check_qx'); }
     if ($qx_exit != 0) {
         my @l = grep { !/^\s*$/ } split /\n/, $qx_out;

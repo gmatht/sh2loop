@@ -161,6 +161,23 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
     my $basename = (split '/', $file)[-1];
     $basename =~ s/\.sh\.pl$//;
 
+    # Optional second argument: original .sh file path.
+    # If the bash input itself uses 'command' or 'env', the generated
+    # Perl may legitimately need to pass them through.  We suppress
+    # violations for constructs that were already in the input.
+    my $sh_file = (scalar @ARGV > 1 && -f $ARGV[1]) ? $ARGV[1] : undef;
+    my $input_has_command = 0;
+    my $input_has_env = 0;
+    if ($sh_file) {
+        open my $sfh, '<', $sh_file or undef $sh_file;
+        if ($sh_file) {
+            my $sh_code = do { local $/; <$sfh> };
+            close $sfh;
+            $input_has_command = ($sh_code =~ /\bcommand\b/) ? 1 : 0;
+            $input_has_env     = ($sh_code =~ /\benv\b/) ? 1 : 0;
+        }
+    }
+
     # Pattern 1a: qx{builtin ...} (curly braces)
     while ($code =~ /qx\{([^}]*)\}/g) {
         my $qx_body = $1;
@@ -177,7 +194,7 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
             if (defined $fw) {
                 my $bn = $fw;
                 $bn =~ s{.*/}{};
-                if ($bn eq 'command') {
+                if ($bn eq 'command' && !$input_has_command) {
                     $b = 'command';
                 }
             }
@@ -199,7 +216,11 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
         next if $is_exempt->($check_cmd);
         my $b = check_builtins_in_cmd($check_cmd);
         if (!defined $b && $qx_body =~ /^command(?:\s|\$)/) {
-            $b = 'command';
+            my $after = substr($qx_body, length('command'));
+            my $is_var = ($after =~ /\$/) ? 1 : 0;
+            if (!$is_var || !$input_has_command) {
+                $b = 'command';
+            }
         }
         if (defined $b) {
             print "  FAIL: $basename.sh [perl] — QX violation: qx'...' call with builtin '$b'\n";
@@ -218,7 +239,11 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
         next if $is_exempt->($check_cmd);
         my $b = check_builtins_in_cmd($check_cmd);
         if (!defined $b && $qx_body =~ /^command(?:\s|\$)/) {
-            $b = 'command';
+            my $after = substr($qx_body, length('command'));
+            my $is_var = ($after =~ /\$/) ? 1 : 0;
+            if (!$is_var || !$input_has_command) {
+                $b = 'command';
+            }
         }
         if (defined $b) {
             print "  FAIL: $basename.sh [perl] — QX violation: qx(...) call with builtin '$b'\n";
