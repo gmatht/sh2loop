@@ -605,11 +605,19 @@ while (1) {
     my $test_report = '';
     if ($diff->{fixed} && @{$diff->{fixed}}) {
         $test_report .= "Since last run, these tests were FIXED:\n";
-        $test_report .= "  $_\n" for @{$diff->{fixed}};
+        for my $f_name (@{$diff->{fixed}}) {
+            my $f_rec = (grep { $_->{name} eq $f_name } @{$old_results})[0];
+            my $f_reason = $f_rec ? $f_rec->{reason} : '?';
+            $test_report .= "  $f_name — $f_reason\n";
+        }
     }
     if ($diff->{regressed} && @{$diff->{regressed}}) {
         $test_report .= "Since last run, these tests REGRESSED (newly failing):\n";
-        $test_report .= "  $_\n" for @{$diff->{regressed}};
+        for my $r_name (@{$diff->{regressed}}) {
+            my $r_rec = (grep { $_->{name} eq $r_name } @{$failed_tests})[0];
+            my $r_reason = $r_rec ? $r_rec->{reason} : '?';
+            $test_report .= "  $r_name — $r_reason\n";
+        }
     }
     if ($diff->{stayed} && @{$diff->{stayed}}) {
         $test_report .= "These tests are STILL FAILING:\n";
