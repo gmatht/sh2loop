@@ -16,7 +16,7 @@ my @builtins = qw(
     ls seq tail paste yes cut
     test true false
     type wait time
-    command
+    command env
     basename dirname expr hostname id
     readlink realpath uname whoami tty stat
     gunzip zstd
