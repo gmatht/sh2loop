@@ -457,9 +457,15 @@ while (1) {
             print "\nInvoking pi to fix check_sh_files.pl failures...\n";
 
             chdir "$project_root/sh2perl";
+            # Write prompt to a temp file to avoid E2BIG (Argument list too long).
+            # The @file syntax reads the prompt from the file and interpolates it.
+            my $prompt_file = '/tmp/pi_prompt.txt';
+            open my $pfh, '>', $prompt_file or die "Cannot write '$prompt_file': $!";
+            print $pfh $prompt;
+            close $pfh;
 
-            my $full_output = '';
-            my $pi_pid = open(my $pi_fh, '-|', 'pi', '--mode', 'json', '--provider', 'opencode-go', '--model', 'deepseek-v4-flash', '--thinking', 'xhigh', $prompt);
+            my $full_output = q{};
+            my $pi_pid = open(my $pi_fh, '-|', 'pi', '--mode', 'json', '--provider', 'opencode-go', '--model', 'deepseek-v4-flash', '--thinking', 'xhigh', '@' . $prompt_file);
             if (defined $pi_pid) {
                 my $pi_timeout = 3600;
                 my $pi_deadline = time() + $pi_timeout;
@@ -650,7 +656,7 @@ while (1) {
     chdir "$project_root/sh2perl";
 
     # Run pi with streaming JSON output
-    my $full_output = '';
+    my $full_output = q{};
     my $pi_pid = open(my $pi_fh, '-|', 'pi', '--mode', 'json', '--provider', 'opencode-go', '--model', 'deepseek-v4-flash', '--thinking', 'xhigh', $prompt);
     if (defined $pi_pid) {
         my $pi_timeout = 3600;
