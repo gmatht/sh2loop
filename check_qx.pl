@@ -55,26 +55,23 @@ sub check_builtins_in_cmd {
     my ($cmd) = @_;
     (my $check = $cmd) =~ s/<\([^)]*\)//g;
     $check =~ s/>\([^)]*\)//g;
-    # If the command contains a slash, it refers to an external executable, not a builtin
-    return undef if $check =~ m{/};
     # Skip option flags (starting with - or --)
     return undef if $check =~ /^--?/;
     # Strip leading variable assignments (VAR=value cmd)
     $check =~ s/^\w+=\S+\s*//;
-    # Only check the first word (the command name).  A builtin word that appears
-    # in an argument (e.g. 'Please set the time...') is not an invocation.
+    # Extract the command name (first word), stripping any path prefix.
+    # /usr/bin/echo → echo, so path-qualified builtins are still caught.
     my ($first_word) = $check =~ /^(\S+)/;
     return undef unless defined $first_word;
-    # If the first word contains a slash, it refers to an external executable,
-    # not a shell builtin, so it is never a violation.
-    return undef if $first_word =~ m{/};
+    my $basename = $first_word;
+    $basename =~ s{.*/}{};  # strip leading path: /usr/bin/echo → echo
     for my $b (@builtins) {
         # Use negative lookbehind to avoid matching builtins inside hyphenated
         # compound words like "aa-exec" (matches "exec") or "run-parts" (match none).
         # Use negative lookahead to avoid matching builtins that are prefixes
         # of hyphenated compound commands like "cd-discid" (matches "cd").
         # Also require the builtin is NOT followed by a word character so that "systemd" does not match builtin "system".
-        if ($first_word =~ /(?<![-\w])\Q$b\E(?![-\w])/) {
+        if ($basename =~ /(?<![-\w])\Q$b\E(?![-\w])/) {
             return $b;
         }
     }
@@ -177,9 +174,13 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
         # Hard-coded check for 'command' prefix: even if someone removes it
         # from the builtins list, we still catch it here.
         if (!defined $b) {
-            my ($first_word) = $check_cmd =~ /^(\S+)/;
-            if (defined $first_word && $first_word eq 'command') {
-                $b = 'command';
+            my ($fw) = $check_cmd =~ /^(\S+)/;
+            if (defined $fw) {
+                my $bn = $fw;
+                $bn =~ s{.*/}{};
+                if ($bn eq 'command') {
+                    $b = 'command';
+                }
             }
         }
         if (defined $b) {
