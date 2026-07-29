@@ -13,7 +13,7 @@ my @builtins = qw(
     return break continue let
     echo head tee wc sort uniq
     cat grep sed awk find strings
-    ls seq tail paste yes
+    ls seq tail paste yes cut
     diff gzip test true false
     type wait time
 );
@@ -48,7 +48,6 @@ sub check_builtins_in_cmd {
     (my $check = $cmd) =~ s/<\([^)]*\)//g;
     $check =~ s/>\([^)]*\)//g;
     # If the command contains a slash, it refers to an external executable, not a builtin
-    return undef if $check =~ m{/};
     # Skip option flags (starting with - or --)
     return undef if $check =~ /^--?/;
     # Strip leading variable assignments (VAR=value cmd)
