@@ -66,12 +66,11 @@ sub check_builtins_in_cmd {
     my $basename = $first_word;
     $basename =~ s{.*/}{};  # strip leading path: /usr/bin/echo → echo
     for my $b (@builtins) {
-        # Use negative lookbehind to avoid matching builtins inside hyphenated
-        # compound words like "aa-exec" (matches "exec") or "run-parts" (match none).
-        # Use negative lookahead to avoid matching builtins that are prefixes
-        # of hyphenated compound commands like "cd-discid" (matches "cd").
-        # Also require the builtin is NOT followed by a word character so that "systemd" does not match builtin "system".
-        if ($basename =~ /(?<![-\w])\Q$b\E(?![-\w])/) {
+        # Match only if the basename is exactly the builtin name (not a substring).
+        # This avoids false matches on filenames like "hostname.sh" (contains "hostname")
+        # or compound commands like "aa-exec" (contains "exec") or "cd-discid" (contains "cd").
+        # The basename is the first word of the command after path stripping.
+        if ($basename eq $b) {
             return $b;
         }
     }
