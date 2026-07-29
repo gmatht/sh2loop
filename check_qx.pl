@@ -365,6 +365,28 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
         }
     }
 
+    # Pattern 3c: system(@array) where the array was assigned a command string.
+    # Catches system(@_qx_cmd) which bypasses Pattern 3's 'quote-start' guard.
+    while ($code =~ /system\s*\(\@(\w+)\)/g) {
+        my $aname = $1;
+        my $pos   = pos($code);
+        my $before = substr($code, 0, $pos);
+        my $last_assign = '';
+        while ($before =~ /my\s+\@\Q$aname\E\s*=\s*\(([^)]*)\)/sg) {
+            $last_assign = $1;
+        }
+        next if $last_assign eq '';
+        my $elem = extract_array_element($last_assign, 0);
+        next if $elem eq '';
+        next if $elem =~ /\$/;
+        next if $is_exempt->($elem);
+        my $b = check_builtins_in_cmd($elem);
+        if (defined $b) {
+            print "  FAIL: $basename.sh [perl] — SYSTEM violation: system(\@$aname) where array element contains builtin '$b'\n";
+            $violations++;
+        }
+    }
+
     # Pattern 4: open2(..., 'bash', '-c', 'cmd') or open3(..., 'bash', '-c', 'cmd') etc.
     for my $func (qw(open2 open3)) {
         while ($code =~ /\b$func\s*\((.*?)\)/gs) {
