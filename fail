@@ -13,7 +13,7 @@ my $root = dirname(abs_path($0));
 my $sh2perl = "$root/sh2perl";
 my $debashc = "$sh2perl/target/debug/debashc";
 my $examples = "$sh2perl/examples";
-my $timeout_per_test = 30;   # seconds per individual test
+my $timeout_per_test = 15;   # seconds per individual test
 my $ncpus = 1;
 if (open my $fh, '<', '/proc/cpuinfo') {
     my @lines = grep { /^processor\s*:/ } <$fh>;
