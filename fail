@@ -98,8 +98,18 @@ sub run_one_test {
     my $tmp_dir = "$work_dir/test_$test_num";
     make_path($tmp_dir);
 
-    # Step 1: Run debashc to generate Perl code
-    my $gen_out = `cd '$sh2perl' && '$debashc' '$test_file' 2>/dev/null`;
+    # Step 1: Run debashc to generate Perl code (with timeout)
+    my $gen_out;
+    eval {
+        local $SIG{ALRM} = sub { die "ALARM\n" };
+        alarm($timeout_per_test);
+        $gen_out = `cd '$sh2perl' && '$debashc' '$test_file' 2>/dev/null`;
+        alarm(0);
+    };
+    if ($@) {
+        remove_tree($tmp_dir);
+        return { status => 'FAIL', detail => 'debashc timed out' };
+    }
     if ($? != 0) {
         remove_tree($tmp_dir);
         return { status => 'FAIL', detail => 'debashc failed to generate code' };
