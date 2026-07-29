@@ -87,7 +87,7 @@ sub process_one_file {
     my ($sh_file) = @_;
     my $name = basename($sh_file);
 
-    my ($tmp_fh, $tmp_path) = tempfile("sh2perl-XXXXXXXX", SUFFIX => '.pl', UNLINK => 1);
+    my ($tmp_fh, $tmp_path) = tempfile("sh2perl-XXXXXXXX", SUFFIX => '.pl', DIR => '/tmp');
     close $tmp_fh;
 
     my ($gen_out, $gen_exit, $gen_timed) = run_with_timeout($TIMEOUT_GEN, $SH2PERL, '-i', $sh_file, '-o', $tmp_path);
