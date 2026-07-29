@@ -98,15 +98,9 @@ sub run_one_test {
     my $tmp_dir = "$work_dir/test_$test_num";
     make_path($tmp_dir);
 
-    # Step 1: Run debashc to generate Perl code (with timeout)
-    my $gen_out;
-    eval {
-        local $SIG{ALRM} = sub { die "ALARM\n" };
-        alarm($timeout_per_test);
-        $gen_out = `cd '$sh2perl' && '$debashc' '$test_file' 2>/dev/null`;
-        alarm(0);
-    };
-    if ($@) {
+    # Step 1: Run debashc to generate Perl code
+    my $gen_out = `timeout $timeout_per_test sh -c 'cd "$sh2perl" && "$debashc" "$test_file" 2>/dev/null'`;
+    if ($? != 0 && !defined $gen_out) {
         remove_tree($tmp_dir);
         return { status => 'FAIL', detail => 'debashc timed out' };
     }
@@ -129,17 +123,9 @@ sub run_one_test {
     print $pfh $perl_code;
     close $pfh;
 
-    # Run Perl with 5.010 features (say, etc.) and capture stdout/stderr
+    # Run Perl with 5.010 features and capture stdout/stderr
     my ($perl_out, $perl_stdout, $perl_stderr);
-    eval {
-        local $SIG{ALRM} = sub { die "ALARM\n" };
-        alarm($timeout_per_test);
-        $perl_out = `perl -M5.010 '$perl_file' 2>"$tmp_dir/perl_stderr.txt"`;
-        alarm(0);
-    };
-    if ($@) {
-        $perl_out = 'TIMEOUT';
-    }
+    $perl_out = `timeout $timeout_per_test perl -M5.010 '$perl_file' 2>"$tmp_dir/perl_stderr.txt"`;
     if (open my $fh, '<', "$tmp_dir/perl_stderr.txt") {
         local $/; $perl_stderr = <$fh>; close $fh;
     } else {
@@ -150,17 +136,8 @@ sub run_one_test {
     # Step 3: Run bash on the original script with timeout
     my $bash_out;
     my $bash_exit;
-    eval {
-        local $SIG{ALRM} = sub { die "ALARM\n" };
-        alarm($timeout_per_test);
-        $bash_out = `bash '$test_file' 2>"$tmp_dir/bash_stderr.txt"`;
-        $bash_exit = $? >> 8;
-        alarm(0);
-    };
-    if ($@) {
-        $bash_out = 'TIMEOUT';
-        $bash_exit = 124;
-    }
+    $bash_out = `timeout $timeout_per_test bash '$test_file' 2>"$tmp_dir/bash_stderr.txt"`;
+    $bash_exit = $? >> 8;
     my $bash_stdout = $bash_out // q{};
     my $bash_stderr = '';
     if (open my $fh, '<', "$tmp_dir/bash_stderr.txt") {
