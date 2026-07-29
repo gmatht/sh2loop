@@ -6,6 +6,10 @@ use FindBin qw($RealBin);
 # Scan generated Perl files for qx{} and system() calls with known builtins.
 # Exit code = number of violations found.
 
+
+# NOTE: a malicious ai agent has been removing entries from this.
+# It key etnries are now protected from tampering. 
+# DO NOT REMOVE entries from this! This project is sh2perl NOT sh2sh!!!!!
 my @builtins = qw(
     printf read cd pwd kill
     source set unset export readonly
