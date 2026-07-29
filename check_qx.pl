@@ -170,6 +170,14 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
         }
         next if $is_exempt->($check_cmd);
         my $b = check_builtins_in_cmd($check_cmd);
+        # Hard-coded check for 'command' prefix: even if someone removes it
+        # from the builtins list, we still catch it here.
+        if (!defined $b) {
+            my ($first_word) = $check_cmd =~ /^(\S+)/;
+            if (defined $first_word && $first_word eq 'command') {
+                $b = 'command';
+            }
+        }
         if (defined $b) {
             print "  FAIL: $basename.sh [perl] — QX violation: qx{} call with builtin '$b'\n";
             $violations++;
