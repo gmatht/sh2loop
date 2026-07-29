@@ -2,44 +2,64 @@
 Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 ========================================================================
 
-  progress: 0/8 workers done, filesets: [none]  progress: 0/8 workers done, filesets: [2,3,7,8]  progress: 0/8 workers done, filesets: [1,2,3,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 3/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 4/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 8/8 workers done, filesets: [1,2,3,4,5,6,7,8]
+  progress: 0/8 workers done, filesets: [none]  progress: 0/8 workers done, filesets: [2,6]  progress: 0/8 workers done, filesets: [2,4,5,6]  progress: 0/8 workers done, filesets: [2,4,5,6]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 0/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 1/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 2/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 5/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 6/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 7/8 workers done, filesets: [1,2,3,4,5,6,7,8]  progress: 8/8 workers done, filesets: [1,2,3,4,5,6,7,8]
 [1] 00-entry-directory.install ... ok
-[2] 00-header ... ok
-[3] 0000usepeerdns ... ok
-[4] 000__02_output_formatting_commands.sh ... ok
+[2] 00-header ... FAIL (check_qx —   FAIL: sh2perl-pYqFEdnU.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-pYqFEdnU.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[3] 0000usepeerdns ... FAIL (check_qx —   FAIL: sh2perl-ht0MZBce.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ht0MZBce.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[4] 000__02_output_formatting_commands.sh ... FAIL (check_qx —   FAIL: sh2perl-454ZgBQk.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-454ZgBQk.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [5] 000__03_file_manipulation_commands.sh ... ok
 [6] 000__04_basic_backtick_usage.sh ... ok
-[7] 000__04_basic_backtick_usage.sh.ORIGINAL ... ok
-[8] 000__04_basic_backtick_usage.sh.complex ... ok
+[7] 000__04_basic_backtick_usage.sh.ORIGINAL ... FAIL (check_qx —   FAIL: sh2perl-ZenndCn9.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ZenndCn9.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[8] 000__04_basic_backtick_usage.sh.complex ... FAIL (check_qx —   FAIL: sh2perl-qeKCyDOJ.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-qeKCyDOJ.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [9] 000__04_basic_backtick_usage_simple.sh ... ok
 [10] 000__04a_basic_command_substitution.sh ... ok
 [11] 000__04b_file_directory_operations.sh ... ok
-[12] 000__04c_text_processing_commands.sh ... ok
-[13] 000__04d_system_utilities.sh ... ok
+[12] 000__04c_text_processing_commands.sh ... FAIL (check_qx —   FAIL: sh2perl-T0_YMEFl.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-T0_YMEFl.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[13] 000__04d_system_utilities.sh ... FAIL (check_qx —   FAIL: sh2perl-gZwh31GG.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-gZwh31GG.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [14] 000__04e_file_manipulation.sh ... ok
-[15] 000__04f_output_formatting.sh ... ok
+[15] 000__04f_output_formatting.sh ... FAIL (check_qx —   FAIL: sh2perl-uWhqp_gc.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-uWhqp_gc.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [16] 000__04g_checksum_commands.sh ... ok
-[17] 000__04h_complex_examples.sh ... ok
-[18] 000__05_system_utilities.sh ... ok
-[19] 000__06_text_processing_commands.sh ... ok
+[17] 000__04h_complex_examples.sh ... FAIL (check_qx —   FAIL: sh2perl-Rhd6OgZa.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-Rhd6OgZa.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[18] 000__05_system_utilities.sh ... FAIL (check_qx —   FAIL: sh2perl-Qbu1K0ya.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-Qbu1K0ya.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[19] 000__06_text_processing_commands.sh ... FAIL (check_qx —   FAIL: sh2perl-DKxpAPKq.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-DKxpAPKq.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [20] 000__07_find_path_commands.sh ... ok
 [21] 001_simple.sh ... ok
 [22] 002_control_flow.sh ... ok
-[23] 003_pipeline.sh ... ok
+[23] 003_pipeline.sh ... FAIL (check_qx —   FAIL: sh2perl-vAIk1oiH.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-vAIk1oiH.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [24] 005_args.sh ... ok
-[25] 006_misc.sh ... ok
-[26] 008_simple_backup.sh ... ok
+[25] 006_misc.sh ... FAIL (check_qx —   FAIL: sh2perl-etwhFQGr.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-etwhFQGr.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[26] 008_simple_backup.sh ... FAIL (check_qx —   FAIL: sh2perl-CLsxgl1o.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-CLsxgl1o.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [27] 009_arrays.sh ... ok
 [28] 010_pattern_matching.sh ... ok
 [29] 011_brace_expansion.sh ... ok
-[30] 012_process_substitution.sh ... ok
+[30] 012_process_substitution.sh ... FAIL (check_qx —   FAIL: sh2perl-ZZ9Q9YVD.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ZZ9Q9YVD.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [31] 013_parameter_expansion.sh ... ok
 [32] 014_ansi_quoting.sh ... ok
-[33] 015_grep_advanced.sh ... ok
-[34] 016_grep_basic.sh ... ok
-[35] 017_grep_context.sh ... ok
-[36] 018_grep_params.sh ... ok
-[37] 019_grep_regex.sh ... ok
+[33] 015_grep_advanced.sh ... FAIL (check_qx —   FAIL: sh2perl-vgpRjaQ_.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-vgpRjaQ_.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[34] 016_grep_basic.sh ... FAIL (check_qx —   FAIL: sh2perl-KGFDefzv.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-KGFDefzv.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[35] 017_grep_context.sh ... FAIL (check_qx —   FAIL: sh2perl-Dm79AVg4.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-Dm79AVg4.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[36] 018_grep_params.sh ... FAIL (check_qx —   FAIL: sh2perl-6lFRtB2W.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-6lFRtB2W.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[37] 019_grep_regex.sh ... FAIL (check_qx —   FAIL: sh2perl-AesO7_QT.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-AesO7_QT.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [38] 020_ansi_quoting_basic.sh ... ok
 [39] 021_ansi_quoting_escape.sh ... ok
 [40] 022_ansi_quoting_unicode.sh ... ok
@@ -63,31 +83,39 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [58] 03aP.sh ... ok
 [59] 040_process_substitution_comm.sh ... ok
 [60] 041_process_substitution_mapfile.sh ... ok
-[61] 042_process_substitution_advanced.sh ... ok
-[62] 045_shell_calling_perl.sh ... ok
+[61] 042_process_substitution_advanced.sh ... FAIL (check_qx —   FAIL: sh2perl-Kq8bCBFl.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-Kq8bCBFl.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[62] 045_shell_calling_perl.sh ... FAIL (check_qx —   FAIL: sh2perl-eODO70jR.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-eODO70jR.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [63] 050_test_ls_star_dot_sh.sh ... ok
-[64] 051_primes.sh ... ok
+[64] 051_primes.sh ... FAIL (check_qx —   FAIL: sh2perl-mZ0bIYb1.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-mZ0bIYb1.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [65] 054_fibonacci.sh ... ok
 [66] 055_factorize.sh ... ok
 [67] 057_case.sh ... ok
-[68] 058_advanced_bash_idioms.sh ... ok
+[68] 058_advanced_bash_idioms.sh ... FAIL (check_qx —   FAIL: sh2perl-XoSLgFMA.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-XoSLgFMA.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [69] 061_test_local_names_preserved.sh ... ok
 [70] 062_01_ambiguous_operators.sh ... ok
 [71] 062_02_complex_parameter_expansions.sh ... ok
 [72] 062_03_complex_heredocs.sh ... ok
 [73] 062_04_nested_arithmetic.sh ... ok
-[74] 062_05_nested_command_substitution.sh ... ok
+[74] 062_05_nested_command_substitution.sh ... FAIL (check_qx —   FAIL: sh2perl-HOfpBC_y.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-HOfpBC_y.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [75] 062_06_process_substitution.sh ... ok
 [76] 062_07_complex_brace_expansion.sh ... ok
 [77] 062_08_simple_case.sh ... ok
 [78] 062_09_complex_function.sh ... ok
-[79] 062_10_simple_pipeline.sh ... ok
+[79] 062_10_simple_pipeline.sh ... FAIL (check_qx —   FAIL: sh2perl-n8Gkp4LH.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-n8Gkp4LH.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [80] 062_11_mixed_arithmetic.sh ... ok
 [81] 062_12_complex_string_interpolation.sh ... ok
 [82] 062_13_simple_test_expressions.sh ... ok
 [83] 062_14_complex_array_operations.sh ... ok
-[84] 062_15_complex_local_variables.sh ... ok
-[85] 062_hard_to_lex.sh ... ok
+[84] 062_15_complex_local_variables.sh ... FAIL (check_qx —   FAIL: sh2perl-RALMDlTC.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-RALMDlTC.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[85] 062_hard_to_lex.sh ... FAIL (check_qx —   FAIL: sh2perl-HBISCobP.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-HBISCobP.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [86] 063_01_deeply_nested_arithmetic.sh ... ok
 [87] 063_02_complex_array_assignments.sh ... ok
 [88] 063_03_nested_command_substitutions.sh ... ok
@@ -95,7 +123,8 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [90] 063_05_heredoc_with_complex_content.sh ... ok
 [91] 063_06_complex_pipeline_background.sh ... ok
 [92] 063_07_nested_if_statements.sh ... ok
-[93] 063_08_complex_case_statement.sh ... ok
+[93] 063_08_complex_case_statement.sh ... FAIL (check_qx —   FAIL: sh2perl-ZTOgC_Gd.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ZTOgC_Gd.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [94] 063_09_complex_function_parameter_handling.sh ... ok
 [95] 063_11_complex_while_loop.sh ... ok
 [96] 063_12_complex_eval.sh ... ok
@@ -107,7 +136,8 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [102] 063_18_complex_here_string.sh ... ok
 [103] 063_19_complex_function_call.sh ... ok
 [104] 063_20_final_complex_construct.sh ... ok
-[105] 063_hard_to_parse.sh ... ok
+[105] 063_hard_to_parse.sh ... FAIL (check_qx —   FAIL: sh2perl-4NunqlOm.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-4NunqlOm.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [106] 064_01_complex_nested_subshells.sh ... ok
 [107] 064_02_nested_brace_expansions.sh ... ok
 [108] 064_03_complex_parameter_expansion.sh ... ok
@@ -116,7 +146,8 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [111] 064_06_nested_arithmetic_expressions.sh ... ok
 [112] 064_07_complex_array_operations.sh ... ok
 [113] 064_08_heredocs_with_variable_interpolation.sh ... ok
-[114] 064_09_process_substitution_pipeline.sh ... ok
+[114] 064_09_process_substitution_pipeline.sh ... FAIL (check_qx —   FAIL: sh2perl-jpApJq_3.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-jpApJq_3.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [115] 064_10_nested_function_definitions.sh ... ok
 [116] 064_11_complex_test_expressions.sh ... ok
 [117] 064_12_brace_expansion_nested_sequences.sh ... ok
@@ -132,7 +163,8 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [127] 064_22_function_returning_complex_data_structures.sh ... ok
 [128] 064_23_complex_error_handling_traps.sh ... ok
 [129] 064_24_advanced_parameter_expansion.sh ... ok
-[130] 064_hard_to_generate.sh ... ok
+[130] 064_hard_to_generate.sh ... FAIL (check_qx —   FAIL: sh2perl-amRW_sns.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-amRW_sns.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [131] 070_cmp_basic.sh ... ok
 [132] 071_while_ifs_read.sh ... ok
 [133] 072_background_fork.sh ... ok
@@ -140,17 +172,21 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [135] 074_shopt.sh ... ok
 [136] 075_eval_complex.sh ... ok
 [137] 076_brace_expansion_mixed.sh ... ok
-[138] 077_backslash_continuation.sh ... ok
+[138] 077_backslash_continuation.sh ... FAIL (check_qx —   FAIL: sh2perl-bEPrvy7d.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-bEPrvy7d.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [139] 078_arithmetic_double_paren.sh ... ok
 [140] 079_heredoc_interpolation.sh ... ok
 [141] 080_process_sub_pipeline.sh ... ok
 [142] 081_nested_functions.sh ... ok
-[143] 082_sort_locale.sh ... ok
+[143] 082_sort_locale.sh ... FAIL (check_qx —   FAIL: sh2perl-bo4StG_u.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-bo4StG_u.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [144] 083_process_sub_missing_files.sh ... ok
-[145] 084_while_pipeline.sh ... ok
+[145] 084_while_pipeline.sh ... FAIL (check_qx —   FAIL: sh2perl-ymhUvh3T.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ymhUvh3T.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [146] 085_for_glob_pipe.sh ... ok
 [147] 086_if_condition_pipe.sh ... ok
-[148] 087_function_cmd_sub.sh ... ok
+[148] 087_function_cmd_sub.sh ... FAIL (check_qx —   FAIL: sh2perl-MOre_Si6.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-MOre_Si6.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [149] 088_while_read_ifs_sort.sh ... ok
 [150] 089_for_in_arith.sh ... ok
 [151] 090_nested_if_else.sh ... ok
@@ -158,36 +194,49 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [153] 092_for_arith_func.sh ... ok
 [154] 093_case_esac.sh ... ok
 [155] 094_until_loop.sh ... ok
-[156] 095_select_menu.sh ... ok
+[156] 095_select_menu.sh ... FAIL (check_qx —   FAIL: sh2perl-oetW6MX7.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-oetW6MX7.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [157] 096_head_procsub.sh ... ok
 [158] 10-help-text ... ok
 [159] 10-mtu ... ok
-[160] 10-orangepi-header ... ok
+[160] 10-orangepi-header ... FAIL (check_qx —   FAIL: sh2perl-ZltamYKp.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ZltamYKp.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [161] 10_unattended-upgrades-hibernate ... ok
 [162] 10mail ... ok
-[163] 20-chrony-dhcp ... ok
+[163] 20-chrony-dhcp ... FAIL (check_qx —   FAIL: sh2perl-AHdLNFGQ.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-AHdLNFGQ.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [164] 20-chrony-onoffline ... ok
 [165] 200-write ... ok
-[166] 30-orangepi-sysinfo ... ok
-[167] 35-orangepi-tips ... ok
+[166] 30-orangepi-sysinfo ... FAIL (check_qx —   FAIL: sh2perl-qN52Zem2.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-qN52Zem2.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[167] 35-orangepi-tips ... FAIL (check_qx —   FAIL: sh2perl-TbMcKGUx.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-TbMcKGUx.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [168] 40-orangepi-updates ... ok
-[169] 400-notify-send ... ok
+[169] 400-notify-send ... FAIL (check_qx —   FAIL: sh2perl-5XoIfVvo.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-5XoIfVvo.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [170] 41-orangepi-config ... ok
 [171] 50-depmod.install ... ok
-[172] 50-motd-news ... ok
+[172] 50-motd-news ... FAIL (check_qx —   FAIL: sh2perl-FEQ51hc3.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-FEQ51hc3.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [173] 55-initrd.install ... ok
-[174] 600-mail ... ok
+[174] 600-mail ... FAIL (check_qx —   FAIL: sh2perl-x_fT51sZ.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-x_fT51sZ.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [175] 60_wpa_supplicant ... ok
-[176] 70-net-conf ... ok
+[176] 70-net-conf ... FAIL (check_qx —   FAIL: sh2perl-9qUxHFjF.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-9qUxHFjF.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [177] 85-initrd.install ... ok
-[178] 90-loaderentry.install ... ok
-[179] 90-uki-copy.install ... ok
+[178] 90-loaderentry.install ... FAIL (check_qx —   FAIL: sh2perl-nPdgzUCI.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-nPdgzUCI.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[179] 90-uki-copy.install ... FAIL (check_qx —   FAIL: sh2perl-Hou3DvUF.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-Hou3DvUF.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [180] 90-updates-available ... ok
 [181] 91-contract-ua-esm-status ... ok
-[182] 91-release-upgrade ... ok
+[182] 91-release-upgrade ... FAIL (check_qx —   FAIL: sh2perl-PHC_rWAo.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-PHC_rWAo.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [183] 92-unattended-upgrades ... ok
 [184] 95-hwe-eol ... ok
-[185] 95hdparm-apm ... ok
+[185] 95hdparm-apm ... FAIL (check_qx —   FAIL: sh2perl-cL7HeQxO.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-cL7HeQxO.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [186] 97-overlayroot ... ok
 [187] 98-fsck-at-reboot ... ok
 [188] 98-orangepi-autoreboot-warn ... ok
@@ -198,77 +247,104 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [193] Example2 ... ok
 [194] Example3 ... ok
 [195] Example4 ... ok
-[196] Example5 ... ok
-[197] Example6 ... ok
+[196] Example5 ... FAIL (check_qx —   FAIL: sh2perl-uaVluMGe.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-uaVluMGe.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[197] Example6 ... FAIL (check_qx —   FAIL: sh2perl-1moijnJx.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-1moijnJx.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [198] Example7 ... ok
-[199] Example8 ... ok
+[199] Example8 ... FAIL (check_qx —   FAIL: sh2perl-nfP84JQg.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-nfP84JQg.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [200] GxEI.sh ... ok
-[201] J4wW.sh ... ok
+[201] J4wW.sh ... FAIL (check_qx —   FAIL: sh2perl-qHFH0OOS.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-qHFH0OOS.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [202] Om8z.sh ... ok
 [203] README.init.cs4236 ... ok
 [204] S40rkaiq_3A ... ok
 [205] UqfL.sh ... ok
-[206] VampireDriversFunctions ... ok
-[207] Xreset ... ok
-[208] Xsession ... ok
+[206] VampireDriversFunctions ... FAIL (check_qx —   FAIL: sh2perl-OBvp1LZL.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-OBvp1LZL.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[207] Xreset ... FAIL (check_qx —   FAIL: sh2perl-SENn8LSH.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-SENn8LSH.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[208] Xsession ... FAIL (check_qx —   FAIL: sh2perl-Ta3k6QGa.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-Ta3k6QGa.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [209] Z99-cloud-locale-test.sh ... ok
 [210] Z99-cloudinit-warnings.sh ... ok
-[211] aa-remove-unknown ... ok
+[211] aa-remove-unknown ... FAIL (check_qx —   FAIL: sh2perl-U6qkUJIX.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-U6qkUJIX.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [212] aa-teardown ... ok
 [213] action_wpa.sh ... ok
 [214] acx ... ok
-[215] add-shell ... ok
-[216] addgnupghome ... ok
+[215] add-shell ... FAIL (check_qx —   FAIL: sh2perl-SaubuluB.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-SaubuluB.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[216] addgnupghome ... FAIL (check_qx —   FAIL: sh2perl-k9TDcIqD.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-k9TDcIqD.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [217] adduser.postrm ... ok
 [218] adduser.preinst ... ok
 [219] afmname ... ok
-[220] agent-launch ... ok
+[220] agent-launch ... FAIL (check_qx —   FAIL: sh2perl-qZ0gA1sX.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-qZ0gA1sX.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [221] all_generic_ide ... ok
-[222] alsa-info ... ok
-[223] alsa-utils ... ok
+[222] alsa-info ... FAIL (check_qx —   FAIL: sh2perl-CNdghcFK.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-CNdghcFK.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[223] alsa-utils ... FAIL (check_qx —   FAIL: sh2perl-2gz9YPDh.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-2gz9YPDh.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [224] alsa-utils.postinst ... ok
 [225] alsa-utils.postrm ... ok
 [226] alsa-utils.preinst ... ok
 [227] alsa-utils.prerm ... ok
 [228] alsabat-test ... ok
-[229] alta ... ok
+[229] alta ... FAIL (check_qx —   FAIL: sh2perl-F50rJ4k0.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-F50rJ4k0.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [230] apparmor ... ok
 [231] apparmor.config ... ok
-[232] apparmor.postinst ... ok
+[232] apparmor.postinst ... FAIL (check_qx —   FAIL: sh2perl-nYeTdrkv.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-nYeTdrkv.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [233] apparmor.postrm ... ok
 [234] apparmor.preinst ... ok
 [235] apparmor.prerm ... ok
 [236] apparmor.systemd ... ok
-[237] applygnupgdefaults ... ok
-[238] applypatch-msg.sample ... ok
+[237] applygnupgdefaults ... FAIL (check_qx —   FAIL: sh2perl-uIyVuksu.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-uIyVuksu.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[238] applypatch-msg.sample ... FAIL (check_qx —   FAIL: sh2perl-JWzDGqX7.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-JWzDGqX7.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [239] apport ... ok
-[240] appp.sh ... ok
-[241] apt-compat ... ok
+[240] appp.sh ... FAIL (check_qx —   FAIL: sh2perl-IvEq39Wg.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-IvEq39Wg.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[241] apt-compat ... FAIL (check_qx —   FAIL: sh2perl-2rRcUISe.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-2rRcUISe.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [242] apt-key ... ok
 [243] apt.postinst ... ok
 [244] apt.postrm ... ok
 [245] apt.preinst ... ok
 [246] apt.prerm ... ok
-[247] apt.systemd.daily ... ok
+[247] apt.systemd.daily ... FAIL (check_qx —   FAIL: sh2perl-ON1Ddfig.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ON1Ddfig.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [248] aptitude ... ok
-[249] aptitude-create-state-bundle ... ok
-[250] aptitude-run-state-bundle ... ok
+[249] aptitude-create-state-bundle ... FAIL (check_qx —   FAIL: sh2perl-6uiOTUCt.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-6uiOTUCt.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[250] aptitude-run-state-bundle ... FAIL (check_qx —   FAIL: sh2perl-wP43Sag4.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-wP43Sag4.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [251] aptitude.postinst ... ok
 [252] aptitude.postrm ... ok
 [253] aptitude.prerm ... ok
 [254] ar-lib ... ok
-[255] archive.sh ... ok
+[255] archive.sh ... FAIL (check_qx —   FAIL: sh2perl-RrC239CR.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-RrC239CR.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [256] askpass-empty.sh ... ok
-[257] askpass.sh ... ok
+[257] askpass.sh ... FAIL (check_qx —   FAIL: sh2perl-9VA6xjSn.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-9VA6xjSn.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [258] audio ... ok
 [259] auto_login_cli.sh ... ok
-[260] autoconf ... ok
+[260] autoconf ... FAIL (check_qx —   FAIL: sh2perl-DisHxIWQ.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-DisHxIWQ.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [261] automake.postinst ... ok
 [262] automake.preinst ... ok
 [263] automake.prerm ... ok
-[264] autossh ... ok
+[264] autossh ... FAIL (check_qx —   FAIL: sh2perl-zynzljIl.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-zynzljIl.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [265] autossh-argv0 ... ok
-[266] autossh.host ... ok
+[266] autossh.host ... FAIL (check_qx —   FAIL: sh2perl-PhOhrv2w.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-PhOhrv2w.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [267] avahi-autoipd ... ok
 [268] avahi-autoipd.action ... ok
 [269] avahi-autoipd.postinst ... ok
@@ -278,7 +354,8 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [273] base-files.postrm ... ok
 [274] base-files.preinst ... ok
 [275] base-files.prerm ... ok
-[276] base-passwd.postinst ... ok
+[276] base-passwd.postinst ... FAIL (check_qx —   FAIL: sh2perl-y5UKQyXN.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-y5UKQyXN.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [277] base-passwd.postrm ... ok
 [278] base-passwd.preinst ... ok
 [279] bash-completion.postinst ... ok
@@ -287,134 +364,185 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [282] bash.postinst ... ok
 [283] bash.postrm ... ok
 [284] bash.prerm ... ok
-[285] bashbug ... ok
+[285] bashbug ... FAIL (check_qx —   FAIL: sh2perl-miSLV9a7.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-miSLV9a7.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [286] bc.postinst ... ok
 [287] bc.postrm ... ok
-[288] benchmark.sh ... ok
+[288] benchmark.sh ... FAIL (check_qx —   FAIL: sh2perl-sL4kx0no.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-sL4kx0no.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [289] bison.postinst ... ok
 [290] bison.preinst ... ok
 [291] bison.prerm ... ok
-[292] bison.yacc ... ok
+[292] bison.yacc ... FAIL (check_qx —   FAIL: sh2perl-1xU3O3e3.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-1xU3O3e3.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [293] blacklist ... ok
 [294] blink.sh ... ok
-[295] blkdeactivate ... ok
-[296] blkid ... ok
+[295] blkdeactivate ... FAIL (check_qx —   FAIL: sh2perl-G2z2VjJR.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-G2z2VjJR.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[296] blkid ... FAIL (check_qx —   FAIL: sh2perl-G9jDJOMi.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-G9jDJOMi.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [297] bluetooth ... ok
 [298] bluez.postinst ... ok
 [299] bluez.postrm ... ok
 [300] bluez.preinst ... ok
 [301] bluez.prerm ... ok
-[302] bootchart ... ok
+[302] bootchart ... FAIL (check_qx —   FAIL: sh2perl-0y1YU9NW.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-0y1YU9NW.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [303] bootsplash.sh ... ok
 [304] bpp ... ok
-[305] bridge-network-interface ... ok
+[305] bridge-network-interface ... FAIL (check_qx —   FAIL: sh2perl-MwOtzNb2.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-MwOtzNb2.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [306] bridge-start ... ok
 [307] bridge-stop ... ok
 [308] bridge-utils.postinst ... ok
-[309] bridge-utils.sh ... ok
+[309] bridge-utils.sh ... FAIL (check_qx —   FAIL: sh2perl-NDgSfcQC.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-NDgSfcQC.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [310] bsdextrautils.preinst ... ok
-[311] bsh ... ok
+[311] bsh ... FAIL (check_qx —   FAIL: sh2perl-m9XhxZf0.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-m9XhxZf0.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [312] btrfs ... ok
-[313] buginfo ... ok
+[313] buginfo ... FAIL (check_qx —   FAIL: sh2perl-ZQ5TM4Kd.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ZQ5TM4Kd.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [314] build ... ok
-[315] build-wasm.sh ... ok
-[316] burn_to_emmc ... ok
-[317] bzdiff ... ok
-[318] bzexe ... ok
+[315] build-wasm.sh ... FAIL (check_qx —   FAIL: sh2perl-WMDGAshr.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-WMDGAshr.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[316] burn_to_emmc ... FAIL (check_qx —   FAIL: sh2perl-L8uRxywy.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-L8uRxywy.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[317] bzdiff ... FAIL (check_qx —   FAIL: sh2perl-7iLVzhT6.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-7iLVzhT6.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[318] bzexe ... FAIL (check_qx —   FAIL: sh2perl-WpvPEo88.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-WpvPEo88.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [319] bzgrep ... ok
-[320] bzmore ... ok
+[320] bzmore ... FAIL (check_qx —   FAIL: sh2perl-z6RLb8nN.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-z6RLb8nN.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [321] c2z ... ok
 [322] c89-gcc ... ok
 [323] c99-gcc ... ok
-[324] ca-certificates.config ... ok
-[325] ca-certificates.postinst ... ok
+[324] ca-certificates.config ... FAIL (check_qx —   FAIL: sh2perl-eg2leKKM.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-eg2leKKM.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[325] ca-certificates.postinst ... FAIL (check_qx —   FAIL: sh2perl-gINMjbSo.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-gINMjbSo.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [326] ca-certificates.postrm ... ok
 [327] cached_setup_font.sh ... ok
 [328] cached_setup_keyboard.sh ... ok
 [329] cached_setup_terminal.sh ... ok
-[330] calendar ... ok
-[331] calendar-stdout ... ok
-[332] calendar2 ... ok
-[333] calendar2-stdout ... ok
+[330] calendar ... FAIL (check_qx —   FAIL: sh2perl-CB_61KqN.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-CB_61KqN.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[331] calendar-stdout ... FAIL (check_qx —   FAIL: sh2perl-vONzXR_O.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-vONzXR_O.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[332] calendar2 ... FAIL (check_qx —   FAIL: sh2perl-nWN9sX3D.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-nWN9sX3D.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[333] calendar2-stdout ... FAIL (check_qx —   FAIL: sh2perl-VJ3SQazT.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-VJ3SQazT.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [334] cat_serial.sh ... ok
-[335] changesetfs ... ok
-[336] check-mac-address.sh ... ok
-[337] check_side_effects_overlay.sh ... ok
+[335] changesetfs ... FAIL (check_qx —   FAIL: sh2perl-GqGs_KH9.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-GqGs_KH9.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[336] check-mac-address.sh ... FAIL (check_qx —   FAIL: sh2perl-vu2rEPet.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-vu2rEPet.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[337] check_side_effects_overlay.sh ... FAIL (check_qx —   FAIL: sh2perl-BsPJmLlD.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-BsPJmLlD.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [338] checklist ... ok
 [339] checklist-utf8 ... ok
 [340] checklist10 ... ok
 [341] chrony ... ok
-[342] chrony-helper ... ok
+[342] chrony-helper ... FAIL (check_qx —   FAIL: sh2perl-j75OopdX.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-j75OopdX.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [343] chrony.postinst ... ok
 [344] chrony.postrm ... ok
 [345] chrony.preinst ... ok
 [346] chrony.prerm ... ok
-[347] chronyd-starter.sh ... ok
-[348] clean_dead_code.sh ... ok
-[349] clean_dead_code_safe.sh ... ok
+[347] chronyd-starter.sh ... FAIL (check_qx —   FAIL: sh2perl-sg0nCmXG.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-sg0nCmXG.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[348] clean_dead_code.sh ... FAIL (check_qx —   FAIL: sh2perl-hwEIve6q.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-hwEIve6q.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[349] clean_dead_code_safe.sh ... FAIL (check_qx —   FAIL: sh2perl-6AeEZ1aF.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-6AeEZ1aF.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [350] cloud-init-generator ... ok
 [351] cloud-init-per ... ok
 [352] comment_debug.sh ... ok
 [353] commit-msg.sample ... ok
-[354] common.postinst ... ok
+[354] common.postinst ... FAIL (check_qx —   FAIL: sh2perl-dsvpv6DV.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-dsvpv6DV.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [355] compile ... ok
-[356] compile_python.sh ... ok
+[356] compile_python.sh ... FAIL (check_qx —   FAIL: sh2perl-lLZbEedX.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-lLZbEedX.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [357] completion.sh ... ok
-[358] complex_test.sh ... ok
+[358] complex_test.sh ... FAIL (check_qx —   FAIL: sh2perl-wdhwpdjs.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-wdhwpdjs.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [359] config ... ok
-[360] config.guess ... ok
-[361] config.rpath ... ok
-[362] config.sub ... ok
-[363] configure ... ok
+[360] config.guess ... FAIL (check_qx —   FAIL: sh2perl-CkRdDqwF.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-CkRdDqwF.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[361] config.rpath ... FAIL (check_qx —   FAIL: sh2perl-LarCTa1H.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-LarCTa1H.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[362] config.sub ... FAIL (check_qx —   FAIL: sh2perl-y3T8W2EN.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-y3T8W2EN.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[363] configure ... FAIL (check_qx —   FAIL: sh2perl-Tgif1vuI.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-Tgif1vuI.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [364] configure-symlinks ... ok
-[365] confmodule ... ok
+[365] confmodule ... FAIL (check_qx —   FAIL: sh2perl-8DduVXY2.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-8DduVXY2.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [366] confmodule.sh ... ok
-[367] connect-plug-ceph-conf ... ok
-[368] connect-plug-ovn-certificates ... ok
-[369] connect-plug-ovn-chassis ... ok
-[370] connect-plug-qemu-external ... ok
+[367] connect-plug-ceph-conf ... FAIL (check_qx —   FAIL: sh2perl-ivDrYLMx.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ivDrYLMx.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[368] connect-plug-ovn-certificates ... FAIL (check_qx —   FAIL: sh2perl-CP15lsW9.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-CP15lsW9.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[369] connect-plug-ovn-chassis ... FAIL (check_qx —   FAIL: sh2perl-IRNTVQDt.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-IRNTVQDt.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[370] connect-plug-qemu-external ... FAIL (check_qx —   FAIL: sh2perl-O05pgE9N.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-O05pgE9N.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [371] console-conf-check-error ... ok
 [372] console-conf-generator ... ok
-[373] console-conf-wrapper ... ok
+[373] console-conf-wrapper ... FAIL (check_qx —   FAIL: sh2perl-QdhNOFEH.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-QdhNOFEH.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [374] console-conf-write-login-details ... ok
 [375] console-conf.rtupdate ... ok
 [376] console-setup-linux.postinst ... ok
 [377] console-setup-linux.postrm ... ok
 [378] console-setup-linux.preinst ... ok
 [379] console-setup-linux.prerm ... ok
-[380] console-setup.config ... ok
+[380] console-setup.config ... FAIL (check_qx —   FAIL: sh2perl-4IrNQsHk.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-4IrNQsHk.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [381] console-setup.postinst ... ok
 [382] console-setup.postrm ... ok
-[383] console-setup.sh ... ok
+[383] console-setup.sh ... FAIL (check_qx —   FAIL: sh2perl-vxDOvo1q.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-vxDOvo1q.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [384] console_setup ... ok
 [385] containerd.io.postinst ... ok
 [386] containerd.io.postrm ... ok
 [387] containerd.io.prerm ... ok
-[388] core-sshd-host-keygen ... ok
-[389] coverage-diff.sh ... ok
+[388] core-sshd-host-keygen ... FAIL (check_qx —   FAIL: sh2perl-FP1j1xgo.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-FP1j1xgo.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[389] coverage-diff.sh ... FAIL (check_qx —   FAIL: sh2perl-jcnPTlC0.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-jcnPTlC0.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [390] cpio.postinst ... ok
 [391] cpio.prerm ... ok
 [392] cpp.postinst ... ok
 [393] cpp.postrm ... ok
 [394] cpp.preinst ... ok
 [395] cpp.prerm ... ok
-[396] cpuUsage.sh ... ok
+[396] cpuUsage.sh ... FAIL (check_qx —   FAIL: sh2perl-_I5f0kuV.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-_I5f0kuV.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [397] cpufrequtils ... ok
 [398] cpufrequtils.postinst ... ok
 [399] cpufrequtils.postrm ... ok
 [400] cpufrequtils.preinst ... ok
 [401] cpufrequtils.prerm ... ok
-[402] cracklib-format ... ok
+[402] cracklib-format ... FAIL (check_qx —   FAIL: sh2perl-jcbMm93x.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-jcbMm93x.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [403] cracklib-runtime.postinst ... ok
 [404] cracklib-runtime.postrm ... ok
 [405] cracklib-runtime.preinst ... ok
 [406] cracklib-runtime.prerm ... ok
-[407] create-cracklib-dict ... ok
-[408] create_ap ... ok
+[407] create-cracklib-dict ... FAIL (check_qx —   FAIL: sh2perl-94l4WlIL.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-94l4WlIL.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[408] create_ap ... FAIL (check_qx —   FAIL: sh2perl-U5eT0FXe.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-U5eT0FXe.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [409] cron ... ok
-[410] cron-daemon-common.postinst ... ok
+[410] cron-daemon-common.postinst ... FAIL (check_qx —   FAIL: sh2perl-9FBovr2r.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-9FBovr2r.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [411] cron-daemon-common.postrm ... ok
-[412] cron-tasks-review.sh ... ok
+[412] cron-tasks-review.sh ... FAIL (check_qx —   FAIL: sh2perl-FzAGqrYD.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-FzAGqrYD.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [413] cron.postinst ... ok
 [414] cron.postrm ... ok
 [415] cron.preinst ... ok
@@ -427,10 +555,14 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [422] cryptsetup-bin ... ok
 [423] cups ... ok
 [424] cx ... ok
-[425] daemon.activate ... ok
-[426] daemon.reload ... ok
-[427] daemon.start ... ok
-[428] daemon.stop ... ok
+[425] daemon.activate ... FAIL (check_qx —   FAIL: sh2perl-aabEgnD0.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-aabEgnD0.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[426] daemon.reload ... FAIL (check_qx —   FAIL: sh2perl-NZoNaC4J.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-NZoNaC4J.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[427] daemon.start ... FAIL (check_qx —   FAIL: sh2perl-x4sH9Dr5.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-x4sH9Dr5.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[428] daemon.stop ... FAIL (check_qx —   FAIL: sh2perl-zrg3eZgx.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-zrg3eZgx.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [429] dash.postrm ... ok
 [430] dbus ... ok
 [431] dbus-daemon.postinst ... ok
@@ -440,7 +572,8 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [435] dbus.postrm ... ok
 [436] dbus.preinst ... ok
 [437] dbus.prerm ... ok
-[438] dbus.service ... ok
+[438] dbus.service ... FAIL (check_qx —   FAIL: sh2perl-l98GG14z.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-l98GG14z.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [439] debconf-utils.postinst ... ok
 [440] debconf.config ... ok
 [441] debconf.postinst ... ok
@@ -452,17 +585,24 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [447] debug_function.sh ... ok
 [448] debug_wc_redirect.sh ... ok
 [449] debugpy ... ok
-[450] decrypt_derived ... ok
+[450] decrypt_derived ... FAIL (check_qx —   FAIL: sh2perl-jAfLkS8X.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-jAfLkS8X.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [451] decrypt_gnupg ... ok
-[452] decrypt_gnupg-sc ... ok
-[453] decrypt_keyctl ... ok
-[454] decrypt_opensc ... ok
+[452] decrypt_gnupg-sc ... FAIL (check_qx —   FAIL: sh2perl-icaJDyUv.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-icaJDyUv.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[453] decrypt_keyctl ... FAIL (check_qx —   FAIL: sh2perl-oKS0kJLJ.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-oKS0kJLJ.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[454] decrypt_opensc ... FAIL (check_qx —   FAIL: sh2perl-DfDcpmiT.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-DfDcpmiT.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [455] decrypt_ssl ... ok
-[456] depcomp ... ok
+[456] depcomp ... FAIL (check_qx —   FAIL: sh2perl-CBFT3R0_.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-CBFT3R0_.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [457] desktop_login.sh ... ok
 [458] determine-linux-distro.sh ... ok
-[459] devcontainer ... ok
-[460] dhclient-script ... ok
+[459] devcontainer ... FAIL (check_qx —   FAIL: sh2perl-TDkMCPCE.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-TDkMCPCE.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[460] dhclient-script ... FAIL (check_qx —   FAIL: sh2perl-tmwGZUza.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-tmwGZUza.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [461] dhcpcd ... ok
 [462] dhcpcd-base.postinst ... ok
 [463] dhcpcd-base.postrm ... ok
@@ -472,18 +612,26 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [467] dirmngr.preinst ... ok
 [468] dirmngr.prerm ... ok
 [469] disable_desktop_autologin.sh ... ok
-[470] disconnect-plug-ceph-conf ... ok
-[471] disconnect-plug-ovn-certificates ... ok
-[472] disconnect-plug-ovn-chassis ... ok
-[473] disconnect-plug-qemu-external ... ok
-[474] dist.sh ... ok
-[475] dkms ... ok
-[476] dkms-autopkgtest ... ok
+[470] disconnect-plug-ceph-conf ... FAIL (check_qx —   FAIL: sh2perl-e2oiZhRU.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-e2oiZhRU.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[471] disconnect-plug-ovn-certificates ... FAIL (check_qx —   FAIL: sh2perl-ZRKva81H.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ZRKva81H.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[472] disconnect-plug-ovn-chassis ... FAIL (check_qx —   FAIL: sh2perl-2fsIz__7.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-2fsIz__7.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[473] disconnect-plug-qemu-external ... FAIL (check_qx —   FAIL: sh2perl-OatVjLOG.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-OatVjLOG.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[474] dist.sh ... FAIL (check_qx —   FAIL: sh2perl-5VKClssl.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-5VKClssl.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[475] dkms ... FAIL (check_qx —   FAIL: sh2perl-DHIuUf7R.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-DHIuUf7R.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[476] dkms-autopkgtest ... FAIL (check_qx —   FAIL: sh2perl-j6Xcc6RM.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-j6Xcc6RM.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [477] dkms.postinst ... ok
 [478] dkms.postrm ... ok
 [479] dkms.preinst ... ok
 [480] dkms.prerm ... ok
-[481] dkms_autoinstaller ... ok
+[481] dkms_autoinstaller ... FAIL (check_qx —   FAIL: sh2perl-uXsKiotN.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-uXsKiotN.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [482] dmsetup ... ok
 [483] dmsetup.postinst ... ok
 [484] dnsmasq ... ok
@@ -495,44 +643,60 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [490] dnsmasq.postrm ... ok
 [491] dnsmasq.preinst ... ok
 [492] dnsmasq.prerm ... ok
-[493] doc.sh ... ok
-[494] docker ... ok
+[493] doc.sh ... FAIL (check_qx —   FAIL: sh2perl-9bJbBFFA.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-9bJbBFFA.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[494] docker ... FAIL (check_qx —   FAIL: sh2perl-d08JPUhq.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-d08JPUhq.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [495] docker-ce.postinst ... ok
 [496] docker-ce.postrm ... ok
 [497] docker-ce.preinst ... ok
 [498] docker-ce.prerm ... ok
-[499] docker-compose ... ok
-[500] dockerd-rootless-setuptool.sh ... ok
-[501] dockerd-rootless.sh ... ok
-[502] dpkg ... ok
+[499] docker-compose ... FAIL (check_qx —   FAIL: sh2perl-EJxVfnLP.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-EJxVfnLP.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[500] dockerd-rootless-setuptool.sh ... FAIL (check_qx —   FAIL: sh2perl-D1NvZ2HN.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-D1NvZ2HN.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[501] dockerd-rootless.sh ... FAIL (check_qx —   FAIL: sh2perl-ZdAVWFwj.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ZdAVWFwj.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[502] dpkg ... FAIL (check_qx —   FAIL: sh2perl-MnQc8778.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-MnQc8778.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [503] dpkg-db-backup ... ok
 [504] dpkg-db-keeper ... ok
-[505] dpkg-dev ... ok
+[505] dpkg-dev ... FAIL (check_qx —   FAIL: sh2perl-3LRDjPrH.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-3LRDjPrH.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [506] dpkg-maintscript-helper ... ok
-[507] dpkg-realpath ... ok
-[508] dpkg.postinst ... ok
+[507] dpkg-realpath ... FAIL (check_qx —   FAIL: sh2perl-yq4mG5ee.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-yq4mG5ee.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[508] dpkg.postinst ... FAIL (check_qx —   FAIL: sh2perl-aOAy8gkY.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-aOAy8gkY.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [509] dpkg.postrm ... ok
-[510] ds-identify ... ok
+[510] ds-identify ... FAIL (check_qx —   FAIL: sh2perl-N9oRDk80.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-N9oRDk80.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [511] dtdiff ... ok
 [512] e2fsprogs.postinst ... ok
 [513] e2fsprogs.postrm ... ok
 [514] e2fsprogs.preinst ... ok
 [515] e2fsprogs.prerm ... ok
-[516] e2scrub ... ok
-[517] e2scrub_all ... ok
+[516] e2scrub ... FAIL (check_qx —   FAIL: sh2perl-_UqnvCBV.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-_UqnvCBV.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[517] e2scrub_all ... FAIL (check_qx —   FAIL: sh2perl-bf9I4YaH.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-bf9I4YaH.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [518] e2scrub_all_cron ... ok
-[519] e2scrub_fail ... ok
+[519] e2scrub_fail ... FAIL (check_qx —   FAIL: sh2perl-IzH3DukH.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-IzH3DukH.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [520] echo_stderr ... ok
 [521] edit.indent.rc ... ok
 [522] editbox ... ok
 [523] editbox-utf8 ... ok
 [524] editbox2 ... ok
-[525] editor ... ok
+[525] editor ... FAIL (check_qx —   FAIL: sh2perl-xR30Nlmq.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-xR30Nlmq.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [526] egrep ... ok
 [527] emacsclient.sh ... ok
-[528] enable_docker.sh ... ok
+[528] enable_docker.sh ... FAIL (check_qx —   FAIL: sh2perl-ghI_qQpd.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ghI_qQpd.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [529] ensureifup ... ok
-[530] ethtool ... ok
+[530] ethtool ... FAIL (check_qx —   FAIL: sh2perl-iYsUsPZA.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-iYsUsPZA.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [531] example_hook ... ok
 [532] example_script ... ok
 [533] exe_with_z64 ... ok
@@ -541,7 +705,8 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [536] expect_timed-run ... ok
 [537] ext2 ... ok
 [538] f3write.h2w ... ok
-[539] fail ... ok
+[539] fail ... FAIL (check_qx —   FAIL: sh2perl-oTvgrHLb.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-oTvgrHLb.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [540] fake-hwclock ... ok
 [541] fake-hwclock.postinst ... ok
 [542] fake-hwclock.postrm ... ok
@@ -552,11 +717,15 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [547] fgrep ... ok
 [548] figlet.postinst ... ok
 [549] figlet.prerm ... ok
-[550] figlist ... ok
-[551] finalrd ... ok
+[550] figlist ... FAIL (check_qx —   FAIL: sh2perl-WTuz2KxZ.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-WTuz2KxZ.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[551] finalrd ... FAIL (check_qx —   FAIL: sh2perl-HaSddwyJ.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-HaSddwyJ.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [552] firewall.sh ... ok
-[553] fixfiles ... ok
-[554] fixrtc ... ok
+[553] fixfiles ... FAIL (check_qx —   FAIL: sh2perl-64XDLEsO.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-64XDLEsO.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[554] fixrtc ... FAIL (check_qx —   FAIL: sh2perl-8BTBCDTh.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-8BTBCDTh.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [555] flex.postinst ... ok
 [556] flex.prerm ... ok
 [557] fontconfig-config.postinst ... ok
@@ -572,102 +741,148 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [567] foo.postinst ... ok
 [568] foo.postrm ... ok
 [569] foo.prerm ... ok
-[570] form1 ... ok
-[571] form2 ... ok
+[570] form1 ... FAIL (check_qx —   FAIL: sh2perl-n1DMyduR.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-n1DMyduR.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[571] form2 ... FAIL (check_qx —   FAIL: sh2perl-NJZQtOuo.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-NJZQtOuo.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [572] fping ... ok
 [573] fping.postinst ... ok
-[574] framebuffer ... ok
-[575] fsck ... ok
+[574] framebuffer ... FAIL (check_qx —   FAIL: sh2perl-v2R3bcgW.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-v2R3bcgW.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[575] fsck ... FAIL (check_qx —   FAIL: sh2perl-xgChZuyH.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-xgChZuyH.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [576] fsck.btrfs ... ok
-[577] fselect ... ok
-[578] fselect-stdout ... ok
-[579] fselect1 ... ok
-[580] fselect1-stdout ... ok
-[581] fselect2 ... ok
-[582] fselect2-stdout ... ok
-[583] functions-network.sh ... ok
+[577] fselect ... FAIL (check_qx —   FAIL: sh2perl-CD7BNBVf.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-CD7BNBVf.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[578] fselect-stdout ... FAIL (check_qx —   FAIL: sh2perl-WcY4Qt8o.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-WcY4Qt8o.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[579] fselect1 ... FAIL (check_qx —   FAIL: sh2perl-BYdIN4U2.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-BYdIN4U2.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[580] fselect1-stdout ... FAIL (check_qx —   FAIL: sh2perl-SR2ARb5G.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-SR2ARb5G.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[581] fselect2 ... FAIL (check_qx —   FAIL: sh2perl-LKjwhWpr.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-LKjwhWpr.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[582] fselect2-stdout ... FAIL (check_qx —   FAIL: sh2perl-2X5yvw0y.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-2X5yvw0y.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[583] functions-network.sh ... FAIL (check_qx —   FAIL: sh2perl-GTBQZJdE.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-GTBQZJdE.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [584] functions.sh ... ok
 [585] fuse ... ok
 [586] fuse3.postinst ... ok
 [587] fuse3.postrm ... ok
 [588] g++.postinst ... ok
 [589] g++.prerm ... ok
-[590] gather.sh ... ok
+[590] gather.sh ... FAIL (check_qx —   FAIL: sh2perl-IVsU1BQr.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-IVsU1BQr.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [591] gauge ... ok
 [592] gauge0-input-fd ... ok
-[593] gauge2 ... ok
+[593] gauge2 ... FAIL (check_qx —   FAIL: sh2perl-1TjIvlQM.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-1TjIvlQM.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [594] gcc.postinst ... ok
 [595] gcc.prerm ... ok
 [596] gen-sample-keys.sh ... ok
 [597] gengnuplot.sh ... ok
-[598] get-arg ... ok
-[599] get-libssl-abi ... ok
+[598] get-arg ... FAIL (check_qx —   FAIL: sh2perl-VJ2Yu0cg.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-VJ2Yu0cg.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[599] get-libssl-abi ... FAIL (check_qx —   FAIL: sh2perl-wUDmiEgS.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-wUDmiEgS.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [600] get-mac-address.sh ... ok
 [601] get-mode ... ok
-[602] get_next_oid ... ok
-[603] getopt-example.bash ... ok
+[602] get_next_oid ... FAIL (check_qx —   FAIL: sh2perl-VGf3dBUK.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-VGf3dBUK.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[603] getopt-example.bash ... FAIL (check_qx —   FAIL: sh2perl-uQDiw8jj.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-uQDiw8jj.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [604] gettext ... ok
 [605] gettext.sh ... ok
-[606] gettextize ... ok
+[606] gettextize ... FAIL (check_qx —   FAIL: sh2perl-_FXWNf7Y.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-_FXWNf7Y.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [607] gio-launch-desktop ... ok
 [608] git-common-hash ... ok
-[609] git-difftool--helper ... ok
+[609] git-difftool--helper ... FAIL (check_qx —   FAIL: sh2perl-cAHobXRT.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-cAHobXRT.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [610] git-editor-empty.sh ... ok
 [611] git-editor.sh ... ok
-[612] git-filter-branch ... ok
-[613] git-import.sh ... ok
-[614] git-instaweb ... ok
-[615] git-jump ... ok
-[616] git-merge-octopus ... ok
-[617] git-merge-one-file ... ok
-[618] git-merge-resolve ... ok
-[619] git-mergetool ... ok
-[620] git-new-workdir ... ok
-[621] git-quiltimport ... ok
+[612] git-filter-branch ... FAIL (check_qx —   FAIL: sh2perl-MoKFFOJ_.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-MoKFFOJ_.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[613] git-import.sh ... FAIL (check_qx —   FAIL: sh2perl-aj2dFp6I.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-aj2dFp6I.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[614] git-instaweb ... FAIL (check_qx —   FAIL: sh2perl-Zk4Bcm3S.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-Zk4Bcm3S.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[615] git-jump ... FAIL (check_qx —   FAIL: sh2perl-midRr7yf.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-midRr7yf.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[616] git-merge-octopus ... FAIL (check_qx —   FAIL: sh2perl-cmyDjQhs.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-cmyDjQhs.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[617] git-merge-one-file ... FAIL (check_qx —   FAIL: sh2perl-_SnLyQSr.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-_SnLyQSr.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[618] git-merge-resolve ... FAIL (check_qx —   FAIL: sh2perl-nuYuHcVE.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-nuYuHcVE.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[619] git-mergetool ... FAIL (check_qx —   FAIL: sh2perl-pD7fmJ6Y.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-pD7fmJ6Y.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[620] git-new-workdir ... FAIL (check_qx —   FAIL: sh2perl-R4BhQ1ma.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-R4BhQ1ma.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[621] git-quiltimport ... FAIL (check_qx —   FAIL: sh2perl-wQyJxwNH.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-wQyJxwNH.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [622] git-remote-bzr ... ok
 [623] git-remote-hg ... ok
-[624] git-request-pull ... ok
-[625] git-resurrect.sh ... ok
-[626] git-submodule ... ok
-[627] git-subtree ... ok
-[628] git-subtree.sh ... ok
+[624] git-request-pull ... FAIL (check_qx —   FAIL: sh2perl-b0dmIWyC.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-b0dmIWyC.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[625] git-resurrect.sh ... FAIL (check_qx —   FAIL: sh2perl-chjhU5xA.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-chjhU5xA.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[626] git-submodule ... FAIL (check_qx —   FAIL: sh2perl-iUb_RMjL.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-iUb_RMjL.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[627] git-subtree ... FAIL (check_qx —   FAIL: sh2perl-YGi2rask.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-YGi2rask.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[628] git-subtree.sh ... FAIL (check_qx —   FAIL: sh2perl-OERJYb8L.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-OERJYb8L.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [629] git-update ... ok
-[630] git-update-git-for-windows ... ok
-[631] git-web--browse ... ok
+[630] git-update-git-for-windows ... FAIL (check_qx —   FAIL: sh2perl-tsXqY9kQ.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-tsXqY9kQ.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[631] git-web--browse ... FAIL (check_qx —   FAIL: sh2perl-0hYRQ9ie.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-0hYRQ9ie.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [632] git.postinst ... ok
 [633] git.postrm ... ok
-[634] git.preinst ... ok
+[634] git.preinst ... FAIL (check_qx —   FAIL: sh2perl-6mqCO9Ih.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-6mqCO9Ih.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [635] git.prerm ... ok
 [636] gitAskPass.sh ... ok
-[637] gitfs+ ... ok
+[637] gitfs+ ... FAIL (check_qx —   FAIL: sh2perl-xTpgm_Zs.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-xTpgm_Zs.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [638] github ... ok
-[639] github.sh ... ok
+[639] github.sh ... FAIL (check_qx —   FAIL: sh2perl-1K92IFAn.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-1K92IFAn.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [640] gpg-agent.postinst ... ok
 [641] gpg-agent.postrm ... ok
 [642] gpu-2404-custom-wrapper ... ok
 [643] gpu-2604-custom-wrapper ... ok
-[644] growpart ... ok
+[644] growpart ... FAIL (check_qx —   FAIL: sh2perl-xyFQ3CrV.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-xyFQ3CrV.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [645] gunzip ... ok
-[646] gzexe ... ok
+[646] gzexe ... FAIL (check_qx —   FAIL: sh2perl-c0TLoi9z.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-c0TLoi9z.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [647] gzip.postinst ... ok
 [648] gzip.preinst ... ok
 [649] hGok.sh ... ok
-[650] handle-writable-paths ... ok
+[650] handle-writable-paths ... FAIL (check_qx —   FAIL: sh2perl-7OZpylJc.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-7OZpylJc.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [651] harden ... ok
 [652] haveged ... ok
 [653] haveged.postinst ... ok
 [654] haveged.postrm ... ok
 [655] haveged.preinst ... ok
 [656] haveged.prerm ... ok
-[657] hdparm ... ok
+[657] hdparm ... FAIL (check_qx —   FAIL: sh2perl-agGqVPC7.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-agGqVPC7.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [658] hdparm.postinst ... ok
 [659] hdparm.postrm ... ok
 [660] hdparm.preinst ... ok
 [661] hdparm.prerm ... ok
 [662] header.sh ... ok
-[663] healthd.sh ... ok
-[664] help ... ok
-[665] hical ... ok
+[663] healthd.sh ... FAIL (check_qx —   FAIL: sh2perl-PMguKMm6.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-PMguKMm6.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[664] help ... FAIL (check_qx —   FAIL: sh2perl-OHS8_L5V.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-OHS8_L5V.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[665] hical ... FAIL (check_qx —   FAIL: sh2perl-ZdJE68qO.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ZdJE68qO.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [666] home.up ... ok
 [667] hook-hotplug ... ok
 [668] hostapd ... ok
@@ -675,28 +890,37 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [670] hostapd.postrm ... ok
 [671] hostapd.preinst ... ok
 [672] hostapd.prerm ... ok
-[673] hp48+ ... ok
+[673] hp48+ ... FAIL (check_qx —   FAIL: sh2perl-cPljihHv.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-cPljihHv.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [674] htmldump ... ok
 [675] hwclock-set ... ok
 [676] hwclock.sh ... ok
 [677] i2c-tools.postinst ... ok
 [678] ifenslave ... ok
-[679] ifstate ... ok
+[679] ifstate ... FAIL (check_qx —   FAIL: sh2perl-v2mGJ_qU.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-v2mGJ_qU.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [680] ifupdown ... ok
 [681] ifupdown-hotplug ... ok
 [682] ifupdown.postinst ... ok
 [683] ifupdown.postrm ... ok
 [684] ifupdown.preinst ... ok
 [685] ifupdown.prerm ... ok
-[686] ifupdown.sh ... ok
+[686] ifupdown.sh ... FAIL (check_qx —   FAIL: sh2perl-o5A0j8yn.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-o5A0j8yn.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [687] image.sh ... ok
-[688] infobox ... ok
-[689] infobox2 ... ok
-[690] infobox3 ... ok
-[691] infobox4 ... ok
-[692] init ... ok
+[688] infobox ... FAIL (check_qx —   FAIL: sh2perl-VxVHfz7N.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-VxVHfz7N.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[689] infobox2 ... FAIL (check_qx —   FAIL: sh2perl-51N8PPRe.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-51N8PPRe.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[690] infobox3 ... FAIL (check_qx —   FAIL: sh2perl-BAcmxwfO.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-BAcmxwfO.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[691] infobox4 ... FAIL (check_qx —   FAIL: sh2perl-mAp6fG5T.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-mAp6fG5T.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[692] init ... FAIL (check_qx —   FAIL: sh2perl-eZcbP2ar.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-eZcbP2ar.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [693] init-d-script ... ok
-[694] init.sh ... ok
+[694] init.sh ... FAIL (check_qx —   FAIL: sh2perl-oGX2pPGy.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-oGX2pPGy.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [695] initramfs-tools ... ok
 [696] initramfs-tools-core.postinst ... ok
 [697] initramfs-tools-core.postrm ... ok
@@ -708,36 +932,55 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [703] inputbox1 ... ok
 [704] inputbox2 ... ok
 [705] inputbox3 ... ok
-[706] inputbox4 ... ok
+[706] inputbox4 ... FAIL (check_qx —   FAIL: sh2perl-a8GzIhvU.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-a8GzIhvU.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [707] inputbox5 ... ok
 [708] inputbox6-utf8 ... ok
-[709] inputbox7 ... ok
-[710] inputmenu-stdout ... ok
-[711] inputmenu1 ... ok
-[712] inputmenu2 ... ok
-[713] inputmenu3 ... ok
-[714] inputmenu4 ... ok
-[715] install ... ok
+[709] inputbox7 ... FAIL (check_qx —   FAIL: sh2perl-BF44lEpT.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-BF44lEpT.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[710] inputmenu-stdout ... FAIL (check_qx —   FAIL: sh2perl-2uFWtkd5.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-2uFWtkd5.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[711] inputmenu1 ... FAIL (check_qx —   FAIL: sh2perl-obPUUshQ.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-obPUUshQ.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[712] inputmenu2 ... FAIL (check_qx —   FAIL: sh2perl-rYOIOgLR.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-rYOIOgLR.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[713] inputmenu3 ... FAIL (check_qx —   FAIL: sh2perl-o_90mxUz.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-o_90mxUz.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[714] inputmenu4 ... FAIL (check_qx —   FAIL: sh2perl-IlvHTvm3.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-IlvHTvm3.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[715] install ... FAIL (check_qx —   FAIL: sh2perl-qxu38fjH.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-qxu38fjH.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [716] install-autossh-daemon.sh ... ok
 [717] install-language-pack ... ok
 [718] install-linux-prereqs.sh ... ok
-[719] install-sh ... ok
-[720] install.sh ... ok
+[719] install-sh ... FAIL (check_qx —   FAIL: sh2perl-cP2bLC69.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-cP2bLC69.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[720] install.sh ... FAIL (check_qx —   FAIL: sh2perl-VD4MB61E.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-VD4MB61E.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [721] install_bt_panel.sh ... ok
 [722] install_btrfs_monitor.sh ... ok
-[723] install_docker.sh ... ok
-[724] install_qt.sh ... ok
-[725] install_ros.sh ... ok
+[723] install_docker.sh ... FAIL (check_qx —   FAIL: sh2perl-xdUqwpa3.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-xdUqwpa3.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[724] install_qt.sh ... FAIL (check_qx —   FAIL: sh2perl-f_GR4nBy.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-f_GR4nBy.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[725] install_ros.sh ... FAIL (check_qx —   FAIL: sh2perl-22ilHYEr.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-22ilHYEr.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [726] installkernel ... ok
-[727] interprocess-communicator.sh ... ok
-[728] intltoolize ... ok
-[729] invoke-rc.d ... ok
+[727] interprocess-communicator.sh ... FAIL (check_qx —   FAIL: sh2perl-15Fi4bPc.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-15Fi4bPc.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[728] intltoolize ... FAIL (check_qx —   FAIL: sh2perl-ynJRfTKa.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ynJRfTKa.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[729] invoke-rc.d ... FAIL (check_qx —   FAIL: sh2perl-og7mlNG6.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-og7mlNG6.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [730] iotop.postinst ... ok
 [731] iotop.prerm ... ok
 [732] ip ... ok
-[733] ip-down ... ok
-[734] ip-pre-up ... ok
-[735] ip-up ... ok
+[733] ip-down ... FAIL (check_qx —   FAIL: sh2perl-VUU4cDza.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-VUU4cDza.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[734] ip-pre-up ... FAIL (check_qx —   FAIL: sh2perl-PEC1SEXH.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-PEC1SEXH.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[735] ip-up ... FAIL (check_qx —   FAIL: sh2perl-CpYVzUyd.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-CpYVzUyd.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [736] iperf3 ... ok
 [737] iperf3.config ... ok
 [738] iperf3.postinst ... ok
@@ -747,27 +990,35 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [742] iproute2.config ... ok
 [743] iproute2.postinst ... ok
 [744] iproute2.postrm ... ok
-[745] iptables-apply ... ok
+[745] iptables-apply ... FAIL (check_qx —   FAIL: sh2perl-QMR66e7a.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-QMR66e7a.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [746] iptables.postinst ... ok
 [747] iptables.prerm ... ok
-[748] iputils-arping.postinst ... ok
-[749] iputils-ping.postinst ... ok
+[748] iputils-arping.postinst ... FAIL (check_qx —   FAIL: sh2perl-glro_VWx.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-glro_VWx.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[749] iputils-ping.postinst ... FAIL (check_qx —   FAIL: sh2perl-lUBtkxPa.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-lUBtkxPa.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [750] ipv6-down ... ok
 [751] ipv6-up ... ok
 [752] irc ... ok
-[753] irman2lirc ... ok
-[754] is-configured ... ok
+[753] irman2lirc ... FAIL (check_qx —   FAIL: sh2perl-DXvQbvsH.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-DXvQbvsH.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[754] is-configured ... FAIL (check_qx —   FAIL: sh2perl-XUEZQplk.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-XUEZQplk.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [755] isc-dhcp-client.postinst ... ok
 [756] isc-dhcp-client.postrm ... ok
-[757] iscan ... ok
+[757] iscan ... FAIL (check_qx —   FAIL: sh2perl-WWeFGQ97.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-WWeFGQ97.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [758] iscsid ... ok
-[759] iso9660 ... ok
+[759] iso9660 ... FAIL (check_qx —   FAIL: sh2perl-s1sWpRDT.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-s1sWpRDT.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [760] jobs.sh ... ok
 [761] jpegtran.cgi ... ok
 [762] kaFu.sh ... ok
 [763] kbd ... ok
 [764] kernel-install ... ok
-[765] keyboard-configuration.config ... ok
+[765] keyboard-configuration.config ... FAIL (check_qx —   FAIL: sh2perl-IjyZ1CwH.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-IjyZ1CwH.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [766] keyboard-configuration.postinst ... ok
 [767] keyboard-configuration.postrm ... ok
 [768] keyboard-configuration.preinst ... ok
@@ -780,37 +1031,46 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [775] kmod.postinst ... ok
 [776] kmod.postrm ... ok
 [777] kmod.preinst ... ok
-[778] lcf ... ok
+[778] lcf ... FAIL (check_qx —   FAIL: sh2perl-KivEckiw.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-KivEckiw.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [779] ldconfig ... ok
-[780] ldd ... ok
+[780] ldd ... FAIL (check_qx —   FAIL: sh2perl-7w4n7QVQ.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-7w4n7QVQ.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [781] less.postinst ... ok
 [782] less.preinst ... ok
 [783] less.prerm ... ok
 [784] less.sh ... ok
-[785] lesspipe ... ok
+[785] lesspipe ... FAIL (check_qx —   FAIL: sh2perl-LJ0IOvje.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-LJ0IOvje.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [786] libc-bin.postinst ... ok
 [787] libcryptsetup12 ... ok
 [788] libdigest-sha-perl.postrm ... ok
 [789] libdigest-sha-perl.preinst ... ok
-[790] libdpkg-perl ... ok
+[790] libdpkg-perl ... FAIL (check_qx —   FAIL: sh2perl-iUT8FV8k.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-iUT8FV8k.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [791] libpam-modules-bin.postinst ... ok
 [792] libpam-modules-bin.postrm ... ok
 [793] libpam-modules-bin.prerm ... ok
-[794] libpam-runtime.postinst ... ok
+[794] libpam-runtime.postinst ... FAIL (check_qx —   FAIL: sh2perl-Pfr_0clz.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-Pfr_0clz.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [795] libpam-runtime.postrm ... ok
 [796] libpam-runtime.prerm ... ok
 [797] linux-base.postinst ... ok
 [798] linux-base.postrm ... ok
 [799] linux-image-next-sun50iw9.postinst ... ok
 [800] linux-image-next-sun50iw9.postrm ... ok
-[801] linux-image-next-sun50iw9.preinst ... ok
+[801] linux-image-next-sun50iw9.preinst ... FAIL (check_qx —   FAIL: sh2perl-p0INXaUl.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-p0INXaUl.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [802] linux-image-next-sun50iw9.prerm ... ok
 [803] lirc-config-tool ... ok
-[804] lirc-make-devinput ... ok
-[805] lirc-postinstall ... ok
+[804] lirc-make-devinput ... FAIL (check_qx —   FAIL: sh2perl-AvVp6Brh.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-AvVp6Brh.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[805] lirc-postinstall ... FAIL (check_qx —   FAIL: sh2perl-rHFSTm_J.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-rHFSTm_J.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [806] lirc.postinst ... ok
 [807] lirc.postrm ... ok
-[808] lirc.preinst ... ok
+[808] lirc.preinst ... FAIL (check_qx —   FAIL: sh2perl-KNr_4KVp.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-KNr_4KVp.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [809] lirc.prerm ... ok
 [810] lirc.rtupdate ... ok
 [811] lircd ... ok
@@ -821,10 +1081,14 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [816] lm-sensors.postrm ... ok
 [817] lm-sensors.preinst ... ok
 [818] lm-sensors.prerm ... ok
-[819] loadcpufreq ... ok
-[820] locale-gen ... ok
-[821] locales.config ... ok
-[822] locales.postinst ... ok
+[819] loadcpufreq ... FAIL (check_qx —   FAIL: sh2perl-R6SKUsIr.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-R6SKUsIr.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[820] locale-gen ... FAIL (check_qx —   FAIL: sh2perl-hhdZKUip.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-hhdZKUip.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[821] locales.config ... FAIL (check_qx —   FAIL: sh2perl-rXmX98gv.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-rXmX98gv.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[822] locales.postinst ... FAIL (check_qx —   FAIL: sh2perl-ZV4_Rxkd.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ZV4_Rxkd.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [823] locales.postrm ... ok
 [824] locales.prerm ... ok
 [825] lockout-not-enabled.sh ... ok
@@ -837,17 +1101,24 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [832] logrotate.postinst ... ok
 [833] logrotate.postrm ... ok
 [834] logrotate.prerm ... ok
-[835] lsb_release ... ok
-[836] lsinitramfs ... ok
+[835] lsb_release ... FAIL (check_qx —   FAIL: sh2perl-fdyHUK00.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-fdyHUK00.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[836] lsinitramfs ... FAIL (check_qx —   FAIL: sh2perl-7On3TjCA.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-7On3TjCA.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [837] lslR ... ok
 [838] lspgpot ... ok
 [839] lxc ... ok
-[840] lxc-checkconfig ... ok
-[841] lxc.mount.hook ... ok
+[840] lxc-checkconfig ... FAIL (check_qx —   FAIL: sh2perl-STcVHpgs.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-STcVHpgs.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[841] lxc.mount.hook ... FAIL (check_qx —   FAIL: sh2perl-djDtq6hq.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-djDtq6hq.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [842] lxc.reboot.hook ... ok
-[843] lxd ... ok
-[844] lxd-check-kernel ... ok
-[845] lxd-user ... ok
+[843] lxd ... FAIL (check_qx —   FAIL: sh2perl-NdmFqrQ_.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-NdmFqrQ_.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[844] lxd-check-kernel ... FAIL (check_qx —   FAIL: sh2perl-vNe2LskW.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-vNe2LskW.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[845] lxd-user ... FAIL (check_qx —   FAIL: sh2perl-vvTKzOf5.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-vvTKzOf5.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [846] makesetup ... ok
 [847] man ... ok
 [848] man-db ... ok
@@ -861,54 +1132,74 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [856] mc.postrm ... ok
 [857] mc.preinst ... ok
 [858] mc.prerm ... ok
-[859] mdate-sh ... ok
-[860] memtester.sh ... ok
+[859] mdate-sh ... FAIL (check_qx —   FAIL: sh2perl-WoBEosOf.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-WoBEosOf.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[860] memtester.sh ... FAIL (check_qx —   FAIL: sh2perl-I6MN2NMX.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-I6MN2NMX.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [861] menubox ... ok
 [862] menubox-utf8 ... ok
 [863] menubox1 ... ok
-[864] menubox10 ... ok
-[865] menubox11 ... ok
+[864] menubox10 ... FAIL (check_qx —   FAIL: sh2perl-0neSo2CF.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-0neSo2CF.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[865] menubox11 ... FAIL (check_qx —   FAIL: sh2perl-WKV_PDJe.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-WKV_PDJe.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [866] menubox2 ... ok
 [867] menubox3 ... ok
 [868] menubox4 ... ok
 [869] menubox5 ... ok
-[870] migrate-pubring-from-classic-gpg ... ok
+[870] migrate-pubring-from-classic-gpg ... FAIL (check_qx —   FAIL: sh2perl-T_bTFyEY.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-T_bTFyEY.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [871] miri.sh ... ok
 [872] misc.sh ... ok
 [873] missing ... ok
-[874] mixedform ... ok
-[875] mixedform2 ... ok
+[874] mixedform ... FAIL (check_qx —   FAIL: sh2perl-54KieKTv.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-54KieKTv.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[875] mixedform2 ... FAIL (check_qx —   FAIL: sh2perl-0woYDvoe.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-0woYDvoe.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [876] mixedgauge ... ok
 [877] mk_modmap ... ok
-[878] mkinitramfs ... ok
+[878] mkinitramfs ... FAIL (check_qx —   FAIL: sh2perl-RSMiohqV.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-RSMiohqV.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [879] mkinstalldirs ... ok
 [880] mkswapfile ... ok
 [881] mkzip.sh ... ok
-[882] moolets ... ok
+[882] moolets ... FAIL (check_qx —   FAIL: sh2perl-LQnLgCHi.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-LQnLgCHi.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [883] msgbox ... ok
 [884] msgbox1 ... ok
 [885] msgbox2 ... ok
-[886] msgbox4-eucjp ... ok
-[887] msgbox4-utf8 ... ok
-[888] mysql ... ok
+[886] msgbox4-eucjp ... FAIL (check_qx —   FAIL: sh2perl-4Navu4Bc.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-4Navu4Bc.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[887] msgbox4-utf8 ... FAIL (check_qx —   FAIL: sh2perl-IQqrflC3.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-IQqrflC3.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[888] mysql ... FAIL (check_qx —   FAIL: sh2perl-sqbnE0OJ.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-sqbnE0OJ.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [889] mysql-common.postinst ... ok
 [890] mysql-common.postrm ... ok
 [891] mysql-common.preinst ... ok
 [892] mysql-common.prerm ... ok
 [893] mysql-server-8.0.config ... ok
-[894] mysql-server-8.0.postinst ... ok
+[894] mysql-server-8.0.postinst ... FAIL (check_qx —   FAIL: sh2perl-KE2j82x6.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-KE2j82x6.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [895] mysql-server-8.0.postrm ... ok
-[896] mysql-server-8.0.preinst ... ok
+[896] mysql-server-8.0.preinst ... FAIL (check_qx —   FAIL: sh2perl-YY2C1NR9.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-YY2C1NR9.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [897] mysql-server-8.0.prerm ... ok
-[898] mysql-systemd-start ... ok
+[898] mysql-systemd-start ... FAIL (check_qx —   FAIL: sh2perl-NEDfvkkp.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-NEDfvkkp.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [899] mysqld_multi.server ... ok
-[900] mysqld_safe ... ok
-[901] namespace.init ... ok
-[902] nand-sata-install ... ok
+[900] mysqld_safe ... FAIL (check_qx —   FAIL: sh2perl-QwKKP6jj.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-QwKKP6jj.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[901] namespace.init ... FAIL (check_qx —   FAIL: sh2perl-RRki5eJL.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-RRki5eJL.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[902] nand-sata-install ... FAIL (check_qx —   FAIL: sh2perl-gTIE75Tk.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-gTIE75Tk.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [903] nano.postinst ... ok
 [904] nano.prerm ... ok
-[905] ncmeter ... ok
-[906] ncp ... ok
+[905] ncmeter ... FAIL (check_qx —   FAIL: sh2perl-3WGI0rmF.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-3WGI0rmF.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[906] ncp ... FAIL (check_qx —   FAIL: sh2perl-yq5T_pjZ.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-yq5T_pjZ.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [907] neqn ... ok
 [908] netbase.postinst ... ok
 [909] netbase.postrm ... ok
@@ -917,18 +1208,23 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [912] netplan-generator.postinst ... ok
 [913] netplan-generator.preinst ... ok
 [914] netplan.io.preinst ... ok
-[915] network ... ok
+[915] network ... FAIL (check_qx —   FAIL: sh2perl-295qMzsd.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-295qMzsd.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [916] network-manager-openvpn.postinst ... ok
 [917] network-manager-openvpn.postrm ... ok
-[918] network-manager.postinst ... ok
+[918] network-manager.postinst ... FAIL (check_qx —   FAIL: sh2perl-Ao3YpIno.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-Ao3YpIno.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [919] network-manager.postrm ... ok
-[920] network-manager.preinst ... ok
+[920] network-manager.preinst ... FAIL (check_qx —   FAIL: sh2perl-QmBCtD2p.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-QmBCtD2p.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [921] network-manager.prerm ... ok
 [922] networkd-dispatcher.postinst ... ok
 [923] networkd-dispatcher.postrm ... ok
 [924] networkd-dispatcher.prerm ... ok
-[925] networking ... ok
-[926] newVersion ... ok
+[925] networking ... FAIL (check_qx —   FAIL: sh2perl-M7PFOnpZ.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-M7PFOnpZ.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[926] newVersion ... FAIL (check_qx —   FAIL: sh2perl-iZrm8q0Y.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-iZrm8q0Y.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [927] nfs-common ... ok
 [928] nfs-common.postinst ... ok
 [929] nfs-common.postrm ... ok
@@ -936,7 +1232,8 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [931] nfs-common.prerm ... ok
 [932] nmbd ... ok
 [933] nocache ... ok
-[934] nroff ... ok
+[934] nroff ... FAIL (check_qx —   FAIL: sh2perl-_EBmmfNy.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-_EBmmfNy.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [935] ntfs-3g.postinst ... ok
 [936] ntfs-3g.postrm ... ok
 [937] ntfs_3g ... ok
@@ -945,59 +1242,81 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [940] ntpdate.postrm ... ok
 [941] ntpsec-ntpdate ... ok
 [942] ntpsec-ntpdate.postinst ... ok
-[943] nvidia ... ok
+[943] nvidia ... FAIL (check_qx —   FAIL: sh2perl-KejrHiWY.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-KejrHiWY.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [944] nvidia-container-cli ... ok
 [945] office.up ... ok
 [946] ofm_df ... ok
 [947] ofm_grep ... ok
-[948] oldconfigure.sh ... ok
-[949] open-iscsi ... ok
+[948] oldconfigure.sh ... FAIL (check_qx —   FAIL: sh2perl-jwp4tUEp.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-jwp4tUEp.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[949] open-iscsi ... FAIL (check_qx —   FAIL: sh2perl-xXc6NUyy.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-xXc6NUyy.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [950] open-vm-tools ... ok
 [951] openssh-client.postinst ... ok
 [952] openssh-client.postrm ... ok
 [953] openssh-client.preinst ... ok
 [954] openssh-client.prerm ... ok
-[955] openssh-server.config ... ok
-[956] openssh-server.postinst ... ok
+[955] openssh-server.config ... FAIL (check_qx —   FAIL: sh2perl-nRxkN7d8.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-nRxkN7d8.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[956] openssh-server.postinst ... FAIL (check_qx —   FAIL: sh2perl-_t7sCIVW.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-_t7sCIVW.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [957] openssh-server.postrm ... ok
 [958] openssh-server.preinst ... ok
 [959] openssh-server.prerm ... ok
 [960] openssl.postinst ... ok
-[961] opensysusers-sysusers ... ok
+[961] opensysusers-sysusers ... FAIL (check_qx —   FAIL: sh2perl-4ZeoQ_M5.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-4ZeoQ_M5.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [962] openvpn ... ok
 [963] openvpn-generator ... ok
 [964] openvpn-shutdown.sh ... ok
 [965] openvpn-startup.sh ... ok
 [966] openvpn.config ... ok
-[967] openvpn.postinst ... ok
+[967] openvpn.postinst ... FAIL (check_qx —   FAIL: sh2perl-pqIQwr6a.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-pqIQwr6a.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [968] openvpn.postrm ... ok
 [969] openvpn.preinst ... ok
 [970] openvpn.prerm ... ok
 [971] orangepi-activate-profile-sync-daemon.sh ... ok
-[972] orangepi-add-overlay ... ok
+[972] orangepi-add-overlay ... FAIL (check_qx —   FAIL: sh2perl-BcMtSsxk.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-BcMtSsxk.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [973] orangepi-apt-updates ... ok
 [974] orangepi-audio-config ... ok
-[975] orangepi-bsp-cli-orangepizero3.postinst ... ok
+[975] orangepi-bsp-cli-orangepizero3.postinst ... FAIL (check_qx —   FAIL: sh2perl-53oJMkOe.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-53oJMkOe.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [976] orangepi-bsp-cli-orangepizero3.postrm ... ok
 [977] orangepi-bsp-cli-orangepizero3.preinst ... ok
-[978] orangepi-check-first-login-reboot.sh ... ok
+[978] orangepi-check-first-login-reboot.sh ... FAIL (check_qx —   FAIL: sh2perl-DprDcLOG.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-DprDcLOG.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [979] orangepi-check-first-login.sh ... ok
-[980] orangepi-common ... ok
-[981] orangepi-config ... ok
-[982] orangepi-firstlogin ... ok
+[980] orangepi-common ... FAIL (check_qx —   FAIL: sh2perl-noNGOZj8.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-noNGOZj8.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[981] orangepi-config ... FAIL (check_qx —   FAIL: sh2perl-nIMl48N0.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-nIMl48N0.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[982] orangepi-firstlogin ... FAIL (check_qx —   FAIL: sh2perl-KuUGhT0K.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-KuUGhT0K.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [983] orangepi-firstrun ... ok
-[984] orangepi-firstrun-config ... ok
-[985] orangepi-hardware-monitor ... ok
-[986] orangepi-hardware-optimization ... ok
+[984] orangepi-firstrun-config ... FAIL (check_qx —   FAIL: sh2perl-SKWJj262.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-SKWJj262.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[985] orangepi-hardware-monitor ... FAIL (check_qx —   FAIL: sh2perl-IMJEA79A.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-IMJEA79A.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[986] orangepi-hardware-optimization ... FAIL (check_qx —   FAIL: sh2perl-O4C3V00F.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-O4C3V00F.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [987] orangepi-ram-logging ... ok
-[988] orangepi-ramlog ... ok
-[989] orangepi-resize-filesystem ... ok
-[990] orangepi-ssh-title.sh ... ok
+[988] orangepi-ramlog ... FAIL (check_qx —   FAIL: sh2perl-e5aBB0IJ.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-e5aBB0IJ.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[989] orangepi-resize-filesystem ... FAIL (check_qx —   FAIL: sh2perl-5f2y_1yn.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-5f2y_1yn.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[990] orangepi-ssh-title.sh ... FAIL (check_qx —   FAIL: sh2perl-p_bnF1Bm.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-p_bnF1Bm.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [991] orangepi-truncate-logs ... ok
-[992] orangepi-zram-config ... ok
+[992] orangepi-zram-config ... FAIL (check_qx —   FAIL: sh2perl-O_nCnanb.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-O_nCnanb.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [993] orangepi-zsh.postinst ... ok
-[994] orangepimonitor ... ok
-[995] package.sh ... ok
+[994] orangepimonitor ... FAIL (check_qx —   FAIL: sh2perl-5j2q79kI.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-5j2q79kI.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[995] package.sh ... FAIL (check_qx —   FAIL: sh2perl-h6kErPOc.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-h6kErPOc.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [996] packagekit.postinst ... ok
 [997] packagekit.postrm ... ok
 [998] pam_namespace_helper ... ok
@@ -1013,7 +1332,8 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [1008] password ... ok
 [1009] password1 ... ok
 [1010] password2 ... ok
-[1011] patchsetfs ... ok
+[1011] patchsetfs ... FAIL (check_qx —   FAIL: sh2perl-v1MpLudx.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-v1MpLudx.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1012] pause ... ok
 [1013] pciutils.postinst ... ok
 [1014] pciutils.postrm ... ok
@@ -1036,9 +1356,11 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [1031] pintest ... ok
 [1032] plocate ... ok
 [1033] plymouth ... ok
-[1034] plymouth-generate-initrd ... ok
+[1034] plymouth-generate-initrd ... FAIL (check_qx —   FAIL: sh2perl-HYxdXV9T.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-HYxdXV9T.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1035] plymouth-log ... ok
-[1036] plymouth-populate-initrd ... ok
+[1036] plymouth-populate-initrd ... FAIL (check_qx —   FAIL: sh2perl-kqZD93d0.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-kqZD93d0.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1037] plymouth-theme-spinner.postinst ... ok
 [1038] plymouth-theme-spinner.postrm ... ok
 [1039] plymouth-themes.postinst ... ok
@@ -1057,35 +1379,48 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [1052] polkitd.postrm ... ok
 [1053] polkitd.preinst ... ok
 [1054] polkitd.prerm ... ok
-[1055] post-receive-email ... ok
+[1055] post-receive-email ... FAIL (check_qx —   FAIL: sh2perl-8YeE_TR6.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-8YeE_TR6.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1056] post-update.sample ... ok
 [1057] postinst ... ok
 [1058] postrm ... ok
-[1059] poweroff-vm-default ... ok
-[1060] poweron-vm-default ... ok
-[1061] pre-applypatch.sample ... ok
+[1059] poweroff-vm-default ... FAIL (check_qx —   FAIL: sh2perl-kjJNgLss.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-kjJNgLss.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1060] poweron-vm-default ... FAIL (check_qx —   FAIL: sh2perl-wEWF9YND.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-wEWF9YND.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1061] pre-applypatch.sample ... FAIL (check_qx —   FAIL: sh2perl-bBBmwtn8.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-bBBmwtn8.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1062] pre-auto-gc-battery ... ok
-[1063] pre-commit ... ok
-[1064] pre-commit.sample ... ok
+[1063] pre-commit ... FAIL (check_qx —   FAIL: sh2perl-ON_Io_IA.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ON_Io_IA.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1064] pre-commit.sample ... FAIL (check_qx —   FAIL: sh2perl-1VabcLqJ.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-1VabcLqJ.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1065] pre-merge-commit.sample ... ok
-[1066] pre-push.sample ... ok
-[1067] pre-rebase.sample ... ok
+[1066] pre-push.sample ... FAIL (check_qx —   FAIL: sh2perl-1Wza0L6l.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-1Wza0L6l.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1067] pre-rebase.sample ... FAIL (check_qx —   FAIL: sh2perl-4sFiQ37U.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-4sFiQ37U.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1068] pre-receive.sample ... ok
 [1069] prepare-commit-msg.sample ... ok
 [1070] prerm ... ok
-[1071] probe ... ok
+[1071] probe ... FAIL (check_qx —   FAIL: sh2perl-yry8xACk.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-yry8xACk.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1072] procps ... ok
 [1073] procps.postinst ... ok
 [1074] procps.postrm ... ok
 [1075] procps.preinst ... ok
 [1076] procps.prerm ... ok
 [1077] profile-load ... ok
-[1078] project-id ... ok
+[1078] project-id ... FAIL (check_qx —   FAIL: sh2perl-OHmyfN4Z.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-OHmyfN4Z.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1079] proto ... ok
-[1080] ps.sh ... ok
+[1080] ps.sh ... FAIL (check_qx —   FAIL: sh2perl-UKRuVZWj.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-UKRuVZWj.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1081] public_modules.rtinstall ... ok
-[1082] public_modules.rtremove ... ok
-[1083] push-to-checkout.sample ... ok
+[1082] public_modules.rtremove ... FAIL (check_qx —   FAIL: sh2perl-NTt0Bmn0.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-NTt0Bmn0.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1083] push-to-checkout.sample ... FAIL (check_qx —   FAIL: sh2perl-Ogqjeig5.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-Ogqjeig5.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1084] py-compile ... ok
 [1085] python3-apt.postinst ... ok
 [1086] python3-apt.prerm ... ok
@@ -1189,7 +1524,8 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [1184] python3.prerm ... ok
 [1185] radiolist ... ok
 [1186] radiolist10 ... ok
-[1187] rc.apparmor.functions ... ok
+[1187] rc.apparmor.functions ... FAIL (check_qx —   FAIL: sh2perl-Y7rg84fj.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-Y7rg84fj.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1188] rc.local ... ok
 [1189] readline-common.postinst ... ok
 [1190] readline-common.postrm ... ok
@@ -1197,39 +1533,51 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [1192] refresh ... ok
 [1193] reload-apparmor-profile ... ok
 [1194] remote-viewer ... ok
-[1195] remoteProcessPickerScript ... ok
+[1195] remoteProcessPickerScript ... FAIL (check_qx —   FAIL: sh2perl-bNlYufGA.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-bNlYufGA.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1196] remotes2config.sh ... ok
 [1197] remount-core-fs ... ok
-[1198] remove ... ok
-[1199] remove-language-pack ... ok
-[1200] remove-shell ... ok
+[1198] remove ... FAIL (check_qx —   FAIL: sh2perl-gG4wgMrZ.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-gG4wgMrZ.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1199] remove-language-pack ... FAIL (check_qx —   FAIL: sh2perl-00OlszAO.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-00OlszAO.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1200] remove-shell ... FAIL (check_qx —   FAIL: sh2perl-UDEvs4g_.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-UDEvs4g_.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1201] report-button ... ok
 [1202] report-edit ... ok
 [1203] report-string ... ok
 [1204] report-tempfile ... ok
 [1205] report-yesno ... ok
 [1206] request-key-debug.sh ... ok
-[1207] rerere-train.sh ... ok
+[1207] rerere-train.sh ... FAIL (check_qx —   FAIL: sh2perl-wOYtmVqV.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-wOYtmVqV.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1208] reset_fail_count.sh ... ok
 [1209] reset_ssh.sh ... ok
-[1210] resolved ... ok
+[1210] resolved ... FAIL (check_qx —   FAIL: sh2perl-hS9ntMtJ.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-hS9ntMtJ.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1211] resolved-enter ... ok
-[1212] resume ... ok
-[1213] resume-vm-default ... ok
+[1212] resume ... FAIL (check_qx —   FAIL: sh2perl-ipfM7o7s.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ipfM7o7s.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1213] resume-vm-default ... FAIL (check_qx —   FAIL: sh2perl-BMMM3kym.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-BMMM3kym.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1214] rgrep ... ok
 [1215] routef ... ok
 [1216] routel ... ok
-[1217] rpcbind ... ok
+[1217] rpcbind ... FAIL (check_qx —   FAIL: sh2perl-9Th6k1Aj.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-9Th6k1Aj.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1218] rpcbind.postinst ... ok
 [1219] rpcbind.postrm ... ok
 [1220] rpcbind.preinst ... ok
 [1221] rpcbind.prerm ... ok
-[1222] rpm ... ok
-[1223] rscreen ... ok
+[1222] rpm ... FAIL (check_qx —   FAIL: sh2perl-uyrmVnZp.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-uyrmVnZp.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1223] rscreen ... FAIL (check_qx —   FAIL: sh2perl-On1u2Zkz.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-On1u2Zkz.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1224] rstrip.sh ... ok
 [1225] rsync ... ok
 [1226] rsync-no-vanished ... ok
-[1227] rsync-ssl ... ok
+[1227] rsync-ssl ... FAIL (check_qx —   FAIL: sh2perl-ppCQBwpN.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ppCQBwpN.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1228] rsync.postinst ... ok
 [1229] rsync.postrm ... ok
 [1230] rsync.preinst ... ok
@@ -1239,17 +1587,25 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [1234] rsyslog.postrm ... ok
 [1235] rsyslog.preinst ... ok
 [1236] rsyslog.prerm ... ok
-[1237] rtc-sys-time-init ... ok
-[1238] rtc-sys-time-init-generator ... ok
+[1237] rtc-sys-time-init ... FAIL (check_qx —   FAIL: sh2perl-tuXm57k8.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-tuXm57k8.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1238] rtc-sys-time-init-generator ... FAIL (check_qx —   FAIL: sh2perl-Nr3Ft_fe.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-Nr3Ft_fe.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1239] run-host ... ok
 [1240] run-snapd-from-snap ... ok
-[1241] run-workflow.sh ... ok
-[1242] rust-gdb ... ok
-[1243] rust-gdbgui ... ok
-[1244] rust-lldb ... ok
+[1241] run-workflow.sh ... FAIL (check_qx —   FAIL: sh2perl-PIB0bhtn.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-PIB0bhtn.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1242] rust-gdb ... FAIL (check_qx —   FAIL: sh2perl-01Y3sqFC.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-01Y3sqFC.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1243] rust-gdbgui ... FAIL (check_qx —   FAIL: sh2perl-myACzOzr.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-myACzOzr.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1244] rust-lldb ... FAIL (check_qx —   FAIL: sh2perl-xt8ghx8x.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-xt8ghx8x.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1245] sa1 ... ok
-[1246] sa2 ... ok
-[1247] samba-ad-dc ... ok
+[1246] sa2 ... FAIL (check_qx —   FAIL: sh2perl-_AUPj4XQ.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-_AUPj4XQ.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1247] samba-ad-dc ... FAIL (check_qx —   FAIL: sh2perl-azNLnYiX.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-azNLnYiX.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1248] samba-common.postinst ... ok
 [1249] samba-common.postrm ... ok
 [1250] samba-common.preinst ... ok
@@ -1259,89 +1615,125 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [1254] samba.preinst ... ok
 [1255] samba.prerm ... ok
 [1256] saned ... ok
-[1257] sargraph ... ok
-[1258] sargraph2 ... ok
+[1257] sargraph ... FAIL (check_qx —   FAIL: sh2perl-KhWRXgun.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-KhWRXgun.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1258] sargraph2 ... FAIL (check_qx —   FAIL: sh2perl-6Tgoh1yv.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-6Tgoh1yv.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1259] savelog ... ok
-[1260] sc ... ok
+[1260] sc ... FAIL (check_qx —   FAIL: sh2perl-0yDCruOw.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-0yDCruOw.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1261] scd-event ... ok
 [1262] screen ... ok
-[1263] screen-cleanup ... ok
-[1264] screen.postinst ... ok
+[1263] screen-cleanup ... FAIL (check_qx —   FAIL: sh2perl-TniBIdKt.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-TniBIdKt.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1264] screen.postinst ... FAIL (check_qx —   FAIL: sh2perl-uqhJjYxv.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-uqhJjYxv.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1265] screen.postrm ... ok
 [1266] screen.preinst ... ok
 [1267] script ... ok
 [1268] search-name.sh ... ok
-[1269] select-editor ... ok
-[1270] selinux-autorelabel ... ok
+[1269] select-editor ... FAIL (check_qx —   FAIL: sh2perl-XbR2lyN7.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-XbR2lyN7.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1270] selinux-autorelabel ... FAIL (check_qx —   FAIL: sh2perl-qjq6BTWk.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-qjq6BTWk.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1271] selinux-autorelabel-generator.sh ... ok
-[1272] selinux-policy-default.postinst ... ok
+[1272] selinux-policy-default.postinst ... FAIL (check_qx —   FAIL: sh2perl-iQfu583a.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-iQfu583a.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1273] selinux-policy-default.postrm ... ok
 [1274] selinux-policy-default.preinst ... ok
 [1275] selinux-policy-default.prerm ... ok
-[1276] sendemail-validate.sample ... ok
-[1277] sensible-browser ... ok
-[1278] sensible-editor ... ok
-[1279] sensible-pager ... ok
-[1280] sensible-terminal ... ok
+[1276] sendemail-validate.sample ... FAIL (check_qx —   FAIL: sh2perl-G79g0Wxi.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-G79g0Wxi.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1277] sensible-browser ... FAIL (check_qx —   FAIL: sh2perl-JU3Fne3e.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-JU3Fne3e.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1278] sensible-editor ... FAIL (check_qx —   FAIL: sh2perl-3jhPx9Rm.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-3jhPx9Rm.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1279] sensible-pager ... FAIL (check_qx —   FAIL: sh2perl-jfk1y2qS.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-jfk1y2qS.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1280] sensible-terminal ... FAIL (check_qx —   FAIL: sh2perl-4gAYieKT.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-4gAYieKT.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1281] serial-console-generator ... ok
-[1282] service ... ok
+[1282] service ... FAIL (check_qx —   FAIL: sh2perl-eu0uURYJ.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-eu0uURYJ.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1283] set_swap.sh ... ok
 [1284] set_vnc.sh ... ok
 [1285] settle-dad.sh ... ok
-[1286] setup-edit ... ok
+[1286] setup-edit ... FAIL (check_qx —   FAIL: sh2perl-MVNnLZOV.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-MVNnLZOV.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1287] setup-gmail-download.sh ... ok
-[1288] setup-grafana.sh ... ok
-[1289] setup-tempfile ... ok
+[1288] setup-grafana.sh ... FAIL (check_qx —   FAIL: sh2perl-73lGwVFz.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-73lGwVFz.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1289] setup-tempfile ... FAIL (check_qx —   FAIL: sh2perl-K983_SOn.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-K983_SOn.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1290] setup-utf8 ... ok
 [1291] setup-vars ... ok
-[1292] setup-zfs ... ok
-[1293] setupcon ... ok
+[1292] setup-zfs ... FAIL (check_qx —   FAIL: sh2perl-6PQ3GxFL.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-6PQ3GxFL.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1293] setupcon ... FAIL (check_qx —   FAIL: sh2perl-XuaGtmyO.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-XuaGtmyO.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1294] sgml-base.postinst ... ok
 [1295] sgml-base.postrm ... ok
 [1296] sgml-base.preinst ... ok
 [1297] sgml-base.prerm ... ok
 [1298] sh.sh ... ok
 [1299] shadowconfig ... ok
-[1300] show-size-changes.sh ... ok
-[1301] showfigfonts ... ok
-[1302] smartd-runner ... ok
-[1303] smartd_warning.sh ... ok
+[1300] show-size-changes.sh ... FAIL (check_qx —   FAIL: sh2perl-abqFKtdi.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-abqFKtdi.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1301] showfigfonts ... FAIL (check_qx —   FAIL: sh2perl-QKCu33lA.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-QKCu33lA.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1302] smartd-runner ... FAIL (check_qx —   FAIL: sh2perl-23IcrxSa.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-23IcrxSa.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1303] smartd_warning.sh ... FAIL (check_qx —   FAIL: sh2perl-FwJuWWYa.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-FwJuWWYa.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1304] smartmontools ... ok
 [1305] smartmontools.postinst ... ok
 [1306] smartmontools.postrm ... ok
 [1307] smartmontools.preinst ... ok
 [1308] smartmontools.prerm ... ok
 [1309] smbd ... ok
-[1310] smbprint.sysv ... ok
+[1310] smbprint.sysv ... FAIL (check_qx —   FAIL: sh2perl-ohn0we9l.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ohn0we9l.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1311] snap-debug-info.sh ... ok
-[1312] snap-mgmt ... ok
-[1313] snap-mgmt-selinux ... ok
-[1314] snapd.core-fixup.sh ... ok
+[1312] snap-mgmt ... FAIL (check_qx —   FAIL: sh2perl-linXSrFp.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-linXSrFp.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1313] snap-mgmt-selinux ... FAIL (check_qx —   FAIL: sh2perl-Mk4A8aMb.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-Mk4A8aMb.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1314] snapd.core-fixup.sh ... FAIL (check_qx —   FAIL: sh2perl-MY1VCyza.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-MY1VCyza.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1315] snapd.run-from-snap ... ok
 [1316] software-properties-common.postinst ... ok
 [1317] software-properties-common.prerm ... ok
-[1318] softy ... ok
+[1318] softy ... FAIL (check_qx —   FAIL: sh2perl-rNpoFOwH.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-rNpoFOwH.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1319] sound.sh ... ok
-[1320] spatchcache ... ok
+[1320] spatchcache ... FAIL (check_qx —   FAIL: sh2perl-w7_1ovb8.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-w7_1ovb8.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1321] splash-client ... ok
-[1322] spotify ... ok
+[1322] spotify ... FAIL (check_qx —   FAIL: sh2perl-vtzWd4ua.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-vtzWd4ua.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1323] ssh ... ok
 [1324] ssh-argv0 ... ok
 [1325] ssh-askpass-empty.sh ... ok
-[1326] ssh-askpass.sh ... ok
-[1327] ssh-copy-id ... ok
+[1326] ssh-askpass.sh ... FAIL (check_qx —   FAIL: sh2perl-r59s7GXP.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-r59s7GXP.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1327] ssh-copy-id ... FAIL (check_qx —   FAIL: sh2perl-5uHBx8D_.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-5uHBx8D_.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1328] ssh-session-cleanup ... ok
-[1329] sshfs ... ok
+[1329] sshfs ... FAIL (check_qx —   FAIL: sh2perl-7cmNr1MG.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-7cmNr1MG.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1330] start-statd ... ok
 [1331] statechange.subr ... ok
 [1332] subiquitycore.rtupdate ... ok
-[1333] submenu.sh ... ok
+[1333] submenu.sh ... FAIL (check_qx —   FAIL: sh2perl-7j8QggF4.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-7j8QggF4.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1334] sudo.postinst ... ok
 [1335] sudo.postrm ... ok
 [1336] sudo.preinst ... ok
-[1337] sudo.prerm ... ok
+[1337] sudo.prerm ... FAIL (check_qx —   FAIL: sh2perl-DuJlQfnj.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-DuJlQfnj.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1338] sunxi-tools.postinst ... ok
-[1339] suspend-vm-default ... ok
+[1339] suspend-vm-default ... FAIL (check_qx —   FAIL: sh2perl-sVwATptf.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-sVwATptf.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1340] swap ... ok
 [1341] sysfsutils ... ok
 [1342] sysfsutils.postinst ... ok
@@ -1350,36 +1742,44 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [1345] sysfsutils.prerm ... ok
 [1346] sysstat ... ok
 [1347] sysstat.config ... ok
-[1348] sysstat.postinst ... ok
+[1348] sysstat.postinst ... FAIL (check_qx —   FAIL: sh2perl-yBkpESee.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-yBkpESee.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1349] sysstat.postrm ... ok
 [1350] sysstat.preinst ... ok
 [1351] sysstat.prerm ... ok
 [1352] sysstat.sleep ... ok
-[1353] systemd-bootchart-poststop.sh ... ok
+[1353] systemd-bootchart-poststop.sh ... FAIL (check_qx —   FAIL: sh2perl-NFDqZ__Q.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-NFDqZ__Q.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1354] systemd-helper ... ok
 [1355] systemd-manager ... ok
 [1356] systemd-resolved.postinst ... ok
 [1357] systemd-resolved.postrm ... ok
 [1358] systemd-resolved.prerm ... ok
 [1359] systemd-sysv-install ... ok
-[1360] systemd-sysv.postinst ... ok
+[1360] systemd-sysv.postinst ... FAIL (check_qx —   FAIL: sh2perl-esBVz3oN.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-esBVz3oN.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1361] systemd.postinst ... ok
 [1362] systemd.postrm ... ok
-[1363] systemd.preinst ... ok
+[1363] systemd.preinst ... FAIL (check_qx —   FAIL: sh2perl-hdHhnATC.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-hdHhnATC.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1364] systemd.prerm ... ok
 [1365] sysv-init ... ok
 [1366] t-git-credential-netrc.sh ... ok
-[1367] t7900-subtree.sh ... ok
+[1367] t7900-subtree.sh ... FAIL (check_qx —   FAIL: sh2perl-GmHbKMtq.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-GmHbKMtq.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1368] tap-driver.sh ... ok
 [1369] tar.postinst ... ok
 [1370] tar.prerm ... ok
-[1371] tarcat ... ok
+[1371] tarcat ... FAIL (check_qx —   FAIL: sh2perl-6eYmwE1s.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-6eYmwE1s.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1372] tcl8.6.prerm ... ok
 [1373] tdb-tools.postinst ... ok
 [1374] tdb-tools.prerm ... ok
 [1375] team-address ... ok
-[1376] tellerstats.sh ... ok
-[1377] terminateProcess.sh ... ok
+[1376] tellerstats.sh ... FAIL (check_qx —   FAIL: sh2perl-vYUsMeQ6.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-vYUsMeQ6.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1377] terminateProcess.sh ... FAIL (check_qx —   FAIL: sh2perl-CPZSN1rI.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-CPZSN1rI.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1378] test ... ok
 [1379] test-driver ... ok
 [1380] test.command-option-gpg ... ok
@@ -1405,126 +1805,184 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [1400] test_18 ... ok
 [1401] test_19 ... ok
 [1402] test_20 ... ok
-[1403] test_find.sh ... ok
+[1403] test_find.sh ... FAIL (check_qx —   FAIL: sh2perl-xjQt0e45.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-xjQt0e45.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1404] test_pwm.sh ... ok
 [1405] test_ros.sh ... ok
 [1406] test_simple_function.sh ... ok
-[1407] test_system_builtin.sh ... ok
+[1407] test_system_builtin.sh ... FAIL (check_qx —   FAIL: sh2perl-Qn7AzsLA.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-Qn7AzsLA.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1408] testsuite ... ok
-[1409] text.sh ... ok
+[1409] text.sh ... FAIL (check_qx —   FAIL: sh2perl-52mD4H73.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-52mD4H73.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1410] textbox ... ok
 [1411] textbox2 ... ok
 [1412] thermal ... ok
-[1413] timebox ... ok
-[1414] timebox-stdout ... ok
-[1415] timebox2 ... ok
-[1416] timebox2-stdout ... ok
+[1413] timebox ... FAIL (check_qx —   FAIL: sh2perl-xt60Efdd.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-xt60Efdd.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1414] timebox-stdout ... FAIL (check_qx —   FAIL: sh2perl-9T0g3Rxv.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-9T0g3Rxv.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1415] timebox2 ... FAIL (check_qx —   FAIL: sh2perl-IpejQ_rT.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-IpejQ_rT.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1416] timebox2-stdout ... FAIL (check_qx —   FAIL: sh2perl-ysxyohV9.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ysxyohV9.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1417] timedatectl ... ok
 [1418] toilet.postinst ... ok
 [1419] toilet.prerm ... ok
 [1420] trigger ... ok
-[1421] trpm ... ok
+[1421] trpm ... FAIL (check_qx —   FAIL: sh2perl-ypWOFtOa.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ypWOFtOa.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1422] tsc-some-files.sh ... ok
 [1423] tv_grab_file ... ok
 [1424] tzconfig ... ok
-[1425] tzdata.config ... ok
-[1426] tzdata.postinst ... ok
+[1425] tzdata.config ... FAIL (check_qx —   FAIL: sh2perl-BSwod36k.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-BSwod36k.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1426] tzdata.postinst ... FAIL (check_qx —   FAIL: sh2perl-rEhV6qQ8.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-rEhV6qQ8.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1427] tzdata.postrm ... ok
-[1428] tzselect ... ok
-[1429] u7z ... ok
-[1430] uace ... ok
-[1431] ualz ... ok
-[1432] uar ... ok
-[1433] uarc ... ok
+[1428] tzselect ... FAIL (check_qx —   FAIL: sh2perl-cst4KrER.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-cst4KrER.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1429] u7z ... FAIL (check_qx —   FAIL: sh2perl-pAAkdkQU.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-pAAkdkQU.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1430] uace ... FAIL (check_qx —   FAIL: sh2perl-ddiwQeh5.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ddiwQeh5.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1431] ualz ... FAIL (check_qx —   FAIL: sh2perl-hyOKeklE.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-hyOKeklE.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1432] uar ... FAIL (check_qx —   FAIL: sh2perl-EQyAWiKp.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-EQyAWiKp.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1433] uarc ... FAIL (check_qx —   FAIL: sh2perl-6w1LtS49.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-6w1LtS49.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1434] uarj ... ok
-[1435] ubuntu-keyring.postinst ... ok
+[1435] ubuntu-keyring.postinst ... FAIL (check_qx —   FAIL: sh2perl-jXIQ7DZm.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-jXIQ7DZm.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1436] ucab ... ok
-[1437] ucf ... ok
+[1437] ucf ... FAIL (check_qx —   FAIL: sh2perl-fiUVOuv_.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-fiUVOuv_.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1438] ucf.postinst ... ok
 [1439] ucf.postrm ... ok
-[1440] ucf.preinst ... ok
-[1441] ucf_helper_functions.sh ... ok
-[1442] ucfr ... ok
+[1440] ucf.preinst ... FAIL (check_qx —   FAIL: sh2perl-2YD3cxNd.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-2YD3cxNd.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1441] ucf_helper_functions.sh ... FAIL (check_qx —   FAIL: sh2perl-Huvmckk4.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-Huvmckk4.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1442] ucfr ... FAIL (check_qx —   FAIL: sh2perl-2DxSMYIR.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-2DxSMYIR.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1443] udev ... ok
 [1444] udev.postinst ... ok
 [1445] udev.postrm ... ok
-[1446] udev.preinst ... ok
+[1446] udev.preinst ... FAIL (check_qx —   FAIL: sh2perl-eeBQvhu4.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-eeBQvhu4.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1447] udev.prerm ... ok
-[1448] ufw ... ok
-[1449] uha ... ok
-[1450] ulha ... ok
-[1451] un_blkid ... ok
-[1452] unar ... ok
+[1448] ufw ... FAIL (check_qx —   FAIL: sh2perl-ZqvX9OtM.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ZqvX9OtM.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1449] uha ... FAIL (check_qx —   FAIL: sh2perl-bMufgFIe.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-bMufgFIe.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1450] ulha ... FAIL (check_qx —   FAIL: sh2perl-bdNSNZyt.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-bdNSNZyt.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1451] un_blkid ... FAIL (check_qx —   FAIL: sh2perl-ldDSp6xC.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ldDSp6xC.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1452] unar ... FAIL (check_qx —   FAIL: sh2perl-gdn_H_GT.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-gdn_H_GT.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1453] unattended-upgrades ... ok
 [1454] unattended-upgrades.config ... ok
 [1455] unattended-upgrades.postinst ... ok
 [1456] unattended-upgrades.postrm ... ok
 [1457] unattended-upgrades.preinst ... ok
-[1458] uncloud-init ... ok
+[1458] uncloud-init ... FAIL (check_qx —   FAIL: sh2perl-DXZwDr47.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-DXZwDr47.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1459] uncompress ... ok
 [1460] unhide_ICH_SMBus ... ok
-[1461] unicode_start ... ok
-[1462] unicode_stop ... ok
-[1463] unmkinitramfs ... ok
+[1461] unicode_start ... FAIL (check_qx —   FAIL: sh2perl-Zf33FaQo.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-Zf33FaQo.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1462] unicode_stop ... FAIL (check_qx —   FAIL: sh2perl-SGDUTN1F.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-SGDUTN1F.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1463] unmkinitramfs ... FAIL (check_qx —   FAIL: sh2perl-DhXo5txb.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-DhXo5txb.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1464] unzip.postinst ... ok
 [1465] unzip.postrm ... ok
-[1466] update ... ok
-[1467] update-apparmor-samba-profile ... ok
-[1468] update-ca-certificates ... ok
+[1466] update ... FAIL (check_qx —   FAIL: sh2perl-ulK3OfUI.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ulK3OfUI.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1467] update-apparmor-samba-profile ... FAIL (check_qx —   FAIL: sh2perl-qnArXqwZ.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-qnArXqwZ.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1468] update-ca-certificates ... FAIL (check_qx —   FAIL: sh2perl-PXM1EDRQ.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-PXM1EDRQ.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1469] update-cracklib ... ok
-[1470] update-initramfs ... ok
+[1470] update-initramfs ... FAIL (check_qx —   FAIL: sh2perl-v2mIAi1_.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-v2mIAi1_.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1471] update-motd-unattended-upgrades ... ok
 [1472] update-pciids ... ok
-[1473] update-resolv-conf ... ok
-[1474] update-shells ... ok
-[1475] update-smart-drivedb ... ok
-[1476] update.sample ... ok
-[1477] update_blessed.sh ... ok
-[1478] update_unicode.sh ... ok
-[1479] urar ... ok
-[1480] usb-devices ... ok
+[1473] update-resolv-conf ... FAIL (check_qx —   FAIL: sh2perl-1X_1L3K6.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-1X_1L3K6.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1474] update-shells ... FAIL (check_qx —   FAIL: sh2perl-4QzgfRYg.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-4QzgfRYg.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1475] update-smart-drivedb ... FAIL (check_qx —   FAIL: sh2perl-jAuE8T6P.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-jAuE8T6P.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1476] update.sample ... FAIL (check_qx —   FAIL: sh2perl-ox9SWhbA.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ox9SWhbA.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1477] update_blessed.sh ... FAIL (check_qx —   FAIL: sh2perl-j_9RgO9h.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-j_9RgO9h.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1478] update_unicode.sh ... FAIL (check_qx —   FAIL: sh2perl-t7xjJZUO.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-t7xjJZUO.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1479] urar ... FAIL (check_qx —   FAIL: sh2perl-hMgcsx15.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-hMgcsx15.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1480] usb-devices ... FAIL (check_qx —   FAIL: sh2perl-BBOfbU8o.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-BBOfbU8o.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1481] usb_modeswitch ... ok
-[1482] user-email ... ok
+[1482] user-email ... FAIL (check_qx —   FAIL: sh2perl-zFkko4mj.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-zFkko4mj.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1483] util-linux.postinst ... ok
 [1484] util-linux.postrm ... ok
 [1485] util-linux.prerm ... ok
-[1486] uuid ... ok
+[1486] uuid ... FAIL (check_qx —   FAIL: sh2perl-dSQuW5Mk.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-dSQuW5Mk.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1487] uuidd ... ok
-[1488] uwim ... ok
-[1489] uzoo ... ok
-[1490] vconfig ... ok
-[1491] vcs-run ... ok
+[1488] uwim ... FAIL (check_qx —   FAIL: sh2perl-caKK79l7.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-caKK79l7.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1489] uzoo ... FAIL (check_qx —   FAIL: sh2perl-zhuuZ0AE.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-zhuuZ0AE.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1490] vconfig ... FAIL (check_qx —   FAIL: sh2perl-W4MjSbrO.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-W4MjSbrO.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1491] vcs-run ... FAIL (check_qx —   FAIL: sh2perl-vimKC98g.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-vimKC98g.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1492] video.sh ... ok
 [1493] vim-common.postinst ... ok
 [1494] vim-common.postrm ... ok
 [1495] vim-runtime.postinst ... ok
-[1496] vim-runtime.postrm ... ok
-[1497] vim-runtime.preinst ... ok
+[1496] vim-runtime.postrm ... FAIL (check_qx —   FAIL: sh2perl-UD05v8K7.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-UD05v8K7.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1497] vim-runtime.preinst ... FAIL (check_qx —   FAIL: sh2perl-ro2bsa4G.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-ro2bsa4G.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1498] vim.postinst ... ok
 [1499] vim.prerm ... ok
 [1500] vim_ide ... ok
-[1501] vimtutor ... ok
+[1501] vimtutor ... FAIL (check_qx —   FAIL: sh2perl-MublmDke.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-MublmDke.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1502] virt-v2v-in-place ... ok
 [1503] vlan ... ok
-[1504] vlan-network-interface ... ok
+[1504] vlan-network-interface ... FAIL (check_qx —   FAIL: sh2perl-Tw4lkIMv.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-Tw4lkIMv.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1505] vnstat ... ok
 [1506] vnstat.postinst ... ok
 [1507] vnstat.postrm ... ok
 [1508] vnstat.preinst ... ok
 [1509] vnstat.prerm ... ok
 [1510] vsdbg ... ok
-[1511] vsftpd ... ok
+[1511] vsftpd ... FAIL (check_qx —   FAIL: sh2perl-0pDTcBkV.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-0pDTcBkV.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1512] w3m.postinst ... ok
 [1513] w3m.postrm ... ok
 [1514] w3m.prerm ... ok
 [1515] w3mdict.cgi ... ok
-[1516] wait-for-ll6.sh ... ok
-[1517] wait-online.sh ... ok
-[1518] web ... ok
+[1516] wait-for-ll6.sh ... FAIL (check_qx —   FAIL: sh2perl-l8_5Hthr.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-l8_5Hthr.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1517] wait-online.sh ... FAIL (check_qx —   FAIL: sh2perl-LUZw0HK6.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-LUZw0HK6.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1518] web ... FAIL (check_qx —   FAIL: sh2perl-HL33aezA.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-HL33aezA.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1519] web.sh ... ok
 [1520] webproxy ... ok
 [1521] webrelay ... ok
-[1522] websearch ... ok
+[1522] websearch ... FAIL (check_qx —   FAIL: sh2perl-q0AtawJt.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-q0AtawJt.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1523] which.debianutils ... ok
 [1524] whiptail.preinst ... ok
 [1525] wireless-tools ... ok
@@ -1537,44 +1995,61 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [1532] wpasupplicant.postrm ... ok
 [1533] wpasupplicant.prerm ... ok
 [1534] wrap3m ... ok
-[1535] write-ssh-key-fingerprints ... ok
-[1536] x11-common ... ok
-[1537] xdg-open ... ok
+[1535] write-ssh-key-fingerprints ... FAIL (check_qx —   FAIL: sh2perl-lKa3zaA8.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-lKa3zaA8.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1536] x11-common ... FAIL (check_qx —   FAIL: sh2perl-cB8S9fhB.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-cB8S9fhB.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1537] xdg-open ... FAIL (check_qx —   FAIL: sh2perl-swjkar5H.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-swjkar5H.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1538] xdg-settings ... ok
 [1539] xfs ... ok
-[1540] xfs_admin ... ok
+[1540] xfs_admin ... FAIL (check_qx —   FAIL: sh2perl-nMjp2Zuc.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-nMjp2Zuc.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1541] xml-core.postinst ... ok
 [1542] xml-core.postrm ... ok
 [1543] xml-core.preinst ... ok
 [1544] xml-core.prerm ... ok
-[1545] xx-initramfs-cleanup ... ok
+[1545] xx-initramfs-cleanup ... FAIL (check_qx —   FAIL: sh2perl-VQ0KoF7E.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-VQ0KoF7E.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1546] xx-update-initrd-links ... ok
-[1547] xz-utils.postinst ... ok
+[1547] xz-utils.postinst ... FAIL (check_qx —   FAIL: sh2perl-BzSlTtQD.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-BzSlTtQD.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1548] xz-utils.prerm ... ok
-[1549] xzdiff ... ok
+[1549] xzdiff ... FAIL (check_qx —   FAIL: sh2perl-vPr9qahu.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-vPr9qahu.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1550] xzgrep ... ok
 [1551] xzless ... ok
-[1552] xzmore ... ok
+[1552] xzmore ... FAIL (check_qx —   FAIL: sh2perl-uaboaBnX.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-uaboaBnX.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1553] yesno ... ok
 [1554] yesno2 ... ok
 [1555] yesno3 ... ok
-[1556] ylwrap ... ok
+[1556] ylwrap ... FAIL (check_qx —   FAIL: sh2perl-xBuprBbD.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-xBuprBbD.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1557] yp ... ok
 [1558] yu ... ok
 [1559] yzfa.sh ... ok
 [1560] zcat ... ok
 [1561] zcmp ... ok
-[1562] zdiff ... ok
+[1562] zdiff ... FAIL (check_qx —   FAIL: sh2perl-RwiOsCv7.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-RwiOsCv7.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1563] zegrep ... ok
 [1564] zfgrep ... ok
-[1565] zforce ... ok
-[1566] zgrep ... ok
-[1567] zipgrep ... ok
-[1568] zless ... ok
+[1565] zforce ... FAIL (check_qx —   FAIL: sh2perl-PdQmujwL.pl.sh [perl] — bash/sh -c wrapping builtin 'command')
+       check_qx —   FAIL: sh2perl-PdQmujwL.pl.sh [perl] — bash/sh -c wrapping builtin 'command'
+[1566] zgrep ... FAIL (check_qx —   FAIL: sh2perl-J3AcgMWq.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-J3AcgMWq.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1567] zipgrep ... FAIL (check_qx —   FAIL: sh2perl-9xbcO2ZM.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-9xbcO2ZM.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1568] zless ... FAIL (check_qx —   FAIL: sh2perl-Ah3ZUm_Q.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-Ah3ZUm_Q.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1569] zmore ... ok
-[1570] znew ... ok
-[1571] zsh ... ok
-[1572] zsh-common ... ok
+[1570] znew ... FAIL (check_qx —   FAIL: sh2perl-Ay6ucmH1.pl.sh [perl] — bash/sh -c wrapping builtin 'command')
+       check_qx —   FAIL: sh2perl-Ay6ucmH1.pl.sh [perl] — bash/sh -c wrapping builtin 'command'
+[1571] zsh ... FAIL (check_qx —   FAIL: sh2perl-y9sHuxbb.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-y9sHuxbb.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
+[1572] zsh-common ... FAIL (check_qx —   FAIL: sh2perl-z5PVWlcm.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-z5PVWlcm.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1573] zsh-common.postinst ... ok
 [1574] zsh-common.postrm ... ok
 [1575] zsh-common.preinst ... ok
@@ -1583,13 +2058,12 @@ Checking 1584 .sh files in /nvme/ai/sh2loop/sh (8 parallel workers)
 [1578] zsh.postrm ... ok
 [1579] zsh.preinst ... ok
 [1580] zsh.prerm ... ok
-[1581] zz-busybox-initramfs ... ok
+[1581] zz-busybox-initramfs ... FAIL (check_qx —   FAIL: sh2perl-NfdFNGCy.pl.sh [perl] — QX violation: qx{} call with builtin 'command')
+       check_qx —   FAIL: sh2perl-NfdFNGCy.pl.sh [perl] — QX violation: qx{} call with builtin 'command'
 [1582] zz-dhclient ... ok
 [1583] zz-u-boot-menu ... ok
 [1584] zzz_avahi-autoipd ... ok
-Use of uninitialized value $failed in printf at check_sh_files.pl line 241.
 
 ========================================================================
-SUMMARY: 1584 tested, 1584 passed, 0 failed
+SUMMARY: 1584 tested, 1108 passed, 476 failed
 ========================================================================
-Use of uninitialized value $failed in exit at check_sh_files.pl line 244.
