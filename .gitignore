@@ -1,3 +1,5 @@
 logs/
 kip*
 sh/
+sh2perl-*.pl
+tmp/
