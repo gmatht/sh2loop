@@ -97,60 +97,67 @@ sub run_one_test {
 
     my $tmp_dir = "$work_dir/test_$test_num";
     make_path($tmp_dir);
-    symlink($examples, "$tmp_dir/examples") or die "symlink $tmp_dir/examples: $!";
 
-    my $isolated_test_file = "$tmp_dir/examples/$test_name";
-
-    my $pid = fork;
-    if (!defined $pid) { die "fork: $!"; }
-
-    if ($pid == 0) {
-        chdir $tmp_dir or die "chdir $tmp_dir: $!";
-        open STDOUT, '>', "$tmp_dir/stdout.txt" or die "write stdout: $!";
-        open STDERR, '>', "$tmp_dir/stderr.txt" or die "write stderr: $!";
-        exec $debashc, '--test-file', 'perl', $isolated_test_file;
-        die "exec: $!";
+    # Step 1: Run debashc to generate Perl code
+    my $gen_out = `cd '$sh2perl' && '$debashc' '$test_file' 2>/dev/null`;
+    if ($? != 0) {
+        remove_tree($tmp_dir);
+        return { status => 'FAIL', detail => 'debashc failed to generate code' };
     }
 
-    my $deadline = time() + $timeout_per_test;
-    my $timed_out = 0;
-    my $child_exit = -1;
-    while (1) {
-        my $remaining = $deadline - time();
-        if ($remaining <= 0) {
-            $timed_out = 1;
-            kill('TERM', $pid);
-            sleep(0.1);
-            kill('KILL', $pid) if kill(0, $pid);
-            my $reaped = waitpid($pid, 0);
-            $child_exit = $? >> 8 if $reaped == $pid;
-            last;
-        }
-        my $kid = waitpid($pid, WNOHANG);
-        if ($kid == $pid) {
-            $child_exit = $? >> 8;
-            last;
-        }
-        select(undef, undef, undef, 0.1);
-    }
-    if (!$timed_out && waitpid($pid, WNOHANG) == 0) {
-        my $reaped = waitpid($pid, 0);
-        $child_exit = $? >> 8 if $reaped == $pid;
-    } elsif ($timed_out && kill(0, $pid)) {
-        kill('KILL', $pid);
-        waitpid($pid, 0);
+    # Extract Perl code: take text between "Generated Perl code:" and "--- Running"
+    my $perl_code = $gen_out;
+    if ($gen_out =~ /Generated Perl code:\n(.*?)\n--- Running/ms) {
+        $perl_code = $1;
+    } elsif ($gen_out =~ /Generated Perl code:\n(.*)/ms) {
+        $perl_code = $1;
     }
 
-    my $stdout = '';
-    if (open my $fh, '<', "$tmp_dir/stdout.txt") {
-        local $/; $stdout = <$fh>; close $fh;
-    }
-    my $stderr = '';
-    if (open my $fh, '<', "$tmp_dir/stderr.txt") {
-        local $/; $stderr = <$fh>; close $fh;
+    # Step 2: Write Perl code to temp file and run it
+    my $perl_file = "$tmp_dir/test.pl";
+    open my $pfh, '>', $perl_file or die "write $perl_file: $!";
+    print $pfh $perl_code;
+    close $pfh;
+
+    my ($perl_stdout, $perl_stderr);
+    my $perl_exit = system('perl', $perl_file);
+    $perl_exit >>= 8;
+    if (open my $fh, '>', "$tmp_dir/perl_stdout.txt") {
+        # Not capturing; system() output goes to terminal.
+        # Instead use backticks.
     }
 
-    # Side-effect check
+    # Run Perl with 5.010 features (say, etc.) and capture stdout/stderr
+    my $perl_out = `perl -M5.010 '$perl_file' 2>"$tmp_dir/perl_stderr.txt"`;
+    my $perl_exit2 = $? >> 8;
+    if (open my $fh, '<', "$tmp_dir/perl_stderr.txt") {
+        local $/; $perl_stderr = <$fh>; close $fh;
+    } else {
+        $perl_stderr = q{};
+    }
+    $perl_stdout = $perl_out // q{};
+
+    # Step 3: Run bash on the original script
+    my $bash_out = `bash '$test_file' 2>"$tmp_dir/bash_stderr.txt"`;
+    my $bash_exit = $? >> 8;
+    my $bash_stdout = $bash_out // q{};
+    my $bash_stderr = '';
+    if (open my $fh, '<', "$tmp_dir/bash_stderr.txt") {
+        local $/; $bash_stderr = <$fh>; close $fh;
+    }
+
+    # Step 4: Normalize and compare
+    my $normalize = sub {
+        my $s = shift;
+        $s =~ s/\r\n/\n/g;
+        $s =~ s/^\s+|\s+$//g;
+        return $s;
+    };
+
+    my $stdout_match = &$normalize($perl_stdout) eq &$normalize($bash_stdout);
+    my $stderr_match = &$normalize($perl_stderr) eq &$normalize($bash_stderr);
+
+    # Step 5: Side-effect check
     my $se_msg = '';
     my $tmp_paths = extract_tmp_paths($test_file);
     if (@$tmp_paths) {
@@ -164,23 +171,20 @@ sub run_one_test {
         }
     }
 
-    remove_tree($tmp_dir);
+    # Step 6: Determine result
+    my @reasons;
+    push @reasons, 'stdout mismatch' if !$stdout_match;
+    push @reasons, 'stderr mismatch' if !$stderr_match;
+    push @reasons, $se_msg if $se_msg;
 
     my $result;
-    if ($timed_out) {
-        $result = { status => 'TIMEOUT', detail => "exceeded ${timeout_per_test}s" };
-    } elsif ($child_exit != 0) {
-        my $reason = $stderr || $stdout;
-        $reason =~ s/\n/ /g;
-        $reason = substr($reason, 0, 200);
-        if ($se_msg) { $reason .= " ($se_msg)"; }
-        $result = { status => 'FAIL', detail => "exit=$child_exit $reason" };
-    } elsif ($se_msg) {
-        $result = { status => 'FAIL', detail => $se_msg, side_effect => 1 };
+    if (@reasons) {
+        $result = { status => 'FAIL', detail => join(', ', @reasons) };
     } else {
         $result = { status => 'PASS', detail => '' };
     }
 
+    remove_tree($tmp_dir);
     return $result;
 }
 
