@@ -245,6 +245,12 @@ while (1) {
     my ($output, $timed_out, $test_exit) = run_tests();
 
     my $summary = parse_summary($output);
+    # Save summary to cache for quick display on next run
+    if ($summary) {
+        open my $cfh, '>', "$project_root/.cached_test_summary" or warn "Cannot write cache: $!";
+        print $cfh "TESTS COMPLETED: $summary->{passed} passed, $summary->{failed} failed out of $summary->{total}\n";
+        close $cfh;
+    }
     my $failed_tests = parse_failed_tests($output);
     my $old_results = read_results_file($results_file);
     my $diff = diff_results($failed_tests, $old_results);
