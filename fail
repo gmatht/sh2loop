@@ -123,6 +123,19 @@ sub run_one_test {
     print $pfh $perl_code;
     close $pfh;
 
+    # Gate: run check_qx on the generated Perl before testing it
+    my $check_qx = "$root/check_qx.pl";
+    if (-f $check_qx) {
+        my $qx_out = `perl "$check_qx" "$perl_file" 2>/dev/null`;
+        my $qx_exit = $? >> 8;
+        if ($qx_exit != 0) {
+            my @lines = grep { /FAIL/ } split /\n/, $qx_out;
+            my $detail = 'check_qx: ' . ($lines[0] // 'violation');
+            remove_tree($tmp_dir);
+            return { status => 'FAIL', detail => $detail };
+        }
+    }
+
     # Run Perl with 5.010 features and capture stdout/stderr
     my ($perl_out, $perl_stdout, $perl_stderr);
     $perl_out = `timeout $timeout_per_test perl -M5.010 '$perl_file' 2>"$tmp_dir/perl_stderr.txt"`;
