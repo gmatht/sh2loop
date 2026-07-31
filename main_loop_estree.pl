@@ -4,16 +4,28 @@
 # Analogous to main_loop_rust.pl (which drives the Perl backend), this loop:
 #   1. runs ./fail-estree (perl + estree verdicts per corpus example)
 #   2. parses the summary + .estree_failures.tsv, diffs against the baseline
-#   3. if failures remain, invokes pi to fix the EMITTER (sh2perl/src/estree.rs)
-#      and/or the REFERENCE EXECUTOR (harness/), restricted to those paths
+#   3. if failures remain, invokes pi to fix the EMITTER (sh2perl/src) and/or
+#      the REFERENCE EXECUTOR (harness/), restricted to that surface
 #   4. re-runs, and keeps/commits improvements or stashes regressions
 #
+# FIX SURFACE is conditional on the Perl worker (main_loop_rust.pl):
+#   - rust loop RUNNING     : pi may touch ONLY src/estree.rs in the submodule
+#     + harness/* in the workspace root (the Perl backend is owned by the
+#     rust loop while it runs — keep it stable).
+#   - rust loop NOT running : pi may touch ALL of sh2perl/src + harness/*
+#     (the estree loop is the only worker; the emitter lives in src/shir.rs
+#     since M3, so a narrow estree.rs-only scope would be ineffective). The
+#     Perl-corpus regression tripwire still applies, and the widened
+#     pathspec makes the auto-stash revert the culprit instead of stashing
+#     estree.rs as collateral.
+#
 # CRITICAL DIFFERENCES from main_loop_rust.pl:
-#   - NEVER `git add -A`: sh2perl/ has the USER's in-flight uncommitted work
-#     (examples/*, src/lib.rs, src/shir.rs, fail). The loop stages ONLY
-#     src/estree.rs in the submodule and harness/* in the workspace root.
+#   - NEVER `git add -A`: stage only what submodule_changed_paths() returns
+#     (src/* when solo, src/estree.rs when the rust loop is live) plus the
+#     harness whitelist. examples/, PLAN.md, main_loop*.pl, fail stay off
+#     the fix surface either way (user WIP / scratch).
 #   - NEVER runs ensure_examples_snapshot.pl restore (would clobber user WIP).
-#   - The fix surface spans TWO repos: sh2perl (estree.rs) and the workspace
+#   - The fix surface spans TWO repos: sh2perl (src) and the workspace
 #     (harness/). The prompt restricts pi to exactly those paths.
 #   - Regressions are AUTO-STASHED (scoped pathspec stash) instead of asking
 #     pi, so a bad change can never become a blessed regression.
@@ -239,18 +251,32 @@ PROMPT
     $prompt .= join("\n", map { "    $_" } @std) . "\n" if @std;
     $prompt .= "- runtime error:\n" . join("\n", map { "    $_" } @rt) . "\n" if @rt;
 
-    $prompt .= <<"PROMPT";
-
-FIX SURFACE — modify ONLY these files:
+    $prompt .= "\nFIX SURFACE — modify ONLY these files:\n";
+    if (fix_surface_wide()) {
+        $prompt .= <<'WIDE';
+- sh2perl/src/**  (ALL Rust sources — the estree loop is the only worker
+  right now: the emitter is src/shir.rs (ast_to_ir/shir_to_estree), the
+  node model + sh2.* helpers are src/estree.rs, and the shared IR + Perl
+  generator also live under src/. Modify as needed, but NEVER reduce the
+  PERL pass count.)
+WIDE
+    } else {
+        $prompt .= <<'NARROW';
 - sh2perl/src/estree.rs  (the Rust emitter; word-level lowering is the big
   bucket: parameter expansion, arithmetic words, brace expansion, arrays)
+NARROW
+    }
+    $prompt .= <<"PROMPT";
 - harness/sh2-namespace.mjs  (the sh2.* runtime / builtins / test parser)
 - harness/estree-gen.mjs     (ESTree→JS printer)
 - harness/estree_gate.pl     (structural gate — if you add sh2.* functions,
   add them to the whitelist here)
 
-NEVER touch: examples/ (user WIP), PLAN.md, main_loop*.pl, fail, src/lib.rs,
-src/shir.rs, src/ir.rs, src/generator/* (Perl backend — keep it stable).
+NEVER touch: examples/ (user WIP), PLAN.md, main_loop*.pl, fail,
+blessed-fail-estree.txt (regen with ./fail-estree --bless). If
+main_loop_rust.pl (the Perl worker) starts running, the src surface
+narrows to src/estree.rs only — the FIX SURFACE above reflects the
+current mode.
 
 VERIFY
 - Rust changes: cd sh2perl && cargo build --bin debashc && cargo test --lib
@@ -321,15 +347,32 @@ sub invoke_pi {
 }
 
 # ── scoped git operations (never add -A) ─────────────────────────────
+# Whether the Perl worker (main_loop_rust.pl) is alive decides the fix
+# surface: solo → all of sh2perl/src; rust loop live → src/estree.rs only.
+sub perl_worker_running {
+    my @ps = `ps -eo args 2>/dev/null`;
+    for my $l (@ps) {
+        return 1 if $l =~ /main_loop_rust\.pl\b/;
+    }
+    return 0;
+}
+
+sub fix_surface_wide { return !perl_worker_running(); }
+
 sub submodule_changed_paths {
     my @out = `git -C "$sh2perl" status --porcelain`;
     my @allowed;
+    my $wide = fix_surface_wide();
     for my $line (@out) {
         # porcelain format: "XY path" (X=index, Y=worktree; either may be a space)
         my ($path) = $line =~ /^..\s+(.+)$/;
         next unless defined $path;
         $path =~ s/\s+$//;
-        push @allowed, $path if $path eq 'src/estree.rs';
+        if ($wide) {
+            push @allowed, $path if $path =~ m{^src/};
+        } else {
+            push @allowed, $path if $path eq 'src/estree.rs';
+        }
     }
     return @allowed;
 }
@@ -381,6 +424,18 @@ sub scoped_stash {
 print "main_loop_estree.pl — ESTree backend repair loop\n";
 print "project_root: $project_root\n";
 print "dry_run: $dry_run  prefix: $prefix  seed: $seed\n";
+
+my $wide = fix_surface_wide();
+print "perl worker (main_loop_rust.pl): ", $wide ? "NOT running" : "RUNNING",
+      "  -> fix surface: ", $wide ? "ALL of sh2perl/src + harness/*" : "src/estree.rs + harness/* (narrow)", "\n";
+if ($wide) {
+    my @dirty = `git -C "$sh2perl" status --porcelain src/`;
+    chomp @dirty;
+    if (@dirty) {
+        print "WARNING: sh2perl/src not clean; wide-mode commit/stash will include:\n";
+        print "  $_\n" for @dirty;
+    }
+}
 
 acquire_lock();
 
