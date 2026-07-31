@@ -1,0 +1,3 @@
+[submodule "sh2perl"]
+	path = sh2perl
+	url = git@github.com:gmatht/sh2perl.git
