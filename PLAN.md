@@ -429,6 +429,12 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
   word-level: parameter expansion, arithmetic, brace expansion, arrays).
   22 lib tests pass. Next: word-level lowering, then reference executor +
   structural gate + `fail-estree`.
+- **2026-07-31 — M6 constant folding landed (commit 92f64bb).**
+  `optimize_stmts` (shared by both IR consumers) folds constant `$((...))`
+  arith → Int and Int BinOps, with a Rust evaluator (digits, + - * / %,
+  parens; provably-constant only). Corpus: ESTREE 352 → 371/515 (72.0%),
+  gate 7; PERL unchanged. Remaining M6: unified import/require registry
+  (replacing the ad-hoc `needs_*()` booleans in the perl generator).
 - **2026-07-31 — M3 DONE: estree.rs rerouted through the ShIR (commit
   3b956b6).** `shir.rs` (was the empty stub) now contains `ast_to_ir` +
   `shir_to_estree`; the raw-AST→ESTree lowering in `estree.rs` is DELETED
