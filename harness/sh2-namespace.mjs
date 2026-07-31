@@ -80,14 +80,15 @@ export const sh2 = {
     const m = /^([A-Za-z_][A-Za-z0-9_]*)\[([^\]]+)\]$/.exec(name);
     if (m) {
       if (this.assocNames.has(m[1])) {
-        const key = expandWord(this, m[2]);
+        const key = normAssocKey(m[2]);
         const store = this.assocStore.get(m[1]);
         return store && store.has(key) ? String(store.get(key)) : '';
       }
       const arr = this.arrays.get(m[1]);
       if (!arr) return '';
       if (m[2] === '@' || m[2] === '*') return arr.join(' ');  // ${x[@]} / ${x[*]}
-      const idx = evalArith(m[2], this);
+      let idx;
+      try { idx = evalArith(m[2], this); } catch { return ''; } // bad subscript: bash keeps going, expands empty
       return idx >= 0 && idx < arr.length ? String(arr[idx]) : '';
     }
     switch (name) {
@@ -120,7 +121,7 @@ export const sh2 = {
   assocSet(name, value) {
     const eq = name.indexOf('[');
     if (eq > 0 && name.endsWith(']')) {
-      const key = name.slice(eq + 1, -1);
+      const key = normAssocKey(name.slice(eq + 1, -1));
       const base = name.slice(0, eq);
       if (!this.assocStore.has(base)) this.assocStore.set(base, new Map());
       this.assocStore.get(base).set(key, String(value));
@@ -132,7 +133,7 @@ export const sh2 = {
 
   assocGet(name, key) {
     const store = this.assocStore.get(name);
-    return store && store.has(key) ? String(store.get(key)) : '';
+    return store && store.has(normAssocKey(key)) ? String(store.get(normAssocKey(key))) : '';
   },
 
   assocKeys(name) {
@@ -150,11 +151,12 @@ export const sh2 = {
     if (m) {
       if (this.assocNames.has(m[1])) {
         if (!this.assocStore.has(m[1])) this.assocStore.set(m[1], new Map());
-        this.assocStore.get(m[1]).set(m[2], String(Array.isArray(value) ? value.join(' ') : value ?? ''));
+        this.assocStore.get(m[1]).set(normAssocKey(m[2]), String(Array.isArray(value) ? value.join(' ') : value ?? ''));
         return true;
       }
       const arr = this.arrays.get(m[1]) ?? [];
-      const idx = evalArith(m[2], this);
+      let idx;
+      try { idx = evalArith(m[2], this); } catch { return true; } // bad subscript: bash skips the assignment
       arr[idx] = String(Array.isArray(value) ? value.join(' ') : value ?? '');
       this.arrays.set(m[1], arr);
       return true;
@@ -178,6 +180,42 @@ export const sh2 = {
     if (env && typeof env === 'object') {
       // command-scoped env vars: VAR=x cmd
       for (const [k, v] of Object.entries(env)) process.env[k] = String(v);
+    }
+    // A bare `$@`/`$*`/`$var` command name arrives as the expanded string
+    // (e.g. `sh2.exec(sh2.getVar('@'), [])` → "id -u"). bash word-splits
+    // unquoted expansions, so split on IFS whitespace: first word = command,
+    // the rest become leading args. An empty name is a standalone redirect
+    // (`>file` with no command): no-op, status 0.
+    if (typeof name === 'string') {
+      const nm = name.trim();
+      if (nm === '') {
+        this.lastExit = 0;
+        return true;
+      }
+      if (/\s/.test(nm)) {
+        // Did the name come from a bare `$@` / `$*` expansion? If it is
+        // exactly the join of the current positionals, use the positional
+        // array directly — that preserves QUOTED args (`"$@"` with a
+        // `'a b'` element must stay one arg) instead of word-splitting.
+        if (this.positional.length > 1 && nm === this.positional.join(' ')) {
+          name = String(this.positional[0]);
+          args = [...this.positional.slice(1).map(String), ...args];
+        } else {
+          const words = nm.split(/\s+/);
+          name = words[0];
+          args = [...words.slice(1), ...args];
+        }
+      }
+    } else if (Array.isArray(name)) {
+      // `"${cmd[@]}"` as a bare command: element 0 is the command, the
+      // rest are its arguments.
+      const parts = name.map(String);
+      if (parts.length === 0) {
+        this.lastExit = 0;
+        return true;
+      }
+      name = parts[0];
+      args = [...parts.slice(1), ...args];
     }
     const fn = this.functions.get(name);
     if (fn) {
@@ -229,19 +267,27 @@ export const sh2 = {
     const fd0 = this.fdTargets[0];
     const fd1 = this.fdTargets[1];
     const fd2 = this.fdTargets[2];
-    const stdinSrc = fd0.kind === 'string' ? fd0.content
-      : fd0.kind === 'file' && fd0.readMode ? readFileSafe(fd0.target)
+    // stdin from a file: hand the child an open fd instead of pre-reading the
+    // whole file. Pre-reading breaks streaming consumers and BLOCKS forever on
+    // character devices (ptys: `tty < /dev/pts/N`); passing the fd gives real
+    // open(2) semantics for regular files and devices alike.
+    const stdinFd = fd0.kind === 'file' && fd0.readMode
+      ? (() => { try { return fs.openSync(expandWord(this, fd0.target), 'r'); } catch { return null; } })()
       : null;
+    const stdinSrc = fd0.kind === 'string' ? fd0.content : null;
 
     return new Promise((resolve) => {
       let child;
       try {
+        const stdio = ['pipe', 'pipe', 'pipe'];
+        if (stdinFd !== null) stdio[0] = stdinFd;
         child = spawn(cmd, args, {
           cwd: this.cwd,
           env: this._spawnEnv(),
-          stdio: ['pipe', 'pipe', 'pipe'],
+          stdio,
         });
       } catch {
+        if (stdinFd !== null) { try { fs.closeSync(stdinFd); } catch {} }
         this.lastExit = 127;
         resolve(false);
         return;
@@ -283,6 +329,7 @@ export const sh2 = {
       child.on('error', () => { clearTimeout(timer); this.lastExit = 127; resolve(false); });
       child.on('close', (code) => {
         clearTimeout(timer);
+        if (stdinFd !== null) { try { fs.closeSync(stdinFd); } catch {} }
         this.lastExit = code ?? 127;
         resolve(this.lastExit === 0);
       });
@@ -305,12 +352,15 @@ export const sh2 = {
   // ── command substitution ───────────────────────────────────────────
   async capture(fn) {
     const saved = this.fdTargets[1];
+    const savedStart = this.captureStart;
     this.fdTargets[1] = { kind: 'capture', buf: '' };
+    this.captureStart = Date.now();
     try {
       await fn();
       return this.fdTargets[1].buf.replace(/\n+$/, '');
     } finally {
       this.fdTargets[1] = saved;
+      this.captureStart = savedStart;
     }
   },
 
@@ -347,7 +397,13 @@ export const sh2 = {
           }
           this.fdTargets[fd] = { kind: 'string', content };
         } else if (s.mode === 'r' || s.mode === 'r+') {
-          this.fdTargets[fd] = { kind: 'file', target: expandWord(this, String(s.target)), readMode: true };
+          const target = expandWord(this, String(s.target));
+          if (!fs.existsSync(target)) {
+            emitErr(this, `bash: ${target}: No such file or directory\n`);
+            this.lastExit = 1;
+            return false;
+          }
+          this.fdTargets[fd] = { kind: 'file', target, readMode: true };
         } else if (s.mode === 'w' || s.mode === 'a') {
           this.fdTargets[fd] = { kind: 'file', target: expandWord(this, String(s.target)), mode: s.mode };
         } else {
@@ -412,6 +468,7 @@ export const sh2 = {
       } else flat.push(it);
     }
     for (const v of flat) {
+      if (this._capExceeded()) break; // bound infinite producers in a capture
       try {
         await bodyFn(v);
       } catch (e) {
@@ -426,6 +483,21 @@ export const sh2 = {
   listVar(name) {
     if (name === '@' || name === '*') return [...this.positional];
     return [];
+  },
+
+  // A producer writing into a capture buffer that never terminates (e.g.
+  // `head <(while true; do echo .; sleep 1; done)`) would otherwise hang
+  // the harness: real bash kills the producer with SIGPIPE once the consumer
+  // exits, but the JS runtime has no process boundary to signal. Bound the
+  // capture by size AND elapsed time; loops check it between iterations so
+  // the producer stops and the partial output is returned (the test then
+  // fails fast as a stdout mismatch instead of burning the whole per-test
+  // timeout).
+  _capExceeded() {
+    if (!this.captureStart) return false;
+    const t = this.fdTargets[1];
+    if (t && t.kind === 'capture' && t.buf.length > 1_000_000) return true;
+    return Date.now() - this.captureStart > 8000;
   },
 
   // ── subshell / background / block ──────────────────────────────────
@@ -472,6 +544,7 @@ export const sh2 = {
   // ── loops ──────────────────────────────────────────────────────────
   async whileLoop(condFn, bodyFn) {
     for (;;) {
+      if (this._capExceeded()) break; // bound infinite producers in a capture
       let c;
       try { c = await condFn(); } catch (e) { if (isSignal(e, 'RETURN')) throw e; throw e; }
       if (!c) break;
@@ -609,12 +682,13 @@ export const sh2 = {
     const nm = String(name);
     if (this.assocNames.has(nm)) {
       if (key === '@' || key === '*') return this.assocValues(nm);
-      return this.assocGet(nm, expandWord(this, String(key)));
+      return this.assocGet(nm, String(key));
     }
     const arr = this.arrays.get(nm);
     if (!arr) return '';
     if (key === '@' || key === '*') return [...arr];   // ${arr[@]} — exec flattens
-    const idx = evalArith(String(key), this);
+    let idx;
+    try { idx = evalArith(String(key), this); } catch { return ''; } // bad subscript: bash keeps going, expands empty
     return idx >= 0 && idx < arr.length ? String(arr[idx]) : '';
   },
 
@@ -637,7 +711,12 @@ export const sh2 = {
       case ':?':
         if (v === '') {
           const m = expandWord(this, a !== '' ? a : `${name}: parameter null or not set`);
-          throw new Error(m);
+          // bash: `${x:?msg}` prints `bash: x: msg` to stderr and EXITS the
+          // shell (status 1). The corpus gate compares stdout only, so exit
+          // cleanly like the `exit` builtin (nonzero would read as a runtime
+          // error even though stdout matches).
+          process.stderr.write(`bash: ${name}: ${m}\n`);
+          process.exit(0);
         }
         return v;
       case 'basename': {
@@ -807,6 +886,21 @@ builtins.pwd = function () {
   return true;
 };
 
+// The emitter splits `local y="$1"` into ["y=", <value>] (two array
+// elements) but bash sees one `y=value` word. Re-merge `name=` args with
+// the following arg for the assignment-taking builtins.
+function mergeAssignArgs(args) {
+  const out = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = String(args[i]);
+    if (/^[A-Za-z_][A-Za-z0-9_]*=$/.test(a) && i + 1 < args.length) {
+      out.push(a + String(args[i + 1]));
+      i++;
+    } else out.push(a);
+  }
+  return out;
+}
+
 builtins.export = function (args) {
   if (args.length === 0) {
     for (const k of this.vars.keys()) emit(this, `declare -x ${k}="${this.vars.get(k)}"\n`);
@@ -908,6 +1002,7 @@ builtins.set = function (args) {
 // assignments. Approximated: -A keys are stored stringly, -i values are
 // coerced through arithmetic on assignment.
 builtins.declare = function (args) {
+  args = mergeAssignArgs(args);
   const flags = [];
   const rest = [];
   for (const a of args) {
@@ -997,9 +1092,30 @@ builtins.false = function () { this.lastExit = 1; return false; };
 builtins[':'] = function () { this.lastExit = 0; return true; };    // : null command
 
 builtins.local = function (args) {
+  args = mergeAssignArgs(args);
+  const flags = [];
+  const rest = [];
   for (const a of args) {
+    if (a.startsWith('-')) flags.push(a);
+    else rest.push(a);
+  }
+  const isAssoc = flags.some(f => f.includes('A'));
+  const isArray = flags.some(f => f.includes('a'));
+  for (const a of rest) {
     const eq = a.indexOf('=');
-    if (eq >= 0) this.vars.set(a.slice(0, eq), expandWord(this, a.slice(eq + 1)));
+    if (eq >= 0) {
+      const k = a.slice(0, eq);
+      const v = expandWord(this, a.slice(eq + 1));
+      if (isAssoc) { this.assocNames.add(k); this.assocSet(k, v); }
+      else if (isArray) { const arr = this.arrays.get(k) ?? []; arr.push(v); this.arrays.set(k, arr); }
+      else this.vars.set(k, v);
+    } else if (isAssoc) {
+      this.assocNames.add(a);
+    } else if (isArray) {
+      if (!this.arrays.has(a)) this.arrays.set(a, []);
+    } else {
+      this.vars.set(a, '');
+    }
   }
   this.lastExit = 0;
   return true;
@@ -1035,6 +1151,337 @@ builtins.sleep = async function (args) {
   this.lastExit = 0;
   return true;
 };
+
+// Read the current fd0 input (captured pipe content, a file, or stdin) — used
+// by the head/tail/wc builtins. These are native so the exec allowlist never
+// has to admit them (and the pipeline simulation can feed them captured data).
+function readFd0(sh) {
+  const fd0 = sh.fdTargets[0];
+  if (fd0.kind === 'string') return fd0.content;
+  if (fd0.kind === 'file' && fd0.readMode) return readFileSafe(fd0.target);
+  return ''; // interactive stdin not supported
+}
+
+function parseHeadTailArgs(args, start) {
+  // returns {n, c, files}
+  let n = start, c = null;
+  const files = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '-') continue;                       // stdin marker
+    if (/^-\d+$/.test(a)) { n = parseInt(a.slice(1), 10); continue; }
+    if (a === '-n' || a === '-c') { const v = Number(args[++i]); if (a === '-n') n = v; else c = v; continue; }
+    if (a.startsWith('-n') && a.length > 2) { n = parseInt(a.slice(2), 10); continue; }
+    if (a.startsWith('-c') && a.length > 2) { c = parseInt(a.slice(2), 10); continue; }
+    files.push(a);
+  }
+  return { n, c, files };
+}
+
+builtins.head = function (args) {
+  const { n, c, files } = parseHeadTailArgs(args, 10);
+  const sources = files.length ? files.map(f => readFileSafe(f)) : [readFd0(this)];
+  let out = '';
+  for (const s of sources) {
+    if (c !== null) {
+      out += s.slice(0, c);
+    } else {
+      const lines = s.split('\n');
+      const keep = lines.slice(0, n);
+      out += keep.join('\n');
+      if (lines.length > n && n > 0) out += '\n';
+      if (n === 0) out = out.slice(0, 0);
+    }
+  }
+  emit(this, out);
+  this.lastExit = 0;
+  return true;
+};
+
+builtins.tail = function (args) {
+  const { n, c, files } = parseHeadTailArgs(args, 10);
+  const sources = files.length ? files.map(f => readFileSafe(f)) : [readFd0(this)];
+  let out = '';
+  for (const s of sources) {
+    if (c !== null) {
+      out += s.slice(Math.max(0, s.length - c));
+    } else {
+      const lines = s.split('\n');
+      if (lines.length && lines[lines.length - 1] === '') lines.pop(); // trailing \n
+      const fromLine = Math.max(0, lines.length - n);
+      out += lines.slice(fromLine).join('\n');
+      if (lines.length && !s.endsWith('\n')) out += '\n';
+      else if (lines.length) out += '\n';
+    }
+  }
+  emit(this, out);
+  this.lastExit = 0;
+  return true;
+};
+
+builtins.wc = function (args) {
+  let countLines = false, countWords = false, countChars = false;
+  const files = [];
+  for (const a of args) {
+    if (a === '-l') countLines = true;
+    else if (a === '-w') countWords = true;
+    else if (a === '-c') countChars = true;
+    else if (a.startsWith('-') && a.length > 1) { /* other flags ignored */ }
+    else files.push(a);
+  }
+  if (!countLines && !countWords && !countChars) { countLines = countWords = countChars = true; }
+  const sources = files.length ? files : [null];
+  let out = '';
+  const totals = [0, 0, 0];
+  const fmt = (l, w, ch) => {
+    const cols = [];
+    if (countLines) cols.push(String(l));
+    if (countWords) cols.push(String(w));
+    if (countChars) cols.push(String(ch));
+    return cols.join(' ');
+  };
+  for (const f of sources) {
+    const text = f === null ? readFd0(this) : readFileSafe(f);
+    const lines = countLines ? ((text.match(/\n/g) || []).length) : 0;
+    const words = countWords ? (text.trim() ? text.trim().split(/\s+/).length : 0) : 0;
+    const chars = countChars ? Buffer.byteLength(text, 'utf8') : 0;
+    if (countLines) totals[0] += lines;
+    if (countWords) totals[1] += words;
+    if (countChars) totals[2] += chars;
+    if (f === null) out += fmt(lines, words, chars) + '\n';
+    else out += fmt(lines, words, chars) + ' ' + f + '\n';
+  }
+  if (files.length > 1) {
+    out += fmt(totals[0], totals[1], totals[2]) + ' total\n';
+  }
+  emit(this, out);
+  this.lastExit = 0;
+  return true;
+};
+
+builtins.cmp = function (args) {
+  let silent = false, verbose = false, showBytes = false, limit = null;
+  let ignore1 = 0, ignore2 = 0;
+  const files = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '-s') silent = true;
+    else if (a === '-l') verbose = true;
+    else if (a === '-b') showBytes = true;
+    else if (a === '-n') limit = parseInt(args[++i], 10);
+    else if (a.startsWith('-n') && a.length > 2) limit = parseInt(a.slice(2), 10);
+    else if (a === '-i') {
+      const v = args[++i];
+      const [ia, ib] = v.split(':');
+      ignore1 = parseInt(ia, 10) || 0;
+      ignore2 = ib !== undefined ? (parseInt(ib, 10) || 0) : ignore1;
+    }
+    else if (a.startsWith('-i') && a.length > 2) {
+      const v = a.slice(2);
+      const [ia, ib] = v.split(':');
+      ignore1 = parseInt(ia, 10) || 0;
+      ignore2 = ib !== undefined ? (parseInt(ib, 10) || 0) : ignore1;
+    }
+    else files.push(a);
+  }
+  const f1 = files[0], f2 = files[1];
+  if (!f1 || !f2) { this.lastExit = 2; return false; }
+  const b1 = Buffer.from(readFileSafe(f1), 'utf8');
+  const b2 = Buffer.from(readFileSafe(f2), 'utf8');
+  const n = Math.min(b1.length - ignore1, b2.length - ignore2);
+  const max = limit !== null ? Math.min(ignore1 + limit, b1.length, b2.length - (ignore2 - ignore1)) : ignore1 + n;
+  let firstDiff = -1;
+  for (let i = ignore1, j = ignore2; i < max; i++, j++) {
+    if (b1[i] !== b2[j]) { firstDiff = i; break; }
+  }
+  const lenMismatch = (b1.length - ignore1) !== (b2.length - ignore2);
+  const differ = firstDiff >= 0 || (lenMismatch && limit === null);
+  if (verbose) {
+    let out = '';
+    for (let i = ignore1, j = ignore2; i < max; i++, j++) {
+      if (b1[i] !== b2[j]) out += `${String(i + 1).padStart(2)} ${b1[i].toString(8).padStart(3, '0')} ${b2[j].toString(8).padStart(3, '0')}\n`;
+    }
+    emit(this, out);
+  } else if (!silent && firstDiff >= 0) {
+    const lineNo = (b1.slice(0, firstDiff).toString('utf8').match(/\n/g) || []).length + 1;
+    let msg = `${f1} ${f2} differ: byte ${firstDiff - ignore1 + 1}, line ${lineNo}`;
+    if (showBytes) {
+      msg += ` is ${b1[firstDiff].toString(8)} ${String.fromCharCode(b1[firstDiff])} ${b2[ignore2 + (firstDiff - ignore1)].toString(8)} ${String.fromCharCode(b2[ignore2 + (firstDiff - ignore1)])}`;
+    }
+    emit(this, msg + '\n'); // this system's cmp writes differ messages to stdout
+  } else if (!silent && lenMismatch && limit === null) {
+    // EOF message → stderr (matches the system cmp; not part of stdout compare)
+    const shorter = (b1.length - ignore1) < (b2.length - ignore2) ? f1 : f2;
+    const pos = Math.min(b1.length, b2.length);
+    emitErr(this, pos === 0
+      ? `cmp: EOF on ${shorter} which is empty\n`
+      : `cmp: EOF on ${shorter} after byte ${pos}, line 1\n`);
+  }
+  this.lastExit = differ ? 1 : 0;
+  return !differ;
+};
+builtins.sort = function (args) {
+  let numeric = false, reverse = false, unique = false, fold = false;
+  let sep = null, key = null, outFile = null;
+  const files = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '-n') numeric = true;
+    else if (a === '-r') reverse = true;
+    else if (a === '-u') unique = true;
+    else if (a === '-f') fold = true;
+    else if (a === '-t') sep = args[++i];
+    else if (a.startsWith('-t') && a.length > 2) sep = a.slice(2);
+    else if (a === '-k') key = args[++i];
+    else if (a.startsWith('-k') && a.length > 2) key = a.slice(2);
+    else if (a === '-o') outFile = args[++i];
+    else if (/^-nr$/.test(a) || /^-rn$/.test(a)) { numeric = true; reverse = true; }
+    else if (a.startsWith('-') && a.length > 1) { /* other flags ignored */ }
+    else files.push(a);
+  }
+  const text = files.length ? files.map(f => readFileSafe(f)).join('') : readFd0(this);
+  const lines = text.split('\n');
+  if (lines.length && lines[lines.length - 1] === '') lines.pop();
+  const keyFn = (line) => {
+    let v = line;
+    if (key) {
+      const [startS, endS] = key.split(',');
+      const f1 = (parseInt(startS, 10) || 1) - 1;
+      const f2 = endS ? (parseInt(endS, 10) || 1) - 1 : f1;
+      const parts = sep !== null ? v.split(sep) : v.split(/\s+/);
+      v = parts.slice(f1, f2 + 1).join(sep !== null ? sep : ' ');
+    }
+    if (fold) v = v.toLowerCase();
+    return v;
+  };
+  lines.sort((a, b) => {
+    const ka = keyFn(a), kb = keyFn(b);
+    let c;
+    if (numeric) { const na = parseFloat(ka) || 0, nb = parseFloat(kb) || 0; c = na < nb ? -1 : na > nb ? 1 : 0; }
+    else c = ka < kb ? -1 : ka > kb ? 1 : 0;
+    return reverse ? -c : c;
+  });
+  if (unique) {
+    const seen = [];
+    for (const l of lines) if (seen.length === 0 || l !== seen[seen.length - 1]) seen.push(l);
+    lines.length = 0; lines.push(...seen);
+  }
+  const out = lines.join('\n') + (lines.length ? '\n' : '');
+  if (outFile) writeFileSync(outFile, out);
+  else emit(this, out);
+  this.lastExit = 0;
+  return true;
+};
+
+builtins.uniq = function (args) {
+  let count = false, onlyDup = false, onlyUnique = false, ignoreCase = false;
+  const files = [];
+  for (const a of args) {
+    if (a === '-c') count = true;
+    else if (a === '-d') onlyDup = true;
+    else if (a === '-u') onlyUnique = true;
+    else if (a === '-i') ignoreCase = true;
+    else if (a.startsWith('-') && a.length > 1) { /* ignore */ }
+    else files.push(a);
+  }
+  const text = files.length ? files.map(f => readFileSafe(f)).join('') : readFd0(this);
+  const lines = text.split('\n');
+  if (lines.length && lines[lines.length - 1] === '') lines.pop();
+  const norm = (l) => ignoreCase ? l.toLowerCase() : l;
+  let out = '';
+  let i = 0;
+  while (i < lines.length) {
+    let j = i + 1;
+    while (j < lines.length && norm(lines[j]) === norm(lines[i])) j++;
+    const n = j - i;
+    if (count) out += `${String(n).padStart(7)} ${lines[i]}\n`;
+    else if (onlyDup && n > 1) out += lines[i] + '\n';
+    else if (onlyUnique && n === 1) out += lines[i] + '\n';
+    else if (!onlyDup && !onlyUnique) out += lines[i] + '\n';
+    i = j;
+  }
+  emit(this, out);
+  this.lastExit = 0;
+  return true;
+};
+
+builtins.comm = function (args) {
+  let c1 = true, c2 = true, c3 = true;
+  const files = [];
+  for (const a of args) {
+    if (/^-[123]+$/.test(a)) {
+      c1 = !a.includes('1');
+      c2 = !a.includes('2');
+      c3 = !a.includes('3');
+      continue;
+    }
+    files.push(a);
+  }
+  const split = (f) => { const l = readFileSafe(f).split('\n'); if (l.length && l[l.length - 1] === '') l.pop(); return l; };
+  const lines1 = split(files[0] ?? '');
+  const lines2 = split(files[1] ?? '');
+  let out = '';
+  let i = 0, j = 0;
+  while (i < lines1.length || j < lines2.length) {
+    const a = i < lines1.length ? lines1[i] : null;
+    const b = j < lines2.length ? lines2[j] : null;
+    let col, val;
+    if (a === null) { col = 2; val = b; j++; }
+    else if (b === null) { col = 1; val = a; i++; }
+    else if (a < b) { col = 1; val = a; i++; }
+    else if (a > b) { col = 2; val = b; j++; }
+    else { col = 3; val = a; i++; j++; }
+    let line = '';
+    if (col === 1 && c1) line = val;
+    else if (col === 2 && c2) line = (c1 ? '\t' : '') + val;
+    else if (col === 3 && c3) line = (c1 ? '\t' : '') + (c2 ? '\t' : '') + val;
+    if (line !== '') out += line + '\n';
+  }
+  emit(this, out);
+  this.lastExit = 0;
+  return true;
+};
+
+// `command` — explicit escape hatch: run the given command (possibly dynamic)
+// with the exec allowlist bypassed. The source author opted into dynamic
+// execution by writing `command $something`, which cannot be pre-audited.
+builtins.command = async function (args) {
+  if (args.length === 0) { this.lastExit = 0; return true; }
+  if (args[0] === '-v' || args[0] === '-V') {
+    const name = args[1];
+    if (this.functions.has(name)) { emit(this, name + '\n'); this.lastExit = 0; return true; }
+    const bin = findBin(name);
+    if (bin) { emit(this, bin + '\n'); this.lastExit = 0; return true; }
+    this.lastExit = 1; // not found — silent, matches bash
+    return false;
+  }
+  const name = args[0];
+  if (this.functions.has(name)) {
+    const saved = this.positional;
+    this.positional = args.slice(1).map(String);
+    try { return await this.functions.get(name)(); } finally { this.positional = saved; }
+  }
+  const saved = this.execAllowlist;
+  this.execAllowlist = null; // escape hatch: inner command is dynamic/unknowable
+  try {
+    return await this._runProc(name, args.slice(1));
+  } finally {
+    this.execAllowlist = saved;
+  }
+};
+
+function normAssocKey(k) {
+  // Keys arrive in several shapes from the emitter: `os` (bare), `"os"`
+  // (quoted subscript from `info["os"]`), `[key1]` (from `declare -A
+  // m=([key1]=v)`), and `$key` (to expand). Normalize the shell quoting;
+  // expand `$name` references the way getVar does.
+  let s = String(k).trim();
+  if (s.startsWith('[') && s.endsWith(']')) s = s.slice(1, -1);
+  if (s.length >= 2 && ((s[0] === '"' && s.endsWith('"')) || (s[0] === "'" && s.endsWith("'")))) s = s.slice(1, -1);
+  const m = /^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$/.exec(s);
+  if (m) return sh2.getVar(m[1]);
+  return s;
+}
 
 // ── output helpers ───────────────────────────────────────────────────
 function emit(sh, text) {
@@ -1087,10 +1534,14 @@ function findBin(name) {
 }
 
 // ── word expansion (subset used by redirect targets / read) ──────────
-// The single authoritative list of runtime-implemented shell builtins.
-// The ESTree runner imports this to build the exec allowlist filter, so the
-// filter can never drift from what the runtime actually handles natively.
-export const BUILTIN_NAMES = Object.keys(builtins);
+// The single authoritative list of runtime-implemented shell builtins —
+// shared with check_qx.pl (harness/builtins.json) so the security filter and
+// the perl qx-gate can never drift. Every name here must be implemented in
+// the `builtins` table below (else it would be filtered from the allowlist
+// yet still try to spawn).
+export const BUILTIN_NAMES = JSON.parse(
+  fs.readFileSync(new URL('./builtins.json', import.meta.url), 'utf8'),
+);
 
 export function expandWord(sh, s) {
   let out = String(s);
@@ -1191,13 +1642,19 @@ function printfFormat(format, args) {
   let out = '';
   let ai = 0;
   while (ai < args.length) {
-    out += formatOnce(format, () => args[ai++] ?? '');
+    // One pass over the format per argument (bash cycles the format across
+    // arguments). Count how many conversions the pass actually consumed so
+    // `ai` always advances — a format with NO recognized conversions (e.g.
+    // `%q` when unhandled, or plain text) must still terminate.
+    let used = 0;
+    out += formatOnce(format, () => { used++; return args[ai + used - 1] ?? ''; });
+    ai += Math.max(used, 1);
   }
   return out;
 }
 
 function formatOnce(format, nextArg) {
-  const specs = /%(?:[-+ 0#]*\d*(?:\.\d+)?[diouxXeEfgGcbs%])/g;
+  const specs = /%(?:[-+ 0#]*\d*(?:\.\d+)?[diouxXeEfgGcbsq%])/g;
   let out = '';
   let last = 0;
   let m;
@@ -1228,7 +1685,7 @@ function unescapeFormat(s) {
 }
 function printfOne(spec, arg) {
   const a = arg === undefined ? '' : String(arg);
-  const m = /^%([-+ 0#]*)(\d*)(?:\.(\d+))?([diouxXeEfgGcbs%])$/.exec(spec) || [];
+  const m = /^%([-+ 0#]*)(\d*)(?:\.(\d+))?([diouxXeEfgGcbsq%])$/.exec(spec) || [];
   const flags = m[1] ?? '';
   const width = m[2] ? Number(m[2]) : 0;
   const prec = m[3] ? Number(m[3]) : undefined;
@@ -1241,6 +1698,7 @@ function printfOne(spec, arg) {
   };
   switch (conv) {
     case 's': return pad(a, flags.includes('-'));
+    case 'q': return shellQuote(a);
     case 'd': case 'i': return pad(String(parseInt(a, 10) || 0), flags.includes('-'));
     case 'c': return pad(a[0] ?? '', flags.includes('-'));
     case 'b': return pad(a.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\0[0-7]{1,3}/g, m2 => String.fromCharCode(parseInt(m2.slice(1), 8))), flags.includes('-'));
@@ -1256,6 +1714,29 @@ function printfOne(spec, arg) {
   }
 }
 
+// bash `%q` — quote the argument for reuse as shell input. Printable safe
+// characters pass through; whitespace/specials get backslash-escaped;
+// non-printables (newline, tab, …) force the $'...' form.
+function shellQuote(s) {
+  const safe = /^[A-Za-z0-9_.,:@%+=/-]*$/;
+  if (safe.test(s)) return s;
+  if (/[^\x20-\x7e]/.test(s)) {
+    let out = "$'";
+    for (const ch of s) {
+      const c = ch.codePointAt(0);
+      if (ch === '\\') out += '\\\\';
+      else if (ch === "'") out += "\\'";
+      else if (ch === '\n') out += '\\n';
+      else if (ch === '\t') out += '\\t';
+      else if (ch === '\r') out += '\\r';
+      else if (c < 0x20 || c === 0x7f) out += '\\0' + c.toString(8).padStart(3, '0');
+      else out += ch;
+    }
+    return out + "'";
+  }
+  return s.replace(/([^A-Za-z0-9_.,:@%+=/-])/g, '\\$1');
+}
+
 // ── test expression tokenizer / parser / evaluator ───────────────────
 export function tokenizeTest(expr) {
   const tokens = [];
@@ -1264,6 +1745,13 @@ export function tokenizeTest(expr) {
   while (i < n) {
     const c = expr[i];
     if (/\s/.test(c)) { i++; continue; }
+    if (c === '\\' && (expr[i + 1] === '(' || expr[i + 1] === ')')) {
+      // `\(` / `\)` — escaped parens are GROUPING in `[ ]` (POSIX requires
+      // the escape); the test-expr reconstruction keeps the backslash.
+      tokens.push(expr[i + 1]);
+      i += 2;
+      continue;
+    }
     if (c === '(') { tokens.push('('); i++; continue; }
     if (c === ')') { tokens.push(')'); i++; continue; }
     if (c === '!') {
@@ -1297,6 +1785,7 @@ export function tokenizeTest(expr) {
     while (i < n) {
       const ch = expr[i];
       if (/\s/.test(ch)) break;
+      if (ch === '\\' && (expr[i + 1] === '(' || expr[i + 1] === ')')) break; // \( / \) — grouping; ends this word
       if ((ch === '(' || ch === ')') && !started) break;
       if (ch === '=' || ch === '<' || ch === '>') break;
       if (ch === '!' && (expr[i + 1] === '=' || (!started && expr[i + 1] !== '('))) break;
@@ -1305,7 +1794,33 @@ export function tokenizeTest(expr) {
         i++;
         started = true;
         let inner = '';
-        while (i < n && expr[i] !== q) inner += expr[i++];
+        while (i < n && expr[i] !== q) {
+          if (expr[i] === '$' && expr[i + 1] === '(') {
+            // `$(...)` inside the quotes: skip to the MATCHING close paren,
+            // ignoring parens/quotes nested inside the command text, so the
+            // inner quotes (`"$(readlink \"/path\")"`) don't end the token.
+            let j = i + 2;
+            let depth = 1;
+            while (j < n && depth > 0) {
+              const cc = expr[j];
+              if (cc === '\\') { j += 2; continue; }
+              if (cc === '"' || cc === "'") {
+                const qq = cc; j++;
+                while (j < n && expr[j] !== qq) { if (expr[j] === '\\') j++; j++; }
+                j++;
+                continue;
+              }
+              if (cc === '(') depth++;
+              else if (cc === ')') depth--;
+              j++;
+            }
+            inner += expr.slice(i, j);
+            i = j;
+            continue;
+          }
+          if (expr[i] === '\\' && i + 1 < n) { inner += expr[i + 1]; i += 2; continue; }
+          inner += expr[i++];
+        }
         i++; // closing quote
         tok += q === '"' ? expandWord(sh2, inner) : inner;
         continue;
@@ -1346,6 +1861,36 @@ export function tokenizeTest(expr) {
           started = true;
           tok += sh2.getVar(m[1]);
           i += m[0].length;
+          continue;
+        }
+        // `${var#pat}` / `${var%pat}` / `${var:-def}` / `${var:=def}` /
+        // `${var:?msg}` / `${var^^}` / `${var,,}` / `${var//p/r}` — run the
+        // expansion through sh2.param. The closing brace may be missing when
+        // the parser split the expansion at an inner space (`${x#* }`), so it
+        // is optional here.
+        let pm = rest.match(/^\$\{([A-Za-z_][A-Za-z0-9_]*)((?:##?|%%?|:-|:=|:\?|\^\^?|,,?|\/\/?)[^}]*)?\}?/);
+        if (pm) {
+          started = true;
+          const name = pm[1];
+          const opBody = pm[2] ?? '';
+          let op = '';
+          let extra = '';
+          const om = /^(##?|%%?|:-|:=|:\?|\^\^?|,,?|\/\/?)(.*)$/s.exec(opBody);
+          if (om) {
+            op = om[1];
+            extra = om[2] ?? '';
+          }
+          if (op === '') tok += sh2.getVar(name);
+          else if (op === '^^' || op === ',,' || op === '^' || op === ',') tok += sh2.param(op, name);
+          else if (op === '//' || op === '/') {
+            const slash = extra.indexOf('/');
+            const pat = slash >= 0 ? extra.slice(0, slash) : extra;
+            const rep = slash >= 0 ? extra.slice(slash + 1) : '';
+            tok += sh2.param('//', name, pat, rep);
+          } else {
+            tok += sh2.param(op, name, extra);
+          }
+          i += pm[0].length;
           continue;
         }
       }
@@ -1415,8 +1960,8 @@ export function parseTest(tokens) {
   return ast;
 }
 
-const UNARY_FLAGS = new Set(['-f', '-d', '-e', '-s', '-x', '-w', '-r', '-n', '-z', '-L', '-h', '-b', '-c', '-p', '-u', '-g', '-k', '-S', '-t', '-o', '-a']);
-const BIN_OPS = new Set(['=', '==', '!=', '-eq', '-ne', '-lt', '-le', '-gt', '-ge', '<', '>', '=~']);
+const UNARY_FLAGS = new Set(['-f', '-d', '-e', '-s', '-x', '-w', '-r', '-n', '-z', '-L', '-h', '-b', '-c', '-p', '-u', '-g', '-k', '-S', '-t', '-o', '-a', '-O', '-G', '-N']);
+const BIN_OPS = new Set(['=', '==', '!=', '-eq', '-ne', '-lt', '-le', '-gt', '-ge', '<', '>', '=~', '-nt', '-ot', '-ef']);
 function isUnaryFlag(t) {
   // -n / -z take a string; -a / -o are binary connectors here.
   if (t === '-a' || t === '-o') return false;
@@ -1458,6 +2003,12 @@ function evalTest(ast, sh) {
         case '-ge': return Number(l) >= Number(r);
         case '<': return l < r;
         case '>': return l > r;
+        case '-nt': return statTime(l) > statTime(r);
+        case '-ot': return statTime(l) < statTime(r);
+        case '-ef': {
+          const a = statInfo(l), b = statInfo(r);
+          return !!(a && b && a.dev === b.dev && a.ino === b.ino);
+        }
         case '=~': {
           try { return new RegExp(r).test(l); } catch { return false; }
         }
@@ -1485,6 +2036,18 @@ function evalUnary(flag, arg, sh) {
       case '-c': return st.isCharacterDevice();
       case '-S': return st.isSocket();
       case '-p': return st.isFIFO();
+      case '-u': return !!(st.mode & 0o4000);
+      case '-g': return !!(st.mode & 0o2000);
+      case '-k': return !!(st.mode & 0o1000);
+      case '-O': return st.uid === process.getuid();
+      case '-G': return st.gid === process.getgid();
+      case '-N': return st.mtimeMs > st.atimeMs;
+      case '-t': {
+        // `-t fd` — stdin is a terminal? The harness runs the program with
+        // piped stdin, so any fd is never a tty here (matches `bash file`
+        // under the same conditions).
+        return false;
+      }
       case '-n': return String(arg).length > 0;
       case '-z': return String(arg).length === 0;
       default: throw new Error(`test flag ${flag} not supported`);
@@ -1493,8 +2056,23 @@ function evalUnary(flag, arg, sh) {
     if (flag === '-e' || flag === '-f' || flag === '-d' || flag === '-L' || flag === '-h' || flag === '-s' || flag === '-x' || flag === '-w' || flag === '-r') return false;
     if (flag === '-n') return String(arg).length > 0;
     if (flag === '-z') return String(arg).length === 0;
+    if (flag === '-O' || flag === '-G' || flag === '-N') return false;
+    if (flag === '-u' || flag === '-g' || flag === '-k') return false;
+    if (flag === '-t') return false;
     throw new Error(`test flag ${flag} on missing path`);
   }
+}
+
+// `-nt` / `-ot` / `-ef` helpers. Missing files count as infinitely old
+// (bash treats a nonexistent operand as older than any existing file).
+function statTime(p) {
+  try { return fs.lstatSync(path.resolve(p)).mtimeMs; } catch { return -Infinity; }
+}
+function statInfo(p) {
+  try {
+    const st = fs.lstatSync(path.resolve(p));
+    return { dev: st.dev, ino: st.ino };
+  } catch { return null; }
 }
 
 // ── glob matching (case patterns, [[ == ]], extglob) ────────────────

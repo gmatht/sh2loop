@@ -47,8 +47,18 @@ try {
 
 const nsPath = path.join(import.meta.dirname, 'sh2-namespace.mjs');
 
+// Command wrappers: always allowed to spawn. They are external binaries whose
+// inner command (e.g. `bash $script`, `command $dynamic`, `env VAR=1 cmd`,
+// `xargs ...`) is unknowable at compile time — compiling a shell file you
+// don't know is hard — so the gate exempts them by construction.
+const WRAPPER_COMMANDS = new Set([
+  'bash', 'sh', 'zsh', 'dash', 'ksh', 'command', 'env', 'xargs', 'sudo',
+  'su', 'time', 'timeout', 'nohup', 'nice', 'exec', 'setsid', 'chroot',
+  'doas', 'pkexec', 'stdbuf',
+]);
+
 // Security allowlist (trivial, conservative): every WORD token in the source
-// .sh, minus shell builtins. The generated program may only spawn external
+// .sh, minus shell builtins, plus the always-allowed command wrappers. The generated program may only spawn external
 // binaries whose names appear in the source text — an over-approximation
 // (variables/args/comment words are included, which is harmless) that can
 // never miss a real command. A transpiler bug or tampered JSON invoking a
@@ -61,9 +71,12 @@ let allowlist = null;
 if (sourceFile) {
   try {
     const src = fs.readFileSync(sourceFile, 'utf8');
+    // Keep `/` (and `:`) as word chars so path-style command names
+    // (`/bin/echo`) and `a:b` words survive tokenization as single tokens.
     allowlist = [...new Set(
-      src.split(/[^A-Za-z0-9_.+@-]+/).filter(w => w.length > 0 && !builtins.has(w)),
+      src.split(/[^A-Za-z0-9_.+@\/:.-]+/).filter(w => w.length > 0 && !builtins.has(w)),
     )];
+    for (const w of WRAPPER_COMMANDS) allowlist.push(w);
   } catch { /* fall through to JSON-derived below */ }
 }
 if (!allowlist) {

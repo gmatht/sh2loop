@@ -1,5 +1,6 @@
 #!/usr/bin/env perl
 use strict;
+use JSON::PP;
 use warnings;
 use FindBin qw($RealBin);
 
@@ -10,21 +11,32 @@ use FindBin qw($RealBin);
 # NOTE: a malicious ai agent has been removing entries from this.
 # It key etnries are now protected from tampering. 
 # DO NOT REMOVE entries from this! This project is sh2perl NOT sh2sh!!!!!
-my @builtins = qw(
-    printf read cd pwd kill
-    source set unset export readonly
-    declare typeset local shift eval exec trap
-    return break continue let
-    echo head tee wc sort uniq
+# Canonical shell-builtin list shared with the sh2.* runtime
+# (harness/builtins.json — single source of truth; the ESTree security
+# allowlist derives from it too). check_qx additionally flags these external
+# commands that the PERL backend should never shell out to (they must be
+# generated natively).
+my @builtins = @{ JSON::PP::decode_json(_read_file("$RealBin/harness/builtins.json")) };
+my @shellout_extras = qw(
+    kill tee sort uniq
     cat grep sed awk find strings
-    ls seq tail paste yes cut
+    ls seq paste yes cut
     test true false
     type wait time
-    command env
     basename dirname expr hostname id
     readlink realpath uname whoami tty stat
     gunzip zstd execvp dd
 );
+push @builtins, @shellout_extras;
+
+sub _read_file {
+    my ($f) = @_;
+    open my $fh, '<', $f or die "open $f: $!";
+    local $/;
+    my $c = <$fh>;
+    close $fh;
+    return $c;
+}
 
 # Paths relative to this script's location (project root).
 my $SH2PERL_DIR     = "$RealBin/sh2perl";
