@@ -39,7 +39,7 @@ Covers three related work items:
 | `sh2perl` entry in superproject index | gitlink (mode `160000`) at `09f6a4f6`, **no `.gitmodules`** → broken/unofficial submodule |
 | `sh2perl` (primary repo) | origin `git@github.com:gmatht/sh2perl.git`, own CI (`.github/workflows/test.yml`); working tree at `febb301`, dirty scratch files; **tracks a `fail -> ../fail` symlink** (violates the one-way rule — must be removed) |
 | `sh2runtime` | exists at `gmatht/sh2runtime`; node v22 available; already runs async JS commands + `.js` files in `/commands/` against its virtual FS; WASI via `@wasmer/wasi` for third-party wasm tools |
-| sh2perl backends | Perl only. `src/ir.rs` = Perl-specific IR with `RawText` bridges; `pub mod mir` commented out. No ESTree emitter exists. |
+| sh2perl backends | Perl only. `src/ir.rs` = Perl-specific IR with `RawText` bridges; `pub mod mir` commented out. **ESTree emitter exists** (`debashl::estree::ast_to_estree_json`, v0 `sh2.*` namespace); WASI tooling added: `build-wasi.sh` → `debashc.wasm` (WASI command, `_start`) + `debashl.wasm` (library, `wasi-lib` feature, C-ABI `debashc_to_perl`/`debashc_to_estree`). |
 | Tests | `fail`: debashc → Perl → `check_qx.pl` gate → run vs `bash` → normalized stdout + side-effect compare. 517 examples, 426 passing. |
 
 Key docs:
