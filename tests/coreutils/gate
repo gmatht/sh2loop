@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# Objective gate over the FULL GNU coreutils corpus (650 scripts).
+#
+# NOT bash-differential: a test passes only on its own verdict (its own
+# assertions against spec-derived expected files), never by agreeing with
+# bash's run of the same script. There is no bash oracle here.
+#
+# The source rule (workspace decision): a coreutils test only counts if
+# its framework actually ran in the transpiled code. Every coreutils test
+# starts with `. "${srcdir=.}/tests/init.sh"` — the gnulib framework that
+# defines compare_/returns_/Exit/require_* and the SKIP (77) convention.
+# debashc does not yet inline `source`/`.`: it emits the init.sh path as
+# an external system() call (system($__cmd_0, ... "/tests/init.sh")),
+# which fails at runtime (no executable named ".") — the framework never
+# starts. Per the rule such a test FAILs: "init.sh not sourced".
+#
+# All 649 framework tests are red today, for one honest reason. When
+# source-inlining lands (fix target: Perl backend source emission), the
+# marker disappears and those tests fall through to the execution verdict
+# (run + exit code: 0 PASS, 77 SKIP, else FAIL). The one test with no
+# framework (factor/create-test.sh, a data generator) gets the execution
+# verdict today.
+#
+# Never bless failures from this gate (AGENTS.md guardrail).
+set -euo pipefail
+root="$(cd "$(dirname "$0")/../.." && pwd)"
+debashc="$root/sh2perl/target/debug/debashc"
+corpus="${CORPUS_DIR:-/var/tmp/coreutils-corpus}"
+timeout_per_test=20
+
+if [ ! -d "$corpus/tests" ]; then
+    mkdir -p "$(dirname "$corpus")"
+    git clone --depth 1 https://git.savannah.gnu.org/git/coreutils.git "$corpus"
+fi
+sha="$(git -C "$corpus" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+total="$(find "$corpus/tests" -name '*.sh' | wc -l)"
+
+echo "Building debashc..."
+if ! ( cd "$root/sh2perl" && cargo build --bin debashc 2>&1 | tail -1 ); then
+    echo "BUILD FAILED — sh2perl tree does not compile; aborting gate." >&2
+    exit 2
+fi
+echo "coreutils corpus: $corpus @ $sha  ($total scripts)"
+echo
+
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
+pass=0
+skip=0
+fail=0
+n=0
+report="$tmp/results.txt"
+: > "$report"
+
+for f in "$corpus"/tests/*/*.sh; do
+    n=$((n + 1))
+    name="$(basename "$f")"
+    perl="$( "$debashc" "$f" 2>/dev/null | sed -n '/Generated Perl code:/,/--- Running/p' | sed '1d;$d' )" || true
+
+    verdict=
+    # Write the generated Perl to a file and grep THAT — piping large
+    # generated code into `grep -q` SIGPIPEs the writer once grep closes
+    # the pipe on an early match, and pipefail then flips the condition
+    # (same failure mode as the `metric` runner had).
+    perl_file="$tmp/perl_$n.pl"
+    printf '%s\n' "$perl" > "$perl_file"
+    if [ -z "$perl" ]; then
+        verdict="FAIL debashc-produced-no-perl"
+    elif grep -q "system('bash', '[^']*')" "$perl_file"; then
+        verdict="FAIL parser-fallback-bash-wrapper"
+    elif grep -q 'tests/init\.sh' "$f" \
+        && grep -qE 'system\(.*tests/init\.sh' "$perl_file"; then
+        verdict="FAIL init.sh-not-sourced-source-not-inlined"
+    else
+        # Execution verdict: transpile → run → judge by the test's own
+        # exit code (0 PASS, 77 SKIP, else FAIL). Reached today only by
+        # the no-framework data generator; framework tests reach it once
+        # source-inlining lands (they will then need the coreutils env:
+        # srcdir env, tests/init.sh, and ./src binaries — see README).
+        echo "  [run] $name" >&2
+        run_dir="$tmp/run_$n"
+        mkdir -p "$run_dir"
+        cp "$perl_file" "$run_dir/test.pl"
+        set +e
+        ( cd "$run_dir" && timeout "$timeout_per_test" perl -M5.010 test.pl >stdout.txt 2>stderr.txt )
+        rc=$?
+        set -e
+        if [ "$rc" -eq 0 ]; then
+            verdict="PASS"
+        elif [ "$rc" -eq 77 ]; then
+            verdict="SKIP"
+        elif [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+            verdict="FAIL timeout-${timeout_per_test}s"
+        else
+            verdict="FAIL exit-$rc"
+        fi
+    fi
+
+    printf '%-45s %s\n' "$name" "$verdict" >> "$report"
+    case "$verdict" in
+        PASS) pass=$((pass + 1)) ;;
+        SKIP) skip=$((skip + 1)) ;;
+        *)    fail=$((fail + 1)) ;;
+    esac
+    if [ $((n % 100)) -eq 0 ] || [ "$n" -eq "$total" ]; then
+        printf '  %d/%d done (pass=%d skip=%d fail=%d)\n' "$n" "$total" "$pass" "$skip" "$fail" >&2
+    fi
+done
+
+echo
+echo "========================================"
+echo "COREUTILS CORPUS GATE: $pass passed, $skip skipped, $fail failed out of $total"
+echo "========================================"
+if [ "$fail" -gt 0 ]; then
+    echo
+    echo "FAILURES by reason:"
+    grep ' FAIL' "$report" | awk '{ $1=""; print }' | sort | uniq -c | sort -rn | head -20
+    echo
+    echo "First failing tests:"
+    grep ' FAIL' "$report" | head -10
+    exit 1
+fi

@@ -14,6 +14,28 @@ dir) — or `FAIL_CORPUS=tests/coreutils ./fail`.
 Full-corpus coverage: `./tests/coreutils/metric` (fetches the checkout
 on demand, records parse + ESTree unsupported coverage over all 650).
 
+Full-corpus objective gate: `./tests/coreutils/gate` — NOT bash-
+differential. A test passes only on its own verdict (its own assertions
+against spec-derived expected files). Its current rule (workspace
+decision): *a coreutils test only counts if its framework actually ran
+in the transpiled code* — i.e. if the transpiled Perl still executes
+`tests/init.sh` as an external `system()` call instead of inlining it,
+the test FAILs (`init.sh-not-sourced-source-not-inlined`).
+
+Status (2026-07, coreutils HEAD c4bf1d4): 0/650 pass — honest red.
+
+| Verdict | Count | Meaning |
+|---|---|---|
+| `init.sh-not-sourced-source-not-inlined` | 645 | source builtin not inlined (blocks every framework test) |
+| `parser-fallback-bash-wrapper` | 4 | the 4 parser-bug repros (chmod/df/printf/dd) |
+| `exit-9` (execution verdict) | 1 | `factor/create-test.sh` — transpiled run crashes: `Cannot dup stderr: Bad file descriptor` (a real generator bug the objective path already caught) |
+
+When source-inlining lands, the 645 fall through to the execution
+verdict (run + exit code: 0 PASS, 77 SKIP, else FAIL). That branch will
+then need the coreutils environment: `srcdir` env, `tests/init.sh`
+(present in release tarballs, generated in git checkouts), and `./src`
+binaries (pin a coreutils release build).
+
 These tests are **red by design**. Never bless or allowlist them — that
 would hide a transpiler bug (AGENTS.md guardrail).
 
