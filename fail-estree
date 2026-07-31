@@ -135,7 +135,7 @@ sub run_one_test {
             $est_verdict = 'FAIL';
             $est_reason = 'gate: ' . (split /\n/, $gate_out)[0];
         } else {
-            my $est_out = `timeout $timeout_per_test node "$runner" "$json_file" 2>"$tmp_dir/estderr.txt"`;
+            my $est_out = `timeout $timeout_per_test node "$runner" "$json_file" --source "$test_file" 2>"$tmp_dir/estderr.txt"`;
             my $est_exit = $? >> 8;
             if ($est_exit != 0) {
                 $est_verdict = 'FAIL';

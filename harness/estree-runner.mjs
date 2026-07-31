@@ -12,6 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { generate } from './estree-gen.mjs';
+import { BUILTIN_NAMES } from './sh2-namespace.mjs';
 
 const argv = process.argv.slice(2);
 const jsonPath = argv[0];
@@ -20,9 +21,11 @@ if (!jsonPath) {
   process.exit(2);
 }
 let name = path.basename(jsonPath).replace(/\.estree\.json$/, '');
+let sourceFile = null;
 const positional = [];
 for (let i = 1; i < argv.length; i++) {
   if (argv[i] === '--name') name = argv[++i];
+  else if (argv[i] === '--source') sourceFile = argv[++i];
   else if (argv[i] === '--args') { positional.push(...argv.slice(i + 1)); break; }
 }
 
@@ -43,9 +46,51 @@ try {
 }
 
 const nsPath = path.join(import.meta.dirname, 'sh2-namespace.mjs');
+
+// Security allowlist (trivial, conservative): every WORD token in the source
+// .sh, minus shell builtins. The generated program may only spawn external
+// binaries whose names appear in the source text — an over-approximation
+// (variables/args/comment words are included, which is harmless) that can
+// never miss a real command. A transpiler bug or tampered JSON invoking a
+// command the source never mentions is rejected by the runtime gate.
+// Centralized: the runtime's implemented builtins (never spawn). Shell
+// keywords (if/then/while/…) are lowered to control flow by the transpiler,
+// so they never appear as exec names either.
+const builtins = new Set(BUILTIN_NAMES);
+let allowlist = null;
+if (sourceFile) {
+  try {
+    const src = fs.readFileSync(sourceFile, 'utf8');
+    allowlist = [...new Set(
+      src.split(/[^A-Za-z0-9_.+@-]+/).filter(w => w.length > 0 && !builtins.has(w)),
+    )];
+  } catch { /* fall through to JSON-derived below */ }
+}
+if (!allowlist) {
+  // Fallback (no --source): derive from the JSON's sh2.exec literal names.
+  allowlist = [];
+  (function collectExecNames(node) {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) { node.forEach(collectExecNames); return; }
+    if (node.type === 'CallExpression') {
+      const cal = node.callee;
+      if (cal && cal.type === 'MemberExpression' && cal.object?.name === 'sh2'
+          && cal.property?.name === 'exec') {
+        const nameArg = node.arguments?.[0];
+        if (nameArg && nameArg.type === 'Literal' && typeof nameArg.value === 'string'
+            && !builtins.has(nameArg.value)) {
+          allowlist.push(nameArg.value);
+        }
+      }
+    }
+    for (const v of Object.values(node)) collectExecNames(v);
+  })(program);
+}
+
 const moduleSrc =
   `import { sh2 } from ${JSON.stringify(nsPath)};\n` +
   `sh2._init(${JSON.stringify(name)}, ${JSON.stringify(positional)});\n` +
+  `sh2._setAllowlist(${JSON.stringify([...new Set(allowlist)])});\n` +
   js +
   `\nawait sh2._finish();\n`;
 
