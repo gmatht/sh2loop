@@ -429,6 +429,25 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
   word-level: parameter expansion, arithmetic, brace expansion, arrays).
   22 lib tests pass. Next: word-level lowering, then reference executor +
   structural gate + `fail-estree`.
+- **2026-07-31 — Reference executor + structural gate + `fail-estree` (M4).**
+  New `harness/` in the workspace: `estree-gen.mjs` (deterministic
+  ESTree→JS printer for the emitter's fixed node vocabulary — deviation:
+  @babel/generator 7.x/8.x rejects plain JSON nodes, so we print ourselves,
+  zero deps), `sh2-namespace.mjs` (node reference implementation of `sh2.*`:
+  exec/redirect/pipeline/capture/test/caseMatch/define/subshell/background/
+  loops/builtins (echo printf cd read export ...)/test-expression parser/
+  glob + arithmetic evaluators), `estree-runner.mjs`, `estree_gate.pl`
+  (callee whitelist, no unsupported, no *Sync, redirect-mode check),
+  `fail-estree` (Stage A: perl + estree verdicts per example, parallel
+  workers, no gating). Also fixed emitter semantics discovered while
+  executing: await on async `sh2.*` calls, `sh2.forLoop`/`sh2.whileLoop`
+  runtime loops with signal break/continue, `sh2.capture`/`whileLoop`
+  closures, block-bodied compound stages, reserved-word-safe loop vars,
+  `$@` list expansion. **Stage A metric: 237/515 (46%) examples match bash
+  via the ESTree backend** (gate: 208 word-level unsupported, stdout
+  mismatch: 46, runtime error: 24). Next: word-level lowering
+  (parameter expansion, arithmetic words, brace expansion, arrays) to clear
+  the gate bucket, then Stage B gating.
 
 ---
 

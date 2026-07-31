@@ -1,0 +1,221 @@
+#!/usr/bin/env perl
+# fail-estree — Stage A corpus gate for the ESTree backend (PLAN.md §2.1/§2.5).
+#
+# For each example: runs the PERL path (debashc → check_qx → perl vs bash) AND
+# the ESTree path (debashc --estree → structural gate → estree-runner vs bash).
+# Stage A: no gating — records {file, perl: P/F, estree: P/F, reason} and prints
+# a summary. `blessed-fail-estree.txt` allowlisting comes at Stage B.
+#
+# Usage: ./fail-estree [PREFIX]
+use strict;
+use warnings;
+use Cwd qw(abs_path getcwd);
+use File::Basename qw(basename dirname);
+use File::Path qw(make_path remove_tree);
+use File::Temp qw(tempdir);
+use JSON::PP;
+
+$| = 1;
+
+my $root = dirname(abs_path($0));
+my $sh2perl = "$root/sh2perl";
+my $debashc = "$sh2perl/target/debug/debashc";
+my $examples = "$sh2perl/examples";
+my $gate = "$root/harness/estree_gate.pl";
+my $runner = "$root/harness/estree-runner.mjs";
+my $timeout_per_test = 20;   # seconds per individual test (perl + estree paths)
+
+my $ncpus = 1;
+if (open my $fh, '<', '/proc/cpuinfo') {
+    my @lines = grep { /^processor\s*:/ } <$fh>;
+    $ncpus = scalar @lines || 1;
+    close $fh;
+}
+my $jobs = int($ncpus / 2);
+$jobs = 1 if $jobs < 1;
+
+my @all_tests = sort glob "$examples/*.sh";
+if (@ARGV) {
+    my $prefix = $ARGV[0];
+    @all_tests = grep { index(basename($_), $prefix) != -1 } @all_tests;
+}
+
+my $total = scalar @all_tests;
+
+sub normalize {
+    my $s = shift // '';
+    $s =~ s/\r\n/\n/g;
+    $s =~ s/^\s+|\s+$//g;
+    return $s;
+}
+
+# ── run one test (both backends) ────────────────────────────────────
+sub run_one_test {
+    my ($test_file, $test_num, $work_dir) = @_;
+    my $tmp_dir = "$work_dir/test_$test_num";
+    make_path($tmp_dir);
+
+    my %result = (file => basename($test_file));
+
+    # ---- PERL path (mirrors ./fail) ----
+    my $perl_verdict = 'PASS';
+    my $perl_reason = '';
+    my $gen_out = `timeout $timeout_per_test sh -c 'cd "$sh2perl" && "$debashc" "$test_file" 2>/dev/null'`;
+    if ($? != 0) {
+        $perl_verdict = 'FAIL';
+        $perl_reason = 'debashc failed';
+    } else {
+        my $perl_code = $gen_out;
+        if ($gen_out =~ /Generated Perl code:\n(.*?)\n--- Running/ms) {
+            $perl_code = $1;
+        }
+        my $perl_file = "$tmp_dir/test.pl";
+        open my $pfh, '>', $perl_file or die "write $perl_file: $!";
+        print $pfh $perl_code;
+        close $pfh;
+        if (-f "$root/check_qx.pl") {
+            my $qx_out = `perl "$root/check_qx.pl" "$perl_file" 2>/dev/null`;
+            my $qx_exit = $? >> 8;
+            if ($qx_exit != 0) {
+                $perl_verdict = 'FAIL';
+                $perl_reason = 'check_qx';
+            }
+        }
+        if ($perl_verdict eq 'PASS') {
+            my $perl_out = `timeout $timeout_per_test perl -M5.010 '$perl_file' 2>"$tmp_dir/pserr.txt"`;
+            my $bash_out = `timeout $timeout_per_test bash '$test_file' 2>"$tmp_dir/bserr.txt"`;
+            if (normalize($perl_out) ne normalize($bash_out)) {
+                $perl_verdict = 'FAIL';
+                $perl_reason = 'stdout mismatch';
+            }
+        }
+    }
+    $result{perl} = $perl_verdict;
+    $result{perl_reason} = $perl_reason;
+
+    # ---- ESTREE path ----
+    my $est_verdict = 'PASS';
+    my $est_reason = '';
+    my $json_out = `timeout $timeout_per_test sh -c 'cd "$sh2perl" && "$debashc" file --estree "$test_file" 2>/dev/null'`;
+    if ($? != 0 || $json_out =~ /Parse error/) {
+        $est_verdict = 'FAIL';
+        $est_reason = $? != 0 ? 'debashc --estree failed' : 'parse error';
+    } else {
+        my $json_file = "$tmp_dir/prog.estree.json";
+        open my $jfh, '>', $json_file or die "write $json_file: $!";
+        print $jfh $json_out;
+        close $jfh;
+        my $gate_out = `perl "$gate" "$json_file"`;
+        if ($gate_out =~ /^FAIL/) {
+            $est_verdict = 'FAIL';
+            $est_reason = 'gate: ' . (split /\n/, $gate_out)[0];
+        } else {
+            my $est_out = `timeout $timeout_per_test node "$runner" "$json_file" 2>"$tmp_dir/estderr.txt"`;
+            my $est_exit = $? >> 8;
+            if ($est_exit != 0) {
+                $est_verdict = 'FAIL';
+                my $err = '';
+                if (open my $efh, '<', "$tmp_dir/estderr.txt") {
+                    local $/; $err = <$efh>; close $efh;
+                }
+                $err =~ s/\n.*//s;
+                $est_reason = "runtime error: $err";
+            } else {
+                my $bash_out = `timeout $timeout_per_test bash '$test_file' 2>"$tmp_dir/bserr2.txt"`;
+                if (normalize($est_out) ne normalize($bash_out)) {
+                    $est_verdict = 'FAIL';
+                    $est_reason = 'stdout mismatch';
+                }
+            }
+        }
+    }
+    $result{estree} = $est_verdict;
+    $result{estree_reason} = $est_reason;
+
+    remove_tree($tmp_dir);
+    return \%result;
+}
+
+# ── main ────────────────────────────────────────────────────────────
+print "fail-estree: $total tests, $jobs parallel workers, ${timeout_per_test}s timeout\n";
+print "Examples dir: $examples\n";
+print "----------------------------------------\n";
+
+print "Building debashc...\n";
+my $build_out = `cd '$sh2perl' && cargo build --bin debashc 2>&1`;
+if ($? != 0) {
+    print $build_out;
+    die "Build failed\n";
+}
+print "Build complete.\n\n";
+
+my $work_dir = tempdir("estreefail-XXXXXXXX", CLEANUP => 1, DIR => "/tmp");
+my %child_info;
+my $next_idx = 0;
+
+sub dispatch {
+    my ($idx) = @_;
+    my $test_file = $all_tests[$idx];
+    my $test_num  = $idx + 1;
+    my $pid = fork;
+    if (!defined $pid) { die "fork: $!"; }
+    if ($pid == 0) {
+        my $result = run_one_test($test_file, $test_num, $work_dir);
+        require JSON::PP;
+        my $res_file = "$work_dir/result_$test_num.json";
+        open my $rfh, '>', $res_file or die "write $res_file: $!";
+        print $rfh JSON::PP::encode_json($result);
+        close $rfh;
+        exit(0);
+    }
+    $child_info{$pid} = { test_num => $test_num, test_name => basename($test_file), res_file => "$work_dir/result_$test_num.json" };
+}
+
+while ($next_idx < $total && scalar(keys %child_info) < $jobs) {
+    dispatch($next_idx);
+    $next_idx++;
+}
+
+my ($estree_pass, $estree_fail, $perl_pass, $perl_fail) = (0, 0, 0, 0);
+my %reason_count;
+my @estree_failures;
+my @done_tests;
+
+while (scalar(keys %child_info) > 0) {
+    my $pid = waitpid(-1, 0);
+    if ($pid <= 0) { sleep 1; next; }
+    my $info = $child_info{$pid};
+    delete $child_info{$pid};
+
+    my $result = {};
+    if (open my $rfh, '<', $info->{res_file}) {
+        local $/; my $json = <$rfh>; close $rfh;
+        $result = eval { JSON::PP::decode_json($json) } || {};
+    }
+
+    if (($result->{estree} // 'FAIL') eq 'PASS') { $estree_pass++; } else { $estree_fail++; }
+    if (($result->{perl} // 'FAIL') eq 'PASS') { $perl_pass++; } else { $perl_fail++; }
+    if (($result->{estree} // 'FAIL') ne 'PASS') {
+        my $reason = $result->{estree_reason} // '?';
+        $reason =~ s/: .*//s;
+        $reason_count{$reason}++;
+    }
+    push @estree_failures, sprintf("%s\t%s\t%s", $info->{test_name}, $result->{estree}, $result->{estree_reason});
+    push @done_tests, $info->{test_name};
+
+    # refill
+    if ($next_idx < $total) { dispatch($next_idx); $next_idx++; }
+}
+
+print "----------------------------------------\n";
+printf "PERL:   %d passed, %d failed out of %d\n", $perl_pass, $perl_fail, $total;
+printf "ESTREE: %d passed, %d failed out of %d  (%.1f%%)\n", $estree_pass, $estree_fail, $total,
+    $total ? 100 * $estree_pass / $total : 0;
+print "\nESTree failure reasons:\n";
+for my $r (sort { $reason_count{$b} <=> $reason_count{$a} } keys %reason_count) {
+    printf "  %6d  %s\n", $reason_count{$r}, $r;
+}
+open my $ofh, '>', "$root/.estree_failures.tsv" or warn "write failures tsv: $!";
+print $ofh join("\n", @estree_failures), "\n";
+close $ofh;
+print "\n(full per-test list in .estree_failures.tsv)\n";

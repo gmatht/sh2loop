@@ -1,0 +1,6 @@
+{
+  "name": "sh2loop-estree-harness",
+  "private": true,
+  "type": "module",
+  "description": "ESTree reference executor + structural gate for the sh2perl corpus (PLAN.md §2). No runtime deps: estree-gen.mjs is a deterministic ESTree→JS printer for the emitter's fixed node vocabulary (babel 8 requires typed node instances, so we print ourselves)."
+}
