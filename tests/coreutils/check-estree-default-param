@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# RED test: POSIX default-value parameter expansion `${var:=default}` (and
+# the `:-` / `:?` / `:+` family) currently lowers to sh2.unsupported in
+# the ESTree emitter. This is the single dominant lowering gap in the GNU
+# coreutils corpus: 645 of 650 test scripts hit it once, from
+# `. "${srcdir=.}/tests/init.sh"` (tests/README.md).
+#
+# Expected behavior today: sh2.unsupported is present → script exits 1
+# (red). When src/estree.rs lowers the family, flip the grep below to
+# assert the marker is GONE and the script goes green.
+set -euo pipefail
+root="$(cd "$(dirname "$0")/../.." && pwd)"
+debashc="$root/sh2perl/target/debug/debashc"
+
+tmp="$(mktemp /tmp/estree-default-param.XXXXXX.sh)"
+trap 'rm -f "$tmp"' EXIT
+printf 'echo ${x:=default}\n' > "$tmp"
+
+out="$("$debashc" file --estree "$tmp" 2>/dev/null || true)"
+if printf '%s' "$out" | grep -q '"name":"unsupported"'; then
+    echo "FAIL (expected): \${x:=default} still lowers to sh2.unsupported"
+    echo "  fix target: src/estree.rs word lowering for AssignDefault/Default"
+    echo "  then flip this check to assert the marker is absent"
+    exit 1
+fi
+echo "PASS: \${x:=default} no longer lowers to sh2.unsupported"

@@ -12,14 +12,18 @@ revision history).
   workspace** — its CI is self-contained.
 - `sh2runtime/` — **not a submodule**. Separate repo; coupled only via the
   ESTree-JSON contract (PLAN.md §1). Pinned by commit SHA in CI when needed.
-- Test harness: `fail` (Perl corpus gate), `check_qx.pl`, `main_loop_rust.pl`;
-  planned: `fail-estree`, `harness/estree-runner.mjs` (reference executor).
+- Test harness: `fail` (Perl corpus gate), `check_qx.pl`, `main_loop_rust.pl`,
+  `fail-coreutils` (workspace-side regression corpus); planned: `fail-estree`,
+  `harness/estree-runner.mjs` (reference executor).
 
 ## Common commands
 
 - `cd sh2perl && cargo build --bin debashc`
 - `./fail` — full corpus gate (517 examples; generated Perl vs bash stdout)
 - `./fail <prefix>` — subset by filename prefix
+- `./fail-coreutils` — red regression tests from the GNU coreutils suite
+  probe (`tests/coreutils/`; each documents a known parser/transpiler gap
+  and goes green as the fix lands — never bless them)
 - `git submodule update --init` — after a fresh clone
 
 ## Guardrails
