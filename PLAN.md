@@ -429,6 +429,16 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
   word-level: parameter expansion, arithmetic, brace expansion, arrays).
   22 lib tests pass. Next: word-level lowering, then reference executor +
   structural gate + `fail-estree`.
+- **2026-07-31 — Exec allowlist security gate (commit 72b8fec).** Entirely
+  in the sh2loop harness (nothing in sh2perl — securing the transpiler from
+  itself is pointless): the generated JS may only spawn external binaries
+  whose names appear in the source .sh (ALL-words tokenization minus
+  builtins, centralized `BUILTIN_NAMES` from the runtime; `set`/`declare`/`:`
+  implemented natively). Verified clean: ESTREE 406/515 (78.8%), identical
+  ×2, ZERO flaky tests (the run-to-run drift seen earlier was the worker-pi's
+  concurrent estree.rs edits landing between runs — now stashed as
+  worker-pi-wip, it regressed the corpus). PERL 426/89 ×2 stable. 051_primes
+  is a deterministic clean-emitter gap (array-append `+=`), not flaky.
 - **2026-07-31 — Flakiness eliminated + examples re-blessed (commit
   32cd1aa).** Repeated full-corpus runs (4×/harness with the worker paused)
   found the remaining flaky set — all CWD//tmp-dependent: 000__04b,
