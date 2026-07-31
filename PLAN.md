@@ -407,3 +407,11 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
 - **Caveat:** a background `main_loop_rust.pl` is actively committing/editing
   sh2perl sources (repo moved febb301 → aa5df7a during M1). The gitlink will
   need re-bumping after that loop settles.
+- **2026-07-31 — ESTree v0 emitter (M4 partial).** `sh2perl/src/estree.rs`
+  (new; lowered from the raw AST to avoid the concurrently-edited `ir.rs`),
+  `debashc file --estree <file.sh>` emits standard ESTree JSON with an `sh2.*`
+  runtime namespace; unlowered constructs → `sh2.unsupported(...)` (valid,
+  deterministic, gate-flagable). 8 unit tests pass. **Baseline metric
+  (Stage A): 169/516 examples lower with zero unsupported calls.** Next:
+  lower case/redirect/function/subshell/background, then the reference
+  executor + structural gate + `fail-estree`.
