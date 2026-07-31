@@ -429,6 +429,18 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
   word-level: parameter expansion, arithmetic, brace expansion, arrays).
   22 lib tests pass. Next: word-level lowering, then reference executor +
   structural gate + `fail-estree`.
+- **2026-07-31 — Lexer/parser: combined short flags (`-rf`) lex as one word
+  and canonicalize to `-x -y`.** Historical breakage: the test-operator tokens
+  (`-f`, `-r`, `-eq`, ...) matched anywhere, so `-rf` lexed as `-r` + bare `f`,
+  making `rm -rf x` parse identically to `rm -r f x` and forcing generator
+  workarounds that conflated them (rm.rs treated a bare `f` after `-r` as the
+  force flag, silently eating a real file named `f`). Fix: `parse_word`
+  re-joins the tokens (`-rf` → one word; whitespace is the discriminator), and
+  a new `parser/normalize.rs` getopt-style pass splits combined flags for a
+  whitelist of flag commands (`rm -rf` → `['-r','-f']`) — conservative (no
+  split = always safe), `--`/long-options/pure-numeric args untouched,
+  value-taking flags split (`grep -A2` → `-A 2`). rm.rs workaround removed.
+  Corpus: PERL 429/86, ESTREE 254/261 (49.3%). See commit 6af307d.
 - **2026-07-31 — ESTree repair loop (`main_loop_estree.pl`).** Companion to
   `main_loop_rust.pl`: runs `./fail-estree`, diffs against a baseline
   (`.estree_prev_failures.tsv`, trusted counts `.estree_trusted_count` +
