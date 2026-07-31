@@ -5,6 +5,7 @@ use Time::HiRes qw(sleep);
 use FindBin;
 use POSIX qw(:sys_wait_h);
 use JSON::PP;
+use open ':std', ':encoding(UTF-8)';
 
 $| = 1;
 STDERR->autoflush(1);
