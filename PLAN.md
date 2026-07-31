@@ -429,6 +429,17 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
   word-level: parameter expansion, arithmetic, brace expansion, arrays).
   22 lib tests pass. Next: word-level lowering, then reference executor +
   structural gate + `fail-estree`.
+- **2026-07-31 — Builtins centralized + native cmp/sort/uniq/comm, head/tail/
+  wc, command (commit d485ee7).** `harness/builtins.json` is the single
+  canonical list: the runtime's BUILTIN_NAMES and check_qx.pl both derive
+  from it. The runtime now implements head/tail/wc/cmp/sort/uniq/comm natively
+  (no spawn), and `command` is an escape-hatch builtin (exec allowlist
+  bypassed — dynamic inner commands are unknowable). Wrapper commands
+  (bash/sh/env/xargs/sudo/...) always allowed. Input redirects to missing
+  files fail (bash semantics). Verified (stable emitter): ESTREE 406 →
+  426/515 (82.7%), identical ×2, zero flaky, zero new failures. Caveat
+  learned: the worker-pi's concurrent estree.rs edits confounded several
+  measurements (376/276 readings); pause it for clean measurement.
 - **2026-07-31 — Exec allowlist security gate (commit 72b8fec).** Entirely
   in the sh2loop harness (nothing in sh2perl — securing the transpiler from
   itself is pointless): the generated JS may only spawn external binaries
