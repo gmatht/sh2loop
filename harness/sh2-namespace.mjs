@@ -26,6 +26,7 @@ const SPAWN_TIMEOUT_MS = 5000; // per external command
 export const sh2 = {
   // ── state ──────────────────────────────────────────────────────────
   vars: new Map(),
+  arrays: new Map(),   // name -> array of strings (declare -a / arr=(...) / arr[i]=)
   exported: new Set(),
   functions: new Map(),
   lastExit: 0,
@@ -63,6 +64,14 @@ export const sh2 = {
 
   // ── variables ──────────────────────────────────────────────────────
   getVar(name) {
+    const m = /^([A-Za-z_][A-Za-z0-9_]*)\[([^\]]+)\]$/.exec(name);
+    if (m) {
+      const arr = this.arrays.get(m[1]);
+      if (!arr) return '';
+      if (m[2] === '@' || m[2] === '*') return arr.join(' ');  // ${x[@]} / ${x[*]}
+      const idx = evalArith(m[2], this);
+      return idx >= 0 && idx < arr.length ? String(arr[idx]) : '';
+    }
     switch (name) {
       case '?': return String(this.lastExit);
       case '$': return String(process.pid);
@@ -81,6 +90,14 @@ export const sh2 = {
   },
 
   setVar(name, value) {
+    const m = /^([A-Za-z_][A-Za-z0-9_]*)\[([^\]]+)\]$/.exec(name);
+    if (m) {
+      const arr = this.arrays.get(m[1]) ?? [];
+      const idx = evalArith(m[2], this);
+      arr[idx] = String(value ?? '');
+      this.arrays.set(m[1], arr);
+      return true;
+    }
     const v = String(value ?? '');
     if (this.exported.has(name) || name === 'PATH') process.env[name] = v;
     this.vars.set(name, v);
@@ -350,6 +367,99 @@ export const sh2 = {
       if (upd) evalArith(upd, this);
     }
     return true;
+  },
+
+  // ── arrays ─────────────────────────────────────────────────────────
+  setArray(name, elements) {
+    this.arrays.set(String(name), (elements ?? []).map(String));
+    return true;
+  },
+  arrayItems(name) {
+    return [...(this.arrays.get(String(name)) ?? [])];
+  },
+  arrayLen(name) {
+    const arr = this.arrays.get(String(name));
+    if (arr) {
+      // bash counts only SET indices (holes from `arr[5]=x` don't count)
+      return arr.reduce((n, v) => n + (v !== undefined ? 1 : 0), 0);
+    }
+    return this.getVar(name).length;
+  },
+  arrayIndex(name, key) {
+    const arr = this.arrays.get(String(name));
+    if (!arr) return '';
+    if (key === '@' || key === '*') return [...arr];   // ${arr[@]} — exec flattens
+    const idx = evalArith(String(key), this);
+    return idx >= 0 && idx < arr.length ? String(arr[idx]) : '';
+  },
+
+  // ── parameter expansion / arithmetic / brace expansion ─────────────
+  param(op, name, a, b) {
+    const v = this.getVar(name);
+    switch (op) {
+      case '^^': return v.toUpperCase();
+      case ',,': return v.toLowerCase();
+      case '^': return v.length ? v[0].toUpperCase() + v.slice(1) : v;
+      case '#': return stripGlobPrefix(v, a, false);
+      case '##': return stripGlobPrefix(v, a, true);
+      case '%': return stripGlobSuffix(v, a, false);
+      case '%%': return stripGlobSuffix(v, a, true);
+      case '//': return substGlob(this, v, a, b);
+      case ':-': return v !== '' ? v : expandWord(this, a ?? '');
+      case ':=':
+        if (v === '') { const d = expandWord(this, a ?? ''); this.setVar(name, d); return d; }
+        return v;
+      case ':?':
+        if (v === '') {
+          const m = expandWord(this, a !== '' ? a : `${name}: parameter null or not set`);
+          throw new Error(m);
+        }
+        return v;
+      case 'basename': {
+        const p = v.replace(/\/+$/, '');
+        const i = p.lastIndexOf('/');
+        return i >= 0 ? p.slice(i + 1) : p;
+      }
+      case 'dirname': {
+        const p = v.replace(/\/+$/, '');
+        const i = p.lastIndexOf('/');
+        return i >= 0 ? p.slice(0, i) : '.';
+      }
+      case 'slice': {
+        if (a === '@') return this.arrayItems(name);          // ${arr[@]}
+        const arr = this.arrays.get(name);
+        if (arr) {                                             // ${arr[@]:off:len}
+          const off = Number(a) || 0;
+          const slice = b !== undefined && b !== null && b !== ''
+            ? arr.slice(off, off + (Number(b) || 0))
+            : arr.slice(off);
+          return [...slice];
+        }
+        const off = Number(a) || 0;
+        if (b !== undefined && b !== null && b !== '') return v.slice(off, off + (Number(b) || 0));
+        return v.slice(off);
+      }
+      case '': return v;
+      default: throw new Error(`sh2.param: unknown op ${op}`);
+    }
+  },
+
+  arith(src) {
+    return evalArith(String(src), this);
+  },
+
+  brace(prefix, groups, middles, suffix) {
+    const expansions = (groups ?? []).map(expandBraceGroup);
+    let combos = [[]];
+    for (const g of expansions) {
+      const next = [];
+      for (const c of combos) for (const it of g) next.push([...c, it]);
+      combos = next;
+    }
+    const p = prefix ?? '';
+    const sfx = suffix ?? '';
+    const ms = middles ?? [];
+    return combos.map(c => p + c.map((x, idx) => x + (ms[idx] ?? '')).join('') + sfx);
   },
 
   // ── shopt / traps / control signals ────────────────────────────────
@@ -852,6 +962,17 @@ export function evalArith(src, sh) {
     let m = s.slice(pos).match(/^([A-Za-z_][A-Za-z0-9_]*)/);
     if (m) {
       pos += m[0].length;
+      // array subscript: name[expr]
+      if (s[pos] === '[') {
+        pos++;
+        const key = ternary();
+        ws();
+        if (s[pos] !== ']') throw new Error('arith: missing ]');
+        pos++;
+        const arr = sh.arrays.get(m[1]);
+        const idx = Number(key) || 0;
+        return arr && idx >= 0 && idx < arr.length ? Number(arr[idx]) || 0 : 0;
+      }
       // postfix ++ / --
       if (s.slice(pos, pos + 2) === '++') { pos += 2; const v = Number(sh.getVar(m[1])) || 0; sh.setVar(m[1], String(v + 1)); return v; }
       if (s.slice(pos, pos + 2) === '--') { pos += 2; const v = Number(sh.getVar(m[1])) || 0; sh.setVar(m[1], String(v - 1)); return v; }
@@ -900,4 +1021,73 @@ export function evalArith(src, sh) {
 function parseCStyleHeader(header) {
   const parts = header.split(';');
   return [parts[0]?.trim() ?? '', parts[1]?.trim() ?? '', parts[2]?.trim() ?? ''];
+}
+
+// ── parameter-expansion helpers ──────────────────────────────────────
+function stripGlobPrefix(v, pattern, longest) {
+  if (v === '') return v;
+  if (!/[*?[]/.test(pattern)) return v.startsWith(pattern) ? v.slice(pattern.length) : v;
+  let best = -1;
+  for (let i = 0; i <= v.length; i++) {
+    if (globMatch(pattern, v.slice(0, i))) best = longest ? Math.max(best, i) : (best === -1 ? i : best);
+  }
+  return best >= 0 ? v.slice(best) : v;
+}
+function stripGlobSuffix(v, pattern, longest) {
+  if (v === '') return v;
+  if (!/[*?[]/.test(pattern)) return v.endsWith(pattern) ? v.slice(0, v.length - pattern.length) : v;
+  let best = -1;
+  for (let i = 0; i <= v.length; i++) {
+    if (globMatch(pattern, v.slice(i))) {
+      // suffix starts at i; %% (longest) wants the smallest i, % (shortest) the largest
+      best = best === -1 ? i : (longest ? Math.min(best, i) : Math.max(best, i));
+    }
+  }
+  return best >= 0 ? v.slice(0, best) : v;
+}
+function substGlob(sh, v, pattern, replacement) {
+  const rep = expandWord(sh, replacement ?? '');
+  if (v === '') return v;
+  if (!/[*?[]/.test(pattern)) {
+    return v.split(pattern).join(rep);
+  }
+  let out = '', i = 0;
+  while (i < v.length) {
+    let matched = false;
+    for (let len = v.length - i; len >= 1; len--) {
+      if (globMatch(pattern, v.slice(i, i + len))) { out += rep; i += len; matched = true; break; }
+    }
+    if (!matched) { out += v[i]; i++; }
+  }
+  return out;
+}
+
+// ── brace-expansion helpers ──────────────────────────────────────────
+function braceRange([start, end, step, format]) {
+  const a = parseInt(start, 10), b = parseInt(end, 10), st = step ? Math.abs(parseInt(step, 10)) || 1 : 1;
+  const out = [];
+  if (Number.isNaN(a) || Number.isNaN(b)) return [String(start) + '..' + String(end)];
+  if (a <= b) for (let i = a; i <= b; i += st) out.push(String(i));
+  else for (let i = a; i >= b; i -= st) out.push(String(i));
+  return out;
+}
+function expandBraceNested(items) {
+  const out = [];
+  for (const it of items ?? []) {
+    if (typeof it === 'string') out.push(it);
+    else if (it && Array.isArray(it.range)) out.push(...braceRange(it.range));
+    else if (it && Array.isArray(it.nested)) out.push(...expandBraceNested(it.nested));
+    else if (Array.isArray(it)) out.push(...expandBraceNested(it));
+  }
+  return out;
+}
+function expandBraceGroup(g) {
+  const out = [];
+  for (const it of g ?? []) {
+    if (typeof it === 'string') out.push(it);
+    else if (it && Array.isArray(it.range)) out.push(...braceRange(it.range));
+    else if (it && Array.isArray(it.nested)) out.push(...expandBraceNested(it.nested));
+    else if (Array.isArray(it)) out.push(...expandBraceNested(it));
+  }
+  return out;
 }

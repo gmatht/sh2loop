@@ -34,6 +34,7 @@ function exprUnwrapped(node) {
       if (v === null) return 'null';
       if (typeof v === 'number') return String(v);
       if (typeof v === 'boolean') return String(v);
+      if (Array.isArray(v) || typeof v === 'object') return JSON.stringify(v);
       throw new Error(`Literal with unprintable value: ${JSON.stringify(v)}`);
     }
     case 'TemplateLiteral': {

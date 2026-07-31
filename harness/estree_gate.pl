@@ -17,7 +17,7 @@ use warnings;
 use JSON::PP;
 
 my %whitelist = map { $_ => 1 } qw(
-    exec getVar setVar test pipeline capture captureWords redirect caseMatch
+    exec getVar setVar test pipeline capture captureWords redirect caseMatch param arith brace setArray arrayItems arrayLen arrayIndex
     define subshell background block whileLoop cstyleFor forLoop listVar
     shopt return break continue unsupported
 );
