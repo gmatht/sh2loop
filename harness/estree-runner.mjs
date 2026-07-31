@@ -47,16 +47,6 @@ try {
 
 const nsPath = path.join(import.meta.dirname, 'sh2-namespace.mjs');
 
-// Command wrappers: always allowed to spawn. They are external binaries whose
-// inner command (e.g. `bash $script`, `command $dynamic`, `env VAR=1 cmd`,
-// `xargs ...`) is unknowable at compile time — compiling a shell file you
-// don't know is hard — so the gate exempts them by construction.
-const WRAPPER_COMMANDS = new Set([
-  'bash', 'sh', 'zsh', 'dash', 'ksh', 'command', 'env', 'xargs', 'sudo',
-  'su', 'time', 'timeout', 'nohup', 'nice', 'exec', 'setsid', 'chroot',
-  'doas', 'pkexec', 'stdbuf',
-]);
-
 // Security allowlist (trivial, conservative): every WORD token in the source
 // .sh, minus shell builtins, plus the always-allowed command wrappers. The generated program may only spawn external
 // binaries whose names appear in the source text — an over-approximation
@@ -76,28 +66,13 @@ if (sourceFile) {
     allowlist = [...new Set(
       src.split(/[^A-Za-z0-9_.+@\/:.-]+/).filter(w => w.length > 0 && !builtins.has(w)),
     )];
-    for (const w of WRAPPER_COMMANDS) allowlist.push(w);
   } catch { /* fall through to JSON-derived below */ }
 }
 if (!allowlist) {
-  // Fallback (no --source): derive from the JSON's sh2.exec literal names.
+  // Strict: no --source → empty allowlist. External binaries are only ever
+  // allowed when their name is a word token in the source .sh; without the
+  // source there is nothing to allow.
   allowlist = [];
-  (function collectExecNames(node) {
-    if (!node || typeof node !== 'object') return;
-    if (Array.isArray(node)) { node.forEach(collectExecNames); return; }
-    if (node.type === 'CallExpression') {
-      const cal = node.callee;
-      if (cal && cal.type === 'MemberExpression' && cal.object?.name === 'sh2'
-          && cal.property?.name === 'exec') {
-        const nameArg = node.arguments?.[0];
-        if (nameArg && nameArg.type === 'Literal' && typeof nameArg.value === 'string'
-            && !builtins.has(nameArg.value)) {
-          allowlist.push(nameArg.value);
-        }
-      }
-    }
-    for (const v of Object.values(node)) collectExecNames(v);
-  })(program);
 }
 
 const moduleSrc =

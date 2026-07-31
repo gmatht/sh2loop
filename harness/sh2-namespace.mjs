@@ -79,6 +79,14 @@ export const sh2 = {
   getVar(name) {
     const m = /^([A-Za-z_][A-Za-z0-9_]*)\[([^\]]+)\]$/.exec(name);
     if (m) {
+      if (m[2] === '@' || m[2] === '*') {
+        // ${x[@]} joins with spaces; ${x[*]} joins with IFS[0] — bash uses
+        // IFS for `*` even when the expansion is quoted.
+        const join = m[2] === '*' ? ((this.vars.get('IFS') || ' ')[0] || ' ') : ' ';
+        if (this.assocNames.has(m[1])) return this.assocValues(m[1]).join(join);
+        const arr = this.arrays.get(m[1]);
+        return arr ? arr.join(join) : '';
+      }
       if (this.assocNames.has(m[1])) {
         const key = normAssocKey(m[2]);
         const store = this.assocStore.get(m[1]);
@@ -86,7 +94,6 @@ export const sh2 = {
       }
       const arr = this.arrays.get(m[1]);
       if (!arr) return '';
-      if (m[2] === '@' || m[2] === '*') return arr.join(' ');  // ${x[@]} / ${x[*]}
       let idx;
       try { idx = evalArith(m[2], this); } catch { return ''; } // bad subscript: bash keeps going, expands empty
       return idx >= 0 && idx < arr.length ? String(arr[idx]) : '';
@@ -244,6 +251,13 @@ export const sh2 = {
       else flat.push(String(a));
     }
     for (let i = 0; i < flat.length; i++) {
+      if (flat[i] === ARRAY_LIT_MAGIC) {
+        // `declare -a arr=(...)` — the arg was a side-effecting setArray
+        // call (the array is already stored); drop the placeholder.
+        flat.splice(i, 1);
+        i--;
+        continue;
+      }
       if (typeof flat[i] === 'string' && flat[i].startsWith(PS_MAGIC)) {
         flat[i] = materializePath(flat[i].slice(PS_MAGIC.length));
       } else if (typeof flat[i] === 'string' && flat[i].startsWith(GLOB_MAGIC)) {
@@ -457,15 +471,20 @@ export const sh2 = {
 
   // ── loops ──────────────────────────────────────────────────────────
   async forLoop(items, bodyFn) {
+    // Glob-expand any GLOB_MAGIC item (including elements of brace/array
+    // results, which arrive as magic-prefixed strings inside arrays).
+    const expandItem = (x) => {
+      if (typeof x === 'string' && x.startsWith(GLOB_MAGIC)) {
+        const pat = x.slice(GLOB_MAGIC.length);
+        const hits = globExpand(pat);
+        return hits.length > 0 ? hits : [pat]; // no match: keep the pattern (nullglob off)
+      }
+      return [x];
+    };
     const flat = [];
     for (const it of items) {
-      if (Array.isArray(it)) flat.push(...it); // sh2.listVar("@") result
-      else if (typeof it === 'string' && it.startsWith(GLOB_MAGIC)) {
-        const pat = it.slice(GLOB_MAGIC.length);
-        const hits = globExpand(pat);
-        if (hits.length > 0) flat.push(...hits);
-        else flat.push(pat);
-      } else flat.push(it);
+      if (Array.isArray(it)) for (const x of it) flat.push(...expandItem(x));
+      else flat.push(...expandItem(it));
     }
     for (const v of flat) {
       if (this._capExceeded()) break; // bound infinite producers in a capture
@@ -497,7 +516,7 @@ export const sh2 = {
     if (!this.captureStart) return false;
     const t = this.fdTargets[1];
     if (t && t.kind === 'capture' && t.buf.length > 1_000_000) return true;
-    return Date.now() - this.captureStart > 8000;
+    return Date.now() - this.captureStart > 12000;
   },
 
   // ── subshell / background / block ──────────────────────────────────
@@ -577,10 +596,11 @@ export const sh2 = {
   },
 
   // ── arrays ─────────────────────────────────────────────────────────
-  setArray(name, elements) {
+  setArray(name, elements, isAssoc) {
     const nm = String(name);
-    if (this.assocNames.has(nm)) {
+    if (isAssoc || this.assocNames.has(nm)) {
       // `declare -A` array literal: elements are key=value pairs
+      this.assocNames.add(nm);
       const store = new Map();
       for (const e of elements ?? []) {
         const s = expandWord(this, String(e));
@@ -589,21 +609,28 @@ export const sh2 = {
         else store.set(s, '');
       }
       this.assocStore.set(nm, store);
-      return true;
+      return ARRAY_LIT_MAGIC;
     }
     const out = [];
     for (const e of elements ?? []) {
+      // `arr=("$@")` — each positional is one element (check the RAW
+      // element: expandWord would have already joined the positionals)
+      if (String(e) === '$@' || String(e) === '$*') {
+        out.push(...this.positional.map(String));
+        continue;
+      }
       const s = expandWord(this, String(e));
       // `arr=("${src[@]:1:2}")` — the slice pattern expands to multiple
-      // elements when unquoted in bash
-      if (String(e).includes('[@]')) {
+      // elements when unquoted in bash; an unquoted `$(...)` element is
+      // word-split on IFS too (`sorted=($(sort ...))`)
+      if (String(e).includes('[@]') || String(e).includes('$(') || String(e).includes('`')) {
         out.push(...s.split(/\s+/).filter(w => w.length > 0));
       } else {
         out.push(s);
       }
     }
     this.arrays.set(nm, out);
-    return true;
+    return ARRAY_LIT_MAGIC;
   },
   // `arr+=(...)` — append (expansion like setArray; quotedness is lost by
   // the parser, so elements are NOT word-split — matches the perl backend).
@@ -615,19 +642,23 @@ export const sh2 = {
         const eq = s.indexOf('=');
         if (eq >= 0) this.assocSet(nm + '[' + s.slice(0, eq) + ']', s.slice(eq + 1));
       }
-      return true;
+      return ARRAY_LIT_MAGIC;
     }
     const arr = this.arrays.get(nm) ?? [];
     for (const e of elements ?? []) {
+      if (String(e) === '$@' || String(e) === '$*') {
+        arr.push(...this.positional.map(String));
+        continue;
+      }
       const s = expandWord(this, String(e));
-      if (String(e).includes('[@]')) {
+      if (String(e).includes('[@]') || String(e).includes('$(') || String(e).includes('`')) {
         arr.push(...s.split(/\s+/).filter(w => w.length > 0));
       } else {
         arr.push(s);
       }
     }
     this.arrays.set(nm, arr);
-    return true;
+    return ARRAY_LIT_MAGIC;
   },
   // `x+=v` / `x-=v` / ... — scalar compound assignment. bash: `+=` on a
   // scalar is string concatenation; on an array it appends an element.
@@ -637,6 +668,9 @@ export const sh2 = {
     const nm = String(name);
     const arr = this.arrays.get(nm);
     switch (op) {
+      case '=':
+        this.setVar(nm, v);
+        break;
       case '+=':
         if (arr) { arr.push(...(Array.isArray(v) ? v : [v])); this.arrays.set(nm, arr); }
         else this.setVar(nm, this.getVar(nm) + v);
@@ -695,6 +729,13 @@ export const sh2 = {
   // ── parameter expansion / arithmetic / brace expansion ─────────────
   param(op, name, a, b) {
     const v = this.getVar(name);
+    if (op === 'len') return String(v.length); // ${#name}
+    // `${x:off:len}` offsets may be arithmetic expressions (`${x:j:1}`)
+    const sliceOff = (s) => {
+      const t = String(s).trim();
+      if (/^-?\d+$/.test(t)) return Number(t);
+      try { return evalArith(t, this); } catch { return 0; }
+    };
     switch (op) {
       case '^^': return v.toUpperCase();
       case ',,': return v.toLowerCase();
@@ -738,21 +779,29 @@ export const sh2 = {
         }
         // ${!map[@]} — keys/indices (the parser tags it as a slice of `!map`)
         if (name.startsWith('!')) {
-          return this.arrayItems(name.slice(1));
+          const real = name.slice(1);
+          // `${!prefix*[@]...}` — variable-name pattern + [@] is a bash
+          // "bad substitution" that ABORTS the script (stdout-wise the
+          // remaining lines vanish; the error goes to stderr like `:?`).
+          if (real.includes('*')) {
+            process.stderr.write(`bash: ${name}: bad substitution\n`);
+            process.exit(0);
+          }
+          return this.arrayItems(real);
         }
         // ${@:off:len} / ${*:off:len} — positional slice
         if (name === '@' || name === '*') {
-          const off = Number(a) || 0;
+          const off = sliceOff(a);
           const sl = b !== undefined && b !== null && b !== ''
             ? this.positional.slice(off, off + (Number(b) || 0))
             : this.positional.slice(off);
           return sl.join(' ');
         }
-        if (a === '@') return this.arrayItems(name);          // ${arr[@]}
+        if (a === '@' || a === '*') return this.arrayItems(name); // ${arr[@]} — exec flattens; template literals join via sh2.join
         const am = /^([A-Za-z_][A-Za-z0-9_]*)\[@\]$/.exec(name);
         if (am) {                                             // ${arr[@]:off:len}
           const arr = this.arrays.get(am[1]) ?? [];
-          const off = Number(a) || 0;
+          const off = sliceOff(a);
           const slice = b !== undefined && b !== null && b !== ''
             ? arr.slice(off, off + (Number(b) || 0))
             : arr.slice(off);
@@ -760,13 +809,13 @@ export const sh2 = {
         }
         const arr = this.arrays.get(name);
         if (arr) {                                             // ${arr[@]:off:len}
-          const off = Number(a) || 0;
+          const off = sliceOff(a);
           const slice = b !== undefined && b !== null && b !== ''
             ? arr.slice(off, off + (Number(b) || 0))
             : arr.slice(off);
           return [...slice];
         }
-        const off = Number(a) || 0;
+        const off = sliceOff(a);
         if (b !== undefined && b !== null && b !== '') return v.slice(off, off + (Number(b) || 0));
         return v.slice(off);
       }
@@ -946,7 +995,7 @@ builtins.read = function (args, env) {
     this.lastExit = 1;
     return false;
   }
-  const re = new RegExp('[' + ifs.replace(/[\]^$.*+?()[{}|]/g, '\\$&').replace(/\n/g, 'n').replace(/\t/g, 't') + ']+');
+  const re = new RegExp('[' + ifs.replace(/[\]^$.*+?()[{}|\\]/g, '\\$&') + ']+');
   const fields = line.split(re).filter(s => s !== '');
   if (names.length === 0) names.push('REPLY');
   for (let i = 0; i < names.length; i++) {
@@ -1046,9 +1095,33 @@ builtins.typeset = builtins.declare;
 builtins.readonly = builtins.declare;
 
 // eval "...": the emitted argument is already expanded; run it through a
-// real shell (the string's commands are part of the source semantics).
+// real shell (the string's commands are part of the source semantics) and
+// sync back any variables it assigned (`eval "result=$((...))"` must leave
+// `result` visible to the rest of the program).
 builtins.eval = function (args) {
-  runShellString(args.join(' '));
+  const code = args.join(' ');
+  // run the code for its real output (inherit) ...
+  spawnSync('bash', ['-c', code], { stdio: 'inherit' });
+  // ... and once more to sync back variables it assigned
+  // (`eval "result=$((...))"` must leave `result` visible to the rest of
+  // the program). `set` prints every variable; only names with plain
+  // scalar values are synced.
+  const r = spawnSync('bash', ['-c', `${code}; set`], { encoding: 'utf8' });
+  if (!r.error && r.stdout) {
+    for (const line of String(r.stdout).split('\n')) {
+      const eq = line.indexOf('=');
+      if (eq > 0 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(line.slice(0, eq))) {
+        this.setVar(line.slice(0, eq), line.slice(eq + 1));
+      }
+    }
+  }
+  this.lastExit = 0;
+  return true;
+};
+
+builtins.wait = async function () {
+  for (const p of this.pending) { try { await p; } catch { /* bg failures ignored */ } }
+  this.pending = [];
   this.lastExit = 0;
   return true;
 };
@@ -1461,26 +1534,20 @@ builtins.command = async function (args) {
     this.positional = args.slice(1).map(String);
     try { return await this.functions.get(name)(); } finally { this.positional = saved; }
   }
-  const saved = this.execAllowlist;
-  this.execAllowlist = null; // escape hatch: inner command is dynamic/unknowable
-  try {
-    return await this._runProc(name, args.slice(1));
-  } finally {
-    this.execAllowlist = saved;
-  }
+  // Strict allowlist: `command <name>` may only run a binary whose name
+  // appears in the source. No bypass — an exception may only further restrict.
+  return await this._runProc(name, args.slice(1));
 };
 
 function normAssocKey(k) {
   // Keys arrive in several shapes from the emitter: `os` (bare), `"os"`
   // (quoted subscript from `info["os"]`), `[key1]` (from `declare -A
-  // m=([key1]=v)`), and `$key` (to expand). Normalize the shell quoting;
-  // expand `$name` references the way getVar does.
+  // m=([key1]=v)`), and `$key` / `"${key}"` (to expand). Normalize the
+  // shell quoting; expand the remainder the way expandWord does.
   let s = String(k).trim();
   if (s.startsWith('[') && s.endsWith(']')) s = s.slice(1, -1);
   if (s.length >= 2 && ((s[0] === '"' && s.endsWith('"')) || (s[0] === "'" && s.endsWith("'")))) s = s.slice(1, -1);
-  const m = /^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$/.exec(s);
-  if (m) return sh2.getVar(m[1]);
-  return s;
+  return expandWord(sh2, s);
 }
 
 // ── output helpers ───────────────────────────────────────────────────
@@ -1509,6 +1576,9 @@ function writeFileSync(target, data, mode = 'w') {
 // The emitter tags `<(...)` argument positions with PS_MAGIC + captured
 // producer stdout; exec() turns them into temp file paths here.
 const PS_MAGIC = '\u0001SH2PS\u0001';
+// Return value of setArray/setArrayAppend when emitted as an exec ARG
+// (`declare -a arr=(...)`): the runtime drops it from the arg list.
+const ARRAY_LIT_MAGIC = '\u0001SH2ARRLIT\u0001';
 // Unquoted glob words are tagged by the emitter with this prefix; exec /
 // forLoop expand the suffix against the filesystem.
 const GLOB_MAGIC = '\u0001SH2GLOB\u0001';
@@ -1545,8 +1615,10 @@ export const BUILTIN_NAMES = JSON.parse(
 
 export function expandWord(sh, s) {
   let out = String(s);
-  // command substitution $() / backticks first (nested, quote-aware)
-  out = runCmdSubst(out);
+  // command substitution $() / backticks first (nested, quote-aware); the
+  // inner code has runtime variables expanded (unquoted parts only) so
+  // `$(sort <<<"${config[*]}")` sees the runtime's values.
+  out = runCmdSubst(out, sh);
   // ${#name[@]} — array length
   out = out.replace(/\$\{#([A-Za-z_][A-Za-z0-9_]*)\[@\]\}/g, (_, n) => String(sh.arrayLen(n)));
   // ${name[@]:off:len} — array slice (space-joined)
@@ -1559,12 +1631,62 @@ export function expandWord(sh, s) {
   });
   // ${name[idx]} — array element
   out = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\[([^}\]]*)\]\}/g, (_, n, k) => {
-    if (k === '@' || k === '*') return (sh.arrays.get(n) ?? []).join(' ');
+    if (k === '@' || k === '*') return sh.getVar(`${n}[${k}]`); // assoc-aware join
     return sh.arrayIndex(n, k);
   });
   // ${name} / $name (including special params)
   out = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, n) => sh.getVar(n));
   out = out.replace(/\$([A-Za-z_][A-Za-z0-9_]*|\d+|[@#*?$0-])/g, (_, n) => sh.getVar(n));
+  // ${name:-default} / ${name##pat} / ${name:off:len} / ${#name} ... —
+  // innermost-first so nested defaults (`${a:-${b:-c}}`) expand correctly.
+  for (;;) {
+    const next = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)([^{}]*)\}/g, (m, n, body) => {
+      const v = sh.getVar(n);
+      if (body === '') return v;
+      if (body.startsWith('#')) return String(v.length);
+      if (body.startsWith('[') && body.endsWith(']')) {
+        // ${name[key]} / ${name[@]} / ${name[*]} — array element / join
+        const k = body.slice(1, -1);
+        return sh.getVar(`${n}[${k}]`);
+      }
+      if (body.startsWith(':-') || body.startsWith('-')) {
+        const def = body.startsWith(':-') ? body.slice(2) : body.slice(1);
+        return v !== '' ? v : expandWord(sh, def);
+      }
+      if (body.startsWith(':=') || body.startsWith('=')) {
+        const def = body.startsWith(':=') ? body.slice(2) : body.slice(1);
+        if (v === '') { const d = expandWord(sh, def); sh.setVar(n, d); return d; }
+        return v;
+      }
+      if (body.startsWith(':?') || body.startsWith('?')) {
+        if (v === '') {
+          const d = expandWord(sh, body.startsWith(':?') ? body.slice(2) : body.slice(1));
+          process.stderr.write(`bash: ${n}: ${d}\n`);
+          process.exit(0);
+        }
+        return v;
+      }
+      if (body.startsWith(':+') || body.startsWith('+')) {
+        const alt = body.startsWith(':+') ? body.slice(2) : body.slice(1);
+        return v !== '' ? expandWord(sh, alt) : '';
+      }
+      if (body.startsWith(':')) {
+        // ${name:off:len} / ${name:off} — string slice (offsets may be
+        // arithmetic expressions: `${s:j:1}`)
+        const spec = body.slice(1);
+        const [off, len] = spec.split(':');
+        let o = Number(off) || 0;
+        if (String(off).trim() !== '' && String(Number(off)) !== String(off).trim()) {
+          try { o = evalArith(String(off), sh); } catch { /* keep 0 */ }
+        }
+        const oo = o < 0 ? Math.max(0, v.length + o) : o;
+        return len !== undefined && len !== '' ? v.slice(oo, oo + (Number(len) || 0)) : v.slice(oo);
+      }
+      return m; // unknown op — leave the literal alone
+    });
+    if (next === out) break;
+    out = next;
+  }
   // strip a pair of surrounding quotes (parser keeps them in defaults)
   if (out.length >= 2) {
     const q = out[0];
@@ -1575,18 +1697,29 @@ export function expandWord(sh, s) {
 
 // Command substitution in plain strings (heredocs, array elements, case
 // patterns): run `$(...)` / backtick bodies through a real shell.
-function runCmdSubst(s) {
+function runCmdSubst(s, sh) {
   return String(s).replace(/\$(\(\([\s\S]*?\)\)|\([\s\S]*?\)|`[\s\S]*?`)/g, (m) => {
     if (m.startsWith('$(') && !m.startsWith('$((')) {
       const inner = m.slice(2, -1);
-      return shellCapture(inner);
+      return shellCapture(expandUnquoted(sh, inner));
     }
     if (m.startsWith('`')) {
       const inner = m.slice(1, -1);
-      return shellCapture(inner.replace(/\\`/g, '`'));
+      return shellCapture(expandUnquoted(sh, inner.replace(/\\`/g, '`')));
     }
     return m; // $((...)) arithmetic: leave as-is (evaluated elsewhere)
   });
+}
+
+// Expand shell variables in the UNQUOTED segments of a code fragment (a
+// single-quoted inner segment must stay literal — `$(sed 's/$x//')`).
+function expandUnquoted(sh, code) {
+  if (!sh) return String(code);
+  const parts = String(code).split("'");
+  for (let i = 0; i < parts.length; i += 2) {
+    parts[i] = expandWord(sh, parts[i]);
+  }
+  return parts.join("'");
 }
 
 function shellCapture(code) {
@@ -2020,6 +2153,13 @@ function evalTest(ast, sh) {
 }
 
 function evalUnary(flag, arg, sh) {
+  // bash: a unary test on an EMPTY argument is false (except -z); an empty
+  // path must not resolve to the cwd.
+  if (String(arg) === '') {
+    if (flag === '-z') return true;
+    if (flag === '-n') return false;
+    return false;
+  }
   const p = path.resolve(sh.cwd, String(arg));
   try {
     const st = fs.lstatSync(p);
@@ -2244,9 +2384,27 @@ export function evalArith(src, sh) {
     if (s[pos] === '(') { pos++; const v = ternary(); ws(); if (s[pos] !== ')') throw new Error('arith: missing )'); pos++; return v; }
     if (s[pos] === '!') { pos++; return primary() ? 0 : 1; }
     if (s[pos] === '~') { pos++; return ~primary(); }
+    // prefix ++ / -- (`$((++i))`, `(( j = i++ + ++i ))`)
+    if (s.slice(pos, pos + 2) === '++') {
+      pos += 2;
+      const m = s.slice(pos).match(/^([A-Za-z_][A-Za-z0-9_]*)/);
+      if (!m) throw new Error('arith: expected variable after ++');
+      pos += m[0].length;
+      const v = (Number(sh.getVar(m[1])) || 0) + 1;
+      sh.setVar(m[1], String(v));
+      return v;
+    }
+    if (s.slice(pos, pos + 2) === '--') {
+      pos += 2;
+      const m = s.slice(pos).match(/^([A-Za-z_][A-Za-z0-9_]*)/);
+      if (!m) throw new Error('arith: expected variable after --');
+      pos += m[0].length;
+      const v = (Number(sh.getVar(m[1])) || 0) - 1;
+      sh.setVar(m[1], String(v));
+      return v;
+    }
     // $var / ${var} references (bash expands these BEFORE parsing, so an
-    // unset variable becomes the empty string and usually a syntax error;
-    // a set-but-empty one too)
+    // unset variable becomes the empty string; in arithmetic it reads as 0)
     let dm = s.slice(pos).match(/^\$\{#([A-Za-z_][A-Za-z0-9_]*)\[@\]\}/)
       || s.slice(pos).match(/^\$\{#([A-Za-z_][A-Za-z0-9_]*)\}/)
       || s.slice(pos).match(/^\$\{([A-Za-z_][A-Za-z0-9_]*)\[([^}\]]+)\]\}/)
@@ -2269,8 +2427,15 @@ export function evalArith(src, sh) {
         return idx >= 0 && idx < arr.length ? Number(arr[idx]) || 0 : 0;
       }
       const v = sh.getVar(name);
-      if (v === '') throw new Error(`arith: unset variable $${name}`);
-      return Number(v) || 0;
+      return Number(v) || 0; // unset/empty reads as 0 in arithmetic
+    }
+    // $(cmd) — command substitution (nested arithmetic like
+    // `$(( $(wc -l < f) + 1 ))`)
+    const cs = s.slice(pos).match(/^\$\(([^()]*)\)/);
+    if (cs) {
+      pos += cs[0].length;
+      const out = shellCapture(cs[1]);
+      return Number(String(out).trim()) || 0;
     }
     // variable name?
     let m = s.slice(pos).match(/^([A-Za-z_][A-Za-z0-9_]*)/);
