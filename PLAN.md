@@ -429,6 +429,17 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
   word-level: parameter expansion, arithmetic, brace expansion, arrays).
   22 lib tests pass. Next: word-level lowering, then reference executor +
   structural gate + `fail-estree`.
+- **2026-07-31 — Security: strict allowlist (commit d84d84e).** External
+  binaries are allowed ONLY when named in the source (source words minus
+  builtins); exceptions can only further restrict. Removed the unconditional
+  wrapper set (bash/sh/env/...) — it let the transpiler's parse-failure
+  fallback (`sh2.exec("bash",[file])` on unparseable scripts) pass even when
+  the source never mentions bash; those 5 cheat files are now blocked.
+  `command` no longer bypasses the gate; JSON-derived fallback removed (no
+  --source → empty allowlist). Verified: ESTREE 456/515 (88.5%), identical
+  ×2, zero flaky. Known separate gap: arithmetic with empty operands
+  (`$(( $1 * 100 ))` with unset positional args) — bash syntax-errors,
+  evaluator returns 0.
 - **2026-07-31 — Builtins centralized + native cmp/sort/uniq/comm, head/tail/
   wc, command (commit d485ee7).** `harness/builtins.json` is the single
   canonical list: the runtime's BUILTIN_NAMES and check_qx.pl both derive
