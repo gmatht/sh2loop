@@ -423,6 +423,9 @@ while (1) {
         $summary->{estree_passed}, $summary->{total}, $summary->{estree_failed},
         $diff->{old_count}, $summary->{perl_passed}, $summary->{total}, $summary->{perl_failed};
 
+    my $report_only = $prefix ne '';   # prefix runs are partial views: never
+    # mutate baseline/trusted/commits — a full run verifies and commits.
+
     my $estree_trusted = 10_000;
     if (open my $tf, '<', $estree_trusted_file) { my $v = <$tf>; chomp $v if defined $v; $estree_trusted = $v + 0 if defined $v && $v ne ''; close $tf; }
     my $perl_trusted = 10_000;
@@ -447,7 +450,7 @@ while (1) {
     }
 
     # ── regression guard (only stash when pi actually changed something) ──
-    if (defined $summary->{estree_failed} && $summary->{estree_failed} > $estree_trusted + 3) {
+    if (!$report_only && defined $summary->{estree_failed} && $summary->{estree_failed} > $estree_trusted + 3) {
         my @ch = (submodule_changed_paths(), root_changed_paths());
         print "\nREGRESSION: estree failures $summary->{estree_failed} > trusted $estree_trusted. Stashing scoped changes.\n";
         my $stashed = @ch ? scoped_stash() : 0;
@@ -456,7 +459,7 @@ while (1) {
         sleep 5;
         next;
     }
-    if (defined $summary->{perl_failed} && $summary->{perl_failed} > $perl_trusted + 3) {
+    if (!$report_only && defined $summary->{perl_failed} && $summary->{perl_failed} > $perl_trusted + 3) {
         my @ch = (submodule_changed_paths(), root_changed_paths());
         print "\nREGRESSION: perl failures $summary->{perl_failed} > trusted $perl_trusted. Stashing scoped changes.\n";
         my $stashed = @ch ? scoped_stash() : 0;
@@ -467,7 +470,7 @@ while (1) {
     }
 
     # ── improvement → commit + update trusted ──
-    if ($diff->{new_count} < $diff->{old_count}) {
+    if (!$report_only && $diff->{new_count} < $diff->{old_count}) {
         my @sub = submodule_changed_paths();
         my @root = root_changed_paths();
         if (@sub || @root) {
@@ -484,7 +487,7 @@ while (1) {
     }
 
     # ── same count → update baseline (keep file changes if any) ──
-    if ($diff->{new_count} == $diff->{old_count}) {
+    if (!$report_only && $diff->{new_count} == $diff->{old_count}) {
         my @sub = submodule_changed_paths();
         my @root = root_changed_paths();
         if (@sub || @root) {
@@ -506,6 +509,7 @@ while (1) {
     if ($summary->{estree_failed} == 0) {
         print "\nAll ESTree examples pass! Idling (check back later).\n";
         log_decision('all-pass', $summary->{estree_failed}, 0, '');
+        if ($dry_run) { release_lock(); exit 0; }
         sleep 60;
         next;
     }
