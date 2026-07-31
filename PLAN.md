@@ -415,3 +415,20 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
   (Stage A): 169/516 examples lower with zero unsupported calls.** Next:
   lower case/redirect/function/subshell/background, then the reference
   executor + structural gate + `fail-estree`.
+
+---
+
+## 8. ShIR philosophy (why not a mirror IR)
+
+A ShIR that round-trips byte-identically to the Perl IR contains no
+information the Perl IR lacks — it would be a rename, not an architecture.
+
+- **Design:** lossy in the right direction. Keep what all backends need
+  (exec, assignment, control flow, redirection, capture); drop what only one
+  output language needs (sigils, Perl string styles, `$ENV` conventions).
+- **Verification:** behavioral — the corpus gate (output vs `bash`), plus a
+  regression watch on the currently-passing tests. Round-trip byte-equality
+  is only a transient guardrail for the initial `RawText`-wrap step.
+- **Payoff:** two diverging backends (`shir_to_perl`, `shir_to_estree`) from
+  one tree, shared analyses, and the removal of `estree.rs`'s duplicated
+  lowering once it reroutes through ShIR.
