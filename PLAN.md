@@ -429,6 +429,12 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
   word-level: parameter expansion, arithmetic, brace expansion, arrays).
   22 lib tests pass. Next: word-level lowering, then reference executor +
   structural gate + `fail-estree`.
+- **2026-07-31 — M6 import registry landed (commit 2f70f9d).** Perl
+  generator's `use` emissions are now table-driven (one Vec, one pass),
+  preserving output byte-for-byte (verified: perl corpus 425/90 identical).
+  M6 complete in-workspace: constant folding + dead-assignment (optimize_stmts,
+  shared by both IR consumers) + import registry. Deeper IrProgram.imports-
+  driven emission documented as future work.
 - **2026-07-31 — M6 constant folding landed (commit 92f64bb).**
   `optimize_stmts` (shared by both IR consumers) folds constant `$((...))`
   arith → Int and Int BinOps, with a Rust evaluator (digits, + - * / %,
