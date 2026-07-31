@@ -429,6 +429,15 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
   word-level: parameter expansion, arithmetic, brace expansion, arrays).
   22 lib tests pass. Next: word-level lowering, then reference executor +
   structural gate + `fail-estree`.
+- **2026-07-31 — M3 shIR step 1: Sigil → optional backend annotation.** The IR
+  core no longer requires a Perl sigil: `IrExpr::Var`/`AssignTarget`/`Decl`/
+  `DeclareArray` carry `Option<Sigil>` (None renders as scalar for Perl; a
+  non-Perl backend ignores it). Pure refactor — perl corpus identical
+  (425/90, zero new failures), 22 lib tests, RawText untouched. Remaining
+  M3 surface (documented in `ir.rs` header): neutralize `StrStyle`
+  (Command/Heredoc → extensions), `Backtick`, `Regex`, `System`/`Pipeline`
+  (→ `Exec`), `Require`, `SetChildError`; then reroute `estree.rs` through
+  this IR. Commit b833c72.
 - **2026-07-31 — Lexer/parser: combined short flags (`-rf`) lex as one word
   and canonicalize to `-x -y`.** Historical breakage: the test-operator tokens
   (`-f`, `-r`, `-eq`, ...) matched anywhere, so `-rf` lexed as `-r` + bare `f`,
