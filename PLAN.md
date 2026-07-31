@@ -429,6 +429,19 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
   word-level: parameter expansion, arithmetic, brace expansion, arrays).
   22 lib tests pass. Next: word-level lowering, then reference executor +
   structural gate + `fail-estree`.
+- **2026-07-31 — M3 DONE: estree.rs rerouted through the ShIR (commit
+  3b956b6).** `shir.rs` (was the empty stub) now contains `ast_to_ir` +
+  `shir_to_estree`; the raw-AST→ESTree lowering in `estree.rs` is DELETED
+  (estree.rs keeps only the ESTree node model + sh2.* helpers). ir.rs gained
+  ESTree-path neutral nodes (Arrow/Array/Bool/Json/Ident/Object exprs;
+  Block/Expr stmts; Exec.env; IrRedirect.interpolate). The IR now has TWO
+  consumers (ir_to_perl, shir_to_estree) — shared passes (M6) are enabled:
+  optimize_stmts now runs for both backends. Verified: 23 lib tests; corpus
+  ESTREE 343 → 352/515 (68.3%, slightly better than the old path); PERL
+  unchanged. M4 word-level lowering (param/arith/brace/arrays) also landed
+  (commits 248f9fe, 1e58663) — gate 21. M5 Stage B gate landed (2d0add8).
+  Remaining: M4 runtime polish (worker), M6 shared passes (constant folding,
+  import registry), M2 leftovers, M7 (sh2runtime repo).
 - **2026-07-31 — M4 arrays + M5 Stage B gate.** Arrays lowered (`arr=(...)` →
   `sh2.setArray`, `${arr[i]}`/`arr[i]=x` → runtime array store, `${#arr[@]}`
   → set-index count, `${arr[@]}`/`${arr[*]}` → flatten/join, `${arr[@]:o:l}`
