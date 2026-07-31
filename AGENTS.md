@@ -24,6 +24,13 @@ revision history).
 - `./fail-coreutils` — red regression tests from the GNU coreutils suite
   probe (`tests/coreutils/`; each documents a known parser/transpiler gap
   and goes green as the fix lands — never bless them)
+- `./tests/coreutils/gate` — objective gate over the full 650-script
+  corpus: a test passes only on its own verdict, never vs bash. Current
+  rule: "if init.sh doesn't start, the test fails" (source not inlined →
+  645 red; 4 parser-broken; 1 execution-verdict crash). See
+  `tests/coreutils/README.md`.
+- `./tests/coreutils/metric` — coverage metric (parse + ESTree
+  unsupported counts) over all 650 scripts
 - `git submodule update --init` — after a fresh clone
 
 ## Guardrails
