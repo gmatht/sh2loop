@@ -415,6 +415,20 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
   (Stage A): 169/516 examples lower with zero unsupported calls.** Next:
   lower case/redirect/function/subshell/background, then the reference
   executor + structural gate + `fail-estree`.
+- **2026-07-31 — ESTree lowering round 2 (M4).** `estree.rs` now lowers
+  case (`SwitchStatement` + `sh2.caseMatch` glob dispatch), redirects
+  (`sh2.redirect(() => cmd, [{fd,mode,target,interpolate?}])`, incl. heredoc/
+  herestring/`2>` and redirects attached to simple/builtin commands),
+  functions (`sh2.define`), subshell/background (closures), `shopt`,
+  c-style `for`, command-scoped env vars (`VAR=x cmd` → optional third
+  `sh2.exec` arg), top-level `[ test ]`, and compound commands in expression
+  contexts (`&&`/`||` operands, pipeline stages, conditions — block-bodied
+  arrows; `while` in conditions → `sh2.whileLoop`). Corpus metric (Stage A):
+  **169 → 346/515 examples lower with zero `sh2.unsupported` calls; zero
+  command-level unsupported constructs remain** (remaining unsupported is
+  word-level: parameter expansion, arithmetic, brace expansion, arrays).
+  22 lib tests pass. Next: word-level lowering, then reference executor +
+  structural gate + `fail-estree`.
 
 ---
 
