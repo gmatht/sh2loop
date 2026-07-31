@@ -6,7 +6,13 @@
 # Stage A: no gating — records {file, perl: P/F, estree: P/F, reason} and prints
 # a summary. `blessed-fail-estree.txt` allowlisting comes at Stage B.
 #
-# Usage: ./fail-estree [PREFIX]
+# Usage: ./fail-estree [--gate] [--bless] [PREFIX]
+#   (default) Stage A: report perl + estree verdicts, no gating.
+#   --gate    Stage B: PASS only when perl && estree both pass OR the test is
+#             in blessed-fail-estree.txt (known limitations); exit 1 on any
+#             un-blessed failure.
+#   --bless   write the currently-failing tests (either backend) to
+#             blessed-fail-estree.txt (run after a full Stage A run).
 use strict;
 use warnings;
 use Cwd qw(abs_path getcwd);
@@ -34,10 +40,29 @@ if (open my $fh, '<', '/proc/cpuinfo') {
 my $jobs = int($ncpus / 2);
 $jobs = 1 if $jobs < 1;
 
+my $blessed_file = "$root/blessed-fail-estree.txt";
+my ($do_gate, $do_bless) = (0, 0);
+my @prefix_args = ();
+for my $a (@ARGV) {
+    $do_gate = 1 if $a eq '--gate';
+    $do_bless = 1 if $a eq '--bless';
+    push @prefix_args, $a unless $a =~ /^--/;
+}
 my @all_tests = sort glob "$examples/*.sh";
-if (@ARGV) {
-    my $prefix = $ARGV[0];
+if (@prefix_args) {
+    my $prefix = $prefix_args[0];
     @all_tests = grep { index(basename($_), $prefix) != -1 } @all_tests;
+}
+
+# blessed-fail-estree.txt: tests allowed to fail (known runtime limitations)
+my %blessed;
+if (-e $blessed_file) {
+    open my $bfh, '<', $blessed_file or die "open $blessed_file: $!";
+    while (<$bfh>) {
+        chomp;
+        $blessed{$_} = 1 if /\S/;
+    }
+    close $bfh;
 }
 
 my $total = scalar @all_tests;
@@ -177,6 +202,7 @@ while ($next_idx < $total && scalar(keys %child_info) < $jobs) {
 }
 
 my ($estree_pass, $estree_fail, $perl_pass, $perl_fail) = (0, 0, 0, 0);
+my @all_results;
 my %reason_count;
 my @estree_failures;
 my @done_tests;
@@ -192,6 +218,7 @@ while (scalar(keys %child_info) > 0) {
         local $/; my $json = <$rfh>; close $rfh;
         $result = eval { JSON::PP::decode_json($json) } || {};
     }
+    push @all_results, $result;
 
     if (($result->{estree} // 'FAIL') eq 'PASS') { $estree_pass++; } else { $estree_fail++; }
     if (($result->{perl} // 'FAIL') eq 'PASS') { $perl_pass++; } else { $perl_fail++; }
@@ -211,6 +238,39 @@ print "----------------------------------------\n";
 printf "PERL:   %d passed, %d failed out of %d\n", $perl_pass, $perl_fail, $total;
 printf "ESTREE: %d passed, %d failed out of %d  (%.1f%%)\n", $estree_pass, $estree_fail, $total,
     $total ? 100 * $estree_pass / $total : 0;
+
+# ── Stage B gating / blessing ────────────────────────────────────────
+if ($do_bless) {
+    my %failing;
+    for my $r (@all_results) {
+        my $name = $r->{file} // next;
+        $failing{$name} = 1 if ($r->{perl} // 'FAIL') ne 'PASS' || ($r->{estree} // 'FAIL') ne 'PASS';
+    }
+    open my $bfh, '>', $blessed_file or die "write $blessed_file: $!";
+    print $bfh join("\n", sort keys %failing), "\n";
+    close $bfh;
+    printf "BLESSED %d tests (current failures) into %s\n", scalar(keys %failing), $blessed_file;
+}
+
+if ($do_gate) {
+    my ($gate_pass, $gate_fail, $allowlisted) = (0, 0, 0);
+    my @ungated_failures;
+    for my $r (@all_results) {
+        my $name = $r->{file} // next;
+        my $both_pass = ($r->{perl} // 'FAIL') eq 'PASS' && ($r->{estree} // 'FAIL') eq 'PASS';
+        if ($both_pass) { $gate_pass++; }
+        elsif ($blessed{$name}) { $gate_pass++; $allowlisted++; }
+        else { $gate_fail++; push @ungated_failures, $name; }
+    }
+    printf "GATED:  %d passed, %d failed out of %d (allowlisted: %d)\n",
+        $gate_pass, $gate_fail, $total, $allowlisted;
+    if (@ungated_failures) {
+        print "UN-BLESSED FAILURES:\n";
+        print "  $_\n" for @ungated_failures;
+        exit 1;
+    }
+    exit 0;
+}
 print "\nESTree failure reasons:\n";
 for my $r (sort { $reason_count{$b} <=> $reason_count{$a} } keys %reason_count) {
     printf "  %6d  %s\n", $reason_count{$r}, $r;
