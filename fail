@@ -16,7 +16,7 @@ my $debashc = "$sh2perl/target/debug/debashc";
 # ./fail-coreutils for the workspace-side GNU coreutils regression tests in
 # tests/coreutils/). Defaults to the sh2perl examples corpus.
 my $examples = $ENV{FAIL_CORPUS} // "$sh2perl/examples";
-my $timeout_per_test = 15;   # seconds per individual test
+my $timeout_per_test = 20;   # seconds per individual test (align with fail-estree)
 my $ncpus = 1;
 if (open my $fh, '<', '/proc/cpuinfo') {
     my @lines = grep { /^processor\s*:/ } <$fh>;

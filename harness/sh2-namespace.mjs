@@ -19,6 +19,7 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 const SPAWN_TIMEOUT_MS = 5000; // per external command
@@ -113,6 +114,10 @@ export const sh2 = {
   },
 
   // ── command execution ──────────────────────────────────────────────
+  // Process substitution arguments: the emitter marks argument positions
+  // that were `<(...)` with a magic prefix whose payload is the captured
+  // producer stdout; materialize them to temp files (bash passes a
+  // /dev/fd/N path).
   async exec(name, args = [], env = undefined) {
     if (env && typeof env === 'object') {
       // command-scoped env vars: VAR=x cmd
@@ -130,6 +135,11 @@ export const sh2 = {
     for (const a of args) {
       if (Array.isArray(a)) flat.push(...a.map(String));
       else flat.push(String(a));
+    }
+    for (let i = 0; i < flat.length; i++) {
+      if (typeof flat[i] === 'string' && flat[i].startsWith(PS_MAGIC)) {
+        flat[i] = materializePath(flat[i].slice(PS_MAGIC.length));
+      }
     }
     if (typeof builtins[name] === 'function') {
       const r = await builtins[name].call(this, flat);
@@ -181,6 +191,10 @@ export const sh2 = {
         // capture of stderr not used
       });
       if (stdinSrc !== null) {
+        child.stdin.on('error', () => {
+          // consumer exited early (e.g. `yes | head`): the remaining write
+          // gets EPIPE; that is normal shell SIGPIPE behavior, not a crash.
+        });
         child.stdin.write(stdinSrc);
         child.stdin.end();
       }
@@ -318,6 +332,7 @@ export const sh2 = {
     const saved = {
       vars: this.vars, exported: this.exported, positional: this.positional,
       fdTargets: this.fdTargets, traps: this.traps, shoptState: this.shoptState,
+      cwd: this.cwd,
     };
     this.vars = new Map(this.vars);
     this.exported = new Set(this.exported);
@@ -333,6 +348,8 @@ export const sh2 = {
       this.fdTargets = saved.fdTargets;
       this.traps = saved.traps;
       this.shoptState = saved.shoptState;
+      this.cwd = saved.cwd;
+      try { process.chdir(saved.cwd); } catch { /* ignore */ }
     }
   },
 
@@ -581,6 +598,7 @@ builtins.cd = function (args) {
     const target = path.resolve(this.cwd, expandWord(this, dir));
     fs.accessSync(target, fs.constants.R_OK);
     this.cwd = target;
+    process.chdir(target); // keep process.cwd() in sync so relative file paths resolve
     this.lastExit = 0;
     return true;
   } catch {
@@ -648,6 +666,25 @@ builtins.read = function (args) {
   this.lastExit = 0;
   return true;
 };
+
+// mapfile / readarray: read stdin (or fd N via -u) into an array, one
+// element per line. `-t` strips the trailing newline of each line.
+builtins.mapfile = function (args) {
+  const names = args.filter(a => !a.startsWith('-') && a !== '');
+  const arrName = names[0] ?? 'MAPFILE';
+  const strip = args.includes('-t');
+  const src = this.fdTargets[0];
+  let content = '';
+  if (src.kind === 'string') content = src.content;
+  else if (src.kind === 'file' && src.readMode) content = readFileSafe(src.target);
+  let lines = content.split('\n');
+  if (lines.length && lines[lines.length - 1] === '') lines.pop();
+  if (strip) lines = lines.map(l => l.replace(/\r$/, ''));
+  this.arrays.set(arrName, lines);
+  this.lastExit = 0;
+  return true;
+};
+builtins.readarray = builtins.mapfile;
 
 builtins.exit = function (args) {
   // The corpus gate compares stdout only (like the perl path, which ignores
@@ -741,6 +778,21 @@ function writeFileSync(target, data, mode = 'w') {
     process.stderr.write(`write ${target}: ${e.message}\n`);
   }
 }
+
+// ── process substitution materialization ────────────────────────────
+// The emitter tags `<(...)` argument positions with PS_MAGIC + captured
+// producer stdout; exec() turns them into temp file paths here.
+const PS_MAGIC = '\u0001SH2PS\u0001';
+function materializePath(content) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sh2-ps-'));
+  const f = path.join(dir, 'ps');
+  // capture() strips trailing newlines (command-substitution semantics);
+  // bash's /dev/fd/N content keeps them, so restore one for file consumers
+  // (diff/cmp/comm notice the missing final newline otherwise).
+  if (!content.endsWith('\n')) content += '\n';
+  fs.writeFileSync(f, content);
+  return f;
+}
 function readFileSafe(p) {
   try { return fs.readFileSync(p, 'utf8'); } catch { return ''; }
 }
@@ -760,18 +812,29 @@ export function expandWord(sh, s) {
 }
 
 // ── printf ───────────────────────────────────────────────────────────
+// bash reuses the FORMAT string for every argument (cycling through
+// conversions), so `printf '%s ' a b` prints "a b ". We emit one format
+// pass per argument, consuming one conversion per pass.
 function printfFormat(format, args) {
+  if (args.length === 0) return formatOnce(format, () => '');
   let out = '';
   let ai = 0;
+  while (ai < args.length) {
+    out += formatOnce(format, () => args[ai++] ?? '');
+  }
+  return out;
+}
+
+function formatOnce(format, nextArg) {
   const specs = /%(?:[-+ 0#]*\d*(?:\.\d+)?[diouxXeEfgGcbs%])/g;
+  let out = '';
   let last = 0;
   let m;
   while ((m = specs.exec(format)) !== null) {
     out += unescapeFormat(format.slice(last, m.index));
     const spec = m[0];
     if (spec === '%%') { out += '%'; last = m.index + 2; continue; }
-    const arg = args[ai++ % Math.max(args.length, 1)];
-    out += printfOne(spec, arg);
+    out += printfOne(spec, nextArg());
     last = m.index + spec.length;
   }
   out += unescapeFormat(format.slice(last));

@@ -429,6 +429,17 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
   word-level: parameter expansion, arithmetic, brace expansion, arrays).
   22 lib tests pass. Next: word-level lowering, then reference executor +
   structural gate + `fail-estree`.
+- **2026-07-31 — Flakiness eliminated + examples re-blessed (commit
+  32cd1aa).** Repeated full-corpus runs (4×/harness with the worker paused)
+  found the remaining flaky set — all CWD//tmp-dependent: 000__04b,
+  test_system_builtin (ls/find of the shared CWD; ..=/tmp size fluctuates),
+  104_pipeline_failure_var_capture (counted `ls /tmp`). Fixed hermetic
+  (mktemp scratch + ls -A); blessed the earlier uncommitted rewrites
+  (065/case-pattern-paren/cat-dash-stdin/heredoc-with-braces/pipeline-after-
+  subshell) + 085 removal. Runtime: cd now process.chdir()s (relative
+  redirect targets). Verified: estree flaky set EMPTY (372/143 ×2), perl
+  stable (426/89 ×2, no new failures); fail timeout aligned 15→20s;
+  blessed-fail-estree.txt re-blessed (176 tests).
 - **2026-07-31 — M6 import registry landed (commit 2f70f9d).** Perl
   generator's `use` emissions are now table-driven (one Vec, one pass),
   preserving output byte-for-byte (verified: perl corpus 425/90 identical).
