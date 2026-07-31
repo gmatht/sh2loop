@@ -429,6 +429,16 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
   word-level: parameter expansion, arithmetic, brace expansion, arrays).
   22 lib tests pass. Next: word-level lowering, then reference executor +
   structural gate + `fail-estree`.
+- **2026-07-31 — M4 arrays + M5 Stage B gate.** Arrays lowered (`arr=(...)` →
+  `sh2.setArray`, `${arr[i]}`/`arr[i]=x` → runtime array store, `${#arr[@]}`
+  → set-index count, `${arr[@]}`/`${arr[*]}` → flatten/join, `${arr[@]:o:l}`
+  slices, `$((arr[i]))` arithmetic; pure single-part interpolations lower to
+  raw expressions so exec/forLoop flatten arrays like bash). ESTREE 338 →
+  343/515 (66.6%); gate 21. **M5 Stage B**: `fail-estree --gate`/`--bless`
+  with `blessed-fail-estree.txt` (201 tests allowlisted; gate exits 1 on any
+  un-blessed failure — verified). Commits 1e58663, 2d0add8.
+  Next: runtime polish (96 stdout + 55 runtime), then M3 estree-reroute
+  through the IR, then M6 shared passes.
 - **2026-07-31 — M4 word-level lowering: parameter expansion, arithmetic,
   brace expansion (commit 248f9fe).** `estree.rs` lowers `${var...}` (defaults,
   case mods, prefix/suffix removal, substitution, basename/dirname, slice) →
