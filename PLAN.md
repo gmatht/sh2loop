@@ -391,3 +391,19 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
    knowledge isn't orphaned.
 6. **sh2runtime side (their repo):** `docs/estree-api.md` referenced from a
    future `sh2runtime/AGENTS.md`.
+
+---
+
+## 7. Execution log
+
+- **2026-07-31 — M1 done.** sh2perl registered as a proper submodule
+  (`.gitmodules` + gitlink → `d18a506`); `fail -> ../fail` symlink removed from
+  sh2perl (one-way rule); 65 tracked scratch artifacts removed + `.gitignore`
+  patterns added; working-tree generator WIP (words.rs, pipeline_commands.rs,
+  ir.rs, mod.rs, redirects.rs) committed as-is (compiles; full corpus 430/517
+  passed, matching last committed baseline — no regressions).
+- **2026-07-31 — M2 done.** `AGENTS.md` (workspace + standalone sh2perl),
+  `.pi/skills/sh2dev`, `.pi/prompts/{run-tests,bless-estree}.md`.
+- **Caveat:** a background `main_loop_rust.pl` is actively committing/editing
+  sh2perl sources (repo moved febb301 → aa5df7a during M1). The gitlink will
+  need re-bumping after that loop settles.
