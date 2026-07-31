@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# Metric over the FULL GNU coreutils test corpus (~650 scripts) — NOT a
+# gate. Records per script: transpile-to-Perl parse ok/fail and ESTree
+# sh2.unsupported count, so corpus coverage can be watched as the
+# regression tests in this directory go green.
+#
+# Detection is by OUTPUT CONTENT, not exit code: `debashc file` prints
+# "Parse error: ..." but still exits 0.
+#
+# Baseline (coreutils git HEAD c4bf1d4, 2026-07 probe):
+#   parse OK:          646/650  (the 4 failures are exactly the
+#                                 tests/coreutils/coreutils-*.sh repros)
+#   ESTree zero-unsupported: 1/650 (923 unsupported sites; 645 of them are
+#                                 ${srcdir=.} default-value expansion)
+set -euo pipefail
+root="$(cd "$(dirname "$0")/../.." && pwd)"
+debashc="$root/sh2perl/target/debug/debashc"
+corpus="${CORPUS_DIR:-/var/tmp/coreutils-corpus}"
+
+if [ ! -d "$corpus/tests" ]; then
+    mkdir -p "$(dirname "$corpus")"
+    git clone --depth 1 https://git.savannah.gnu.org/git/coreutils.git "$corpus"
+fi
+sha="$(git -C "$corpus" rev-parse --short HEAD)"
+total="$(find "$corpus/tests" -name '*.sh' | wc -l)"
+echo "coreutils corpus: $corpus @ $sha  ($total scripts)"
+echo
+
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
+# parses: capture-then-grep (piping debashc's big AST dump straight into
+# `grep -q` would SIGPIPE debashc once grep closes the pipe, and pipefail
+# would then flag a bogus failure). Retries once to absorb the rare
+# transient exec flake seen in long runs.
+parses() {
+    local f="$1" out
+    out="$("$debashc" file "$f" 2>&1)"
+    printf '%s' "$out" | grep -q 'Parse successful!' && return 0
+    out="$("$debashc" file "$f" 2>&1)"
+    printf '%s' "$out" | grep -q 'Parse successful!'
+}
+
+parse_ok=0
+zero=0
+na=0
+: > "$tmp/parse_fail.txt"
+: > "$tmp/estree.txt"
+n=0
+for f in "$corpus"/tests/*/*.sh; do
+    n=$((n + 1))
+    if parses "$f"; then
+        parse_ok=$((parse_ok + 1))
+    else
+        echo "$(basename "$f")  ($f)" >> "$tmp/parse_fail.txt"
+    fi
+    # ESTree pass: capture stderr too, so real parse errors (which debashc
+    # prints to stderr with exit 0) are counted as NA, not as 0 unsupported.
+    out="$("$debashc" file --estree "$f" 2>&1)"
+    if printf '%s' "$out" | grep -q '^Parse error'; then
+        na=$((na + 1))
+        printf 'NA %s\n' "$(basename "$f")" >> "$tmp/estree.txt"
+    else
+        unsup="$(printf '%s' "$out" | grep -o '"name":"unsupported"' | wc -l)" || true
+        if [ "$unsup" -eq 0 ]; then
+            zero=$((zero + 1))
+        fi
+        printf '%s %s\n' "$unsup" "$(basename "$f")" >> "$tmp/estree.txt"
+    fi
+    if [ $((n % 100)) -eq 0 ]; then printf '  %d/%d done\n' "$n" "$total" >&2; fi
+done
+
+echo "== transpile-to-Perl (parse) =="
+echo "  ok: $parse_ok / $total"
+echo "  parse failures: $(wc -l < "$tmp/parse_fail.txt")"
+sed 's/^/    /' "$tmp/parse_fail.txt"
+echo
+echo "== ESTree sh2.unsupported coverage =="
+echo "  zero-unsupported scripts: $zero / $total"
+echo "  estree-NA (parse error in estree pass): $na"
+echo "  unsupported-count distribution (count: #scripts):"
+grep -v '^NA ' "$tmp/estree.txt" | awk '{print $1}' | sort -n | uniq -c | awk '{printf "    %s unsupported: %s scripts\n", $2, $1}' | head -12
+echo "  most-unsupported scripts:"
+sort -rn "$tmp/estree.txt" | head -5 | awk '{printf "    %s  %s\n", $1, $2}' || true

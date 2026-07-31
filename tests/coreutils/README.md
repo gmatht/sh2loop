@@ -2,12 +2,17 @@
 
 In July 2026 the GNU coreutils test suite (git HEAD `c4bf1d4`, 650 test
 scripts in `tests/**/*.sh`, ~41k lines) was run through `debashc` as a
-real-world corpus probe. All 650 transpile to Perl, but the probe found
-real gaps. Per the workspace workflow, **tests were added first**; fixes
-land later (each test goes green when its fix lands).
+real-world corpus probe. 646/650 parse to Perl — the 4 parse failures are
+exactly the parser-bug repros below, and the source/ESTree gaps are
+semantic (they parse, but mis-compile). Per the workspace workflow,
+**tests were added first**; fixes land later (each test goes green when
+its fix lands).
 
 Run: `./fail-coreutils [prefix]` (same gate as `./fail`, but over this
 dir) — or `FAIL_CORPUS=tests/coreutils ./fail`.
+
+Full-corpus coverage: `./tests/coreutils/metric` (fetches the checkout
+on demand, records parse + ESTree unsupported coverage over all 650).
 
 These tests are **red by design**. Never bless or allowlist them — that
 would hide a transpiler bug (AGENTS.md guardrail).
