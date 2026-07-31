@@ -429,6 +429,19 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
   word-level: parameter expansion, arithmetic, brace expansion, arrays).
   22 lib tests pass. Next: word-level lowering, then reference executor +
   structural gate + `fail-estree`.
+- **2026-07-31 — ESTree repair loop (`main_loop_estree.pl`).** Companion to
+  `main_loop_rust.pl`: runs `./fail-estree`, diffs against a baseline
+  (`.estree_prev_failures.tsv`, trusted counts `.estree_trusted_count` +
+  `.estree_perl_trusted_count`), invokes pi (`opencode-go/deepseek-v4-flash`)
+  with a failure-category prompt, re-runs, and keeps/commits improvements or
+  auto-stashes regressions. Scoped staging ONLY (`src/estree.rs` in the
+  submodule, `harness/*` in the root) — never `git add -A` — because the
+  submodule carries the user's in-flight WIP; also never runs the examples
+  restore (would clobber it). Corpus-size changes reseed the baseline.
+  Run: `nohup perl main_loop_estree.pl > loop-estree.log 2>&1 &`,
+  `./tmux_mon --session sh2estree -- perl main_loop_estree.pl`, or the
+  `sh2estree.service` unit. `--dry-run` prints the pi prompt without
+  invoking pi.
 - **2026-07-31 — Reference executor + structural gate + `fail-estree` (M4).**
   New `harness/` in the workspace: `estree-gen.mjs` (deterministic
   ESTree→JS printer for the emitter's fixed node vocabulary — deviation:
@@ -443,7 +456,7 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
   executing: await on async `sh2.*` calls, `sh2.forLoop`/`sh2.whileLoop`
   runtime loops with signal break/continue, `sh2.capture`/`whileLoop`
   closures, block-bodied compound stages, reserved-word-safe loop vars,
-  `$@` list expansion. **Stage A metric: 237/515 (46%) examples match bash
+  `$@` list expansion. **Stage A metric: 255/515 (49.5%) examples match bash
   via the ESTree backend** (gate: 208 word-level unsupported, stdout
   mismatch: 46, runtime error: 24). Next: word-level lowering
   (parameter expansion, arithmetic words, brace expansion, arrays) to clear

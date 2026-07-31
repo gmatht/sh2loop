@@ -105,11 +105,16 @@ export const sh2 = {
       try { r = await fn(); } finally { this.positional = saved; }
       return r;
     }
+    const flat = [];
+    for (const a of args) {
+      if (Array.isArray(a)) flat.push(...a.map(String));
+      else flat.push(String(a));
+    }
     if (typeof builtins[name] === 'function') {
-      const r = await builtins[name].call(this, args);
+      const r = await builtins[name].call(this, flat);
       return r;
     }
-    return await this._runProc(name, args.map(String));
+    return await this._runProc(name, flat);
   },
 
   async _runProc(cmd, args) {
@@ -186,6 +191,12 @@ export const sh2 = {
     } finally {
       this.fdTargets[1] = saved;
     }
+  },
+
+  // Unquoted $(...) — bash word-splits the captured output on IFS.
+  async captureWords(fn) {
+    const out = await this.capture(fn);
+    return out.split(/\s+/).filter(w => w.length > 0);
   },
 
   // ── redirects ──────────────────────────────────────────────────────

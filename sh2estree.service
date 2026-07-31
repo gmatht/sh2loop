@@ -1,0 +1,17 @@
+[Unit]
+Description=sh2loop — ESTree backend repair loop
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ai
+WorkingDirectory=/nvme/ai/sh2loop
+ExecStart=/nvme/ai/sh2loop/main_loop_estree.pl
+Restart=on-failure
+RestartSec=10
+StandardOutput=append:/nvme/ai/sh2loop/loop-estree.log
+StandardError=append:/nvme/ai/sh2loop/loop-estree.log
+
+[Install]
+WantedBy=multi-user.target
