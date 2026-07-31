@@ -28,6 +28,18 @@ Covers three related work items:
 >   submodule (ESTree JSON decouples it). One-way rule: sh2loop → sh2perl;
 >   sh2perl never references sh2loop (e.g. its tracked `fail -> ../fail` symlink
 >   must go).
+> - v6: **native arithmetic in the ESTree.** `$((...))` lowers to standard
+>   ESTree BinaryExpression/LogicalExpression/ConditionalExpression (rendered
+>   as native JS) instead of a runtime string-eval `sh2.arith("i+1")`.
+>   Decision (Q: "lower in the Generator rather than the ESTree?"): the ESTree
+>   JSON is the cross-repo contract — standard nodes let sh2runtime execute
+>   arithmetic without implementing a bash-arithmetic string parser, and the
+>   printer stays a dumb syntax walker. Bash-faithful edges live in the
+>   renderer: `Number(v)||0` coercion, `?1:0` for comparisons/logicals,
+>   right-assoc `**`, `Math.trunc` integer division, and zero-divisor → whole
+>   expansion aborts (`sh2.idiv`/`sh2.imod` throw inside `sh2.arithEval`).
+>   Assignments (`x+=`, `x++`) still fall back to `sh2.arith` (setVar
+>   semantics).
 
 ---
 

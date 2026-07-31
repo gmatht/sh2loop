@@ -17,7 +17,7 @@ use warnings;
 use JSON::PP;
 
 my %whitelist = map { $_ => 1 } qw(
-    exec getVar setVar test pipeline capture captureWords redirect caseMatch param arith brace setArray setArrayAppend assign arrayItems arrayLen arrayIndex join setLastExit
+    exec getVar setVar test pipeline capture captureWords redirect caseMatch param arith brace setArray setArrayAppend assign arrayItems arrayLen arrayIndex join setLastExit arithEval idiv imod
     define subshell background block whileLoop cstyleFor forLoop listVar
     shopt return break continue unsupported
 );
@@ -54,11 +54,18 @@ sub walk {
                 && ref $prop eq 'HASH'
                 && ($prop->{type} // '') eq 'Identifier';
             my $cname = ref $prop eq 'HASH' ? ($prop->{name} // '') : '';
-            if (!$is_sh2) {
+            my $is_native = ($callee->{type} // '') eq 'Identifier'
+                && ($callee->{name} // '') eq 'Number';
+            my $is_math = ref $obj eq 'HASH'
+                && ($obj->{type} // '') eq 'Identifier'
+                && ($obj->{name} // '') eq 'Math'
+                && ref $prop eq 'HASH'
+                && ($prop->{name} // '') =~ /^(trunc|floor|ceil)$/;
+            if (!$is_sh2 && !$is_native && !$is_math) {
                 push @problems, "non-sh2 callee: " . ($cname || $type);
-            } elsif (!$whitelist{$cname}) {
+            } elsif ($is_sh2 && !$whitelist{$cname}) {
                 push @problems, "callee not in sh2.* whitelist: $cname";
-            } elsif ($cname eq 'unsupported') {
+            } elsif ($is_sh2 && $cname eq 'unsupported') {
                 push @problems, "sh2.unsupported call present";
             }
         }

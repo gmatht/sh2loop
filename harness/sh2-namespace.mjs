@@ -834,6 +834,29 @@ export const sh2 = {
     }
   },
 
+  // Native `$((...))` boundary: bash aborts the whole expansion on an
+  // arithmetic error (division by zero), yielding the EMPTY string. The
+  // generated code passes a closure containing the native expression; the
+  // runtime converts the value and catches the idiv/imod zero-divisor throw.
+  arithEval(f) {
+    try {
+      return String(f());
+    } catch {
+      return '';
+    }
+  },
+  // Integer division / modulo with bash's truncating semantics; a zero
+  // divisor throws so the error aborts the whole expansion (JS bitwise ops
+  // would silently absorb a NaN result).
+  idiv(a, b) {
+    if (b === 0) throw new Error('arith: division by 0');
+    return Math.trunc(a / b);
+  },
+  imod(a, b) {
+    if (b === 0) throw new Error('arith: division by 0');
+    return a % b;
+  },
+
   // bash interpolation of an array value joins with spaces (JS would use
   // commas); harmless for scalars.
   join(v) {

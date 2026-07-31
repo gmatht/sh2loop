@@ -57,7 +57,7 @@ function exprUnwrapped(node) {
     case 'AwaitExpression':
       return `await ${expr(node.argument, PREC.AwaitExpression)}`;
     case 'UnaryExpression':
-      return `${node.operator}${expr(node.argument, PREC.UnaryExpression)}`;
+      return `${node.operator}${parenIfCompound(node.argument)}`;
     case 'ArrowFunctionExpression': {
       const params = `(${node.params.map(p => expr(p)).join(', ')})`;
       const body = node.expression
@@ -71,9 +71,29 @@ function exprUnwrapped(node) {
       return `{${node.properties.map(prop).join(', ')}}`;
     case 'LogicalExpression':
       return `${expr(node.left, PREC.LogicalExpression)} ${node.operator} ${expr(node.right, PREC.LogicalExpression)}`;
+    case 'BinaryExpression': {
+      // Parenthesize nested binary/logical/conditional operands so the
+      // printer never changes operator precedence (the AST tree already
+      // encodes it).
+      const l = parenIfCompound(node.left);
+      const r = parenIfCompound(node.right);
+      return `${l} ${node.operator} ${r}`;
+    }
+    case 'ConditionalExpression': {
+      const t = parenIfCompound(node.test);
+      const c = parenIfCompound(node.consequent);
+      const a = parenIfCompound(node.alternate);
+      return `${t} ? ${c} : ${a}`;
+    }
     default:
       throw new Error(`estree-gen: unknown expression node type ${node.type}`);
   }
+}
+
+function parenIfCompound(n) {
+  return ['BinaryExpression', 'LogicalExpression', 'ConditionalExpression', 'ArrowFunctionExpression'].includes(n.type)
+    ? `(${expr(n)})`
+    : expr(n);
 }
 
 function prop(p) {
