@@ -4,3 +4,4 @@ sh/
 sh2perl-*.pl
 tmp/
 check_sh_results/
+harness/node_modules/
