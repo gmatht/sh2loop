@@ -429,6 +429,16 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
   word-level: parameter expansion, arithmetic, brace expansion, arrays).
   22 lib tests pass. Next: word-level lowering, then reference executor +
   structural gate + `fail-estree`.
+- **2026-07-31 — M4 word-level lowering: parameter expansion, arithmetic,
+  brace expansion (commit 248f9fe).** `estree.rs` lowers `${var...}` (defaults,
+  case mods, prefix/suffix removal, substitution, basename/dirname, slice) →
+  `sh2.param`; `$((...))` → `sh2.arith`; `{a,b}`/`{1..5}` → `sh2.brace`
+  (runtime cross-product; exec flattens array args). Corpus: **ESTREE 254 →
+  338/515 (65.6%)**; gate bucket 184 → 41 (remaining gate = arrays). PERL
+  unchanged. Newly-executing constructs add ~59 stdout/runtime failures to
+  polish; bare-unquoted `\${x//p/r}` mis-parses upstream (matches perl).
+  Next: arrays (`declare -a`, `arr[i]`, `${arr[@]}`, `${#arr[@]}`), then
+  runtime polish, then M3 estree-reroute + M5 gating + M6 shared passes.
 - **2026-07-31 — M3 shIR step 1: Sigil → optional backend annotation.** The IR
   core no longer requires a Perl sigil: `IrExpr::Var`/`AssignTarget`/`Decl`/
   `DeclareArray` carry `Option<Sigil>` (None renders as scalar for Perl; a
