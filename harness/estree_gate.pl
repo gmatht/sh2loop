@@ -17,7 +17,7 @@ use warnings;
 use JSON::PP;
 
 my %whitelist = map { $_ => 1 } qw(
-    exec getVar setVar test pipeline capture captureWords redirect caseMatch param arith brace setArray setArrayAppend assign arrayItems arrayLen arrayIndex join setLastExit arithEval idiv imod guard not
+    exec getVar setVar test pipeline capture captureWords redirect caseMatch param arith brace setArray setArrayAppend assign arrayItems arrayLen arrayIndex join setLastExit arithEval idiv imod guard not contains
     define subshell background block whileLoop whileLoopSync cstyleFor forLoop listVar and or
     shopt return break continue unsupported
 );
@@ -69,13 +69,18 @@ sub walk {
                 && ($prop->{type} // '') eq 'Identifier';
             my $cname = ref $prop eq 'HASH' ? ($prop->{name} // '') : '';
             my $is_native = ($callee->{type} // '') eq 'Identifier'
-                && ($callee->{name} // '') eq 'Number';
+                && (($callee->{name} // '') eq 'Number' || ($callee->{name} // '') eq 'String');
             my $is_math = ref $obj eq 'HASH'
                 && ($obj->{type} // '') eq 'Identifier'
                 && ($obj->{name} // '') eq 'Math'
                 && ref $prop eq 'HASH'
                 && ($prop->{name} // '') =~ /^(trunc|floor|ceil)$/;
-            if (!$is_sh2 && !$is_native && !$is_math) {
+            # String(x).includes(n) — the native contains lowering (pure)
+            my $is_string_method = ref $obj eq 'HASH'
+                && ($obj->{type} // '') eq 'CallExpression'
+                && ref $prop eq 'HASH'
+                && ($prop->{name} // '') eq 'includes';
+            if (!$is_sh2 && !$is_native && !$is_math && !$is_string_method) {
                 push @problems, "non-sh2 callee: " . ($cname || $type);
             } elsif ($is_sh2 && !$whitelist{$cname}) {
                 push @problems, "callee not in sh2.* whitelist: $cname";
