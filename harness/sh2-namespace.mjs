@@ -2043,6 +2043,7 @@ function emit(sh, text) {
   else if (t.kind === 'file') writeFileSync(t.target, decodeRawBytes(text) ?? Buffer.from(text, 'utf8'), t.mode);
   else if (t.kind === 'stderr') process.stderr.write(decodeRawBytes(text) ?? text);
   else if (t.kind === 'closed') { /* fd closed: bash errors (exit 1) and the output is lost */ sh.lastExit = 1; }
+  else if (sh._outSink) sh._outSink(1, decodeRawBytes(text) ?? text);
   else process.stdout.write(decodeRawBytes(text) ?? text);
 }
 function emitErr(sh, text) {
@@ -2051,6 +2052,7 @@ function emitErr(sh, text) {
   else if (t.kind === 'file') writeFileSync(t.target, decodeRawBytes(text) ?? Buffer.from(text, 'utf8'), t.mode);
   else if (t.kind === 'stdout') process.stdout.write(decodeRawBytes(text) ?? text);
   else if (t.kind === 'closed') { /* fd closed */ sh.lastExit = 1; }
+  else if (sh._outSink) sh._outSink(2, decodeRawBytes(text) ?? text);
   else process.stderr.write(decodeRawBytes(text) ?? text);
 }
 
