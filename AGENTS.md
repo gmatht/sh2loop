@@ -15,6 +15,9 @@ revision history).
 - Test harness: `fail` (Perl corpus gate), `check_qx.pl`, `main_loop_rust.pl`,
   `fail-coreutils` (workspace-side regression corpus); planned: `fail-estree`,
   `harness/estree-runner.mjs` (reference executor).
+- `harness/check_ast.pl` — AST-structure regression tests (pins parser gaps
+  like `echo x $$` vs `echo x$$` distinguishability; KNOWN AST LIMITATION
+  lines are tracked parser gaps, not blessed regressions).
 
 ## Common commands
 
