@@ -347,6 +347,28 @@ EXEMPLARS ALREADY LANDED (the bar to match or beat):
   - echo X | grep P >/dev/null 2>/dev/null (test position) -> String(X).includes(P)
     via the ShIR grep-test lift (~180x on a 10k-iter loop)
 
+AGGRESSIVENESS — 'provable' can be broadened with DOCUMENTED, OPTION-GATED
+ASSUMPTIONS about the execution environment the corpus cannot observe. For
+each assumption: implement the aggressive lowering it unlocks, run the FULL
+suite, and if it stays 100% KEEP it — behind an option that DEFAULTS ON
+(mirror SH2_BC_NATIVE=1 but inverted: ON by default; an env flag like
+SH2_ASSUME_X=0 turns it off for maximal fidelity). Document the assumption
+next to its option. The metric has been FLAT — the conservative reads are
+stalling progress; the keep/stash loop is the safety net, so TRY and let the
+suite judge.
+
+Candidate assumptions (state which you use, or find better ones):
+- SELF_CONTAINED: no code outside this script reads its variables or calls
+  its functions (no parent-shell/source/`declare -p` observation) -> the
+  variable store and function map only need to serve the script itself;
+  drop store syncs / dispatch where the script provably cannot observe it.
+- NO_RUNTIME_REFLECTION: no `declare -p`, `\${!x}`, `set` dumps, or `eval`
+  that reads variables -> the store need not be queryable.
+- NO_OVERFLOW / C_LOCALE: arithmetic uses JS machine numbers; sort/glob
+  ordering assumes the C locale -> native comparison/ordering everywhere.
+- POSITIONAL_LOCAL: \$1..\$N / \$@ are only consumed inside the script
+  (no caller fetches them mid-run) -> positionals need no live backing.
+
 CURRENT METRIC — remaining sh2.* call sites across the corpus (fail-estree --metric):
 PROMPT
     $prompt .= "  total: $total call sites\n";
@@ -369,8 +391,11 @@ VERIFY (mandatory, exactly like fix mode):
 - Structural gate stays green; NEW sh2.* names need estree_gate.pl whitelist
   entries; *Sync only for the pure-CPU loop exception (whileLoopSync precedent).
 - NEVER reduce the PERL pass count; no blocking I/O (async-only codegen).
-- Smallest change that wins the most. If a lowering cannot be proven correct on
-  the corpus, keep the existing runtime call — do not regress what works.
+- Smallest change that wins the most. TRY the aggressive lowering and let the
+  full suite judge (the loop stashes on regression) — only give up on an
+  approach after it actually regresses a test, not on speculation. Every
+  kept assumption must be documented + option-gated with the aggressive
+  default.
 - Prefer src/shir.rs (shared ShIR) for pattern lifts so other backends can
   reuse them; harness/sh2-namespace.mjs for runtime changes; estree_gate.pl
   for whitelist entries.
