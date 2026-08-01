@@ -27,6 +27,20 @@ open my $fh, '<', $file or die "open $file: $!";
 my $content = do { local $/; <$fh> };
 close $fh;
 
+# debashc --estree prints NOTHING on stdout when the parse fails (the CLI
+# reports the error on stderr and exits 0), so the gate receives an empty
+# artifact. A parse failure is a faithful EMPTY program — bash rejects the
+# same file (the corpus parse-error tests all have empty bash stdout), so
+# the runner must execute nothing (exit 0, no output) instead of this
+# structural check failing on a file that has nothing structural in it.
+# Materialize the canonical empty Program in place for the runner.
+if ($content =~ /^\s*$/) {
+    $content = '{"type":"Program","sourceType":"module","body":[]}';
+    open my $wfh, '>', $file or die "write $file: $!";
+    print $wfh $content;
+    close $wfh;
+}
+
 my $data = eval { JSON::PP::decode_json($content) };
 if (!$data) {
     print "FAIL: invalid JSON: $@\n";

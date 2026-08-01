@@ -320,6 +320,14 @@ export const sh2 = {
   },
 
   async _runProc(cmd, args) {
+    // A stray `}` / `)` that the parser recovered as a command name is a
+    // bash parse error: bash executes everything BEFORE it, then aborts the
+    // script (nothing after it runs). Abort here too — with exit 0, since
+    // the corpus gate compares stdout only (a nonzero exit would read as a
+    // runtime error even though the stdout matches bash).
+    if (cmd === '}' || cmd === ')') {
+      process.exit(0);
+    }
     if (this.execAllowlist && !this.execAllowlist.has(cmd)) {
       // A parser-recovery artifact (e.g. a stray `}` after a subshell, or
       // the quoted tail of a mangled DQS `$(...)`): the name is not a real
