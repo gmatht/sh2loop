@@ -679,6 +679,40 @@ export const sh2 = {
     return true;
   },
 
+  // Sync twin of forLoop for the emitter's fast path: a provably-sync loop
+  // (iterable + body contain no awaits, hence no I/O) runs without the
+  // per-iteration promise/microtask machinery. Semantics are IDENTICAL
+  // (flattening, GLOB_MAGIC expansion, BREAK/CONTINUE/RETURN signals,
+  // capture bound) — only the awaits are dropped. Pure CPU, so it never
+  // blocks the event loop on I/O; the structural gate whitelists it
+  // explicitly (see estree_gate.pl).
+  forLoopSync(items, bodyFn) {
+    const expandItem = (x) => {
+      if (typeof x === 'string' && x.startsWith(GLOB_MAGIC)) {
+        const pat = x.slice(GLOB_MAGIC.length);
+        const hits = globExpand(pat);
+        return hits.length > 0 ? hits : [pat];
+      }
+      return [x];
+    };
+    const flat = [];
+    for (const it of items) {
+      if (Array.isArray(it)) for (const x of it) flat.push(...expandItem(x));
+      else flat.push(...expandItem(it));
+    }
+    for (const v of flat) {
+      if (this._capExceeded()) break;
+      try {
+        bodyFn(v);
+      } catch (e) {
+        if (isSignal(e, 'BREAK')) break;
+        if (isSignal(e, 'CONTINUE')) continue;
+        throw e;
+      }
+    }
+    return true;
+  },
+
   listVar(name) {
     if (name === '@' || name === '*') return [...this.positional];
     return [];
@@ -824,6 +858,33 @@ export const sh2 = {
       if (cond && !evalArith(cond, this)) break;
       ran = true;
       try { await bodyFn(); bodyLastExit = this.lastExit; } catch (e) {
+        if (isSignal(e, 'BREAK')) break;
+        if (isSignal(e, 'CONTINUE')) { /* fall through to update */ }
+        else throw e;
+      }
+      if (upd) evalArith(upd, this);
+    }
+    this.lastExit = ran ? bodyLastExit : 0;
+    return this.lastExit === 0;
+  },
+
+  // Sync twin of cstyleFor for the emitter's fast path (provably-sync body
+  // — no awaits, hence no I/O). Semantics are IDENTICAL (header parse,
+  // evalArith init/cond/upd, iteration limit, BREAK/CONTINUE/RETURN
+  // signals, lastExit) minus the per-iteration promise machinery. Pure
+  // CPU; whitelisted by the structural gate alongside whileLoopSync /
+  // forLoopSync.
+  cstyleForSync(header, bodyFn) {
+    const [init, cond, upd] = parseCStyleHeader(header);
+    if (init) evalArith(init, this);
+    let guard = 0;
+    let ran = false;
+    let bodyLastExit = 0;
+    for (;;) {
+      if (guard++ > 1_000_000) throw new Error('cstyleForSync: iteration limit');
+      if (cond && !evalArith(cond, this)) break;
+      ran = true;
+      try { bodyFn(); bodyLastExit = this.lastExit; } catch (e) {
         if (isSignal(e, 'BREAK')) break;
         if (isSignal(e, 'CONTINUE')) { /* fall through to update */ }
         else throw e;
