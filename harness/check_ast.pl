@@ -232,6 +232,30 @@ my @cases = (
         },
     },
     {
+        name => 'beh_singlequote_glob_literal',
+        kind => 'beh',
+        src  => "touch a.txt b.txt; echo '*.txt'; echo *.txt",
+        check => sub {
+            my ($b, $e) = @_;
+            # `'*.txt'` is LITERAL (bash never globs single-quoted text);
+            # bare `*.txt` globs. The parser must preserve quote state so
+            # the glob tagger can tell them apart.
+            return $b eq $e;
+        },
+    },
+    {
+        name => 'beh_singlequote_longoption_literal',
+        kind => 'beh',
+        src  => q{X=test; echo '--x=${X}'},
+        check => sub {
+            my ($b, $e) = @_;
+            # single-quoted `${...}` text is literal — never split/expanded
+            # (the bare LongOption artifact `--x="${X}"` IS expanded; this
+            # quoted form must NOT be).
+            return $b eq $e;
+        },
+    },
+    {
         name => 'beh_dollardollar_slash_suffix',
         kind => 'beh',
         src  => 'echo x$$/suf',
