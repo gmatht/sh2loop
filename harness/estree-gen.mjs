@@ -79,6 +79,8 @@ function exprUnwrapped(node) {
       const r = parenIfCompound(node.right);
       return `${l} ${node.operator} ${r}`;
     }
+    case 'AssignmentExpression':
+      return `${expr(node.left)} ${node.operator} ${expr(node.right)}`;
     case 'ConditionalExpression': {
       const t = parenIfCompound(node.test);
       const c = parenIfCompound(node.consequent);
