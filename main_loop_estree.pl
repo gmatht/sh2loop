@@ -307,7 +307,7 @@ NARROW
   add them to the whitelist here)
 
 NEVER touch: examples/ (user WIP), PLAN.md, main_loop*.pl, fail,
-blessed-fail-estree.txt (regen with ./fail-estree --bless). If
+no failing-test allowlist exists (it was removed — a failing test is a bug). If
 main_loop_rust.pl (the Perl worker) starts running, the src surface
 narrows to src/estree.rs only — the FIX SURFACE above reflects the
 current mode.
