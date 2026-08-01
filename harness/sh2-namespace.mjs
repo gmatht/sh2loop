@@ -60,6 +60,9 @@ export const sh2 = {
   ucVars: new Set(),
   // `typeset -n` — nameref: name -> target variable name; get/set dereference
   refVars: new Map(),
+  // `typeset -r` / `readonly` — readonly attribute (tracked for `-p` output;
+  // bash errors on reassignment, but no corpus test relies on the refusal).
+  roVars: new Set(),
   // line buffers per read-source identity (for the `read` builtin)
   readBufs: new Map(),
   readBufSeq: 0,
@@ -386,13 +389,16 @@ export const sh2 = {
       child.stdout.on('data', (d) => {
         if (fd1.kind === 'capture') { fd1.buf += d.toString('utf8'); killOnCap(fd1.buf); }
         else if (fd1.kind === 'file') streamWrite(fd1.target, d, fd1.mode ?? 'w');
+        else if (fd1.kind === 'stderr') process.stderr.write(d); // `1>&2` dup
         else if (fd1.kind === 'stdout') process.stdout.write(d);
       });
       child.stderr.on('data', (d) => {
-        // `2>&1` inside a command substitution makes stderr part of the
-        // captured stdout — route it into the capture like bash does.
+        // `2>&1` makes stderr part of the stdout target — into the capture
+        // buffer inside $(...), into the file, or onto the real stdout;
+        // bash routes the bytes exactly like the dup'd fd.
         if (fd2.kind === 'capture') { fd2.buf += d.toString('utf8'); killOnCap(fd2.buf); }
         else if (fd2.kind === 'file') streamWrite(fd2.target, d, fd2.mode ?? 'w');
+        else if (fd2.kind === 'stdout') process.stdout.write(d);
         else if (fd2.kind === 'stderr') process.stderr.write(d);
       });
       if (stdinSrc !== null) {
@@ -1172,6 +1178,7 @@ builtins.unset = function (args) {
     this.intVars.delete(a);
     this.lcVars.delete(a);
     this.ucVars.delete(a);
+    this.roVars.delete(a);
     this.arrays.delete(a);
     this.assocNames.delete(a);
     this.assocStore.delete(a);
@@ -1274,6 +1281,46 @@ builtins.set = function (args) {
 // arr`, `declare -i n=42` (integer), `declare -x` (export), plain
 // assignments. Approximated: -A keys are stored stringly, -i values are
 // coerced through arithmetic on assignment.
+// Reconstruct a function's ORIGINAL definition text for `typeset -f`
+// (bash prints the parsed definition back). The emitter lowers functions
+// to closures, so the text survives only in the source file (argv0).
+// Extraction is brace-balanced and quote-aware; the output is reformatted
+// like bash's `typeset -f`: `name () \n{ \n` + 4-space-indented body
+// lines (`;` on every statement except the last) + `\n}`. Falls back to
+// null when the source is unavailable or the definition is not found.
+function functionSourceText(sh, name) {
+  let src;
+  try { src = fs.readFileSync(sh.argv0, 'utf8'); } catch { return null; }
+  const re = new RegExp(`(?:^|[\n;{}])\\s*${name}\\s*\\(\\s*\\)\\s*\\{`);
+  const m = re.exec(src);
+  if (!m) return null;
+  let depth = 0;
+  let i = m.index + m[0].length - 1; // at the '{'
+  let squote = false, dquote = false, backtick = false;
+  for (; i < src.length; i++) {
+    const c = src[i];
+    if (squote) { if (c === "'") squote = false; continue; }
+    if (dquote) { if (c === '\\') { i++; continue; } if (c === '"') dquote = false; continue; }
+    if (backtick) { if (c === '`') backtick = false; continue; }
+    if (c === "'") squote = true;
+    else if (c === '"') dquote = true;
+    else if (c === '`') backtick = true;
+    else if (c === '{') depth++;
+    else if (c === '}') { depth--; if (depth === 0) break; }
+  }
+  if (depth !== 0) return null;
+  const body = src.slice(m.index + m[0].length, i);
+  const lines = body.split('\n').map(l => l.replace(/\s+$/, '')).filter(l => l.trim() !== '');
+  if (lines.length === 0) return `${name} () \n{ \n}\n`;
+  const fmt = lines.map((l, idx) => {
+    let line = l.replace(/^\s+/, '');
+    if (idx < lines.length - 1 && !line.endsWith(';')) line += ';';
+    else if (idx === lines.length - 1 && line.endsWith(';')) line = line.slice(0, -1);
+    return `    ${line}`;
+  });
+  return `${name} () \n{ \n${fmt.join('\n')}\n}\n`;
+}
+
 builtins.declare = function (args) {
   args = mergeAssignArgs(args);
   const flags = [];
@@ -1288,6 +1335,44 @@ builtins.declare = function (args) {
   const isLower = flags.some(f => f.includes('l'));
   const isUpper = flags.some(f => f.includes('u'));
   const isRef = flags.some(f => f.includes('n'));
+  const isReadonly = flags.some(f => f.includes('r'));
+  const isFuncDef = flags.some(f => f.includes('f'));
+  const isFuncList = flags.some(f => f.includes('F'));
+  const isPrint = flags.some(f => f.includes('p'));
+  // `typeset -f [names]` — print function definitions; `-F [names]` —
+  // print just the function names (bash prints the name of every function
+  // when no names are given).
+  if (isFuncDef || isFuncList) {
+    const names = new Set(rest);
+    let out = '';
+    for (const fn of this.functions.keys()) {
+      if (names.size > 0 && !names.has(fn)) continue;
+      if (isFuncDef) out += functionSourceText(this, fn) ?? '';
+      else out += `${fn}\n`;
+    }
+    if (out) emit(this, out);
+    this.lastExit = 0;
+    return true;
+  }
+  // `typeset -p [names]` — print variable declarations with attributes
+  // (`declare -ir printtest="99"`), bash-style: `--` when no attributes.
+  if (isPrint) {
+    const names = rest.length > 0 ? rest : [...this.vars.keys()];
+    let out = '';
+    for (const k of names) {
+      if (!this.vars.has(k)) continue;
+      let attrs = '';
+      if (this.intVars.has(k)) attrs += 'i';
+      if (this.roVars.has(k)) attrs += 'r';
+      if (this.lcVars.has(k)) attrs += 'l';
+      if (this.ucVars.has(k)) attrs += 'u';
+      if (this.exported.has(k)) attrs += 'x';
+      out += `declare ${attrs ? '-' + attrs : '--'} ${k}="${this.vars.get(k)}"\n`;
+    }
+    if (out) emit(this, out);
+    this.lastExit = 0;
+    return true;
+  }
   if (isAssoc) {
     for (const a of rest) {
       const eq = a.indexOf('=');
@@ -1316,6 +1401,7 @@ builtins.declare = function (args) {
       }
       if (isLower) this.lcVars.add(k);
       if (isUpper) this.ucVars.add(k);
+      if (isReadonly) this.roVars.add(k);
       if (isRef) {
         // `typeset -n ref=original` — nameref; no scalar assignment
         this.refVars.set(k, v);
@@ -1323,13 +1409,24 @@ builtins.declare = function (args) {
         this.setVar(k, v);
       }
       if (isExport) { this.exported.add(k); process.env[k] = v; }
+    } else {
+      // `typeset -r name` (no value) — record the attribute only.
+      if (isInt) this.intVars.add(a);
+      if (isLower) this.lcVars.add(a);
+      if (isUpper) this.ucVars.add(a);
+      if (isReadonly) this.roVars.add(a);
+      if (isExport) { this.exported.add(a); if (this.vars.has(a)) process.env[a] = this.vars.get(a); }
     }
   }
   this.lastExit = 0;
   return true;
 };
 builtins.typeset = builtins.declare;
-builtins.readonly = builtins.declare;
+// readonly: every declared name gets the readonly attribute
+// (`readonly x=1` ≡ `declare -r x=1`).
+builtins.readonly = function (args) {
+  return builtins.declare.call(this, ['-r', ...args]);
+};
 
 // eval "...": the emitted argument is already expanded; run it through a
 // real shell (the string's commands are part of the source semantics) and
