@@ -276,15 +276,11 @@ if ($do_metric) {
 
 # ── Stage B gating / blessing ────────────────────────────────────────
 if ($do_bless) {
-    my %failing;
-    for my $r (@all_results) {
-        my $name = $r->{file} // next;
-        $failing{$name} = 1 if ($r->{perl} // 'FAIL') ne 'PASS' || ($r->{estree} // 'FAIL') ne 'PASS';
-    }
-    open my $bfh, '>', $blessed_file or die "write $blessed_file: $!";
-    print $bfh join("\n", sort keys %failing), "\n";
-    close $bfh;
-    printf "BLESSED %d tests (current failures) into %s\n", scalar(keys %failing), $blessed_file;
+    # Refuses to auto-bless: the allowlist is for KNOWN RUNTIME LIMITATIONS
+    # only, and auto-writing the current failure union would hide transpiler
+    # bugs (it did: 84 perl failures). Curate it by hand, or leave it empty
+    # while the corpus is green.
+    die "refusing to auto-bless failures — the allowlist must be curated by hand (known runtime limitations only)\n";
 }
 
 if ($do_gate) {
