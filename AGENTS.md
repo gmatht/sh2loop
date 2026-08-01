@@ -15,6 +15,12 @@ revision history).
 - Test harness: `fail` (Perl corpus gate), `check_qx.pl`, `main_loop_rust.pl`,
   `fail-coreutils` (workspace-side regression corpus); planned: `fail-estree`,
   `harness/estree-runner.mjs` (reference executor).
+- `setup_backends.sh` — one git worktree per target backend (`backends/<lang>`
+  on `backend/<lang>`, sharing the sh2perl core). Idempotent; `--sync` merges
+  main in; `--remove` cleans up. Merge discipline: backend commits push to
+  main only when they don't touch the shared core (src/shir.rs, src/ir.rs,
+  src/estree.rs, src/parser/); the core stays single-owner during the
+  lowering phase.
 - `harness/check_ast.pl` — AST-structure regression tests (pins parser gaps
   like `echo x $$` vs `echo x$$` distinguishability). KNOWN AST GAP cases
   COUNT AS FAILURES (exit 1) — never blessed; the count drops only when a
