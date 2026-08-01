@@ -776,6 +776,34 @@ export const sh2 = {
     return this.lastExit === 0;
   },
 
+  // Sync twin of whileLoop for the emitter's fast path: a provably-sync
+  // loop (cond + body contain no awaits, hence no I/O) runs without the
+  // per-iteration promise/microtask machinery. Semantics are IDENTICAL
+  // (lastExit, BREAK/CONTINUE/RETURN signals, capture bound) — only the
+  // awaits are dropped. Pure CPU, so it never blocks the event loop on I/O;
+  // the structural gate whitelists it explicitly (see estree_gate.pl).
+  whileLoopSync(condFn, bodyFn) {
+    let ran = false;
+    let bodyLastExit = 0;
+    for (;;) {
+      if (this._capExceeded()) break;
+      let c;
+      try { c = condFn(); } catch (e) { if (isSignal(e, 'RETURN')) throw e; throw e; }
+      if (!c) break;
+      ran = true;
+      try {
+        bodyFn();
+        bodyLastExit = this.lastExit;
+      } catch (e) {
+        if (isSignal(e, 'BREAK')) break;
+        if (isSignal(e, 'CONTINUE')) continue;
+        throw e;
+      }
+    }
+    this.lastExit = ran ? bodyLastExit : 0;
+    return this.lastExit === 0;
+  },
+
   async cstyleFor(header, bodyFn) {
     const [init, cond, upd] = parseCStyleHeader(header);
     if (init) evalArith(init, this);

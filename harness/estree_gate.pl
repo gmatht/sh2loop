@@ -18,7 +18,7 @@ use JSON::PP;
 
 my %whitelist = map { $_ => 1 } qw(
     exec getVar setVar test pipeline capture captureWords redirect caseMatch param arith brace setArray setArrayAppend assign arrayItems arrayLen arrayIndex join setLastExit arithEval idiv imod guard not
-    define subshell background block whileLoop cstyleFor forLoop listVar and or
+    define subshell background block whileLoop whileLoopSync cstyleFor forLoop listVar and or
     shopt return break continue unsupported
 );
 
@@ -87,7 +87,11 @@ sub walk {
             my $prop = $n->{property} // {};
             my $pname = ref $prop eq 'HASH' ? ($prop->{name} // '') : '';
             if ($pname =~ /Sync$/) {
-                push @problems, "*Sync callee: $pname";
+                # whileLoopSync is the ONE permitted *Sync call: pure-CPU loop
+                # with no I/O (the emitter only emits it when cond+body contain
+                # no AwaitExpression — see src/shir.rs), so it can't block a
+                # browser event loop the way fs.readFileSync & friends would.
+                push @problems, "*Sync callee: $pname" unless $pname eq 'whileLoopSync';
             }
         }
         if ($type eq 'ObjectExpression') {
