@@ -97,12 +97,7 @@ sub dump_ast_for {
 
 # Tracked parser gaps — ALL count as failures (exit 1). A fix flips a case
 # to RESOLVED; remove it from this list when that happens.
-my @known_limitations = qw(
-    beh_dollardollar_spaced_pid
-    beh_escaped_quote_midword
-    ast_dollardollar_word_internal
-    ast_redirect_dollardollar_stays_in_target
-);
+my @known_limitations = qw();
 
 my @cases = (
     # --- `$$` must stay inside the word it was written in -------------
@@ -137,24 +132,26 @@ my @cases = (
         src  => 'echo hi > /tmp/t.$$',
         check => sub {
             my $d = shift;
-            # DESIRED: `$$` stays part of the redirect TARGET; the command
-            # has NO Variable("$") arg anywhere. Today the parser cuts it
-            # into the command's args (`args: [Literal("hi"), Variable("$")]`
-            # here; the transform reattaches it later). Known limitation.
-            return $d !~ /Variable\("\$"/;
+            # DESIRED: `$$` stays part of the redirect TARGET (as an
+            # interpolation part); the command's args list must contain NO
+            # Variable("$").
+            my ($args) = $d =~ /args: \[([^\]]*)\]/;
+            return defined $args && $args !~ /Variable\("\$"/;
         },
     },
     # --- escaped-quote join artifacts --------------------------------
     {
-        name => 'ast_escaped_quote_merge_shape',
+        name => 'ast_escaped_quote_fused_word',
         kind => 'ast',
         src  => "echo 'a'\\''b'",
         check => sub {
             my $d = shift;
-            # two args: Literal("a"), Literal("\\'b") — the transform
-            # merges these into `a'b`. Shape documented as-is.
-            return scalar(() = $d =~ /^WORD:/mg) == 2
-                && $d =~ /Literal\("a"/ && $d =~ /Literal\("\\\\'b"/;
+            # DESIRED: ONE word `a\'b` — the parser fuses the adjacent
+            # single-quote + escaped-quote + single-quote fragments (bash:
+            # `'a'\''b'` is the single word `a'b`). The renderers unescape
+            # the `\'` to `'`.
+            return scalar(() = $d =~ /^WORD:/mg) == 1
+                && $d =~ /Literal\("a\\\\'b"/;
         },
     },
     {
@@ -181,6 +178,46 @@ my @cases = (
             return scalar(() = $d =~ /^WORD:/mg) == 1
                 && $d =~ /Literal\("--x=\$\{X\}"/
                 && $d !~ /ParameterExpansion/;
+        },
+    },
+    # --- general mid-word `$`-fusion (fixed with the `$$` bug) ---------
+    {
+        name => 'ast_dollar_var_word_internal',
+        kind => 'ast',
+        src  => 'echo pre$var',
+        check => sub {
+            my $d = shift;
+            # `pre$var` is ONE word (interpolation) — the old parser split
+            # mid-word `$`-expansions into separate args (same bug as `$$`).
+            return scalar(() = $d =~ /^WORD:/mg) == 1
+                && $d =~ /StringInterpolation/;
+        },
+    },
+    {
+        name => 'beh_dollar_var_glued',
+        kind => 'beh',
+        src  => 'X=z; echo a$X b',
+        check => sub {
+            my ($b, $e) = @_;
+            return $b eq $e;
+        },
+    },
+    {
+        name => 'beh_dollar_brace_glued',
+        kind => 'beh',
+        src  => 'X=z; echo a${X}b',
+        check => sub {
+            my ($b, $e) = @_;
+            return $b eq $e;
+        },
+    },
+    {
+        name => 'beh_dollardollar_slash_suffix',
+        kind => 'beh',
+        src  => 'echo x$$/suf',
+        check => sub {
+            my ($b, $e) = @_;
+            return norm($b) eq norm($e);
         },
     },
     # --- behavioral (bash vs estree, PID-normalized) -----------------
