@@ -75,11 +75,12 @@ sub walk {
                 && ($obj->{name} // '') eq 'Math'
                 && ref $prop eq 'HASH'
                 && ($prop->{name} // '') =~ /^(trunc|floor|ceil)$/;
-            # String(x).includes(n) — the native contains lowering (pure)
+            # String(x).includes(n) / startsWith / endsWith / toLowerCase —
+            # the native glob-to-string-op lowerings (pure string ops)
             my $is_string_method = ref $obj eq 'HASH'
                 && ($obj->{type} // '') eq 'CallExpression'
                 && ref $prop eq 'HASH'
-                && ($prop->{name} // '') eq 'includes';
+                && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase)$/;
             if (!$is_sh2 && !$is_native && !$is_math && !$is_string_method) {
                 push @problems, "non-sh2 callee: " . ($cname || $type);
             } elsif ($is_sh2 && !$whitelist{$cname}) {
