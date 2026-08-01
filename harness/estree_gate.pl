@@ -18,7 +18,7 @@ use JSON::PP;
 
 my %whitelist = map { $_ => 1 } qw(
     exec getVar setVar test pipeline capture captureWords redirect caseMatch param arith brace setArray setArrayAppend assign arrayItems arrayLen arrayIndex join setLastExit arithEval idiv imod guard not
-    define subshell background block whileLoop cstyleFor forLoop listVar
+    define subshell background block whileLoop cstyleFor forLoop listVar and or
     shopt return break continue unsupported
 );
 

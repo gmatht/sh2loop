@@ -5,7 +5,12 @@ use Time::HiRes qw(sleep);
 use FindBin;
 use POSIX qw(:sys_wait_h);
 use JSON::PP;
-use open ':std', ':encoding(UTF-8)';
+# Wide-character output (UTF-8) WITHOUT the use open ':std' pragma: that
+# layers STDIN/STDOUT/STDERR globally and makes sysread() on '-|' child
+# pipes fatal ("isn't allowed on :utf8 handles"). binmode the print handles
+# only — pipes stay raw.
+binmode(STDOUT, ':encoding(UTF-8)');
+binmode(STDERR, ':encoding(UTF-8)');
 
 $| = 1;
 STDERR->autoflush(1);

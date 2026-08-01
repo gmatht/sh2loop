@@ -8,6 +8,13 @@
 #      the REFERENCE EXECUTOR (harness/), restricted to that surface
 #   4. re-runs, and keeps/commits improvements or stashes regressions
 #
+# Wide-character output (UTF-8) WITHOUT the use open ':std' pragma: that
+# layers STDIN/STDOUT/STDERR globally and makes sysread() on '-|' child
+# pipes fatal ("isn't allowed on :utf8 handles"). binmode the print handles
+# only — pipes stay raw.
+binmode(STDOUT, ':encoding(UTF-8)');
+binmode(STDERR, ':encoding(UTF-8)');
+
 # FIX SURFACE is conditional on the Perl worker (main_loop_rust.pl):
 #   - rust loop RUNNING     : pi may touch ONLY src/estree.rs in the submodule
 #     + harness/* in the workspace root (the Perl backend is owned by the

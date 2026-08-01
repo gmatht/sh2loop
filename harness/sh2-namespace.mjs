@@ -402,6 +402,12 @@ export const sh2 = {
       }
       let stdoutBuf = '';
       let streamWrites = [];
+      // Writing to a CLOSED fd (`>&-` dup target, or `>&N` where N was never
+      // opened) fails in bash ("Bad file descriptor", exit 1) when the
+      // command actually writes. The child can't be handed a closed pipe, so
+      // drop the bytes AND report the failure status (a silent success would
+      // flip `$(...) || { x=$?; }` chains — parse-dollar-paren-pipe.sh).
+      let closedFdWrite = false;
       // Streaming child output to a file: the FIRST chunk uses the spec mode
       // (w = truncate, a = append), every later chunk must APPEND — a fresh
       // 'w' per chunk would overwrite the previous one, leaving only the last
@@ -425,6 +431,7 @@ export const sh2 = {
         if (fd1.kind === 'capture') { fd1.buf += d.toString('utf8'); killOnCap(fd1.buf); }
         else if (fd1.kind === 'file') streamWrite(fd1.target, d, fd1.mode ?? 'w');
         else if (fd1.kind === 'stderr') process.stderr.write(d); // `1>&2` dup
+        else if (fd1.kind === 'closed') closedFdWrite = true; // bytes lost, like bash's EBADF
         else if (fd1.kind === 'stdout') process.stdout.write(d);
       });
       child.stderr.on('data', (d) => {
@@ -434,6 +441,7 @@ export const sh2 = {
         if (fd2.kind === 'capture') { fd2.buf += d.toString('utf8'); killOnCap(fd2.buf); }
         else if (fd2.kind === 'file') streamWrite(fd2.target, d, fd2.mode ?? 'w');
         else if (fd2.kind === 'stdout') process.stdout.write(d);
+        else if (fd2.kind === 'closed') closedFdWrite = true; // bytes lost, like bash's EBADF
         else if (fd2.kind === 'stderr') process.stderr.write(d);
       });
       if (stdinSrc !== null) {
@@ -458,7 +466,7 @@ export const sh2 = {
       child.on('close', (code) => {
         clearTimeout(timer);
         if (stdinFd !== null) { try { fs.closeSync(stdinFd); } catch {} }
-        this.lastExit = code ?? 127;
+        this.lastExit = closedFdWrite ? 1 : (code ?? 127);
         resolve(this.lastExit === 0);
       });
     });
@@ -720,6 +728,24 @@ export const sh2 = {
 
   async block(fn) {
     await fn();
+    return this.lastExit === 0;
+  },
+
+  // bash `a && b` / `a || b`: decide on the EXIT STATUS of the left side,
+  // not on its return value (capture() yields the captured string, assign()
+  // yields true — a native JS `&&`/`||` would branch on the wrong thing,
+  // e.g. `r=$(cmd) || { x=$?; }` with a failing cmd). Run the left side,
+  // consult lastExit, maybe run the right side; the result is the exit
+  // status of the last side that ran (signals propagate through).
+  async and(fnA, fnB) {
+    await fnA();
+    if (this.lastExit === 0) await fnB();
+    return this.lastExit === 0;
+  },
+
+  async or(fnA, fnB) {
+    await fnA();
+    if (this.lastExit !== 0) await fnB();
     return this.lastExit === 0;
   },
 
@@ -1136,8 +1162,10 @@ builtins.echo = function (args) {
   if (args[0] === '-n') text = args.slice(1).join(' ');
   else if (args[0] === '-e') text = args.slice(1).join(' ').replace(/\\n/g, '\n').replace(/\\t/g, '\t');
   else text = args.join(' ');
-  emit(this, text + (args[0] === '-n' ? '' : '\n'));
+  // lastExit BEFORE emit: a write to a closed fd (>&-) sets exit 1 inside
+  // emit (bash EBADF) and must not be clobbered.
   this.lastExit = 0;
+  emit(this, text + (args[0] === '-n' ? '' : '\n'));
   return true;
 };
 
@@ -1145,8 +1173,8 @@ builtins.printf = function (args) {
   const format = args[0] ?? '';
   const rest = args.slice(1);
   let out = printfFormat(format, rest);
-  emit(this, out);
   this.lastExit = 0;
+  emit(this, out);
   return true;
 };
 
@@ -1958,21 +1986,44 @@ function normAssocKey(k) {
 // ── output helpers ───────────────────────────────────────────────────
 // Both emitters route through the CURRENT fdTargets, so `>&2` on stdout
 // (or `2>&1` on stderr) redirects builtin output like a real shell.
+
+// Raw-byte markers (`\x01SH2BYTE\x01<HEX>\x01`) encode bytes >= 0x80 from
+// non-UTF-8 source files (see cli/src/cli_commands.rs + estree.rs
+// map_raw_bytes). bash passes those bytes through unchanged, so decode the
+// marker back into the raw byte at the output boundary. Returns a Buffer
+// when markers are present, else null (caller writes the text as UTF-8).
+const BYTE_MAGIC = '\u0001SH2BYTE\u0001';
+const BYTE_RE = /\u0001SH2BYTE\u0001([0-9A-Fa-f]{2})\u0001/g;
+function decodeRawBytes(text) {
+  if (!text.includes(BYTE_MAGIC)) return null;
+  const parts = [];
+  let last = 0;
+  let m;
+  BYTE_RE.lastIndex = 0;
+  while ((m = BYTE_RE.exec(text)) !== null) {
+    if (m.index > last) parts.push(Buffer.from(text.slice(last, m.index), 'utf8'));
+    parts.push(Buffer.from([parseInt(m[1], 16)]));
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push(Buffer.from(text.slice(last), 'utf8'));
+  return Buffer.concat(parts);
+}
+
 function emit(sh, text) {
   const t = sh.fdTargets[1];
   if (t.kind === 'capture') t.buf += text;
-  else if (t.kind === 'file') writeFileSync(t.target, Buffer.from(text, 'utf8'), t.mode);
-  else if (t.kind === 'stderr') process.stderr.write(text);
-  else if (t.kind === 'closed') { /* fd closed: bash errors, output is lost */ }
-  else process.stdout.write(text);
+  else if (t.kind === 'file') writeFileSync(t.target, decodeRawBytes(text) ?? Buffer.from(text, 'utf8'), t.mode);
+  else if (t.kind === 'stderr') process.stderr.write(decodeRawBytes(text) ?? text);
+  else if (t.kind === 'closed') { /* fd closed: bash errors (exit 1) and the output is lost */ sh.lastExit = 1; }
+  else process.stdout.write(decodeRawBytes(text) ?? text);
 }
 function emitErr(sh, text) {
   const t = sh.fdTargets[2];
   if (t.kind === 'capture') t.buf += text;
-  else if (t.kind === 'file') writeFileSync(t.target, Buffer.from(text, 'utf8'), t.mode);
-  else if (t.kind === 'stdout') process.stdout.write(text);
-  else if (t.kind === 'closed') { /* fd closed */ }
-  else process.stderr.write(text);
+  else if (t.kind === 'file') writeFileSync(t.target, decodeRawBytes(text) ?? Buffer.from(text, 'utf8'), t.mode);
+  else if (t.kind === 'stdout') process.stdout.write(decodeRawBytes(text) ?? text);
+  else if (t.kind === 'closed') { /* fd closed */ sh.lastExit = 1; }
+  else process.stderr.write(decodeRawBytes(text) ?? text);
 }
 
 function writeFileSync(target, data, mode = 'w') {
