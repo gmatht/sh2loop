@@ -15,11 +15,11 @@
 #     two words `x 'y`) arrive with the SAME AST shape; the transform merges
 #     both, miscompiling the second.
 #
-# KNOWN LIMITATIONS are expected to fail today (they are real parser gaps,
-# not blessed regressions): each run prints them loudly, and the script
-# exits non-zero only for UNEXPECTED failures, so a parser fix flips a
-# limitation case to PASS (printed as RESOLVED — then remove it from
-# @known_limitations) and a regression trips the exit code.
+# KNOWN LIMITATIONS ARE FAILURES. The guardrail is "never bless a transpiler
+# bug": these are real parser gaps producing wrong output (or an AST that
+# cannot express the construct), so the script exits non-zero while any is
+# present — the count decreases only when a parser/transform fix lands (the
+# case then prints RESOLVED and moves out of @known_limitations).
 #
 # Usage: harness/check_ast.pl     (builds debashc + dump_ast if missing)
 
@@ -91,8 +91,12 @@ sub dump_ast_for {
 # kind: 'ast' -> inspect the RAW parser AST via dump_ast
 #       'beh' -> run bash and the estree pipeline, compare normalized stdout
 # A case failing today that documents a real parser gap belongs in
-# @known_limitations (printed loudly, does not trip the exit code).
+# @known_limitations — it still counts as a FAILURE and trips the exit code,
+# but is reported with the KNOWN AST GAP marker so it is distinguishable
+# from an unexpected regression.
 
+# Tracked parser gaps — ALL count as failures (exit 1). A fix flips a case
+# to RESOLVED; remove it from this list when that happens.
 my @known_limitations = qw(
     beh_dollardollar_spaced_pid
     beh_escaped_quote_midword
@@ -289,7 +293,7 @@ for my $c (@cases) {
         }
     } else {
         if ($known{$c->{name}}) {
-            printf "** KNOWN AST LIMITATION (needs parser fix): %s\n", $c->{name};
+            printf "** KNOWN AST GAP (counts as FAILURE): %s\n", $c->{name};
             $limit++;
         } else {
             printf "FAIL: %s\n", $c->{name};
@@ -300,14 +304,11 @@ for my $c (@cases) {
 
 unlink glob('/tmp/check_ast_t.*');
 
-print "\n--- summary: $pass passed, $fail FAILED, $limit known limitations, $resolved resolved\n";
-if ($fail > 0) {
-    print "check_ast: FAIL — unexpected AST regressions\n";
+my $total_fail = $fail + $limit;
+print "\n--- summary: $pass passed, $total_fail FAILED ($fail unexpected, $limit known AST gaps), $resolved resolved\n";
+if ($total_fail > 0) {
+    print "check_ast: FAIL — AST-structure gate red ($total_fail failures)\n";
     exit 1;
 }
-if ($limit > 0) {
-    print "check_ast: OK — $limit tracked parser gaps (see KNOWN AST LIMITATION lines)\n";
-} else {
-    print "check_ast: OK\n";
-}
+print "check_ast: OK\n";
 exit 0;
