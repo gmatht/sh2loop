@@ -212,6 +212,26 @@ my @cases = (
         },
     },
     {
+        name => 'beh_dollar_default_operator_glued',
+        kind => 'beh',
+        src  => 'v=z; echo a${v:-d}b',
+        check => sub {
+            my ($b, $e) = @_;
+            # guard: the fusion must never DISCARD the ${...} expansion
+            # (a missed merge previously dropped it, printing `a b`).
+            return $b eq $e;
+        },
+    },
+    {
+        name => 'beh_cmdsub_glued',
+        kind => 'beh',
+        src  => 'echo a$(true)b',
+        check => sub {
+            my ($b, $e) = @_;
+            return $b eq $e;
+        },
+    },
+    {
         name => 'beh_dollardollar_slash_suffix',
         kind => 'beh',
         src  => 'echo x$$/suf',
