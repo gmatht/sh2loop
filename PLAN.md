@@ -52,7 +52,7 @@ Covers three related work items:
 | `sh2perl` (primary repo) | origin `git@github.com:gmatht/sh2perl.git`, own CI (`.github/workflows/test.yml`); working tree at `febb301`, dirty scratch files; **tracks a `fail -> ../fail` symlink** (violates the one-way rule — must be removed) |
 | `sh2runtime` | exists at `gmatht/sh2runtime`; node v22 available; already runs async JS commands + `.js` files in `/commands/` against its virtual FS; WASI via `@wasmer/wasi` for third-party wasm tools |
 | sh2perl backends | Perl only. `src/ir.rs` = Perl-specific IR with `RawText` bridges; `pub mod mir` commented out. **ESTree emitter exists** (`debashl::estree::ast_to_estree_json`, v0 `sh2.*` namespace) and passes the full corpus. Workspace layering: `debashl` (core lib) ← `debashcl` (CLI lib, member `cli/`) ← `debashc` (3-line bin). WASI: `build-wasi.sh` → `debashc.wasm` (command, `_start`) + `debashl.wasm` (library, `wasi-lib` feature, C-ABI `debashc_to_perl`/`debashc_to_estree`) + **`debashcl.wasm`** (library, `wasi-cli` feature, C-ABI `debashc_cli_run(_json/_with_input)` — the full CLI as a library call, "debashc in three lines of JS"; deployed with README + examples to `~/js/`). |
-| Tests | `fail`: debashc → Perl → `check_qx.pl` gate → run vs `bash` → normalized stdout + side-effect compare. 516 examples, **PERL 432/84, ESTREE 516/516 (100%)**. `fail-estree`: perl + estree verdicts per example (Stage A); `--gate` Stage B with blessed allowlist; `--metric` sh2.* call-site tallies (improvement-mode awareness). |
+| Tests | `fail`: debashc → Perl → `check_qx.pl` gate → run vs `bash` → normalized stdout + side-effect compare. 516 examples, **PERL 432/84, ESTREE 516/516 (100%)**. `fail-estree`: perl + estree verdicts per example (Stage A); `--gate` Stage B (strict: a failing test is a bug — no failing-test allowlist; the M5 blessed-fail list was removed as a guardrail violation, see revision history); `--metric` sh2.* call-site tallies (improvement-mode awareness). |
 
 Key docs:
 - `sh2perl/docs/ir-design.md` — Perl IR + "two-layer IR (future)" (ShIR between AST and language IRs).
@@ -165,7 +165,10 @@ Rollout (do **not** gate on the new backend on day one — it starts at ~0% vs
 - **Stage A — parallel metric:** `fail-estree` runner records
   `{file, perl: PASS/FAIL, estree: PASS/FAIL, reasons[]}`; no gating.
 - **Stage B — per-test gate:** green only when `perl == PASS && estree ==
-  PASS`, with a `blessed-fail-estree.txt` allowlist (existing blessing pattern).
+  PASS` — strict: a failing test is a bug. (The M5 `blessed-fail-estree.txt`
+  failing-test allowlist was REMOVED — it hid 84 perl transpiler bugs behind
+  "known limitations"; `--bless` is gone. "Bless" now means ONLY the examples
+  snapshot pin, `update_blessed.sh` → `ensure_examples_snapshot.pl`.)
 - **Stage C — hard gate:** remove the allowlist. End state.
 
 ### 2.2 debashc side: `--estree` output mode
@@ -330,7 +333,9 @@ parked until a statically-typed backend lands, per docs §8).
    `debashc --estree`; `tests/estree-runner.mjs` (@babel/generator + node
    `sh2.*` namespace); structural gate (schema + callee whitelist + no `*Sync`);
    `fail-estree`. Stage A: parallel metric, zero gating.
-5. **M5 — Gate:** per-test `perl && estree` verdicts with blessed-fail
+5. **M5 — Gate:** per-test `perl && estree` verdicts. (A blessed-fail
+   allowlist was added here and REMOVED as a guardrail violation — see the
+   revision history. The gate is strict.)
    allowlist (Stage B), then hard gate (Stage C). CI badges.
 6. **M6 — Shared passes:** constant folding / dead-code / import registry on
    ShIR once two backends are stable.

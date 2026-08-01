@@ -4,15 +4,14 @@
 # For each example: runs the PERL path (debashc → check_qx → perl vs bash) AND
 # the ESTree path (debashc --estree → structural gate → estree-runner vs bash).
 # Stage A: no gating — records {file, perl: P/F, estree: P/F, reason} and prints
-# a summary. `blessed-fail-estree.txt` allowlisting comes at Stage B.
+# a summary.
 #
-# Usage: ./fail-estree [--gate] [--bless] [PREFIX]
+# Usage: ./fail-estree [--gate] [--metric] [PREFIX]
 #   (default) Stage A: report perl + estree verdicts, no gating.
-#   --gate    Stage B: PASS only when perl && estree both pass OR the test is
-#             in blessed-fail-estree.txt (known limitations); exit 1 on any
-#             un-blessed failure.
-#   --bless   write the currently-failing tests (either backend) to
-#             blessed-fail-estree.txt (run after a full Stage A run).
+#   --gate    PASS only when perl && estree BOTH pass; exit 1 on any failure.
+#             No failing-test allowlist: a failing test is a bug, never
+#             blessed away (see PLAN.md §2 guardrail).
+#   --metric  report the sh2.* call-site tally (estree worker improvement mode).
 use strict;
 use warnings;
 use Cwd qw(abs_path getcwd);
@@ -40,12 +39,10 @@ if (open my $fh, '<', '/proc/cpuinfo') {
 my $jobs = int($ncpus / 2);
 $jobs = 1 if $jobs < 1;
 
-my $blessed_file = "$root/blessed-fail-estree.txt";
-my ($do_gate, $do_bless, $do_metric) = (0, 0, 0);
+my ($do_gate, $do_metric) = (0, 0);
 my @prefix_args = ();
 for my $a (@ARGV) {
     $do_gate = 1 if $a eq '--gate';
-    $do_bless = 1 if $a eq '--bless';
     $do_metric = 1 if $a eq '--metric';
     push @prefix_args, $a unless $a =~ /^--/;
 }
@@ -53,17 +50,6 @@ my @all_tests = sort glob "$examples/*.sh";
 if (@prefix_args) {
     my $prefix = $prefix_args[0];
     @all_tests = grep { index(basename($_), $prefix) != -1 } @all_tests;
-}
-
-# blessed-fail-estree.txt: tests allowed to fail (known runtime limitations)
-my %blessed;
-if (-e $blessed_file) {
-    open my $bfh, '<', $blessed_file or die "open $blessed_file: $!";
-    while (<$bfh>) {
-        chomp;
-        $blessed{$_} = 1 if /\S/;
-    }
-    close $bfh;
 }
 
 my $total = scalar @all_tests;
@@ -274,29 +260,20 @@ if ($do_metric) {
     }
 }
 
-# ── Stage B gating / blessing ────────────────────────────────────────
-if ($do_bless) {
-    # Refuses to auto-bless: the allowlist is for KNOWN RUNTIME LIMITATIONS
-    # only, and auto-writing the current failure union would hide transpiler
-    # bugs (it did: 84 perl failures). Curate it by hand, or leave it empty
-    # while the corpus is green.
-    die "refusing to auto-bless failures — the allowlist must be curated by hand (known runtime limitations only)\n";
-}
-
+# ── Stage B gating ───────────────────────────────────────────────────
 if ($do_gate) {
-    my ($gate_pass, $gate_fail, $allowlisted) = (0, 0, 0);
+    my ($gate_pass, $gate_fail) = (0, 0);
     my @ungated_failures;
     for my $r (@all_results) {
         my $name = $r->{file} // next;
         my $both_pass = ($r->{perl} // 'FAIL') eq 'PASS' && ($r->{estree} // 'FAIL') eq 'PASS';
         if ($both_pass) { $gate_pass++; }
-        elsif ($blessed{$name}) { $gate_pass++; $allowlisted++; }
         else { $gate_fail++; push @ungated_failures, $name; }
     }
-    printf "GATED:  %d passed, %d failed out of %d (allowlisted: %d)\n",
-        $gate_pass, $gate_fail, $total, $allowlisted;
+    printf "GATED:  %d passed, %d failed out of %d\n",
+        $gate_pass, $gate_fail, $total;
     if (@ungated_failures) {
-        print "UN-BLESSED FAILURES:\n";
+        print "FAILURES (no allowlist — a failing test is a bug):\n";
         print "  $_\n" for @ungated_failures;
         exit 1;
     }

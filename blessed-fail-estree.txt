@@ -1,6 +1,0 @@
-# MUST contain ONLY known RUNTIME limitations — NEVER transpiler bugs.
-# (Guardrail: "a failing test may only be added for a known runtime
-# limitation, never to hide a transpiler bug".)
-# Currently: NONE — estree is 516/516 (100%). The old 176-entry list was
-# stale (92 blessed now-passing tests) and violated the guardrail (84
-# blessed perl transpiler bugs). --bless refuses to auto-write failures.
