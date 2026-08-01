@@ -319,6 +319,32 @@ export const sh2 = {
     return await this._runProc(name, flat);
   },
 
+  // bash reports a failed exec of an unknown command as
+  // `$0: line N: cmd: command not found`, written through the CURRENT fd2
+  // target (`2>&1` dups it onto stdout, `2>file` into the file, `2>&-`
+  // drops it). The line number comes from the source file (argv0 is the
+  // script path the harness runs): the LAST line where the command appears
+  // as a word, which for the corpus's single-shot uses matches the line
+  // bash reports (a loop/function re-runs report the definition/call line).
+  _reportCommandNotFound(cmd) {
+    if (!this._srcLines) {
+      this._srcLines = [];
+      try { this._srcLines = fs.readFileSync(this.argv0, 'utf8').split('\n'); } catch { /* no source */ }
+    }
+    let line = 0;
+    if (this._srcLines.length > 0) {
+      const esc = String(cmd).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp(`(^|[^A-Za-z0-9_./+-])${esc}([^A-Za-z0-9_]|$)`);
+      for (let i = 0; i < this._srcLines.length; i++) {
+        if (re.test(this._srcLines[i])) line = i + 1;
+      }
+    }
+    const msg = line > 0
+      ? `${this.argv0}: line ${line}: ${cmd}: command not found\n`
+      : `${this.argv0}: ${cmd}: command not found\n`;
+    emitErr(this, msg);
+  },
+
   async _runProc(cmd, args) {
     // A stray `}` / `)` that the parser recovered as a command name is a
     // bash parse error: bash executes everything BEFORE it, then aborts the
@@ -367,8 +393,9 @@ export const sh2 = {
           env: this._spawnEnv(),
           stdio,
         });
-      } catch {
+      } catch (e) {
         if (stdinFd !== null) { try { fs.closeSync(stdinFd); } catch {} }
+        if (e && e.code === 'ENOENT') this._reportCommandNotFound(cmd);
         this.lastExit = 127;
         resolve(false);
         return;
@@ -422,7 +449,12 @@ export const sh2 = {
         this.lastExit = 137;
         resolve(false);
       }, SPAWN_TIMEOUT_MS);
-      child.on('error', () => { clearTimeout(timer); this.lastExit = 127; resolve(false); });
+      child.on('error', (e) => {
+        clearTimeout(timer);
+        if (e && e.code === 'ENOENT') this._reportCommandNotFound(cmd);
+        this.lastExit = 127;
+        resolve(false);
+      });
       child.on('close', (code) => {
         clearTimeout(timer);
         if (stdinFd !== null) { try { fs.closeSync(stdinFd); } catch {} }
