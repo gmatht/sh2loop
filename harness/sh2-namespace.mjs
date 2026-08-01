@@ -1695,6 +1695,140 @@ builtins.sleep = async function (args) {
   return true;
 };
 
+// seq — print a numeric sequence (native; never spawns). Forms:
+//   seq LAST | seq FIRST LAST | seq FIRST INCREMENT LAST, with -s SEP.
+builtins.seq = function (args) {
+  let first = 1, step = 1, last = 0, sep = '\n';
+  const pos = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = String(args[i]);
+    if (a === '-s') { sep = String(args[++i] ?? '\n'); continue; }
+    if (/^-?\d+(\.\d+)?$/.test(a)) pos.push(parseFloat(a));
+    // other flags (-w padding, -f format) fall back to numbers only
+  }
+  if (pos.length === 1) last = pos[0];
+  else if (pos.length === 2) { first = pos[0]; last = pos[1]; }
+  else if (pos.length >= 3) { first = pos[0]; step = pos[1]; last = pos[2]; }
+  const out = [];
+  for (let v = first; (step >= 0 ? v <= last : v >= last); v += step) out.push(String(v));
+  if (out.length) emit(this, out.join(sep) + '\n');
+  this.lastExit = 0;
+  return true;
+};
+
+// dirname — strip the last path component (pure string op).
+builtins.dirname = function (args) {
+  if (args.length === 0) { this.lastExit = 1; return false; }
+  let s = String(args[0]);
+  while (s.endsWith('/') && s.length > 1) s = s.slice(0, -1);
+  const idx = s.lastIndexOf('/');
+  const out = idx < 0 ? '.' : (idx === 0 ? '/' : s.slice(0, idx));
+  emit(this, out + '\n');
+  this.lastExit = 0;
+  return true;
+};
+
+// basename — strip the directory prefix (pure string op); optional suffix
+// (basename path .txt) or -s suffix.
+builtins.basename = function (args) {
+  if (args.length === 0) { this.lastExit = 1; return false; }
+  let path = null, suffix = null;
+  let i = 0;
+  if (String(args[i] ?? '') === '-s') { suffix = String(args[i + 1] ?? ''); i += 2; }
+  else if (String(args[i] ?? '') === '-a') { i += 1; }
+  if (i < args.length) path = String(args[i++]);
+  // `basename path .txt` — a non-flag second arg is the suffix
+  if (suffix === null && i < args.length && !String(args[i]).startsWith('-')) {
+    suffix = String(args[i]);
+  }
+  if (path === null) { this.lastExit = 1; return false; }
+  let s = path;
+  while (s.endsWith('/') && s.length > 1) s = s.slice(0, -1);
+  const idx = s.lastIndexOf('/');
+  let out = idx < 0 ? s : s.slice(idx + 1);
+  if (idx === 0) out = s; // `basename /` -> /
+  if (suffix && out.endsWith(suffix)) out = out.slice(0, out.length - suffix.length);
+  emit(this, out + '\n');
+  this.lastExit = 0;
+  return true;
+};
+
+// touch — create empty files / update timestamps (native fs; never spawns).
+builtins.touch = function (args) {
+  let noCreate = false, accessOnly = false, modOnly = false;
+  const files = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = String(args[i]);
+    if (a === '-c') noCreate = true;
+    else if (a === '-a') accessOnly = true;
+    else if (a === '-m') modOnly = true;
+    else if (a === '-r') { i++; continue; } // -r ref (best-effort skip)
+    else files.push(a);
+  }
+  const now = new Date();
+  let failed = false;
+  for (const f of files) {
+    try {
+      let st;
+      try { st = fs.statSync(f); } catch {
+        if (noCreate) continue;
+        fs.closeSync(fs.openSync(f, 'a')); // create empty
+        st = fs.statSync(f);
+      }
+      fs.utimesSync(f, accessOnly ? now : st.atime, modOnly ? now : st.mtime);
+    } catch {
+      // bash: `touch <unwritable>` reports and exits nonzero
+      emitErr(this, `touch: cannot touch '${f}': No such file or directory\n`);
+      failed = true;
+    }
+  }
+  this.lastExit = failed ? 1 : 0;
+  return !failed;
+};
+
+// stat — file metadata (native fs; never spawns). The corpus uses -c%s
+// (size) and -c "%s %y"; %y only on a NONEXISTENT file (never printed).
+builtins.stat = function (args) {
+  let format = null;
+  const files = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = String(args[i]);
+    if (a === '-c' || a === '--format') { format = String(args[++i] ?? '%s'); }
+    else if (a.startsWith('-c')) { format = a.slice(2); }
+    else if (a === '-f' || a === '-t' || a === '--dereference') { /* ignore */ }
+    else files.push(a);
+  }
+  const fmtTime = (d) => {
+    const p = (x, w = 2) => String(x).padStart(w, '0');
+    return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ` +
+      `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}.000000000 +0000`;
+  };
+  let any = false;
+  for (const f of files) {
+    let st;
+    try { st = fs.statSync(f); } catch {
+      emitErr(this, `stat: cannot stat '${f}': No such file or directory\n`);
+      this.lastExit = 1;
+      continue;
+    }
+    any = true;
+    if (format !== null) {
+      let out = format;
+      out = out.replaceAll('%s', String(st.size));
+      out = out.replaceAll('%n', f);
+      out = out.replaceAll('%y', fmtTime(st.mtime));
+      out = out.replaceAll('%Y', String(Math.floor(st.mtimeMs / 1000)));
+      out = out.replaceAll('%F', st.isDirectory() ? 'directory' : st.isSymbolicLink() ? 'symbolic link' : 'regular file');
+      emit(this, out + '\n');
+    } else {
+      // GNU stat default (best-effort — corpus only uses -c)
+      emit(this, `  File: ${f}\n  Size: ${st.size}\t\tBlocks: ${Math.ceil(st.size / 512)}\t  IO Block: 4096\t${st.isDirectory() ? 'directory' : 'regular file'}\n`);
+    }
+  }
+  if (any) this.lastExit = 0;
+  return any;
+};
+
 // Read the current fd0 input (captured pipe content, a file, or stdin) — used
 // by the head/tail/wc builtins. These are native so the exec allowlist never
 // has to admit them (and the pipeline simulation can feed them captured data).
