@@ -641,6 +641,15 @@ export const sh2 = {
   },
 
   // ── loops ──────────────────────────────────────────────────────────
+  // substring test for the lifted `echo X | grep P >/dev/null 2>/dev/null`
+  // idiom: grep's exit status with both streams discarded is exactly "does
+  // the line contain the literal pattern", and `echo X` emits one line.
+  // Sync, no I/O (the emitter only lifts literal patterns — see src/shir.rs
+  // try_lift_grep_contains).
+  contains(haystack, needle) {
+    return String(haystack ?? '').includes(String(needle ?? ''));
+  },
+
   async forLoop(items, bodyFn) {
     // Glob-expand any GLOB_MAGIC item (including elements of brace/array
     // results, which arrive as magic-prefixed strings inside arrays).
