@@ -51,8 +51,8 @@ Covers three related work items:
 | `sh2perl` entry in superproject index | gitlink (mode `160000`) at `09f6a4f6`, **no `.gitmodules`** → broken/unofficial submodule |
 | `sh2perl` (primary repo) | origin `git@github.com:gmatht/sh2perl.git`, own CI (`.github/workflows/test.yml`); working tree at `febb301`, dirty scratch files; **tracks a `fail -> ../fail` symlink** (violates the one-way rule — must be removed) |
 | `sh2runtime` | exists at `gmatht/sh2runtime`; node v22 available; already runs async JS commands + `.js` files in `/commands/` against its virtual FS; WASI via `@wasmer/wasi` for third-party wasm tools |
-| sh2perl backends | Perl only. `src/ir.rs` = Perl-specific IR with `RawText` bridges; `pub mod mir` commented out. **ESTree emitter exists** (`debashl::estree::ast_to_estree_json`, v0 `sh2.*` namespace). Workspace layering: `debashl` (core lib) ← `debashcl` (CLI lib, member `cli/`) ← `debashc` (3-line bin). WASI: `build-wasi.sh` → `debashc.wasm` (command, `_start`) + `debashl.wasm` (library, `wasi-lib` feature, C-ABI `debashc_to_perl`/`debashc_to_estree`). |
-| Tests | `fail`: debashc → Perl → `check_qx.pl` gate → run vs `bash` → normalized stdout + side-effect compare. 517 examples, 426 passing. |
+| sh2perl backends | Perl only. `src/ir.rs` = Perl-specific IR with `RawText` bridges; `pub mod mir` commented out. **ESTree emitter exists** (`debashl::estree::ast_to_estree_json`, v0 `sh2.*` namespace) and passes the full corpus. Workspace layering: `debashl` (core lib) ← `debashcl` (CLI lib, member `cli/`) ← `debashc` (3-line bin). WASI: `build-wasi.sh` → `debashc.wasm` (command, `_start`) + `debashl.wasm` (library, `wasi-lib` feature, C-ABI `debashc_to_perl`/`debashc_to_estree`) + **`debashcl.wasm`** (library, `wasi-cli` feature, C-ABI `debashc_cli_run(_json/_with_input)` — the full CLI as a library call, "debashc in three lines of JS"; deployed with README + examples to `~/js/`). |
+| Tests | `fail`: debashc → Perl → `check_qx.pl` gate → run vs `bash` → normalized stdout + side-effect compare. 516 examples, **PERL 432/84, ESTREE 516/516 (100%)**. `fail-estree`: perl + estree verdicts per example (Stage A); `--gate` Stage B with blessed allowlist; `--metric` sh2.* call-site tallies (improvement-mode awareness). |
 
 Key docs:
 - `sh2perl/docs/ir-design.md` — Perl IR + "two-layer IR (future)" (ShIR between AST and language IRs).
@@ -338,6 +338,14 @@ parked until a statically-typed backend lands, per docs §8).
    spec, `sh2.*` → VirtualFS + command registry, run sh2perl corpus fixtures
    (pinned by SHA) against the virtual FS. Optional follow-on: engine-on-WASI
    (quickjs.wasm) as a unifying runtime layer.
+8. **M8 — Worker improvement mode (post-Stage C):** when the ESTree corpus is
+   green, `main_loop_estree.pl` stops idling and prompts the worker to find
+   the **cheapest correct lowering** for every remaining `sh2.*` call site /
+   spawn / async loop (the lowering ladder in §9). Metric (`fail-estree
+   --metric`, total sh2.* call sites) is the commit signal; corpus green +
+   determinism + gate are the gates. Success: total call sites decrease
+   monotonically, corpus stays 516/516, `forLoopSync`/`cstyleForSync` and
+   worker-invented native lowerings land.
 
 ---
 
@@ -582,6 +590,36 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
   mismatch: 46, runtime error: 24). Next: word-level lowering
   (parameter expansion, arithmetic words, brace expansion, arrays) to clear
   the gate bucket, then Stage B gating.
+- **2026-08-01 — ESTree corpus 100% (516/516).** The estree-loop worker's
+  accumulated fixes (numeric variable lift, `$(( ))` word arithmetic, parser
+  word-boundary fixes) closed the last gaps; PERL steady 432/84. Two
+  full-run stragglers (`100_pipeline_failure_basic`, `parse-dollar-paren-pipe`,
+  `typeset-cmdsub`) are pre-existing /tmp-flaky and pass solo.
+- **2026-08-01 — Sync while-loop fast path (`whileLoopSync`).** Provably-sync
+  `while` loops (cond + body contain no AwaitExpression) lower to the runtime
+  twin minus per-iteration promises: 10M-iter arithmetic loop 2.64s → 0.23s
+  loop-only, e2e 2.90s → 0.27s (~210× vs bash's 56s). Same semantics
+  (lastExit, BREAK/CONTINUE/RETURN signals, capture bound). Gate whitelists
+  it as the one permitted *Sync call (pure CPU, no I/O by construction).
+- **2026-08-01 — grep-test idiom → native substring compare.**
+  `if/while echo X | grep P >/dev/null 2>/dev/null` (test position only)
+  lifts in the ShIR to a `contains` call, inlined by the emitter to native
+  `String(X).includes(P)` (worker's e2c312a complement). sqrt1337.sh
+  (10k-iter grep-in-loop): JS 1m50s → 0.6s (~180× vs bash 1m23s), output
+  identical. Conservative: literal BRE-free patterns, no flags, both fds
+  discarded; statement/&&-position pipelines keep `$?` semantics.
+- **2026-08-01 — debashcl.wasm: the full CLI as a WASI library call.**
+  debashc.wasm was command-only (`_start`; node:wasi has no fs preopens) and
+  debashl.wasm skipped the CLI — the debashcl crate had zero `#[no_mangle]`
+  exports. New `wasi-cli` feature exports `debashc_cli_run(argc, argv)` /
+  `_run_json` / `_run_with_input` (file commands via the `-` stdin
+  convention + virtual stdin, since node:wasi can't preopen files) over the
+  real `main_with_args` dispatch; `file --estree -` byte-identical to native.
+  Deployed with README + example scripts to `~/js/`.
+- **2026-08-01 — M8 started: worker improvement mode.** See §9. Metric
+  baseline (5,107 sh2.* call sites across 516 examples; ~1,200 lowerable:
+  getVar 512, setVar 253, param 197, test 129, caseMatch 42, brace 40, arith
+  family 41, async loops 44).
 
 ---
 
@@ -599,3 +637,61 @@ information the Perl IR lacks — it would be a rename, not an architecture.
 - **Payoff:** two diverging backends (`shir_to_perl`, `shir_to_estree`) from
   one tree, shared analyses, and the removal of `estree.rs`'s duplicated
   lowering once it reroutes through ShIR.
+
+---
+
+## 9. Worker improvement mode (M8)
+
+Once the ESTree corpus is green, the fix loop has nothing to fix — so instead
+of idling, `main_loop_estree.pl` prompts the worker to find the **cheapest
+correct lowering** for every remaining `sh2.*` call site, subprocess spawn,
+and async loop.
+
+### 9.1 The lowering ladder (what "cheapest" means)
+
+```
+cheapest ──────────────────────────────────────────────────► most expensive
+native JS expression         sync sh2.* call    async sh2.* call    subprocess spawn
+String(x).includes(p)        sh2.test           sh2.exec            echo | grep
+i < 100000, i = i + 1        sh2.contains       sh2.pipeline
+String.slice/replace         (fallback)         (fallback)
+```
+
+Every call site is judged against this ladder; the corpus is the correctness
+oracle. The worker generalizes **pattern families**, not instances: `grep
+1337` is a substring test (`String(x).includes("1337")`), never a regex or a
+generic grep translation. Same for `grep -q P file` → read + includes,
+`case $x in *P*)` → includes, `seq 1 N` → native range, `[ "$x" = *P* ]` →
+native glob-to-includes, `${x//p/r}` → replaceAll, `head/tail/wc` on known
+producers → native counts.
+
+**Exemplars already landed (the bar to match/beat):** numeric lift
+(`i < 100000`, `i = i + 1`), `whileLoopSync` (sync runtime loop, no
+per-iteration promises), `echo X | grep P >/dev/null 2>/dev/null` →
+`String(X).includes(P)` (test-position IR lift).
+
+### 9.2 Mechanics
+
+- **Metric as awareness, not score:** `fail-estree --metric` tallies sh2.*
+  call sites per callee across the corpus (baseline 5,107 total; ~1,200
+  lowerable: getVar 512, setVar 253, param 197, test 129, caseMatch 42,
+  brace 40, arith family 41, async loops 44). The table is context for the
+  prompt; the **total count** is the progress signal for commit/no-progress.
+- **Loop:** at the idle point (`estree_failed == 0`), diff the metric vs
+  `.estree_metric_prev.tsv`:
+  - total decreased AND corpus green → `scoped_commit`
+  - total increased (tolerance +1 for flakiness) → `scoped_stash`
+  - flat for 3 rounds → idle (sleep 300), recheck later
+  - any failure count > 0 → back to fix mode (unchanged)
+- **Prompt (`build_improvement_prompt`):** the ladder, the exemplars, the
+  current metric table, and the directive — for each construct still on the
+  runtime/spawn path, find the best lowering you can think of. Same scoped
+  fix surface as fix mode (wide `src/*` + `harness/*` when the rust loop is
+  absent; narrow `src/estree.rs` when it runs).
+- **Guardrails:** corpus 516/516 is the hard gate for commits; one regressed
+  example → auto-stash. Determinism (`cargo test --lib`) and the structural
+  gate must stay green (new sh2.* names need whitelist entries; `*Sync` only
+  for the pure-CPU loop exception). Never reduce the PERL pass count; no
+  blocking I/O. When unsure of a lowering's correctness, keep the runtime
+  call — a good idea that can't be proven on the corpus is dropped, not
+  force-fit.

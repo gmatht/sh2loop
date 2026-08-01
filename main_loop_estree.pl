@@ -67,6 +67,10 @@ my $estree_trusted_file = "$project_root/.estree_trusted_count";
 my $perl_trusted_file   = "$project_root/.estree_perl_trusted_count";
 my $history_log  = "$project_root/.estree_history.log";
 my $lock_file    = "$project_root/.estree_loop.lock";
+# improvement-mode (M8 / PLAN.md §9) state
+my $metric_file  = "$project_root/.estree_metric.tsv";       # fail-estree --metric writes (current run)
+my $metric_prev  = "$project_root/.estree_metric_prev.tsv";  # committed-state metric baseline
+my $improvement_idle_count = 0;
 
 my $dry_run = 0;
 my $prefix  = '';
@@ -107,7 +111,7 @@ sub log_decision {
 
 # ── run fail-estree ──────────────────────────────────────────────────
 sub run_fail_estree {
-    my $cmd = "$fail_estree" . ($prefix ne '' ? " $prefix" : '');
+    my $cmd = "$fail_estree --metric" . ($prefix ne '' ? " $prefix" : '');
     my $pid = open(my $fh, '-|', $cmd);
     return ('', 1, -1) unless defined $pid;
     my ($output, $timed_out) = ('', 0);
@@ -258,33 +262,9 @@ PROMPT
     $prompt .= join("\n", map { "    $_" } @std) . "\n" if @std;
     $prompt .= "- runtime error:\n" . join("\n", map { "    $_" } @rt) . "\n" if @rt;
 
-    $prompt .= "\nFIX SURFACE — modify ONLY these files:\n";
-    if (fix_surface_wide()) {
-        $prompt .= <<'WIDE';
-- sh2perl/src/**  (ALL Rust sources — the estree loop is the only worker
-  right now: the emitter is src/shir.rs (ast_to_ir/shir_to_estree), the
-  node model + sh2.* helpers are src/estree.rs, and the shared IR + Perl
-  generator also live under src/. Modify as needed, but NEVER reduce the
-  PERL pass count.)
-WIDE
-    } else {
-        $prompt .= <<'NARROW';
-- sh2perl/src/estree.rs  (the Rust emitter; word-level lowering is the big
-  bucket: parameter expansion, arithmetic words, brace expansion, arrays)
-NARROW
-    }
+    $prompt .= fix_surface_text();
+
     $prompt .= <<"PROMPT";
-- harness/sh2-namespace.mjs  (the sh2.* runtime / builtins / test parser)
-- harness/estree-gen.mjs     (ESTree→JS printer)
-- harness/estree_gate.pl     (structural gate — if you add sh2.* functions,
-  add them to the whitelist here)
-
-NEVER touch: examples/ (user WIP), PLAN.md, main_loop*.pl, fail,
-blessed-fail-estree.txt (regen with ./fail-estree --bless). If
-main_loop_rust.pl (the Perl worker) starts running, the src surface
-narrows to src/estree.rs only — the FIX SURFACE above reflects the
-current mode.
-
 VERIFY
 - Rust changes: cd sh2perl && cargo build --bin debashc && cargo test --lib
   (the estree unit tests assert no sh2.unsupported leaks and determinism)
@@ -301,6 +281,133 @@ STRATEGY
 - If you cannot fix something, move on — do not regress what works.
 PROMPT
     return $prompt;
+}
+
+# ── fix surface text (shared by fix + improvement prompts) ──────────
+sub fix_surface_text {
+    my $t = "\nFIX SURFACE — modify ONLY these files:\n";
+    if (fix_surface_wide()) {
+        $t .= <<'WIDE';
+- sh2perl/src/**  (ALL Rust sources — the estree loop is the only worker
+  right now: the emitter is src/shir.rs (ast_to_ir/shir_to_estree), the
+  node model + sh2.* helpers are src/estree.rs, and the shared IR + Perl
+  generator also live under src/. Modify as needed, but NEVER reduce the
+  PERL pass count.)
+WIDE
+    } else {
+        $t .= <<'NARROW';
+- sh2perl/src/estree.rs  (the Rust emitter; word-level lowering is the big
+  bucket: parameter expansion, arithmetic words, brace expansion, arrays)
+NARROW
+    }
+    $t .= <<"PROMPT";
+- harness/sh2-namespace.mjs  (the sh2.* runtime / builtins / test parser)
+- harness/estree-gen.mjs     (ESTree→JS printer)
+- harness/estree_gate.pl     (structural gate — if you add sh2.* functions,
+  add them to the whitelist here)
+
+NEVER touch: examples/ (user WIP), PLAN.md, main_loop*.pl, fail,
+blessed-fail-estree.txt (regen with ./fail-estree --bless). If
+main_loop_rust.pl (the Perl worker) starts running, the src surface
+narrows to src/estree.rs only — the FIX SURFACE above reflects the
+current mode.
+PROMPT
+    return $t;
+}
+
+# ── improvement-mode prompt (M8 / PLAN.md §9) ───────────────────────
+sub build_improvement_prompt {
+    my ($metric, $summary, $fails) = @_;
+    my $total = (defined $metric ? ($metric->{total} // 0) : 0);
+    my $table = defined $metric ? ($metric->{table} // {}) : {};
+    my $prompt = <<"PROMPT";
+The ESTree backend passes the FULL corpus ($summary->{estree_passed}/$summary->{total}) —
+no bugs to fix. Your job now: make the generated JS FASTER and more NATIVE by
+finding the CHEAPEST CORRECT LOWERING for everything that still goes through the
+sh2.* runtime or spawns a subprocess.
+
+LOWERING LADDER (cheapest wins; the corpus is the correctness oracle):
+  native JS expression          <  sync sh2.* runtime call   <  async sh2.* call   <  subprocess spawn
+  String(x).includes(p)            sh2.test                     sh2.exec              echo | grep
+  i < 100000, i = i + 1            (fallback)                   sh2.pipeline          ...
+  String.slice/replace/...
+
+Think in PATTERN FAMILIES, not instances: \`grep 1337\` is a substring test
+(String(x).includes("1337")) — NEVER a regex, NEVER a generic grep translation.
+Generalize the same way: grep -q P file -> read + includes; case \$x in *P*) ->
+includes; seq 1 N -> native range; [ \"\$x\" = *P* ] -> native glob-to-includes;
+\${x//p/r} -> replaceAll; head/tail/wc on a known producer -> native counts;
+for/cstyle-for loops with no awaits -> sync runtime loops (forLoopSync /
+cstyleForSync, mirroring whileLoopSync); remaining async while loops -> sync.
+
+EXEMPLARS ALREADY LANDED (the bar to match or beat):
+  - numeric lift:  [ \$i -lt 100000 ] -> i < 100000 ;  i=\$((i+1)) -> i = i + 1
+  - whileLoopSync: sync runtime loop, no per-iteration promises
+    (10M-iter arithmetic loop: 2.64s -> 0.23s loop-only)
+  - echo X | grep P >/dev/null 2>/dev/null (test position) -> String(X).includes(P)
+    via the ShIR grep-test lift (~180x on a 10k-iter loop)
+
+CURRENT METRIC — remaining sh2.* call sites across the corpus (fail-estree --metric):
+PROMPT
+    $prompt .= "  total: $total call sites\n";
+    for my $k (sort { ($table->{$b} // 0) <=> ($table->{$a} // 0) } keys %$table) {
+        $prompt .= sprintf("  %-16s %d\n", $k, $table->{$k});
+    }
+    $prompt .= <<"PROMPT";
+The highest-count runtime constructs (getVar/setVar/param/test/caseMatch/brace/
+arith/forLoop/whileLoop/join/...) are where native lowering pays most. Pick the
+construct with the CLEAREST best lowering, implement it, and verify below.
+
+PROMPT
+    $prompt .= fix_surface_text();
+    $prompt .= <<"PROMPT";
+
+VERIFY (mandatory, exactly like fix mode):
+- Rust: cd sh2perl && cargo build --bin debashc && cargo test --lib  (determinism asserted)
+- Full corpus: ./fail-estree  — must stay 100% (the correctness oracle; a test
+  that previously passed now failing means your lowering is wrong — fix or revert)
+- Structural gate stays green; NEW sh2.* names need estree_gate.pl whitelist
+  entries; *Sync only for the pure-CPU loop exception (whileLoopSync precedent).
+- NEVER reduce the PERL pass count; no blocking I/O (async-only codegen).
+- Smallest change that wins the most. If a lowering cannot be proven correct on
+  the corpus, keep the existing runtime call — do not regress what works.
+- Prefer src/shir.rs (shared ShIR) for pattern lifts so other backends can
+  reuse them; harness/sh2-namespace.mjs for runtime changes; estree_gate.pl
+  for whitelist entries.
+PROMPT
+    return $prompt;
+}
+
+# ── metric helpers (M8 / PLAN.md §9) ────────────────────────────────
+sub read_metric {
+    my ($file) = @_;
+    return undef unless -e $file;
+    open my $fh, '<', $file or return undef;
+    my ($total, %table);
+    while (my $line = <$fh>) {
+        chomp $line;
+        my ($k, $v) = split /\t/, $line;
+        next unless defined $v && $v =~ /^\d+$/;
+        if ($k eq 'total') { $total = $v + 0; }
+        else { $table{$k} = $v + 0; }
+    }
+    close $fh;
+    return { total => ($total // 0), table => \%table };
+}
+
+sub read_metric_total {
+    my ($file) = @_;
+    my $m = read_metric($file);
+    return defined $m ? $m->{total} : undef;
+}
+
+sub write_metric_file {
+    my ($file, $metric) = @_;
+    return unless defined $metric;
+    open my $fh, '>', $file or warn "write $file: $!";
+    print $fh "total\t$metric->{total}\n";
+    print $fh "$_\t$metric->{table}{$_}\n" for sort keys %{$metric->{table} // {}};
+    close $fh;
 }
 
 # ── invoke pi (streaming, mirrors main_loop_rust.pl) ─────────────────
@@ -488,6 +595,28 @@ while (1) {
     my $report_only = $prefix ne '';   # prefix runs are partial views: never
     # mutate baseline/trusted/commits — a full run verifies and commits.
 
+    # ── flaky re-check (M8): a small failing set that PASSES SOLO is full-run
+    # noise (/tmp races, load), not a regression — treat the corpus as green
+    # so improvement mode can fire. A real regression fails solo too. Only
+    # full runs (prefix runs are partial views and would false-positive).
+    if (!$report_only && $summary->{estree_failed} > 0 && $summary->{estree_failed} <= 3) {
+        my @still_failing;
+        for my $f (@{$fails}) {
+            my $solo = `timeout 120 "$fail_estree" "$f" 2>&1`;
+            if ($solo =~ /ESTREE:\s*\d+ passed, 0 failed/) {
+                print "flaky (passes solo): $f\n";
+            } else {
+                push @still_failing, $f;
+            }
+        }
+        if (!@still_failing) {
+            print "\nAll $summary->{estree_failed} failing test(s) pass solo — flaky full-run noise, treating corpus as green.\n";
+            $summary->{estree_failed} = 0;
+            $fails = [];
+            $diff = diff_lists($baseline, $fails);
+        }
+    }
+
     my $estree_trusted = 10_000;
     if (open my $tf, '<', $estree_trusted_file) { my $v = <$tf>; chomp $v if defined $v; $estree_trusted = $v + 0 if defined $v && $v ne ''; close $tf; }
     my $perl_trusted = 10_000;
@@ -549,7 +678,9 @@ while (1) {
     }
 
     # ── same count → update baseline (keep file changes if any) ──
-    if (!$report_only && $diff->{new_count} == $diff->{old_count}) {
+    # Guarded with estree_failed > 0: at 0 failures the tree holds improvement
+    # work (M8), which is committed/stashed on the METRIC, not a fix message.
+    if (!$report_only && $diff->{new_count} == $diff->{old_count} && $summary->{estree_failed} > 0) {
         my @sub = submodule_changed_paths();
         my @root = root_changed_paths();
         if (@sub || @root) {
@@ -567,12 +698,70 @@ while (1) {
         log_decision('tolerance', $diff->{old_count}, $diff->{new_count}, join(',', @{$diff->{regressed}}));
     }
 
-    # ── nothing left to fix? ──
+    # ── nothing left to fix → improvement mode (M8 / PLAN.md §9) ──
     if ($summary->{estree_failed} == 0) {
-        print "\nAll ESTree examples pass! Idling (check back later).\n";
-        log_decision('all-pass', $summary->{estree_failed}, 0, '');
-        if ($dry_run) { release_lock(); exit 0; }
-        sleep 60;
+        my $metric = read_metric($metric_file);
+        if (!$report_only && defined $metric) {
+            my $prev_total = read_metric_total($metric_prev);
+            if (!defined $prev_total) {
+                # seed the committed-state metric baseline, then idle a while
+                write_metric_file($metric_prev, $metric);
+                print "\nImprovement mode: metric baseline seeded ($metric->{total} sh2.* call sites). Idling.\n";
+                log_decision('metric-seed', '?', $metric->{total}, '');
+                if ($dry_run) { release_lock(); exit 0; }
+                sleep 300;
+                next;
+            }
+            my $cur = $metric->{total};
+            if ($cur < $prev_total) {
+                # pi's last round lowered call sites → commit (corpus is green
+                # by construction here; determinism/gate verified by the worker)
+                my @sub = submodule_changed_paths();
+                my @root = root_changed_paths();
+                if (@sub || @root) {
+                    scoped_commit("estree improvement: sh2.* call sites $prev_total -> $cur", $summary);
+                    print "\nImprovement: $prev_total -> $cur sh2.* call sites. Committed.\n";
+                } else {
+                    print "\nImprovement: $prev_total -> $cur sh2.* call sites (no file changes).\n";
+                }
+                write_metric_file($metric_prev, $metric);
+                $improvement_idle_count = 0;
+                log_decision('metric-improve', $prev_total, $cur, 'commit');
+                next;
+            }
+            if ($cur > $prev_total + 1) {
+                # pi's last round made things worse (more runtime calls)
+                my @sub = submodule_changed_paths();
+                my @root = root_changed_paths();
+                my $stashed = (@sub || @root) ? scoped_stash() : 0;
+                print "\nMETRIC REGRESSION: $prev_total -> $cur sh2.* call sites. Stashed scoped changes.\n";
+                write_metric_file($metric_prev, $metric);
+                $improvement_idle_count = 0;
+                log_decision('metric-regress', $prev_total, $cur, $stashed ? 'stashed' : 'nothing');
+                next;
+            }
+        }
+        # flat (or first round after seed/commit): prompt the worker to find
+        # cheaper lowerings; idle after 3 consecutive flat rounds.
+        $improvement_idle_count++;
+        if (!$report_only && $improvement_idle_count >= 3) {
+            print "\nMetric flat after 3 improvement rounds. Idling.\n";
+            log_decision('metric-idle', 'flat', 'flat', '');
+            $improvement_idle_count = 0;
+            if ($dry_run) { release_lock(); exit 0; }
+            sleep 300;
+            next;
+        }
+        my $prompt = build_improvement_prompt($metric, $summary, $fails);
+        if ($dry_run) {
+            print "\n----- DRY RUN: improvement prompt below, no pi invocation -----\n";
+            print $prompt;
+            print "\n----- end dry run -----\n";
+            release_lock();
+            exit 0;
+        }
+        invoke_pi($prompt);
+        sleep 3;
         next;
     }
 

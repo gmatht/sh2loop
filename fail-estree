@@ -41,11 +41,12 @@ my $jobs = int($ncpus / 2);
 $jobs = 1 if $jobs < 1;
 
 my $blessed_file = "$root/blessed-fail-estree.txt";
-my ($do_gate, $do_bless) = (0, 0);
+my ($do_gate, $do_bless, $do_metric) = (0, 0, 0);
 my @prefix_args = ();
 for my $a (@ARGV) {
     $do_gate = 1 if $a eq '--gate';
     $do_bless = 1 if $a eq '--bless';
+    $do_metric = 1 if $a eq '--metric';
     push @prefix_args, $a unless $a =~ /^--/;
 }
 my @all_tests = sort glob "$examples/*.sh";
@@ -157,6 +158,15 @@ sub run_one_test {
     $result{estree} = $est_verdict;
     $result{estree_reason} = $est_reason;
 
+    if ($do_metric) {
+        # sh2.* callee tally for improvement-mode awareness (M8 / PLAN.md §9).
+        my %counts;
+        while ($json_out =~ /"name":"sh2"\},"property":\{"type":"Identifier","name":"([A-Za-z_]+)"/g) {
+            $counts{$1}++;
+        }
+        $result{metric} = \%counts;
+    }
+
     remove_tree($tmp_dir);
     return \%result;
 }
@@ -238,6 +248,31 @@ print "----------------------------------------\n";
 printf "PERL:   %d passed, %d failed out of %d\n", $perl_pass, $perl_fail, $total;
 printf "ESTREE: %d passed, %d failed out of %d  (%.1f%%)\n", $estree_pass, $estree_fail, $total,
     $total ? 100 * $estree_pass / $total : 0;
+
+# ── improvement metric (M8 / PLAN.md §9) ────────────────────────────
+if ($do_metric) {
+    my %agg;
+    for my $r (@all_results) {
+        my $m = $r->{metric} // {};
+        for my $k (keys %$m) { $agg{$k} += $m->{$k}; }
+    }
+    my $metric_total = 0;
+    $metric_total += $_ for values %agg;
+    print "----------------------------------------\n";
+    print "sh2-metric-total: $metric_total\n";
+    for my $k (sort { $agg{$b} <=> $agg{$a} } keys %agg) {
+        printf "  %-16s %d\n", $k, $agg{$k};
+    }
+    # Full runs only: prefix runs are partial views and must not clobber the
+    # committed-state baseline the loop diffs against.
+    if (!@prefix_args) {
+        open my $mfh, '>', "$root/.estree_metric.tsv" or warn "write metric: $!";
+        print $mfh "total\t$metric_total\n";
+        print $mfh "$_\t$agg{$_}\n" for sort keys %agg;
+        close $mfh;
+        print "metric written to .estree_metric.tsv\n";
+    }
+}
 
 # ── Stage B gating / blessing ────────────────────────────────────────
 if ($do_bless) {
