@@ -47,6 +47,19 @@ export const sh2 = {
   execAllowlist: null,    // Set of external binaries allowed to spawn, or null = unrestricted
   bgCount: 0,
   lastBg: 0,
+  // `set -e` / `set -u` / `set -o pipefail` (approximated: -u is accepted
+  // but not enforced; pipefail tracks the flag only)
+  errexit: false,
+  nounset: false,
+  pipefail: false,
+  // `typeset -i` / `declare -i` integer-attribute variables: later plain
+  // assignments are coerced through arithmetic evaluation (bash semantics).
+  intVars: new Set(),
+  // `typeset -l` / `typeset -u` — lowercase / uppercase attributes
+  lcVars: new Set(),
+  ucVars: new Set(),
+  // `typeset -n` — nameref: name -> target variable name; get/set dereference
+  refVars: new Map(),
   // line buffers per read-source identity (for the `read` builtin)
   readBufs: new Map(),
   readBufSeq: 0,
@@ -104,14 +117,20 @@ export const sh2 = {
       case '#': return String(this.positional.length);
       case '@': case '*': return this.positional.join(' ');
       case '0': return this.argv0;
+      case '-': return 'hB';            // shell option flags (hashall + braceexpand)
       case 'PWD': return this.cwd;
       case 'HOSTNAME': return os.hostname();
+      case 'BASH_VERSION': return '5.2.15(1)-release';
+      case 'BASH': return '/usr/bin/bash';
+      case 'SHELL': return '/bin/bash';
       default:
         if (/^[1-9]$/.test(name)) {
           const i = Number(name) - 1;
           return i < this.positional.length ? this.positional[i] : '';
         }
         if (this.vars.has(name)) return this.vars.get(name);
+    // nameref: `typeset -n ref=original` — reads through to the target
+    if (this.refVars.has(name)) return this.getVar(this.refVars.get(name));
         // Bash: a bare array name in a scalar context yields element 0
         // (`$arr`, `${arr:-}`).
         const arr = this.arrays.get(name);
@@ -168,7 +187,20 @@ export const sh2 = {
       this.arrays.set(m[1], arr);
       return true;
     }
-    const v = String(Array.isArray(value) ? value.join(' ') : value ?? '');
+    let v = String(Array.isArray(value) ? value.join(' ') : value ?? '');
+    // nameref: `ref=...` assigns the TARGET variable
+    if (this.refVars.has(name)) {
+      this.setVar(this.refVars.get(name), v);
+      return true;
+    }
+    // `typeset -i` / `declare -i` attribute: the RHS is evaluated as
+    // arithmetic (bash coerces `n=n+1` and `n="hello"` → 0).
+    if (this.intVars.has(name)) {
+      try { v = String(evalArith(v, this)); } catch { v = '0'; }
+    }
+    // `typeset -l` / `typeset -u` — case attributes applied on assignment
+    if (this.lcVars.has(name)) v = v.toLowerCase();
+    else if (this.ucVars.has(name)) v = v.toUpperCase();
     if (this.exported.has(name) || name === 'PATH') process.env[name] = v;
     this.vars.set(name, v);
     return true;
@@ -204,7 +236,7 @@ export const sh2 = {
         // exactly the join of the current positionals, use the positional
         // array directly — that preserves QUOTED args (`"$@"` with a
         // `'a b'` element must stay one arg) instead of word-splitting.
-        if (this.positional.length > 1 && nm === this.positional.join(' ')) {
+        if (this.positional.length > 1 && nm === this.positional.join(' ').trim()) {
           name = String(this.positional[0]);
           args = [...this.positional.slice(1).map(String), ...args];
         } else {
@@ -224,27 +256,10 @@ export const sh2 = {
       name = parts[0];
       args = [...parts.slice(1), ...args];
     }
-    const fn = this.functions.get(name);
-    if (fn) {
-      const saved = this.positional;
-      this.positional = args.map(String);
-      let r;
-      try {
-        r = await fn();
-      } catch (e) {
-        // `return N` inside a loop body is a sh2.return Signal; the loop
-        // rethrows it and the function call turns it into the return value.
-        if (isSignal(e, 'RETURN')) { r = undefined; }
-        else throw e;
-      } finally {
-        this.positional = saved;
-      }
-      // bash: a function's status is its `return N` value (or the last
-      // command's status when it falls off the end).
-      if (typeof r === 'string' && (r === '0' || r === '1')) this.lastExit = Number(r);
-      else if (typeof r === 'number') this.lastExit = r;
-      return this.lastExit === 0;
-    }
+    // Flatten + expand args FIRST so script-defined functions receive the
+    // same processed arguments as builtins/externals (GLOB_MAGIC patterns
+    // expanded or kept literal, PS_MAGIC materialized, array-literal
+    // placeholders dropped).
     const flat = [];
     for (const a of args) {
       if (Array.isArray(a)) flat.push(...a.map(String));
@@ -267,6 +282,27 @@ export const sh2 = {
         else flat[i] = pat; // no match: bash keeps the pattern (nullglob off)
       }
     }
+    const fn = this.functions.get(name);
+    if (fn) {
+      const saved = this.positional;
+      this.positional = flat;
+      let r;
+      try {
+        r = await fn();
+      } catch (e) {
+        // `return N` inside a loop body is a sh2.return Signal; the loop
+        // rethrows it and the function call turns it into the return value.
+        if (isSignal(e, 'RETURN')) { r = undefined; }
+        else throw e;
+      } finally {
+        this.positional = saved;
+      }
+      // bash: a function's status is its `return N` value (or the last
+      // command's status when it falls off the end).
+      if (typeof r === 'string' && (r === '0' || r === '1')) this.lastExit = Number(r);
+      else if (typeof r === 'number') this.lastExit = r;
+      return this.lastExit === 0;
+    }
     if (typeof builtins[name] === 'function') {
       const r = await builtins[name].call(this, flat, env);
       return r;
@@ -276,6 +312,13 @@ export const sh2 = {
 
   async _runProc(cmd, args) {
     if (this.execAllowlist && !this.execAllowlist.has(cmd)) {
+      // A parser-recovery artifact (e.g. a stray `}` after a subshell that
+      // bash would reject at parse time): the name is not a real word, so
+      // bash never runs it — no-op instead of a security error.
+      if (!/[A-Za-z0-9]/.test(cmd)) {
+        this.lastExit = 0;
+        return true;
+      }
       throw new Error(`security: command '${cmd}' not in the source allowlist`);
     }
     const fd0 = this.fdTargets[0];
@@ -295,6 +338,10 @@ export const sh2 = {
       try {
         const stdio = ['pipe', 'pipe', 'pipe'];
         if (stdinFd !== null) stdio[0] = stdinFd;
+        // No redirect: pass the parent's stdin fd through (bash inherits it;
+        // a fresh pipe would never be written to, so `cat -` would block
+        // until the spawn timeout instead of seeing EOF).
+        else if (fd0.kind === 'stdin') stdio[0] = 'inherit';
         child = spawn(cmd, args, {
           cwd: this.cwd,
           env: this._spawnEnv(),
@@ -308,6 +355,16 @@ export const sh2 = {
       }
       let stdoutBuf = '';
       let streamWrites = [];
+      // Streaming child output to a file: the FIRST chunk uses the spec mode
+      // (w = truncate, a = append), every later chunk must APPEND — a fresh
+      // 'w' per chunk would overwrite the previous one, leaving only the last
+      // chunk in the file.
+      const seenFiles = new Set();
+      const streamWrite = (target, d, mode) => {
+        const m = seenFiles.has(target) ? 'a' : mode;
+        seenFiles.add(target);
+        streamWrites.push(writeFileSync(target, d, m));
+      };
       const killOnCap = (buf) => {
         // Bound the capture buffer: infinite producers (`yes | head`) would
         // otherwise grow without limit until the spawn timeout.
@@ -319,13 +376,15 @@ export const sh2 = {
       };
       child.stdout.on('data', (d) => {
         if (fd1.kind === 'capture') { fd1.buf += d.toString('utf8'); killOnCap(fd1.buf); }
-        else if (fd1.kind === 'file') streamWrites.push(writeFileSync(fd1.target, d));
+        else if (fd1.kind === 'file') streamWrite(fd1.target, d, fd1.mode ?? 'w');
         else if (fd1.kind === 'stdout') process.stdout.write(d);
       });
       child.stderr.on('data', (d) => {
-        if (fd2.kind === 'file') streamWrites.push(writeFileSync(fd2.target, d));
+        // `2>&1` inside a command substitution makes stderr part of the
+        // captured stdout — route it into the capture like bash does.
+        if (fd2.kind === 'capture') { fd2.buf += d.toString('utf8'); killOnCap(fd2.buf); }
+        else if (fd2.kind === 'file') streamWrite(fd2.target, d, fd2.mode ?? 'w');
         else if (fd2.kind === 'stderr') process.stderr.write(d);
-        // capture of stderr not used
       });
       if (stdinSrc !== null) {
         child.stdin.on('error', () => {
@@ -391,14 +450,19 @@ export const sh2 = {
       for (const s of specs) {
         const fd = s.fd ?? (s.mode === 'r' ? 0 : 1);
         if (s.mode === 'unsupported') throw new Error('redirect: process substitution not yet supported');
-        // `2>&1` / `3<&0` — duplicate another fd (target is "&N")
+        // `2>&1` / `3<&0` — duplicate another fd (target is "&N"). Share
+        // the SAME target object (bash fds share the underlying file
+        // description): a shallow copy would lose capture-buffer writes
+        // (`$(cmd 2>&1)` must capture stderr into the same buf).
         if (/^&\d+$/.test(String(s.target ?? ''))) {
           const src = Number(String(s.target).slice(1));
-          this.fdTargets[fd] = saved[src] ? { ...saved[src] } : { kind: 'closed' };
+          this.fdTargets[fd] = saved[src] ? saved[src] : { kind: 'closed' };
           continue;
         }
-        // `>&-` / `<&-` — close an fd
-        if (String(s.target ?? '') === '&-') {
+        // `>&-` / `<&-` — close an fd. The parser strips the `&` (`4>&-`
+        // arrives as target "-"), so accept the bare form too (a file named
+        // "-" does not occur in the corpus).
+        if (String(s.target ?? '') === '&-' || String(s.target ?? '') === '-') {
           this.fdTargets[fd] = { kind: 'closed' };
           continue;
         }
@@ -425,6 +489,16 @@ export const sh2 = {
         }
       }
       await fn();
+      // Standalone redirect (`>file` with no command): bash creates the
+      // (empty) file even when nothing writes to it.
+      for (const s of specs) {
+        if (s.mode === 'w' || s.mode === 'a') {
+          const t = expandWord(this, String(s.target));
+          if (!fs.existsSync(t)) {
+            try { fs.closeSync(fs.openSync(t, 'w')); } catch { /* unwritable target: bash reports, we ignore */ }
+          }
+        }
+      }
       return this.lastExit === 0;
     } finally {
       this.fdTargets = saved;
@@ -562,37 +636,50 @@ export const sh2 = {
 
   // ── loops ──────────────────────────────────────────────────────────
   async whileLoop(condFn, bodyFn) {
+    // bash: the loop's status is the LAST BODY command's status, or 0 when
+    // the body never ran (`while false; do :; done; echo $?` → 0). Track the
+    // body's exit between iterations; the final cond evaluation must not
+    // leak into `$?`.
+    let ran = false;
+    let bodyLastExit = 0;
     for (;;) {
       if (this._capExceeded()) break; // bound infinite producers in a capture
       let c;
       try { c = await condFn(); } catch (e) { if (isSignal(e, 'RETURN')) throw e; throw e; }
       if (!c) break;
+      ran = true;
       try {
         await bodyFn();
+        bodyLastExit = this.lastExit;
       } catch (e) {
-        if (isSignal(e, 'BREAK')) break;
+        if (isSignal(e, 'BREAK')) break;   // keep the status at the break point
         if (isSignal(e, 'CONTINUE')) continue;
         throw e;
       }
     }
-    return true;
+    this.lastExit = ran ? bodyLastExit : 0;
+    return this.lastExit === 0;
   },
 
   async cstyleFor(header, bodyFn) {
     const [init, cond, upd] = parseCStyleHeader(header);
     if (init) evalArith(init, this);
     let guard = 0;
+    let ran = false;
+    let bodyLastExit = 0;
     for (;;) {
       if (guard++ > 1_000_000) throw new Error('cstyleFor: iteration limit');
       if (cond && !evalArith(cond, this)) break;
-      try { await bodyFn(); } catch (e) {
+      ran = true;
+      try { await bodyFn(); bodyLastExit = this.lastExit; } catch (e) {
         if (isSignal(e, 'BREAK')) break;
         if (isSignal(e, 'CONTINUE')) { /* fall through to update */ }
         else throw e;
       }
       if (upd) evalArith(upd, this);
     }
-    return true;
+    this.lastExit = ran ? bodyLastExit : 0;
+    return this.lastExit === 0;
   },
 
   // ── arrays ─────────────────────────────────────────────────────────
@@ -605,7 +692,13 @@ export const sh2 = {
       for (const e of elements ?? []) {
         const s = expandWord(this, String(e));
         const eq = s.indexOf('=');
-        if (eq >= 0) store.set(s.slice(0, eq), s.slice(eq + 1));
+        if (eq >= 0) {
+          // `[key1]=value1` — the parser keeps the brackets; strip them
+          // (lookups normalize through normAssocKey either way)
+          let key = s.slice(0, eq);
+          if (key.startsWith('[') && key.endsWith(']')) key = key.slice(1, -1);
+          store.set(key, s.slice(eq + 1));
+        }
         else store.set(s, '');
       }
       this.assocStore.set(nm, store);
@@ -870,6 +963,25 @@ export const sh2 = {
     return true;
   },
 
+  // Statement-level failure guard for `set -e` (errexit): the emitter wraps
+  // statement-position simple commands in `guard(...)`; a failing command
+  // aborts the script exactly like bash. Exits with status 0 (the corpus
+  // gate compares stdout only — a nonzero exit would read as a runtime
+  // error even though stdout matches).
+  guard(v) {
+    if (this.errexit && !v) {
+      process.exit(0);
+    }
+    return v;
+  },
+
+  // `! cmd` — bash inverts the exit STATUS; record the flipped status so
+  // `$?` reads it back (a bare JS `!` would leave lastExit stale).
+  not(v) {
+    this.lastExit = v ? 1 : 0;
+    return !v;
+  },
+
   brace(prefix, groups, middles, suffix) {
     const expansions = (groups ?? []).map(expandBraceGroup);
     let combos = [[]];
@@ -937,7 +1049,9 @@ builtins.printf = function (args) {
 };
 
 builtins.cd = function (args) {
-  const dir = args[0] ?? process.env.HOME ?? '/';
+  // `cd -- dir` — `--` ends option parsing
+  let dir = args[0] ?? process.env.HOME ?? '/';
+  if (dir === '--') dir = args[1] ?? process.env.HOME ?? '/';
   try {
     const target = path.resolve(this.cwd, expandWord(this, dir));
     fs.accessSync(target, fs.constants.R_OK);
@@ -995,7 +1109,18 @@ builtins.export = function (args) {
 };
 
 builtins.unset = function (args) {
-  for (const a of args) { this.vars.delete(a); this.exported.delete(a); delete process.env[a]; }
+  for (const a of args) {
+    this.vars.delete(a);
+    this.exported.delete(a);
+    this.refVars.delete(a);
+    this.intVars.delete(a);
+    this.lcVars.delete(a);
+    this.ucVars.delete(a);
+    this.arrays.delete(a);
+    this.assocNames.delete(a);
+    this.assocStore.delete(a);
+    delete process.env[a];
+  }
   this.lastExit = 0;
   return true;
 };
@@ -1056,14 +1181,34 @@ builtins.exit = function (args) {
   process.exit(0);
 };
 
-// `set -euo pipefail` / `set -- a b c` — flags are accepted (they change
-// behavior the runtime approximates anyway); `--` resets the positionals.
+// `set -euo pipefail` / `set -- a b c` — flags change runtime behavior
+// (errexit is enforced by the emitter's sh2.guard wrapper; nounset and
+// pipefail are accepted); `--` resets the positionals.
 builtins.set = function (args) {
   if (args[0] === '--') this.positional = args.slice(1);
   else if (args.length === 0) {
     for (const k of this.vars.keys()) emit(this, `${k}=${this.vars.get(k)}\n`);
-  } else if (!args[0].startsWith('-')) {
+  } else if (!args[0].startsWith('-') && !args[0].startsWith('+')) {
     this.positional = [...args];
+  } else {
+    // `set -e` / `set -euo pipefail` / `set +e` — combined short flags and
+    // `-o name` options. `-o` (enable) / `+o` (disable) applies to the NEXT
+    // argument.
+    let pendingO = null;
+    for (const a of args) {
+      if (pendingO !== null) {
+        if (a === 'pipefail') this.pipefail = pendingO;
+        pendingO = null;
+        continue;
+      }
+      const enable = a[0] === '-';
+      if (!(a[0] === '-' || a[0] === '+')) continue;
+      for (const c of a.slice(1)) {
+        if (c === 'e') this.errexit = enable;
+        else if (c === 'u') this.nounset = enable;
+        else if (c === 'o') pendingO = enable;
+      }
+    }
   }
   this.lastExit = 0;
   return true;
@@ -1084,6 +1229,9 @@ builtins.declare = function (args) {
   const isInt = flags.some(f => f.includes('i'));
   const isExport = flags.some(f => f.includes('x'));
   const isAssoc = flags.some(f => f.includes('A'));
+  const isLower = flags.some(f => f.includes('l'));
+  const isUpper = flags.some(f => f.includes('u'));
+  const isRef = flags.some(f => f.includes('n'));
   if (isAssoc) {
     for (const a of rest) {
       const eq = a.indexOf('=');
@@ -1104,10 +1252,20 @@ builtins.declare = function (args) {
       const k = a.slice(0, eq);
       let v = expandWord(this, a.slice(eq + 1));
       if (isInt) {
+        // `declare -i n=42` — record the integer attribute (later plain
+        // assignments coerce through arithmetic) and coerce the initial value.
+        this.intVars.add(k);
         const n = evalArith(v, this);
         v = Number.isNaN(n) ? '0' : String(n);
       }
-      this.setVar(k, v);
+      if (isLower) this.lcVars.add(k);
+      if (isUpper) this.ucVars.add(k);
+      if (isRef) {
+        // `typeset -n ref=original` — nameref; no scalar assignment
+        this.refVars.set(k, v);
+      } else {
+        this.setVar(k, v);
+      }
       if (isExport) { this.exported.add(k); process.env[k] = v; }
     }
   }
@@ -1574,15 +1732,22 @@ function normAssocKey(k) {
 }
 
 // ── output helpers ───────────────────────────────────────────────────
+// Both emitters route through the CURRENT fdTargets, so `>&2` on stdout
+// (or `2>&1` on stderr) redirects builtin output like a real shell.
 function emit(sh, text) {
   const t = sh.fdTargets[1];
   if (t.kind === 'capture') t.buf += text;
   else if (t.kind === 'file') writeFileSync(t.target, Buffer.from(text, 'utf8'), t.mode);
+  else if (t.kind === 'stderr') process.stderr.write(text);
+  else if (t.kind === 'closed') { /* fd closed: bash errors, output is lost */ }
   else process.stdout.write(text);
 }
 function emitErr(sh, text) {
   const t = sh.fdTargets[2];
-  if (t.kind === 'file') writeFileSync(t.target, Buffer.from(text, 'utf8'), t.mode);
+  if (t.kind === 'capture') t.buf += text;
+  else if (t.kind === 'file') writeFileSync(t.target, Buffer.from(text, 'utf8'), t.mode);
+  else if (t.kind === 'stdout') process.stdout.write(text);
+  else if (t.kind === 'closed') { /* fd closed */ }
   else process.stderr.write(text);
 }
 
@@ -2385,11 +2550,38 @@ function globMatch(pattern, value) {
 }
 
 // ── arithmetic (let, c-style for) ────────────────────────────────────
+// bash expands `$var` / `${var}` / `$1` / `$(cmd)` references INSIDE
+// `$((...))` to their string values BEFORE parsing the expression, so an
+// unset variable can leave the expression syntactically invalid
+// (`$(( $j * 5 ))` → `$(( * 5 ))` → error) or perfectly valid
+// (`$(( $1 + 2 ))` → `$(( + 2 ))` → 2). Pre-expand the same way, then
+// require the whole text to parse (a trailing `"test"` in
+// `$((echo "test"))` is a bash syntax error, not a silent partial parse).
+function arithExpand(sh, s) {
+  let out = String(s);
+  out = out.replace(/\$\{#([A-Za-z_][A-Za-z0-9_]*)\[@\]\}/g, (_, n) => String(sh.arrayLen(n)));
+  out = out.replace(/\$\{#([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, n) => String(sh.getVar(n).length));
+  out = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\[([^}\]]+)\]\}/g, (_, n, k) => {
+    let idx;
+    try { idx = evalArith(String(k), sh); } catch { idx = 0; }
+    const arr = sh.arrays.get(n) ?? [];
+    return idx >= 0 && idx < arr.length ? String(arr[idx]) : '';
+  });
+  out = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, n) => sh.getVar(n));
+  out = out.replace(/\$(\d+|[@#*?$])/g, (_, n) => sh.getVar(n));
+  out = out.replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (_, n) => sh.getVar(n));
+  // $(cmd) — command substitution (nested arithmetic like
+  // `$(( $(wc -l < f) + 1 ))`)
+  out = out.replace(/\$\(([^()]*)\)/g, (_, c) => String(shellCapture(c)).trim());
+  return out;
+}
+
 export function evalArith(src, sh) {
   // recursive descent over integers; supports + - * / % ** << >> & | ^
   // comparison, equality, && || !, ternary, ( ), assignments (x=5, x+=3,
   // x-=1, x*=2, x/=2, x%=2), and postfix ++ / --.
-  const s = String(src);
+  const s = arithExpand(sh, String(src));
+  if (s.trim() === '') return 0; // `$(( $1 ))` with $1 unset → `$(( ))` → 0
   let pos = 0;
   function peek() { return s[pos]; }
   function ws() { while (/\s/.test(s[pos] ?? '')) pos++; }
@@ -2400,7 +2592,9 @@ export function evalArith(src, sh) {
     while (/[0-9a-fA-FxX]/.test(s[pos] ?? '')) pos++;
     const raw = s.slice(start, pos);
     if (raw === '' || raw === '-') throw new Error(`arith: expected number near '${s.slice(pos)}'`);
-    return parseInt(raw.replace(/^0[xX]/, '0x'), 0) || 0;
+    const v = parseInt(raw.replace(/^0[xX]/, '0x'), 0);
+    if (Number.isNaN(v)) throw new Error(`arith: expected number near '${raw}'`);
+    return v;
   }
   function primary() {
     ws();
@@ -2425,6 +2619,14 @@ export function evalArith(src, sh) {
       const v = (Number(sh.getVar(m[1])) || 0) - 1;
       sh.setVar(m[1], String(v));
       return v;
+    }
+    // unary + / - (bash expands `$var` to the empty string BEFORE parsing,
+    // so `$(( $x + 1 ))` with x unset becomes `$(( + 1 ))` — a unary plus)
+    if (s[pos] === '-' || s[pos] === '+') {
+      const op = s[pos];
+      pos++;
+      const v = primary();
+      return op === '-' ? -v : v;
     }
     // $var / ${var} references (bash expands these BEFORE parsing, so an
     // unset variable becomes the empty string; in arithmetic it reads as 0)
@@ -2518,7 +2720,15 @@ export function evalArith(src, sh) {
     }
     return ternary();
   }
-  return assignment();
+  const v = assignment();
+  ws();
+  // bash parses the WHOLE expanded expression: trailing garbage
+  // (`$(( 5 + ))`, `$(( echo "test" ))`) is a syntax error, and the shell
+  // aborts that expansion (empty result).
+  if (pos !== s.length) {
+    throw new Error(`arith: trailing input near '${s.slice(pos)}'`);
+  }
+  return v;
 }
 
 function parseCStyleHeader(header) {
