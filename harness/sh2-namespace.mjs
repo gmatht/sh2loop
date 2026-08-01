@@ -472,6 +472,54 @@ export const sh2 = {
     });
   },
 
+  // ── sync builtin dispatch ─────────────────────────────────────────
+  // Sync twin of exec()'s builtin path: the emitter lowers
+  // `sh2.exec("echo", args)` (and every other builtin the runtime
+  // implements synchronously — builtins.json minus async wait/exec/sleep/
+  // command) to this call when no script function shadows the name.
+  // Identical semantics: same arg flattening, ARRAY_LIT/BADSUB/PS/GLOB
+  // magic expansion, then the SAME builtin function — minus the async
+  // exec machinery (no promise per call; the whileLoopSync pattern).
+  builtin(name, args = []) {
+    const flat = [];
+    for (const a of args) {
+      if (Array.isArray(a)) flat.push(...a.map(String));
+      else flat.push(String(a));
+    }
+    for (let i = 0; i < flat.length; i++) {
+      if (flat[i] === ARRAY_LIT_MAGIC) {
+        // `declare -a arr=(...)` — the arg was a side-effecting setArray
+        // call (the array is already stored); drop the placeholder.
+        flat.splice(i, 1);
+        i--;
+        continue;
+      }
+      if (flat[i] === BADSUB_MAGIC) {
+        // `${!prefix*[@]}` bad substitution: bash skips the WHOLE command
+        // (status 1) but keeps the script running.
+        this.lastExit = 1;
+        return false;
+      }
+      if (typeof flat[i] === 'string' && flat[i].startsWith(PS_MAGIC)) {
+        flat[i] = materializePath(flat[i].slice(PS_MAGIC.length));
+      } else if (typeof flat[i] === 'string' && flat[i].startsWith(GLOB_MAGIC)) {
+        const pat = flat[i].slice(GLOB_MAGIC.length);
+        const hits = globExpand(pat);
+        if (hits.length > 0) flat.splice(i, 1, ...hits);
+        else flat[i] = pat; // no match: bash keeps the pattern (nullglob off)
+      }
+    }
+    const fn = builtins[name];
+    if (typeof fn !== 'function') {
+      // Unreachable: the emitter only emits `builtin` for names in the
+      // sync-builtin set. A missing impl is a runtime bug, not a script
+      // error — fail loudly.
+      throw new Error(`sh2.builtin: '${name}' is not a sync builtin`);
+    }
+    const r = fn.call(this, flat);
+    return r;
+  },
+
   // ── test expressions ───────────────────────────────────────────────
   test(expr) {
     try {
@@ -1042,8 +1090,13 @@ export const sh2 = {
   },
 
   // ── parameter expansion / arithmetic / brace expansion ─────────────
-  param(op, name, a, b) {
-    const v = this.getVar(name);
+  param(op, name, a, b, value) {
+    // `value` — the emitter's value-override for LIFTED variables: their
+    // values live in native JS bindings, not the store, so the emitter
+    // inlines the binding as a trailing argument and the store read is
+    // skipped. Everything else (extras processing: expandWord/evalArith,
+    // the glob engines, the `:=`/`:?` side effects) is unchanged.
+    const v = value !== undefined ? String(value) : this.getVar(name);
     if (op === 'len') return String(v.length); // ${#name}
     // `${x:off:len}` offsets may be arithmetic expressions (`${x:j:1}`)
     const sliceOff = (s) => {

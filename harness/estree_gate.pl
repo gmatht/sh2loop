@@ -17,7 +17,7 @@ use warnings;
 use JSON::PP;
 
 my %whitelist = map { $_ => 1 } qw(
-    exec getVar setVar test pipeline capture captureWords redirect caseMatch param arith brace setArray setArrayAppend assign arrayItems arrayLen arrayIndex join setLastExit arithEval idiv imod guard not contains
+    exec getVar setVar test pipeline capture captureWords redirect caseMatch param arith brace setArray setArrayAppend assign arrayItems arrayLen arrayIndex join setLastExit arithEval idiv imod guard not contains builtin
     define subshell background block whileLoop whileLoopSync cstyleFor cstyleForSync forLoop forLoopSync listVar and or
     shopt return break continue unsupported
 );
@@ -75,12 +75,12 @@ sub walk {
                 && ($obj->{name} // '') eq 'Math'
                 && ref $prop eq 'HASH'
                 && ($prop->{name} // '') =~ /^(trunc|floor|ceil)$/;
-            # String(x).includes(n) / startsWith / endsWith / toLowerCase —
-            # the native glob-to-string-op lowerings (pure string ops)
+            # String(x).includes(n) / startsWith / endsWith / toLowerCase / … —
+            # the native glob-to-string-op and param lowerings (pure string ops)
             my $is_string_method = ref $obj eq 'HASH'
                 && ($obj->{type} // '') eq 'CallExpression'
                 && ref $prop eq 'HASH'
-                && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase)$/;
+                && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase|toUpperCase|charAt|slice|split|join)$/;
             if (!$is_sh2 && !$is_native && !$is_math && !$is_string_method) {
                 push @problems, "non-sh2 callee: " . ($cname || $type);
             } elsif ($is_sh2 && !$whitelist{$cname}) {
