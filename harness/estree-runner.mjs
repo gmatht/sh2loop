@@ -20,7 +20,7 @@ if (!jsonPath) {
   console.error('usage: estree-runner.mjs <program.estree.json> [--name argv0] [--args ...]');
   process.exit(2);
 }
-let name = path.basename(jsonPath).replace(/\.estree\.json$/, '');
+let name = null;
 let sourceFile = null;
 const positional = [];
 for (let i = 1; i < argv.length; i++) {
@@ -28,6 +28,12 @@ for (let i = 1; i < argv.length; i++) {
   else if (argv[i] === '--source') sourceFile = argv[++i];
   else if (argv[i] === '--args') { positional.push(...argv.slice(i + 1)); break; }
 }
+// `$0` must match what bash sees (`bash /full/path/test.sh` → $0 = the full
+// path of the .sh). The harness passes --source; default the program name
+// to that exact string so `$0`-based output (usage lines, ${0##*/}, ${0#/})
+// agrees with bash.
+if (!name && sourceFile) name = sourceFile;
+if (!name) name = path.basename(jsonPath).replace(/\.estree\.json$/, '');
 
 let program;
 try {
@@ -82,7 +88,12 @@ const moduleSrc =
   js +
   `\nawait sh2._finish();\n`;
 
-const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'estree-run-'));
+// Scratch dir for prog.mjs. NOT under os.tmpdir(): the corpus compares
+// against `bash` runs from the workspace root, and tests that list /tmp
+// (`ls /tmp | wc -l`) would count the runner's own scratch dir and skew
+// the comparison. The program's cwd is the inherited workspace root
+// regardless (no cwd option below), so this only changes /tmp's contents.
+const tmpDir = fs.mkdtempSync(path.join(import.meta.dirname, '.estree-run-'));
 const modFile = path.join(tmpDir, 'prog.mjs');
 fs.writeFileSync(modFile, moduleSrc);
 

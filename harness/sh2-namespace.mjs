@@ -273,6 +273,12 @@ export const sh2 = {
         i--;
         continue;
       }
+      if (flat[i] === BADSUB_MAGIC) {
+        // `${!prefix*[@]}` bad substitution: bash skips the WHOLE command
+        // (status 1) but keeps the script running.
+        this.lastExit = 1;
+        return false;
+      }
       if (typeof flat[i] === 'string' && flat[i].startsWith(PS_MAGIC)) {
         flat[i] = materializePath(flat[i].slice(PS_MAGIC.length));
       } else if (typeof flat[i] === 'string' && flat[i].startsWith(GLOB_MAGIC)) {
@@ -312,10 +318,13 @@ export const sh2 = {
 
   async _runProc(cmd, args) {
     if (this.execAllowlist && !this.execAllowlist.has(cmd)) {
-      // A parser-recovery artifact (e.g. a stray `}` after a subshell that
-      // bash would reject at parse time): the name is not a real word, so
-      // bash never runs it — no-op instead of a security error.
-      if (!/[A-Za-z0-9]/.test(cmd)) {
+      // A parser-recovery artifact (e.g. a stray `}` after a subshell, or
+      // the quoted tail of a mangled DQS `$(...)`): the name is not a real
+      // word, so bash never runs it — no-op instead of a security error.
+      // Real command names are word-ish (`a-b`, `./x`, `a.b`); anything
+      // with quotes/parens/whitespace/backslashes can never be spawned as
+      // a binary, so no-opping it cannot weaken the allowlist.
+      if (!/^[A-Za-z0-9_.+@\/:.-]+$/.test(cmd)) {
         this.lastExit = 0;
         return true;
       }
@@ -430,7 +439,8 @@ export const sh2 = {
     this.captureStart = Date.now();
     try {
       await fn();
-      return this.fdTargets[1].buf.replace(/\n+$/, '');
+      // bash command substitution strips NUL bytes from the captured output.
+      return this.fdTargets[1].buf.replace(/\u0000/g, '').replace(/\n+$/, '');
     } finally {
       this.fdTargets[1] = saved;
       this.captureStart = savedStart;
@@ -446,6 +456,7 @@ export const sh2 = {
   // ── redirects ──────────────────────────────────────────────────────
   async redirect(fn, specs = []) {
     const saved = { ...this.fdTargets };
+    const persistent = specs.filter(s => s.persist);
     try {
       for (const s of specs) {
         const fd = s.fd ?? (s.mode === 'r' ? 0 : 1);
@@ -468,6 +479,8 @@ export const sh2 = {
         }
         if (s.mode === 'heredoc' || s.mode === 'heredoc-tabs' || s.mode === 'herestring') {
           let content = String(s.target ?? '');
+          // bash appends a newline to herestrings (`<<< x` feeds "x\n").
+          if (s.mode === 'herestring') content += '\n';
           if (s.mode === 'heredoc' && s.interpolate) content = expandWord(this, content);
           if (s.mode === 'heredoc-tabs') {
             content = content.split('\n').map(l => l.replace(/^\t+/, '')).join('\n');
@@ -501,7 +514,37 @@ export const sh2 = {
       }
       return this.lastExit === 0;
     } finally {
+      // Restore the pre-redirect fd table...
       this.fdTargets = saved;
+      // ...but `exec N>f` / `exec N>&M` (exec with no command) redirects
+      // persist permanently — bash installs them in the shell's own fd
+      // table (`exec 3>&1` then `cmd >&3` later must keep working).
+      for (const s of persistent) {
+        const fd = s.fd ?? (s.mode === 'r' ? 0 : 1);
+        if (/^&\d+$/.test(String(s.target ?? ''))) {
+          const src = Number(String(s.target).slice(1));
+          this.fdTargets[fd] = saved[src] ? saved[src] : { kind: 'closed' };
+        } else if (String(s.target ?? '') === '&-' || String(s.target ?? '') === '-') {
+          this.fdTargets[fd] = { kind: 'closed' };
+        } else if (s.mode === 'heredoc' || s.mode === 'heredoc-tabs' || s.mode === 'herestring') {
+          let content = String(s.target ?? '');
+          if (s.mode === 'herestring') content += '\n';
+          if (s.mode === 'heredoc' && s.interpolate) content = expandWord(this, content);
+          if (s.mode === 'heredoc-tabs') {
+            content = content.split('\n').map(l => l.replace(/^\t+/, '')).join('\n');
+            if (s.interpolate) content = expandWord(this, content);
+          }
+          this.fdTargets[fd] = { kind: 'string', content };
+        } else if (s.mode === 'r' || s.mode === 'r+') {
+          this.fdTargets[fd] = { kind: 'file', target: expandWord(this, String(s.target)), readMode: true };
+        } else if (s.mode === 'w' || s.mode === 'a') {
+          const t = expandWord(this, String(s.target));
+          if (!fs.existsSync(t)) {
+            try { fs.closeSync(fs.openSync(t, 'w')); } catch { /* unwritable target: bash reports, we ignore */ }
+          }
+          this.fdTargets[fd] = { kind: 'file', target: t, mode: s.mode };
+        }
+      }
     }
   },
 
@@ -706,6 +749,15 @@ export const sh2 = {
     }
     const out = [];
     for (const e of elements ?? []) {
+      // `arr=(`cmd`)` — the parser folds a backtick capture into a single
+      // literal element (backticks included). bash captures the command's
+      // stdout and word-splits it into elements; execute through
+      // shellCapture (same recovery as `$(...)` inside test expressions).
+      if (String(e).startsWith('`') && String(e).endsWith('`')) {
+        const cap = shellCapture(String(e).slice(1, -1));
+        out.push(...cap.split(/\s+/).filter(w => w.length > 0));
+        continue;
+      }
       // `arr=("$@")` — each positional is one element (check the RAW
       // element: expandWord would have already joined the positionals)
       if (String(e) === '$@' || String(e) === '$*') {
@@ -874,20 +926,24 @@ export const sh2 = {
         if (name.startsWith('!')) {
           const real = name.slice(1);
           // `${!prefix*[@]...}` — variable-name pattern + [@] is a bash
-          // "bad substitution" that ABORTS the script (stdout-wise the
-          // remaining lines vanish; the error goes to stderr like `:?`).
-          if (real.includes('*')) {
-            process.stderr.write(`bash: ${name}: bad substitution\n`);
-            process.exit(0);
-          }
+          // "bad substitution": bash prints the error to stderr, SKIPS the
+          // whole command (status 1) and continues the script. The magic
+          // marker makes the surrounding exec() skip the command.
+          if (real.includes('*')) return BADSUB_MAGIC;
           return this.arrayItems(real);
         }
-        // ${@:off:len} / ${*:off:len} — positional slice
+        // ${@:off:len} / ${*:off:len} — positional slice. bash offsets are
+        // 1-BASED for @/* (${@:1} = all params; ${@:0} includes $0);
+        // negative offsets count from the end.
         if (name === '@' || name === '*') {
           const off = sliceOff(a);
+          let list = this.positional;
+          let start = off;
+          if (off === 0) { list = [this.argv0, ...this.positional]; start = 0; }
+          else if (off > 0) start = off - 1;
           const sl = b !== undefined && b !== null && b !== ''
-            ? this.positional.slice(off, off + (Number(b) || 0))
-            : this.positional.slice(off);
+            ? list.slice(start, start + (Number(b) || 0))
+            : list.slice(start);
           return sl.join(' ');
         }
         if (a === '@' || a === '*') return this.arrayItems(name); // ${arr[@]} — exec flattens; template literals join via sh2.join
@@ -1286,13 +1342,20 @@ builtins.eval = function (args) {
   // ... and once more to sync back variables it assigned
   // (`eval "result=$((...))"` must leave `result` visible to the rest of
   // the program). `set` prints every variable; only names with plain
-  // scalar values are synced.
-  const r = spawnSync('bash', ['-c', `${code}; set`], { encoding: 'utf8' });
+  // scalar values are synced. `declare -F` lists function names — register
+  // them so `type name` reports a function (the body is not portable into
+  // the runtime, but name/type queries and later re-definitions work).
+  const r = spawnSync('bash', ['-c', `${code}\nset\ndeclare -F`], { encoding: 'utf8' });
   if (!r.error && r.stdout) {
     for (const line of String(r.stdout).split('\n')) {
       const eq = line.indexOf('=');
       if (eq > 0 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(line.slice(0, eq))) {
         this.setVar(line.slice(0, eq), line.slice(eq + 1));
+      } else if (line.startsWith('declare -f ')) {
+        const fn = line.slice('declare -f '.length).trim();
+        if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(fn) && !this.functions.has(fn)) {
+          this.functions.set(fn, async () => {});
+        }
       }
     }
   }
@@ -1340,6 +1403,30 @@ builtins.shift = function (args) {
 
 builtins.true = function () { this.lastExit = 0; return true; };
 builtins.false = function () { this.lastExit = 1; return false; };
+
+// `exec cmd args...` — bash REPLACES the shell process with cmd; nothing
+// after it runs. The corpus needs the command to execute (with its args)
+// and the script to end right there. `exec` with no args is a redirect
+// carrier (the emitter marks those redirects persistent) — no-op here.
+builtins.exec = async function (args) {
+  if (args.length > 0) {
+    // `exec="/usr/sbin/dkms"` — the parser classifies a variable named
+    // `exec` as the exec builtin, leaving an `=value`-shaped arg. Bash
+    // treats it as a plain assignment.
+    if (String(args[0]).startsWith('=')) {
+      this.vars.set('exec', String(args[0]).slice(1));
+      this.lastExit = 0;
+      return true;
+    }
+    const cmd = String(args[0]);
+    const rest = args.slice(1).map(String);
+    if (typeof builtins[cmd] === 'function') await builtins[cmd].call(this, rest);
+    else await this._runProc(cmd, rest);
+    process.exit(0); // script ends when exec'd (stdout already flushed)
+  }
+  this.lastExit = 0;
+  return true;
+};
 
 // Shell builtins that affect shell state but produce no output — implemented
 // natively so the exec allowlist never has to admit them (they must not spawn).
@@ -1770,6 +1857,7 @@ const ARRAY_LIT_MAGIC = '\u0001SH2ARRLIT\u0001';
 // Unquoted glob words are tagged by the emitter with this prefix; exec /
 // forLoop expand the suffix against the filesystem.
 const GLOB_MAGIC = '\u0001SH2GLOB\u0001';
+const BADSUB_MAGIC = '\u0001SH2BADSUB\u0001';
 function materializePath(content) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sh2-ps-'));
   const f = path.join(dir, 'ps');
@@ -2059,6 +2147,33 @@ function shellQuote(s) {
 }
 
 // ── test expression tokenizer / parser / evaluator ───────────────────
+// bash ANSI-C quoted string escapes (`$'\x00'`, `$'\n'`, `$'\101'`).
+function ansiCDecode(s) {
+  let out = '';
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (c !== '\\' || i + 1 >= s.length) { out += c; i++; continue; }
+    const e = s[i + 1];
+    if (e === 'x') {
+      const hex = s.slice(i + 2, i + 4);
+      const v = parseInt(hex, 16);
+      if (!Number.isNaN(v) && hex.length === 2) { out += String.fromCharCode(v); i += 4; continue; }
+      out += 'x'; i += 2; continue;
+    }
+    if (e >= '0' && e <= '7') {
+      const oct = s.slice(i + 1, i + 4);
+      out += String.fromCharCode(parseInt(oct, 8) & 0xff);
+      i += 1 + oct.length;
+      continue;
+    }
+    const map = { n: '\n', t: '\t', r: '\r', a: '\x07', b: '\b', f: '\f', v: '\v', '\\': '\\', "'": "'", '"': '"' };
+    out += map[e] ?? e;
+    i += 2;
+  }
+  return out;
+}
+
 export function tokenizeTest(expr) {
   const tokens = [];
   let i = 0;
@@ -2102,6 +2217,7 @@ export function tokenizeTest(expr) {
     // (extglob) or embedded in a word (`[!a]`).
     let tok = '';
     let started = false;
+    let quoted = false;   // token contains quoted content ("" must survive as an empty arg)
     if (c === '!' && expr[i + 1] === '(') { tok = '!'; started = true; i++; }
     while (i < n) {
       const ch = expr[i];
@@ -2144,9 +2260,20 @@ export function tokenizeTest(expr) {
         }
         i++; // closing quote
         tok += q === '"' ? expandWord(sh2, inner) : inner;
+        quoted = true;
         continue;
       }
       if (ch === '$') {
+        // ANSI-C quoting $'...' — decode escapes (`$'\x00'`, `$'\n'`, ...).
+        if (expr[i + 1] === "'") {
+          const m = expr.slice(i).match(/^\$'((?:\\.|[^'\\])*)'/);
+          if (m) {
+            started = true;
+            tok += ansiCDecode(m[1]);
+            i += m[0].length;
+            continue;
+          }
+        }
         // $((...)) arithmetic — evaluate inline (e.g. `[ $((n % 2)) -eq 0 ]`)
         if (expr[i + 1] === '(' && expr[i + 2] === '(') {
           let j = i + 3;
@@ -2155,7 +2282,7 @@ export function tokenizeTest(expr) {
           while (j < n && depth > 0) {
             const cc = expr[j];
             if (cc === '(') depth++;
-            else if (cc === ')') { depth--; if (depth > 0) inner += cc; }
+            else if (cc === ')') { depth--; if (depth >= 2) inner += cc; }
             else inner += cc;
             j++;
           }
@@ -2231,12 +2358,21 @@ export function tokenizeTest(expr) {
       tok += ch;
       i++;
     }
-    if (started) tokens.push(tok);
+    // Unquoted expansions that evaluate to EMPTY vanish under bash
+    // word-splitting (`[ ${A% *} -gt ${B#* } ]` with both unset becomes
+    // `[ -gt ]`); only quoted empties survive as an empty argument.
+    if (started && (tok !== '' || quoted)) tokens.push(tok);
   }
   return tokens;
 }
 
 export function parseTest(tokens) {
+  // bash `[` argument-count semantics after word-splitting:
+  //  0 args  → false (`[ $unset ]` → `[ ]`)
+  //  1 arg   → true iff the arg is non-empty (and not `!`) — even when the
+  //            arg LOOKS like an operator (`[ -gt ]` is a string test).
+  if (tokens.length === 0) return { op: 'str', arg: '' };
+  if (tokens.length === 1) return { op: 'str', arg: tokens[0] === '!' ? '' : tokens[0] };
   let i = 0;
   function peek() { return tokens[i]; }
   function or() {
@@ -2258,6 +2394,15 @@ export function parseTest(tokens) {
     if (t === undefined) throw new Error('unexpected end of test expression');
     if (t === '(') { i++; const e = or(); if (peek() !== ')') throw new Error('missing )'); i++; return e; }
     if (t === ')') throw new Error('unexpected )');
+    if (isBinOp(t)) {
+      // bash: a binary operator with no left operand (`[ -eq 0 ]` from an
+      // unset `$x` in `[ $x -eq 0 ]`, or `[ =~ pat ]` with an empty lhs)
+      // is an error → the whole test is FALSE. Consume the operator and
+      // its would-be operand so the rest of the expression still parses.
+      i++;
+      if (tokens[i] !== undefined) i++;
+      return { op: 'str', arg: '' };
+    }
     if (isUnaryFlag(t)) {
       i++;
       const arg = tokens[i];
@@ -2290,6 +2435,23 @@ function isUnaryFlag(t) {
 }
 function isBinOp(t) { return BIN_OPS.has(t); }
 
+// `[ a -eq b ]` integer comparisons. bash rejects non-integer operands
+// ("integer expression expected", exit 2) — the whole test is false in a
+// condition. A NaN operand (e.g. `[ $(echo foo) -ne 0 ]`) must therefore
+// compare FALSE, never `NaN !== 0` → true.
+function intVal(v) {
+  const n = Number(v);
+  return Number.isNaN(n) ? null : n;
+}
+function intEq(l, r, want) {
+  const a = intVal(l), b = intVal(r);
+  return a !== null && b !== null ? (a === b) === (want === 0) : false;
+}
+function intCmp(l, r, cmp) {
+  const a = intVal(l), b = intVal(r);
+  return a !== null && b !== null && cmp(a, b);
+}
+
 function evalTest(ast, sh) {
   switch (ast.op) {
     case 'or': return evalTest(ast.l, sh) || evalTest(ast.r, sh);
@@ -2308,20 +2470,24 @@ function evalTest(ast, sh) {
           const ci = sh.shoptState.get('nocasematch');
           const l2 = ci ? l.toLowerCase() : l;
           const r2 = ci ? r.toLowerCase() : r;
-          return /[*?[]/.test(r) ? globMatch(r2, l2) : l2 === r2;
+          // bash patterns are C strings: a NUL byte truncates the pattern
+          // (`*$'\x00'*` matches everything — the pattern becomes `*`).
+          const rPat = r2.split('\u0000')[0];
+          return /[*?[]/.test(rPat) ? globMatch(rPat, l2) : l2 === rPat;
         }
         case '!=': {
           const ci = sh.shoptState.get('nocasematch');
           const l2 = ci ? l.toLowerCase() : l;
           const r2 = ci ? r.toLowerCase() : r;
-          return !(/[*?[]/.test(r) ? globMatch(r2, l2) : l2 === r2);
+          const rPat = r2.split('\u0000')[0];
+          return !(/[*?[]/.test(rPat) ? globMatch(rPat, l2) : l2 === rPat);
         }
-        case '-eq': return Number(l) === Number(r);
-        case '-ne': return Number(l) !== Number(r);
-        case '-lt': return Number(l) < Number(r);
-        case '-le': return Number(l) <= Number(r);
-        case '-gt': return Number(l) > Number(r);
-        case '-ge': return Number(l) >= Number(r);
+        case '-eq': return intEq(l, r, 0);
+        case '-ne': return intEq(l, r, 1);
+        case '-lt': return intCmp(l, r, (a, b) => a < b);
+        case '-le': return intCmp(l, r, (a, b) => a <= b);
+        case '-gt': return intCmp(l, r, (a, b) => a > b);
+        case '-ge': return intCmp(l, r, (a, b) => a >= b);
         case '<': return l < r;
         case '>': return l > r;
         case '-nt': return statTime(l) > statTime(r);
