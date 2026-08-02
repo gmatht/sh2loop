@@ -70,7 +70,8 @@ sub walk {
                 && ($prop->{type} // '') eq 'Identifier';
             my $cname = ref $prop eq 'HASH' ? ($prop->{name} // '') : '';
             my $is_native = ($callee->{type} // '') eq 'Identifier'
-                && (($callee->{name} // '') eq 'Number' || ($callee->{name} // '') eq 'String');
+                && (($callee->{name} // '') eq 'Number' || ($callee->{name} // '') eq 'String'
+                    || ($callee->{name} // '') eq 'parseInt' || ($callee->{name} // '') eq 'parseFloat');
             my $is_math = ref $obj eq 'HASH'
                 && ($obj->{type} // '') eq 'Identifier'
                 && ($obj->{name} // '') eq 'Math'
@@ -91,7 +92,7 @@ sub walk {
             my $is_string_method = ref $obj eq 'HASH'
                 && (($obj->{type} // '') eq 'CallExpression' || ($obj->{type} // '') eq 'ArrayExpression')
                 && ref $prop eq 'HASH'
-                && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase|toUpperCase|charAt|slice|split|join)$/;
+                && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase|toUpperCase|charAt|slice|split|join|flat)$/;
             # direct calls on the sh2 runtime's own state fields — the
             # native special-var lowerings (`$@` → sh2.positional.join(' '),
             # `$#` → sh2.positional.length) read fields, never dispatched
@@ -102,7 +103,18 @@ sub walk {
                 && ($obj->{object}{name} // '') eq 'sh2'
                 && ref $prop eq 'HASH'
                 && ($prop->{name} // '') =~ /^(join|length)$/;
-            if (!$is_sh2 && !$is_native && !$is_math && !$is_number_member && !$is_string_method && !$is_sh2_state) {
+            # process.stdout.write — the native echo lowering (src/shir.rs
+            # try_native_echo): a direct module-stdout write, no dispatch
+            my $is_stdout_write = ref $obj eq 'HASH'
+                && ($obj->{type} // '') eq 'MemberExpression'
+                && ref $obj->{object} eq 'HASH'
+                && ($obj->{object}{type} // '') eq 'Identifier'
+                && ($obj->{object}{name} // '') eq 'process'
+                && ref $obj->{property} eq 'HASH'
+                && ($obj->{property}{name} // '') eq 'stdout'
+                && ref $prop eq 'HASH'
+                && ($prop->{name} // '') eq 'write';
+            if (!$is_sh2 && !$is_native && !$is_math && !$is_number_member && !$is_string_method && !$is_sh2_state && !$is_stdout_write) {
                 push @problems, "non-sh2 callee: " . ($cname || $type);
             } elsif ($is_sh2 && !$whitelist{$cname}) {
                 push @problems, "callee not in sh2.* whitelist: $cname";
