@@ -625,8 +625,19 @@ while (1) {
     my ($out, $code) = run_fail_estree();
     my $summary = parse_summary($out);
     unless (defined $summary->{estree_failed}) {
-        print STDERR "No summary in fail-estree output; sleeping and retrying.\n";
-        sleep 30;
+        # a missing summary usually means fail-estree's cargo build FAILED —
+        # if the tree carries uncommitted changes they are a broken WIP:
+        # stash them and retry (previously this slept+retried forever with
+        # the broken tree, never stashing).
+        my @ch = (submodule_changed_paths(), root_changed_paths());
+        if (@ch) {
+            my $stashed = scoped_stash();
+            print STDERR "No summary (build failure?) with uncommitted changes — stashed broken WIP ($stashed).\n";
+            log_decision('stash-build', '?', '?', $stashed ? 'stashed-broken-wip' : 'nothing');
+        } else {
+            print STDERR "No summary in fail-estree output (tree clean); sleeping and retrying.\n";
+            sleep 30;
+        }
         next;
     }
     my $fails = read_fails($results_file);
