@@ -480,7 +480,14 @@ export const sh2 = {
   // Identical semantics: same arg flattening, ARRAY_LIT/BADSUB/PS/GLOB
   // magic expansion, then the SAME builtin function — minus the async
   // exec machinery (no promise per call; the whileLoopSync pattern).
-  builtin(name, args = []) {
+  builtin(name, args = [], env = undefined) {
+    // command-scoped env vars: VAR=x cmd (the emitter lowers env-carrying
+    // exec calls with a sync-builtin name to this twin) — apply exactly
+    // like the async exec path: into process.env, and passed to the
+    // builtin fn (`IFS=: read ...` reads env.IFS).
+    if (env && typeof env === 'object') {
+      for (const [k, v] of Object.entries(env)) process.env[k] = String(v);
+    }
     const flat = [];
     for (const a of args) {
       if (Array.isArray(a)) flat.push(...a.map(String));
@@ -516,7 +523,7 @@ export const sh2 = {
       // error — fail loudly.
       throw new Error(`sh2.builtin: '${name}' is not a sync builtin`);
     }
-    const r = fn.call(this, flat);
+    const r = fn.call(this, flat, env);
     return r;
   },
 
@@ -1718,6 +1725,23 @@ builtins.shift = function (args) {
 };
 
 builtins.true = function () { this.lastExit = 0; return true; };
+
+// `test` command (bash builtin): operands arrive ALREADY WORD-SPLIT, so
+// each arg is exactly one test token — unlike `[ ... ]`, whose raw
+// expression the runtime tokenizes by whitespace. A malformed expression
+// exits 2 (bash behavior, script keeps running); a bare `test` (no
+// operands) is false.
+builtins.test = function (args) {
+  if (args.length === 0) { this.lastExit = 1; return false; }
+  try {
+    const r = evalTest(parseTest(args.map(String)), this);
+    this.lastExit = r ? 0 : 1;
+    return r;
+  } catch {
+    this.lastExit = 2;
+    return false;
+  }
+};
 builtins.false = function () { this.lastExit = 1; return false; };
 
 // `exec cmd args...` — bash REPLACES the shell process with cmd; nothing
@@ -3033,11 +3057,15 @@ function evalUnary(flag, arg, sh) {
 }
 
 // `-nt` / `-ot` / `-ef` helpers. Missing files count as infinitely old
-// (bash treats a nonexistent operand as older than any existing file).
+// (bash treats a nonexistent operand as older than any existing file); an
+// EMPTY operand is also "missing" — bash resolves it to nothing, NOT the
+// cwd (`test "" -ef ""` is false, and `[ "" -nt x ]` never holds).
 function statTime(p) {
+  if (p === '') return -Infinity;
   try { return fs.lstatSync(path.resolve(p)).mtimeMs; } catch { return -Infinity; }
 }
 function statInfo(p) {
+  if (p === '') return null;
   try {
     const st = fs.lstatSync(path.resolve(p));
     return { dev: st.dev, ino: st.ino };

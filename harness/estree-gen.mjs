@@ -16,7 +16,15 @@ const PREC = {
   TemplateLiteral: 20, MemberExpression: 18, CallExpression: 18,
   AwaitExpression: 16, UnaryExpression: 15,
   LogicalExpression: 10, // && / || (9-10); treat uniformly, parenthesize nesting
+  SequenceExpression: 1,
 };
+
+// A SequenceExpression inside a comma-separated position (call arguments,
+// array elements, ternary branches) must be parenthesized or the commas
+// would split it into separate arguments/elements.
+function parenSeq(n, inner) {
+  return n.type === 'SequenceExpression' ? `(${inner})` : inner;
+}
 
 function expr(node, parentPrec = 0) {
   const s = exprUnwrapped(node);
@@ -43,15 +51,15 @@ function exprUnwrapped(node) {
         const raw = node.quasis[i].value.raw ?? '';
         // Escape backticks and ${ sequences inside the raw text.
         out += raw.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${');
-        if (i < node.expressions.length) out += '${' + expr(node.expressions[i]) + '}';
+        if (i < node.expressions.length) out += '${' + parenSeq(node.expressions[i], expr(node.expressions[i])) + '}';
       }
       return out + '`';
     }
     case 'CallExpression':
-      return `${expr(node.callee, PREC.CallExpression)}(${node.arguments.map(a => expr(a)).join(', ')})`;
+      return `${expr(node.callee, PREC.CallExpression)}(${node.arguments.map(a => parenSeq(a, expr(a))).join(', ')})`;
     case 'MemberExpression': {
       const obj = expr(node.object, PREC.MemberExpression);
-      if (node.computed) return `${obj}[${expr(node.property)}]`;
+      if (node.computed) return `${obj}[${parenSeq(node.property, expr(node.property))}]`;
       return `${obj}.${expr(node.property, PREC.MemberExpression)}`;
     }
     case 'AwaitExpression':
@@ -61,15 +69,14 @@ function exprUnwrapped(node) {
     case 'ArrowFunctionExpression': {
       const params = `(${node.params.map(p => expr(p)).join(', ')})`;
       const body = node.expression
-        ? expr(node.body)
+        ? parenSeq(node.body, expr(node.body))   // `() => (a, b)` — a bare sequence body would bind wrong
         : printStatement(node.body);
       return `${node.async ? 'async ' : ''}${params} => ${body}`;
     }
     case 'ArrayExpression':
-      return `[${node.elements.map(e => e === null || e === undefined ? '' : expr(e)).join(', ')}]`;
+      return `[${node.elements.map(e => e === null || e === undefined ? '' : parenSeq(e, expr(e))).join(', ')}]`;
     case 'ObjectExpression':
-      return `{${node.properties.map(prop).join(', ')}}`;
-    case 'LogicalExpression':
+      return `{${node.properties.map(prop).join(', ')}}`;    case 'LogicalExpression':
       return `${expr(node.left, PREC.LogicalExpression)} ${node.operator} ${expr(node.right, PREC.LogicalExpression)}`;
     case 'BinaryExpression': {
       // Parenthesize nested binary/logical/conditional operands so the
@@ -87,20 +94,22 @@ function exprUnwrapped(node) {
       const a = parenIfCompound(node.alternate);
       return `${t} ? ${c} : ${a}`;
     }
+    case 'SequenceExpression':
+      return node.expressions.map(e => expr(e, PREC.SequenceExpression)).join(', ');
     default:
       throw new Error(`estree-gen: unknown expression node type ${node.type}`);
   }
 }
 
 function parenIfCompound(n) {
-  return ['BinaryExpression', 'LogicalExpression', 'ConditionalExpression', 'ArrowFunctionExpression'].includes(n.type)
+  return ['BinaryExpression', 'LogicalExpression', 'ConditionalExpression', 'ArrowFunctionExpression', 'SequenceExpression'].includes(n.type)
     ? `(${expr(n)})`
     : expr(n);
 }
 
 function prop(p) {
   const key = p.computed ? `[${expr(p.key)}]` : expr(p.key);
-  return `${key}: ${expr(p.value)}`;
+  return `${key}: ${parenSeq(p.value, expr(p.value))}`;
 }
 
 export function printStatement(node) {
