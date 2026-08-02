@@ -20,7 +20,7 @@ my %whitelist = map { $_ => 1 } qw(
     exec getVar setVar test pipeline capture captureWords redirect caseMatch param arith brace setArray setArrayAppend assign arrayItems arrayLen arrayIndex join setLastExit arithEval idiv imod guard not contains builtin
     define subshell background block whileLoop whileLoopSync cstyleFor cstyleForSync forLoop forLoopSync listVar and or
     shopt return break continue unsupported
-    trimCapture dirname basename readFile writeFile appendFile lstat
+    trimCapture dirname basename readFile writeFile appendFile lstat unlink rm mkdir
 );
 
 my $file = shift @ARGV or die "usage: estree_gate.pl <program.estree.json>\n";
@@ -82,10 +82,11 @@ sub walk {
                 && ($obj->{property}{name} // '') eq 'fs'
                 && ref $prop eq 'HASH'
                 && ($prop->{type} // '') eq 'Identifier'
-                && $prop->{name} =~ /^(readFile|writeFile|appendFile|lstat)$/;
+                && $prop->{name} =~ /^(readFile|writeFile|appendFile|lstat|unlink|rm|mkdir)$/;
             my $is_native = ($callee->{type} // '') eq 'Identifier'
                 && (($callee->{name} // '') eq 'Number' || ($callee->{name} // '') eq 'String'
-                    || ($callee->{name} // '') eq 'parseInt' || ($callee->{name} // '') eq 'parseFloat');
+                    || ($callee->{name} // '') eq 'parseInt' || ($callee->{name} // '') eq 'parseFloat'
+                    || ($callee->{name} // '') eq 'Promise');
             my $is_math = ref $obj eq 'HASH'
                 && ($obj->{type} // '') eq 'Identifier'
                 && ($obj->{name} // '') eq 'Math'
@@ -105,19 +106,30 @@ sub walk {
                 && ($obj->{name} // '') eq 'Array'
                 && ref $prop eq 'HASH'
                 && ($prop->{name} // '') eq 'isArray';
+            # Promise.all — the native rm/mkdir fs-command lift's status
+            # aggregation (`Promise.all([per-path results]).then(...)`)
+            my $is_promise_member = ref $obj eq 'HASH'
+                && ($obj->{type} // '') eq 'Identifier'
+                && ($obj->{name} // '') eq 'Promise'
+                && ref $prop eq 'HASH'
+                && ($prop->{name} // '') eq 'all';
             # String(x).includes(n) / startsWith / endsWith / toLowerCase / … —
             # the native glob-to-string-op and param lowerings (pure string ops).
             # The object may be a String(...) call, a chained string op
             # (CallExpression), an array literal (`[a, b].join(" ")` — the
             # echo-capture join; the elements are walked recursively), a
             # BinaryExpression (`[a, b].join(" ") + "\n"` — the echo|wc text),
-            # a regex Literal (the wc -w split), or a plain string Literal.
+            # a regex Literal (the wc -w split), a plain string Literal, or an
+            # Identifier — the native fs-command lift's own arrow params
+            # (`Promise.all([...]).then(s => s.includes(1) ? …)` — the status
+            # aggregation over per-path results).
             my $is_string_method = ref $obj eq 'HASH'
                 && (($obj->{type} // '') eq 'CallExpression' || ($obj->{type} // '') eq 'ArrayExpression'
                     || ($obj->{type} // '') eq 'AwaitExpression' || ($obj->{type} // '') eq 'ConditionalExpression'
-                    || ($obj->{type} // '') eq 'BinaryExpression' || ($obj->{type} // '') eq 'Literal')
+                    || ($obj->{type} // '') eq 'BinaryExpression' || ($obj->{type} // '') eq 'Literal'
+                    || ($obj->{type} // '') eq 'Identifier')
                 && ref $prop eq 'HASH'
-                && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase|toUpperCase|charAt|slice|split|join|flat|sort|then|catch|trim|replace|lastIndexOf|concat)$/;
+                && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase|toUpperCase|charAt|slice|split|join|flat|sort|then|catch|trim|replace|lastIndexOf|concat|filter|map|indexOf)$/;
             # Buffer.byteLength(text, 'utf8') — the native wc -c byte-count
             # lowering (the runtime wc's exact formula; node global)
             my $is_buffer = ref $obj eq 'HASH'
@@ -154,7 +166,7 @@ sub walk {
                 && ($obj->{name} // '') eq 'process'
                 && ref $prop eq 'HASH'
                 && ($prop->{name} // '') =~ /^(getuid|getgid)$/;
-            if (!$is_sh2 && !$is_sh2_fs && !$is_native && !$is_math && !$is_number_member && !$is_array_member && !$is_string_method && !$is_sh2_state && !$is_stdout_write && !$is_buffer && !$is_process_member) {
+            if (!$is_sh2 && !$is_sh2_fs && !$is_native && !$is_math && !$is_number_member && !$is_array_member && !$is_promise_member && !$is_string_method && !$is_sh2_state && !$is_stdout_write && !$is_buffer && !$is_process_member) {
                 push @problems, "non-sh2 callee: " . ($cname || $type);
             } elsif (($is_sh2 || $is_sh2_fs) && !$whitelist{$cname}) {
                 push @problems, "callee not in sh2.* whitelist: $cname";

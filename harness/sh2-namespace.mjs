@@ -2088,6 +2088,35 @@ function parseHeadTailArgs(args, start) {
   return { n, c, files };
 }
 
+// cat — concatenate files (or stdin) to stdout. Native fs, no spawn (the
+// head/tail pattern). GNU cat's flags (`-n`/`-s`/`-A`/...) are not
+// implemented — the corpus only uses plain file/stdin copying; an arg that
+// is not `-` (stdin marker) is treated as a file path, and a missing file
+// reports the GNU message to the CURRENT fd-2 target and fails the status
+// (GNU cat continues with the remaining files, exit 1). No args reads the
+// current fd-0 target (heredoc/herestring/file redirect) like the spawned
+// cat's inherited stdin.
+builtins.cat = function (args) {
+  let failed = false;
+  let out = '';
+  const files = args.length ? args : [null];
+  for (const f of files) {
+    if (f === null || f === '-') {
+      out += readFd0(this);
+    } else {
+      try {
+        out += fs.readFileSync(f, 'utf8');
+      } catch {
+        emitErr(this, `cat: ${f}: No such file or directory\n`);
+        failed = true;
+      }
+    }
+  }
+  emit(this, out);
+  this.lastExit = failed ? 1 : 0;
+  return !failed;
+};
+
 builtins.head = function (args) {
   const { n, c, files } = parseHeadTailArgs(args, 10);
   const sources = files.length ? files.map(f => readFileSafe(f)) : [readFd0(this)];
