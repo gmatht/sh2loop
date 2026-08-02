@@ -101,13 +101,23 @@ sub walk {
             # String(x).includes(n) / startsWith / endsWith / toLowerCase / … —
             # the native glob-to-string-op and param lowerings (pure string ops).
             # The object may be a String(...) call, a chained string op
-            # (CallExpression), or an array literal (`[a, b].join(" ")` — the
-            # echo-capture join; the elements are walked recursively).
+            # (CallExpression), an array literal (`[a, b].join(" ")` — the
+            # echo-capture join; the elements are walked recursively), a
+            # BinaryExpression (`[a, b].join(" ") + "\n"` — the echo|wc text),
+            # a regex Literal (the wc -w split), or a plain string Literal.
             my $is_string_method = ref $obj eq 'HASH'
                 && (($obj->{type} // '') eq 'CallExpression' || ($obj->{type} // '') eq 'ArrayExpression'
-                    || ($obj->{type} // '') eq 'AwaitExpression' || ($obj->{type} // '') eq 'ConditionalExpression')
+                    || ($obj->{type} // '') eq 'AwaitExpression' || ($obj->{type} // '') eq 'ConditionalExpression'
+                    || ($obj->{type} // '') eq 'BinaryExpression' || ($obj->{type} // '') eq 'Literal')
                 && ref $prop eq 'HASH'
-                && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase|toUpperCase|charAt|slice|split|join|flat|sort|then|catch)$/;
+                && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase|toUpperCase|charAt|slice|split|join|flat|sort|then|catch|trim)$/;
+            # Buffer.byteLength(text, 'utf8') — the native wc -c byte-count
+            # lowering (the runtime wc's exact formula; node global)
+            my $is_buffer = ref $obj eq 'HASH'
+                && ($obj->{type} // '') eq 'Identifier'
+                && ($obj->{name} // '') eq 'Buffer'
+                && ref $prop eq 'HASH'
+                && ($prop->{name} // '') eq 'byteLength';
             # direct calls on the sh2 runtime's own state fields — the
             # native special-var lowerings (`$@` → sh2.positional.join(' '),
             # `$#` → sh2.positional.length) read fields, never dispatched
@@ -129,7 +139,7 @@ sub walk {
                 && ($obj->{property}{name} // '') eq 'stdout'
                 && ref $prop eq 'HASH'
                 && ($prop->{name} // '') eq 'write';
-            if (!$is_sh2 && !$is_sh2_fs && !$is_native && !$is_math && !$is_number_member && !$is_string_method && !$is_sh2_state && !$is_stdout_write) {
+            if (!$is_sh2 && !$is_sh2_fs && !$is_native && !$is_math && !$is_number_member && !$is_string_method && !$is_sh2_state && !$is_stdout_write && !$is_buffer) {
                 push @problems, "non-sh2 callee: " . ($cname || $type);
             } elsif (($is_sh2 || $is_sh2_fs) && !$whitelist{$cname}) {
                 push @problems, "callee not in sh2.* whitelist: $cname";

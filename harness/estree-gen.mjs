@@ -37,6 +37,9 @@ function exprUnwrapped(node) {
     case 'Identifier':
       return node.name;
     case 'Literal': {
+      // regex literal (`/\s+/`): ESTree Literal-with-regex, emitted by
+      // the native wc -w word-count lowering
+      if (node.regex) return `/${node.regex.pattern}/${node.regex.flags}`;
       const v = node.value;
       if (typeof v === 'string') return JSON.stringify(v);
       if (v === null) return 'null';
