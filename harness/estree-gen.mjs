@@ -77,7 +77,10 @@ function exprUnwrapped(node) {
       return `[${node.elements.map(e => e === null || e === undefined ? '' : parenSeq(e, expr(e))).join(', ')}]`;
     case 'ObjectExpression':
       return `{${node.properties.map(prop).join(', ')}}`;    case 'LogicalExpression':
-      return `${expr(node.left, PREC.LogicalExpression)} ${node.operator} ${expr(node.right, PREC.LogicalExpression)}`;
+      // Parenthesize compound operands: `??` must never mix bare with
+      // `&&`/`||` (SyntaxError), and nested same-op pairs are always safe
+      // with parens.
+      return `${parenIfCompound(node.left)} ${node.operator} ${parenIfCompound(node.right)}`;
     case 'BinaryExpression': {
       // Parenthesize nested binary/logical/conditional operands so the
       // printer never changes operator precedence (the AST tree already

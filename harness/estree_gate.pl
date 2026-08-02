@@ -81,7 +81,17 @@ sub walk {
                 && ($obj->{type} // '') eq 'CallExpression'
                 && ref $prop eq 'HASH'
                 && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase|toUpperCase|charAt|slice|split|join)$/;
-            if (!$is_sh2 && !$is_native && !$is_math && !$is_string_method) {
+            # direct calls on the sh2 runtime's own state fields — the
+            # native special-var lowerings (`$@` → sh2.positional.join(' '),
+            # `$#` → sh2.positional.length) read fields, never dispatched
+            my $is_sh2_state = ref $obj eq 'HASH'
+                && ($obj->{type} // '') eq 'MemberExpression'
+                && ref $obj->{object} eq 'HASH'
+                && ($obj->{object}{type} // '') eq 'Identifier'
+                && ($obj->{object}{name} // '') eq 'sh2'
+                && ref $prop eq 'HASH'
+                && ($prop->{name} // '') =~ /^(join|length)$/;
+            if (!$is_sh2 && !$is_native && !$is_math && !$is_string_method && !$is_sh2_state) {
                 push @problems, "non-sh2 callee: " . ($cname || $type);
             } elsif ($is_sh2 && !$whitelist{$cname}) {
                 push @problems, "callee not in sh2.* whitelist: $cname";
