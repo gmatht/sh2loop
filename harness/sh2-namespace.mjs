@@ -1868,6 +1868,68 @@ builtins.sleep = async function (args) {
 
 // seq — print a numeric sequence (native; never spawns). Forms:
 //   seq LAST | seq FIRST LAST | seq FIRST INCREMENT LAST, with -s SEP.
+// mktemp — create a unique temp file (-d: directory) and print its path.
+// Native fs, no subprocess spawn. GNU mktemp's printed path is never
+// byte-compared in the corpus (the scripts use it as an opaque handle), so
+// the exact random suffix is irrelevant; what matters is the file/dir
+// EXISTS (later `mkdir -p "$d/..."` / `echo > "$tmpf"` / `rm "$tmpf"`)
+// and the exit status rules (missing template → error, status 1).
+builtins.mktemp = function (args) {
+  let isDir = false, dry = false, template = null, suffix = '';
+  const pos = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = String(args[i]);
+    if (a === '-d') isDir = true;
+    else if (a === '-u') dry = true;
+    else if (a === '-t' && pos.length === 0) template = path.join(os.tmpdir(), 'tmp.XXXXXXXXXX');
+    else if (a === '--suffix') suffix = String(args[++i] ?? '');
+    else if (a.startsWith('--suffix=')) suffix = a.slice(9);
+    else if (a.startsWith('-')) { /* other flags (--tmpdir/-p/-q/-t after a template): best-effort */ }
+    else pos.push(a);
+  }
+  if (pos.length === 1) template = pos[0];
+  const tpl = template ?? path.join(os.tmpdir(), 'tmp.XXXXXXXXXX');
+  // GNU: the template must end in at least 3 X's; the trailing run is
+  // replaced with random alphanumerics (minus the --suffix length).
+  const xRun = tpl.match(/X+$/);
+  if (!xRun || xRun[0].length < 3) {
+    emitErr(this, `mktemp: too few X's in template \`${tpl}'\n`);
+    this.lastExit = 1;
+    return false;
+  }
+  if (suffix.length > xRun[0].length) {
+    emitErr(this, `mktemp: suffix is too long (no room for it in the template)\n`);
+    this.lastExit = 1;
+    return false;
+  }
+  const base = tpl.slice(0, tpl.length - xRun[0].length);
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const rand = (n) => Array.from({ length: n }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const name = base + rand(xRun[0].length - suffix.length) + suffix;
+    try {
+      if (dry) {
+        emit(this, name + '\n');
+        this.lastExit = 0;
+        return true;
+      }
+      if (isDir) fs.mkdirSync(name);
+      else fs.closeSync(fs.openSync(name, 'wx'));
+      emit(this, name + '\n');
+      this.lastExit = 0;
+      return true;
+    } catch (e) {
+      if (e && e.code === 'EEXIST') continue; // collision — retry
+      emitErr(this, `mktemp: cannot create ${isDir ? 'directory' : 'file'} \`${name}': ${e?.message ?? e}\n`);
+      this.lastExit = 1;
+      return false;
+    }
+  }
+  emitErr(this, `mktemp: failed to create ${isDir ? 'directory' : 'file'} via template \`${tpl}'\n`);
+  this.lastExit = 1;
+  return false;
+};
+
 builtins.seq = function (args) {
   let first = 1, step = 1, last = 0, sep = '\n';
   const pos = [];
