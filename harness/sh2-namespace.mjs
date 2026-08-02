@@ -19,12 +19,19 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 const SPAWN_TIMEOUT_MS = 5000; // per external command
 
 export const sh2 = {
+  // node:fs/promises — the native readFile/writeFile surface the emitter's
+  // pure-capture lowerings (`$(cat f)`, `$(sort f)`, `$(wc -l < f)`) call
+  // directly (PLAN.md §1.2's sh2.fs.* namespace; whitelisted in
+  // estree_gate.pl).
+  fs: fsp,
+
   // ── state ──────────────────────────────────────────────────────────
   vars: new Map(),
   arrays: new Map(),   // name -> array of strings (declare -a / arr=(...) / arr[i]=)
@@ -563,6 +570,23 @@ export const sh2 = {
   // exactly the strips capture() would.
   trimCapture(s) {
     return String(s ?? '').replace(/\u0000/g, '').replace(/\n+$/, '');
+  },
+
+  // The `$(dirname X)` / `$(basename X)` pure-capture lifts: the exact
+  // string the builtins.dirname/basename would emit for a single path arg
+  // (minus the trailing newline the capture strips). Mirrors the builtins'
+  // trailing-slash handling (GNU dirname/basename semantics).
+  dirname(x) {
+    let s = String(x ?? '');
+    while (s.endsWith('/') && s.length > 1) s = s.slice(0, -1);
+    const idx = s.lastIndexOf('/');
+    return idx < 0 ? '.' : (idx === 0 ? '/' : s.slice(0, idx));
+  },
+  basename(x) {
+    let s = String(x ?? '');
+    while (s.endsWith('/') && s.length > 1) s = s.slice(0, -1);
+    const idx = s.lastIndexOf('/');
+    return idx < 0 ? s : (idx === 0 ? s : s.slice(idx + 1));
   },
 
   // Unquoted $(...) — bash word-splits the captured output on IFS.

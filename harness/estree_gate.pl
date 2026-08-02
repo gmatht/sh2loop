@@ -20,7 +20,7 @@ my %whitelist = map { $_ => 1 } qw(
     exec getVar setVar test pipeline capture captureWords redirect caseMatch param arith brace setArray setArrayAppend assign arrayItems arrayLen arrayIndex join setLastExit arithEval idiv imod guard not contains builtin
     define subshell background block whileLoop whileLoopSync cstyleFor cstyleForSync forLoop forLoopSync listVar and or
     shopt return break continue unsupported
-    trimCapture
+    trimCapture dirname basename readFile
 );
 
 my $file = shift @ARGV or die "usage: estree_gate.pl <program.estree.json>\n";
@@ -69,6 +69,19 @@ sub walk {
                 && ref $prop eq 'HASH'
                 && ($prop->{type} // '') eq 'Identifier';
             my $cname = ref $prop eq 'HASH' ? ($prop->{name} // '') : '';
+            # sh2.fs.<name> — the runtime's node:fs/promises surface for
+            # the pure-capture lowerings (`$(cat f)` → sh2.fs.readFile).
+            # Only the read side is emitted (async-only codegen).
+            my $is_sh2_fs = ref $obj eq 'HASH'
+                && ($obj->{type} // '') eq 'MemberExpression'
+                && ref $obj->{object} eq 'HASH'
+                && ($obj->{object}{type} // '') eq 'Identifier'
+                && ($obj->{object}{name} // '') eq 'sh2'
+                && ref $obj->{property} eq 'HASH'
+                && ($obj->{property}{name} // '') eq 'fs'
+                && ref $prop eq 'HASH'
+                && ($prop->{type} // '') eq 'Identifier'
+                && $prop->{name} eq 'readFile';
             my $is_native = ($callee->{type} // '') eq 'Identifier'
                 && (($callee->{name} // '') eq 'Number' || ($callee->{name} // '') eq 'String'
                     || ($callee->{name} // '') eq 'parseInt' || ($callee->{name} // '') eq 'parseFloat');
@@ -90,9 +103,10 @@ sub walk {
             # (CallExpression), or an array literal (`[a, b].join(" ")` — the
             # echo-capture join; the elements are walked recursively).
             my $is_string_method = ref $obj eq 'HASH'
-                && (($obj->{type} // '') eq 'CallExpression' || ($obj->{type} // '') eq 'ArrayExpression')
+                && (($obj->{type} // '') eq 'CallExpression' || ($obj->{type} // '') eq 'ArrayExpression'
+                    || ($obj->{type} // '') eq 'AwaitExpression' || ($obj->{type} // '') eq 'ConditionalExpression')
                 && ref $prop eq 'HASH'
-                && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase|toUpperCase|charAt|slice|split|join|flat)$/;
+                && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase|toUpperCase|charAt|slice|split|join|flat|sort|then|catch)$/;
             # direct calls on the sh2 runtime's own state fields — the
             # native special-var lowerings (`$@` → sh2.positional.join(' '),
             # `$#` → sh2.positional.length) read fields, never dispatched
@@ -114,9 +128,9 @@ sub walk {
                 && ($obj->{property}{name} // '') eq 'stdout'
                 && ref $prop eq 'HASH'
                 && ($prop->{name} // '') eq 'write';
-            if (!$is_sh2 && !$is_native && !$is_math && !$is_number_member && !$is_string_method && !$is_sh2_state && !$is_stdout_write) {
+            if (!$is_sh2 && !$is_sh2_fs && !$is_native && !$is_math && !$is_number_member && !$is_string_method && !$is_sh2_state && !$is_stdout_write) {
                 push @problems, "non-sh2 callee: " . ($cname || $type);
-            } elsif ($is_sh2 && !$whitelist{$cname}) {
+            } elsif (($is_sh2 || $is_sh2_fs) && !$whitelist{$cname}) {
                 push @problems, "callee not in sh2.* whitelist: $cname";
             } elsif ($is_sh2 && $cname eq 'unsupported') {
                 push @problems, "sh2.unsupported call present";
