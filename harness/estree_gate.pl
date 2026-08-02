@@ -98,6 +98,13 @@ sub walk {
                 && ($obj->{name} // '') eq 'Number'
                 && ref $prop eq 'HASH'
                 && ($prop->{name} // '') eq 'isNaN';
+            # Array.isArray — the native sh2.join lowering (the runtime
+            # helper's exact `Array.isArray(v) ? v.join(" ") : String(v)`)
+            my $is_array_member = ref $obj eq 'HASH'
+                && ($obj->{type} // '') eq 'Identifier'
+                && ($obj->{name} // '') eq 'Array'
+                && ref $prop eq 'HASH'
+                && ($prop->{name} // '') eq 'isArray';
             # String(x).includes(n) / startsWith / endsWith / toLowerCase / … —
             # the native glob-to-string-op and param lowerings (pure string ops).
             # The object may be a String(...) call, a chained string op
@@ -110,7 +117,7 @@ sub walk {
                     || ($obj->{type} // '') eq 'AwaitExpression' || ($obj->{type} // '') eq 'ConditionalExpression'
                     || ($obj->{type} // '') eq 'BinaryExpression' || ($obj->{type} // '') eq 'Literal')
                 && ref $prop eq 'HASH'
-                && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase|toUpperCase|charAt|slice|split|join|flat|sort|then|catch|trim)$/;
+                && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase|toUpperCase|charAt|slice|split|join|flat|sort|then|catch|trim|replace|lastIndexOf|concat)$/;
             # Buffer.byteLength(text, 'utf8') — the native wc -c byte-count
             # lowering (the runtime wc's exact formula; node global)
             my $is_buffer = ref $obj eq 'HASH'
@@ -120,14 +127,15 @@ sub walk {
                 && ($prop->{name} // '') eq 'byteLength';
             # direct calls on the sh2 runtime's own state fields — the
             # native special-var lowerings (`$@` → sh2.positional.join(' '),
-            # `$#` → sh2.positional.length) read fields, never dispatched
+            # `$#` → sh2.positional.length, `${@:1}` →
+            # sh2.positional.slice(...)) read fields, never dispatched
             my $is_sh2_state = ref $obj eq 'HASH'
                 && ($obj->{type} // '') eq 'MemberExpression'
                 && ref $obj->{object} eq 'HASH'
                 && ($obj->{object}{type} // '') eq 'Identifier'
                 && ($obj->{object}{name} // '') eq 'sh2'
                 && ref $prop eq 'HASH'
-                && ($prop->{name} // '') =~ /^(join|length)$/;
+                && ($prop->{name} // '') =~ /^(join|length|slice|concat)$/;
             # process.stdout.write — the native echo lowering (src/shir.rs
             # try_native_echo): a direct module-stdout write, no dispatch
             my $is_stdout_write = ref $obj eq 'HASH'
@@ -146,7 +154,7 @@ sub walk {
                 && ($obj->{name} // '') eq 'process'
                 && ref $prop eq 'HASH'
                 && ($prop->{name} // '') =~ /^(getuid|getgid)$/;
-            if (!$is_sh2 && !$is_sh2_fs && !$is_native && !$is_math && !$is_number_member && !$is_string_method && !$is_sh2_state && !$is_stdout_write && !$is_buffer && !$is_process_member) {
+            if (!$is_sh2 && !$is_sh2_fs && !$is_native && !$is_math && !$is_number_member && !$is_array_member && !$is_string_method && !$is_sh2_state && !$is_stdout_write && !$is_buffer && !$is_process_member) {
                 push @problems, "non-sh2 callee: " . ($cname || $type);
             } elsif (($is_sh2 || $is_sh2_fs) && !$whitelist{$cname}) {
                 push @problems, "callee not in sh2.* whitelist: $cname";
