@@ -319,7 +319,9 @@ PROMPT
 sub build_improvement_prompt {
     my ($metric, $summary, $fails) = @_;
     my $total = (defined $metric ? ($metric->{total} // 0) : 0);
+    my $in_loop_total = (defined $metric ? ($metric->{in_loop_total} // 0) : 0);
     my $table = defined $metric ? ($metric->{table} // {}) : {};
+    my $in_loop = defined $metric ? ($metric->{in_loop} // {}) : {};
     my $prompt = <<"PROMPT";
 The ESTree backend passes the FULL corpus ($summary->{estree_passed}/$summary->{total}) —
 no bugs to fix. Your job now: make the generated JS FASTER and more NATIVE by
@@ -371,14 +373,23 @@ Candidate assumptions (state which you use, or find better ones):
 
 CURRENT METRIC — remaining sh2.* call sites across the corpus (fail-estree --metric):
 PROMPT
-    $prompt .= "  total: $total call sites\n";
+    $prompt .= "  total: $total call sites  (in-loop: $in_loop_total — per-iteration cost)\n";
     for my $k (sort { ($table->{$b} // 0) <=> ($table->{$a} // 0) } keys %$table) {
-        $prompt .= sprintf("  %-16s %d\n", $k, $table->{$k});
+        my $il = $in_loop->{$k} // 0;
+        my $mark = ($il > 0) ? "  [in-loop $il]" : "";
+        $prompt .= sprintf("  %-16s %d%s\n", $k, $table->{$k}, $mark);
     }
     $prompt .= <<"PROMPT";
 The highest-count runtime constructs (getVar/setVar/param/test/caseMatch/brace/
 arith/forLoop/whileLoop/join/...) are where native lowering pays most. Pick the
 construct with the CLEAREST best lowering, implement it, and verify below.
+
+HOISTING — an in-loop sh2.* call runs PER ITERATION, so it is worth more than
+a top-level one (the metric now tags them). Prefer lowerings that remove or
+HOIST calls OUT of loop bodies: loop-invariant guards/setLastExit, invariant
+getVar/setVar (values computed before the loop), and loop-invariant test
+conditions. A call eliminated from a 10k-iteration loop is worth 10k call
+sites in runtime terms even if the metric counts it once.
 
 PROMPT
     $prompt .= fix_surface_text();
@@ -408,16 +419,25 @@ sub read_metric {
     my ($file) = @_;
     return undef unless -e $file;
     open my $fh, '<', $file or return undef;
-    my ($total, %table);
+    my ($total, $in_loop_total, %table, %in_loop);
     while (my $line = <$fh>) {
         chomp $line;
-        my ($k, $v) = split /\t/, $line;
+        my ($k, $v, $il) = split /\t/, $line;
         next unless defined $v && $v =~ /^\d+$/;
         if ($k eq 'total') { $total = $v + 0; }
-        else { $table{$k} = $v + 0; }
+        elsif ($k eq 'in_loop') { $in_loop_total = $v + 0; }
+        else {
+            $table{$k} = $v + 0;
+            $in_loop{$k} = (defined $il && $il =~ /^\d+$/) ? $il + 0 : 0;
+        }
     }
     close $fh;
-    return { total => ($total // 0), table => \%table };
+    return {
+        total => ($total // 0),
+        in_loop_total => ($in_loop_total // 0),
+        table => \%table,
+        in_loop => \%in_loop,
+    };
 }
 
 sub read_metric_total {
