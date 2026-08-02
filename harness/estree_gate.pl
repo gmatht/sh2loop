@@ -20,7 +20,7 @@ my %whitelist = map { $_ => 1 } qw(
     exec getVar setVar test pipeline capture captureWords redirect caseMatch param arith brace setArray setArrayAppend assign arrayItems arrayLen arrayIndex join setLastExit arithEval idiv imod guard not contains builtin
     define subshell background block whileLoop whileLoopSync cstyleFor cstyleForSync forLoop forLoopSync listVar and or
     shopt return break continue unsupported
-    trimCapture dirname basename readFile
+    trimCapture dirname basename readFile writeFile appendFile
 );
 
 my $file = shift @ARGV or die "usage: estree_gate.pl <program.estree.json>\n";
@@ -70,8 +70,9 @@ sub walk {
                 && ($prop->{type} // '') eq 'Identifier';
             my $cname = ref $prop eq 'HASH' ? ($prop->{name} // '') : '';
             # sh2.fs.<name> — the runtime's node:fs/promises surface for
-            # the pure-capture lowerings (`$(cat f)` → sh2.fs.readFile).
-            # Only the read side is emitted (async-only codegen).
+            # the pure-capture lowerings (`$(cat f)` → sh2.fs.readFile) and
+            # the native echo-to-file redirect lowering (`echo x > f` →
+            # await sh2.fs.writeFile / appendFile). Async-only codegen.
             my $is_sh2_fs = ref $obj eq 'HASH'
                 && ($obj->{type} // '') eq 'MemberExpression'
                 && ref $obj->{object} eq 'HASH'
@@ -81,7 +82,7 @@ sub walk {
                 && ($obj->{property}{name} // '') eq 'fs'
                 && ref $prop eq 'HASH'
                 && ($prop->{type} // '') eq 'Identifier'
-                && $prop->{name} eq 'readFile';
+                && $prop->{name} =~ /^(readFile|writeFile|appendFile)$/;
             my $is_native = ($callee->{type} // '') eq 'Identifier'
                 && (($callee->{name} // '') eq 'Number' || ($callee->{name} // '') eq 'String'
                     || ($callee->{name} // '') eq 'parseInt' || ($callee->{name} // '') eq 'parseFloat');
