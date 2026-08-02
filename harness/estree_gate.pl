@@ -20,6 +20,7 @@ my %whitelist = map { $_ => 1 } qw(
     exec getVar setVar test pipeline capture captureWords redirect caseMatch param arith brace setArray setArrayAppend assign arrayItems arrayLen arrayIndex join setLastExit arithEval idiv imod guard not contains builtin
     define subshell background block whileLoop whileLoopSync cstyleFor cstyleForSync forLoop forLoopSync listVar and or
     shopt return break continue unsupported
+    trimCapture
 );
 
 my $file = shift @ARGV or die "usage: estree_gate.pl <program.estree.json>\n";
@@ -75,10 +76,20 @@ sub walk {
                 && ($obj->{name} // '') eq 'Math'
                 && ref $prop eq 'HASH'
                 && ($prop->{name} // '') =~ /^(trunc|floor|ceil)$/;
+            # Number.isNaN — the NaN-guarded numeric test lowering (bash's
+            # "integer expression expected" error → the whole test is false)
+            my $is_number_member = ref $obj eq 'HASH'
+                && ($obj->{type} // '') eq 'Identifier'
+                && ($obj->{name} // '') eq 'Number'
+                && ref $prop eq 'HASH'
+                && ($prop->{name} // '') eq 'isNaN';
             # String(x).includes(n) / startsWith / endsWith / toLowerCase / … —
-            # the native glob-to-string-op and param lowerings (pure string ops)
+            # the native glob-to-string-op and param lowerings (pure string ops).
+            # The object may be a String(...) call, a chained string op
+            # (CallExpression), or an array literal (`[a, b].join(" ")` — the
+            # echo-capture join; the elements are walked recursively).
             my $is_string_method = ref $obj eq 'HASH'
-                && ($obj->{type} // '') eq 'CallExpression'
+                && (($obj->{type} // '') eq 'CallExpression' || ($obj->{type} // '') eq 'ArrayExpression')
                 && ref $prop eq 'HASH'
                 && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase|toUpperCase|charAt|slice|split|join)$/;
             # direct calls on the sh2 runtime's own state fields — the
@@ -91,7 +102,7 @@ sub walk {
                 && ($obj->{object}{name} // '') eq 'sh2'
                 && ref $prop eq 'HASH'
                 && ($prop->{name} // '') =~ /^(join|length)$/;
-            if (!$is_sh2 && !$is_native && !$is_math && !$is_string_method && !$is_sh2_state) {
+            if (!$is_sh2 && !$is_native && !$is_math && !$is_number_member && !$is_string_method && !$is_sh2_state) {
                 push @problems, "non-sh2 callee: " . ($cname || $type);
             } elsif ($is_sh2 && !$whitelist{$cname}) {
                 push @problems, "callee not in sh2.* whitelist: $cname";

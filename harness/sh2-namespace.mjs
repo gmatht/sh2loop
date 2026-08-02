@@ -556,6 +556,15 @@ export const sh2 = {
     }
   },
 
+  // The capture post-processing (NUL strip + trailing-newline strip) for
+  // the emitter's native capture lifts (`$(echo X | tr a-z A-Z)` →
+  // `sh2.trimCapture(String(X).toUpperCase())`): a pure string transform
+  // replaces the whole capture+spawn machinery, and this helper applies
+  // exactly the strips capture() would.
+  trimCapture(s) {
+    return String(s ?? '').replace(/\u0000/g, '').replace(/\n+$/, '');
+  },
+
   // Unquoted $(...) — bash word-splits the captured output on IFS.
   async captureWords(fn) {
     const out = await this.capture(fn);
