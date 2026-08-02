@@ -63,7 +63,7 @@ function exprUnwrapped(node) {
       return `${obj}.${expr(node.property, PREC.MemberExpression)}`;
     }
     case 'AwaitExpression':
-      return `await ${expr(node.argument, PREC.AwaitExpression)}`;
+      return `await ${parenSeq(node.argument, expr(node.argument, PREC.AwaitExpression))}`;
     case 'UnaryExpression':
       return `${node.operator}${parenIfCompound(node.argument)}`;
     case 'ArrowFunctionExpression': {
@@ -90,7 +90,7 @@ function exprUnwrapped(node) {
       return `${l} ${node.operator} ${r}`;
     }
     case 'AssignmentExpression':
-      return `${expr(node.left)} ${node.operator} ${expr(node.right)}`;
+      return `${expr(node.left)} ${node.operator} ${parenSeq(node.right, expr(node.right))}`;
     case 'ConditionalExpression': {
       const t = parenIfCompound(node.test);
       const c = parenIfCompound(node.consequent);
@@ -134,7 +134,7 @@ export function printStatement(node) {
       return `for (${printStatement(node.left).replace(/;$/, '')} of ${expr(node.right)}) ${printStatement(node.body)}`;
     case 'VariableDeclaration': {
       const decls = node.declarations
-        .map(d => `${expr(d.id)}${d.init ? ' = ' + expr(d.init) : ''}`)
+        .map(d => `${expr(d.id)}${d.init ? ' = ' + parenSeq(d.init, expr(d.init)) : ''}`)
         .join(', ');
       return `${node.kind} ${decls};`;
     }
