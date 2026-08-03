@@ -315,6 +315,21 @@ PROMPT
     return $t;
 }
 
+# ── the durable plan backlog (.estree_plans.md) ──────────────────────
+# The improvement loop executes the FIRST entry with "Status: planned":
+# the entry's precise steps go into the pi prompt, and the pi updates the
+# entry (status / benchmark results / issues) after verification. This
+# stops every pi session from re-deriving the whole analysis.
+sub build_plan_prompt {
+    my $plans = "$project_root/.estree_plans.md";
+    return '' unless -e $plans;
+    open my $fh, '<', $plans or return '';
+    local $/; my $content = <$fh>; close $fh;
+    my ($entry) = $content =~ /(## .*?)(?=\n## |\z)/s;
+    return '' unless defined $entry && $entry =~ /Status: planned/;
+    return "CURRENT PLAN — implement THIS entry exactly (its steps, files, and\nbenchmark expectations):\n$entry\n";
+}
+
 # ── benchmark fruit (JS vs bash ops/sec) for the improvement prompt ──
 # Runs bench.sh on a fast subset and returns the rows sorted by worst
 # js:bash ratio — the per-iteration overhead and spawns that remain.
@@ -422,6 +437,7 @@ conditions. A call eliminated from a 10k-iteration loop is worth 10k call
 sites in runtime terms even if the metric counts it once.
 
 PROMPT
+    $prompt .= build_plan_prompt();
     $prompt .= build_bench_prompt();
     $prompt .= fix_surface_text();
     $prompt .= <<"PROMPT";
@@ -438,6 +454,10 @@ VERIFY (mandatory, exactly like fix mode):
   approach after it actually regresses a test, not on speculation. Every
   kept assumption must be documented + option-gated with the aggressive
   default.
+- UPDATE THE PLAN FILE (.estree_plans.md): when you implement the CURRENT PLAN
+  entry, set its Status to implemented (or blocked with the reason), fill in
+  the benchmark after numbers, and note issues. If you find NEW fruit not in
+  the plans, append a new entry.
 - Prefer src/shir.rs (shared ShIR) for pattern lifts so other backends can
   reuse them; harness/sh2-namespace.mjs for runtime changes; estree_gate.pl
   for whitelist entries.
