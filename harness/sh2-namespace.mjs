@@ -738,6 +738,232 @@ export const sh2 = {
     return String(haystack ?? '').includes(String(needle ?? ''));
   },
 
+  // The `echo ARGS | grep [FLAGS] PAT` pipeline lift (see src/shir.rs
+  // try_native_echo_grep): a SYNC mini-grep over the echoed text with
+  // exact GNU grep semantics for the supported flag set (v/i/n/c/o/q/x
+  // incl. combined shorts, -A/-B/-C/-m with integer values, -e/-E/-F,
+  // `--`), replacing the async pipeline machinery + the grep subprocess
+  // spawn with ONE call. The emitter only lifts provably-static argv
+  // (every arg a literal, flags/pattern count within this grammar, no
+  // FILE operands, no GNU-extension escapes) — anything else stays on the
+  // runtime pipeline, so an unhandled shape here is an emitter bug, not a
+  // script error (fail loudly).
+  //
+  // The helper emits the filtered output through the CURRENT fd-1 sink
+  // (module stdout / capture buffer / redirect target — where the
+  // pipeline's last stage would write) and records `sh2.lastExit` (grep's
+  // exit status: 0 iff any line was selected, even under `-c` with a zero
+  // count). With captureMode true the output text is returned instead of
+  // emitted (the emitter wraps it in sh2.trimCapture for `$(...)`).
+  grepText(text, args, captureMode) {
+    const s = String(text ?? '');
+    const opts = { invert: false, count: false, lineNo: false, only: false,
+      quiet: false, whole: false, ci: false, max: Infinity, after: 0,
+      before: 0, flavor: 'bre' };
+    const patterns = [];
+    let positionals = 0;
+    let afterDD = false;
+    for (let i = 0; i < args.length; i++) {
+      const a = String(args[i]);
+      if (!afterDD && a === '--') { afterDD = true; continue; }
+      if (!afterDD && a.length > 1 && a.startsWith('-')) {
+        if (a === '-e' || a === '-E' || a === '-F') {
+          if (a === '-E') opts.flavor = 'ere';
+          if (a === '-F') opts.flavor = 'fixed';
+          patterns.push(String(args[++i])); // -e PAT (also marks a pattern)
+          continue;
+        }
+        if (a === '-A' || a === '-B' || a === '-C' || a === '-m') {
+          const v = Number(args[++i]);
+          if (!Number.isFinite(v) || v < 0) throw new Error(`grepText: bad ${a} value`);
+          if (a === '-A') opts.after = v;
+          if (a === '-B') opts.before = v;
+          if (a === '-C') { opts.after = v; opts.before = v; }
+          if (a === '-m') opts.max = v;
+          continue;
+        }
+        const body = a.slice(1);
+        // single-char flags v/i/n/c/o/q/x, possibly combined (`-vi`)
+        if (body.length > 0 && [...body].every(ch => 'vincoqx'.includes(ch))) {
+          if (body.includes('v')) opts.invert = true;
+          if (body.includes('i')) opts.ci = true;
+          if (body.includes('n')) opts.lineNo = true;
+          if (body.includes('c')) opts.count = true;
+          if (body.includes('o')) opts.only = true;
+          if (body.includes('q')) opts.quiet = true;
+          if (body.includes('x')) opts.whole = true;
+          continue;
+        }
+        throw new Error(`grepText: unsupported flag ${a}`);
+      }
+      positionals++;
+      if (positionals > 1) throw new Error('grepText: file operand');
+      patterns.push(a);
+    }
+    if (patterns.length === 0) throw new Error('grepText: no pattern');
+
+    // BRE → JS regex (GNU grep BRE semantics: bare `( ) { } + ? |` are
+    // literals, `\x`-escapes are the ERE operators; POSIX classes
+    // translate). ERE ≈ JS already; -F is a literal.
+    const posixClass = (name) => ({
+      alpha: 'a-zA-Z', digit: '0-9', alnum: 'a-zA-Z0-9', upper: 'A-Z',
+      lower: 'a-z', space: '\\s', blank: ' \\t',
+      punct: '\\x21-\\x2F\\x3A-\\x40\\x5B-\\x60\\x7B-\\x7E',
+      print: '\\x20-\\x7E', graph: '\\x21-\\x7E',
+      cntrl: '\\x00-\\x1F\\x7F', xdigit: 'a-fA-F0-9',
+      word: 'a-zA-Z0-9_', ascii: '\\x00-\\x7F',
+    })[name] ?? '';
+    const classToJs = (pat, start) => {
+      let j = start + 1;
+      let neg = false;
+      if (pat[j] === '^') { neg = true; j++; }
+      let inner = '';
+      if (pat[j] === ']') { inner += '\\]'; j++; } // leading ] is literal
+      while (j < pat.length && pat[j] !== ']') { inner += pat[j]; j++; }
+      if (j >= pat.length) return null; // unterminated → treat as literal
+      inner = inner.replace(/\[:(\w+):\]/g, (m, name) => posixClass(name));
+      return { js: '[' + (neg ? '^' : '') + inner + ']', next: j + 1 };
+    };
+    const breToJs = (pat) => {
+      let out = '';
+      let i = 0;
+      while (i < pat.length) {
+        const c = pat[i];
+        if (c === '\\') {
+          const d = pat[i + 1];
+          if (d === undefined) { out += '\\\\'; i++; continue; }
+          if (d === '(') out += '(';
+          else if (d === ')') out += ')';
+          else if (d === '{') out += '{';
+          else if (d === '}') out += '}';
+          else if (d === '+') out += '+';
+          else if (d === '?') out += '?';
+          else if (d === '|') out += '|';
+          else out += '\\' + d; // \. \[ \$ etc. — same meaning in JS
+          i += 2;
+          continue;
+        }
+        if (c === '^') { out += i === 0 ? '^' : '\\^'; i++; continue; }
+        if (c === '$') { out += i === pat.length - 1 ? '$' : '\\$'; i++; continue; }
+        if (c === '(' || c === ')' || c === '{' || c === '}' || c === '+' || c === '?' || c === '|') {
+          out += '\\' + c; i++; continue;
+        }
+        if (c === '[') {
+          const cls = classToJs(pat, i);
+          if (cls) { out += cls.js; i = cls.next; continue; }
+          out += '\\['; i++; continue;
+        }
+        out += c;
+        i++;
+      }
+      return out;
+    };
+    const ereToJs = (pat) => {
+      let out = '';
+      let i = 0;
+      while (i < pat.length) {
+        const c = pat[i];
+        if (c === '\\') {
+          const d = pat[i + 1];
+          if (d === undefined) { out += '\\\\'; i++; continue; }
+          out += '\\' + d; // \\( → literal (, \\. → literal ., \\1 → backref
+          i += 2;
+          continue;
+        }
+        if (c === '[') {
+          const cls = classToJs(pat, i);
+          if (cls) { out += cls.js; i = cls.next; continue; }
+          out += '\\['; i++; continue;
+        }
+        out += c;
+        i++;
+      }
+      return out;
+    };
+    const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const srcs = patterns.map(p =>
+      opts.flavor === 'fixed' ? escapeRe(p)
+        : opts.flavor === 'ere' ? ereToJs(p) : breToJs(p));
+    const src = srcs.map(s2 => `(?:${s2})`).join('|');
+    const ci = opts.ci ? 'i' : '';
+    const matchRe = opts.whole ? new RegExp(`^(?:${src})$`, ci) : new RegExp(src, ci);
+    const gRe = new RegExp(matchRe.source, ci + 'g');
+    const isMatch = (line) => matchRe.test(line);
+
+    const lines = s.split('\n');
+    if (s.endsWith('\n')) lines.pop();
+    const lineSel = (line) => { const m = isMatch(line); return opts.invert ? !m : m; };
+    let out = '';
+    let selected = 0; // selected LINES (the -m / status unit)
+    if (opts.quiet) {
+      for (const line of lines) {
+        if (!lineSel(line)) continue;
+        selected++;
+        if (selected >= opts.max) break;
+      }
+    } else if (opts.count) {
+      let n = 0;
+      for (const line of lines) {
+        if (!lineSel(line)) continue;
+        selected++;
+        if (opts.only) {
+          // -c -o counts MATCHES (GNU); empty matches print nothing
+          n += (line.match(gRe) || []).filter(x => x !== '').length;
+        } else {
+          n++;
+        }
+        if (selected >= opts.max) break;
+      }
+      out = String(n) + '\n';
+    } else if (opts.only) {
+      for (let li = 0; li < lines.length; li++) {
+        const line = lines[li];
+        if (!lineSel(line)) continue;
+        selected++;
+        const mm = (line.match(gRe) || []).filter(x => x !== '');
+        for (const m of mm) out += (opts.lineNo ? `${li + 1}:` : '') + m + '\n';
+        if (selected >= opts.max) break;
+      }
+    } else if (opts.after === 0 && opts.before === 0) {
+      for (let li = 0; li < lines.length; li++) {
+        const line = lines[li];
+        if (!lineSel(line)) continue;
+        selected++;
+        out += (opts.lineNo ? `${li + 1}:` : '') + line + '\n';
+        if (selected >= opts.max) break;
+      }
+    } else {
+      // -A/-B/-C: merge overlapping/adjacent ranges around each selected
+      // line, `--` between disjoint groups (GNU). With -n, context lines
+      // carry `-` and selected lines `:` (GNU).
+      const sel = lines.map(lineSel);
+      const ranges = [];
+      for (let li = 0; li < lines.length; li++) {
+        if (!sel[li]) continue;
+        selected++;
+        const lo = Math.max(0, li - opts.before);
+        const hi = Math.min(lines.length - 1, li + opts.after);
+        if (ranges.length && lo <= ranges[ranges.length - 1][1] + 1) {
+          ranges[ranges.length - 1][1] = Math.max(ranges[ranges.length - 1][1], hi);
+        } else {
+          ranges.push([lo, hi]);
+        }
+        if (selected >= opts.max) break;
+      }
+      for (let r = 0; r < ranges.length; r++) {
+        if (r > 0) out += '--\n';
+        for (let li = ranges[r][0]; li <= ranges[r][1]; li++) {
+          out += (opts.lineNo ? `${li + 1}${sel[li] ? ':' : '-'}` : '') + lines[li] + '\n';
+        }
+      }
+    }
+    const matched = selected > 0;
+    this.lastExit = matched ? 0 : 1;
+    if (captureMode) return out;
+    if (out.length > 0) emit(this, out);
+    return matched;
+  },
+
   async forLoop(items, bodyFn) {
     // Glob-expand any GLOB_MAGIC item (including elements of brace/array
     // results, which arrive as magic-prefixed strings inside arrays).
