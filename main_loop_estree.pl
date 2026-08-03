@@ -724,18 +724,23 @@ while (1) {
         }
     }
 
+    # trusted-count files hold "failcount\ttotal" — split (never add the raw
+    # line: "88\t528" isn't numeric and warned on every iteration)
     my $estree_trusted = 10_000;
-    if (open my $tf, '<', $estree_trusted_file) { my $v = <$tf>; chomp $v if defined $v; $estree_trusted = $v + 0 if defined $v && $v ne ''; close $tf; }
-    my $perl_trusted = 10_000;
-    if (open my $pf, '<', $perl_trusted_file) { my $v = <$pf>; chomp $v if defined $v; $perl_trusted = $v + 0 if defined $v && $v ne ''; close $pf; }
-
-    # reseed trusted/baseline when the corpus size changes (examples churn)
     my $estree_total = 0;
     if (open my $tf, '<', $estree_trusted_file) {
         my $v = <$tf>; chomp $v if defined $v;
         my ($f, $t) = split /\t/, ($v // '');
-        $estree_trusted = ($f // '') + 0; $estree_total = ($t // '') + 0;
+        $estree_trusted = ($f // '') + 0 if defined $f && $f ne '';
+        $estree_total = ($t // '') + 0;
         close $tf;
+    }
+    my $perl_trusted = 10_000;
+    if (open my $pf, '<', $perl_trusted_file) {
+        my $v = <$pf>; chomp $v if defined $v;
+        my ($f) = split /\t/, ($v // '');
+        $perl_trusted = ($f // '') + 0 if defined $f && $f ne '';
+        close $pf;
     }
     if ($summary->{total} && $estree_total && $estree_total != $summary->{total}) {
         print "\nCorpus size changed ($estree_total -> $summary->{total}). Reseeding baseline + trusted counts.\n";
