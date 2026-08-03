@@ -125,8 +125,9 @@ for sample in ${@:-$SB/sample/*.sh}; do
     tb=$(time_shell bash /tmp/bench_runner.sh)
     td=$(time_shell dash /tmp/bench_runner.sh)
     tj=$(time_js /tmp/bench_runner.sh)
-    printf "%-24s %12s %12s %12s\n" "$(basename "$sample" .sh):$name" \
-      "$(ops "$n" "$tb")" "$(ops "$n" "$td")" "$(ops "$n" "$tj")"
+    st=$(perl "$ROOT/harness/sh2stat.pl" /tmp/bench_runner.json 2>/dev/null || echo "-\t-\t-")
+    printf "%-24s %12s %12s %12s   sh2[%s]\n" "$(basename "$sample" .sh):$name" \
+      "$(ops "$n" "$tb")" "$(ops "$n" "$td")" "$(ops "$n" "$tj")" "$st"
   done
 done
 
