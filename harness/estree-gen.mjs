@@ -68,7 +68,10 @@ function exprUnwrapped(node) {
     case 'AwaitExpression':
       return `await ${parenSeq(node.argument, expr(node.argument, PREC.AwaitExpression))}`;
     case 'UnaryExpression':
-      return `${node.operator}${parenIfCompound(node.argument)}`;
+      // prefix: ++x / --x / !x / -x …; postfix: x++ / x-- (arith IncDec)
+      return node.prefix
+        ? `${node.operator}${parenIfCompound(node.argument)}`
+        : `${parenIfCompound(node.argument)}${node.operator}`;
     case 'ArrowFunctionExpression': {
       const params = `(${node.params.map(p => expr(p)).join(', ')})`;
       const body = node.expression
