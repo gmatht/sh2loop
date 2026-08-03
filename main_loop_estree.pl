@@ -315,6 +315,36 @@ PROMPT
     return $t;
 }
 
+# ── benchmark fruit (JS vs bash ops/sec) for the improvement prompt ──
+# Runs bench.sh on a fast subset and returns the rows sorted by worst
+# js:bash ratio — the per-iteration overhead and spawns that remain.
+sub build_bench_prompt {
+    my $sb = $ENV{SHELLBENCH_DIR} // '/tmp/shellbench';
+    my @samples = map { "$sb/sample/$_" }
+        qw(count.sh func.sh eval.sh output.sh stringop1.sh stringop2.sh);
+    my $out = `CAL_MS=100 timeout 300 bash "$project_root/bench.sh" @samples 2>/dev/null`;
+    my @rows;
+    for my $line (split /\n/, $out) {
+        # "sample:name    bash/s    dash/s    js/s"
+        my ($name, $b, $d, $j) = split /\s+/, $line;
+        next unless defined $j && $j =~ /^\d+$/ && defined $b && $b =~ /^\d+$/ && $b > 0;
+        push @rows, [ $name, $b, $d, $j, sprintf('%.2f', $j / $b) ];
+    }
+    @rows = sort { $a->[4] <=> $b->[4] } @rows;
+    return '' unless @rows;
+    my $t = "BENCHMARK FRUIT (JS vs bash, ops/sec — LOW ratio = per-iteration overhead / spawns left):\n";
+    $t .= sprintf("  %-30s %8s %8s %8s %6s\n", "bench", "bash", "dash", "js", "js/bash");
+    for my $r (@rows) {
+        $t .= sprintf("  %-30s %8d %8s %8d %6s\n", $r->[0], $r->[1],
+            ($r->[2] =~ /^\d+$/ ? $r->[2] : 'ERR'), $r->[3], $r->[4]);
+    }
+    $t .= "TARGET the worst ratios FIRST (low-hanging fruit): a native cut/sed/expr\n";
+    $t .= "builtin flips the spawn-parity echo|cut benches (~100x); ((i++)) arith, the\n";
+    $t .= "function-call dispatch, and eval/assign are per-iteration runtime paths.\n";
+    $t .= "After a lowering, re-run:  CAL_MS=100 bash $project_root/bench.sh <sample>\n";
+    return $t;
+}
+
 # ── improvement-mode prompt (M8 / PLAN.md §9) ───────────────────────
 sub build_improvement_prompt {
     my ($metric, $summary, $fails) = @_;
@@ -392,6 +422,7 @@ conditions. A call eliminated from a 10k-iteration loop is worth 10k call
 sites in runtime terms even if the metric counts it once.
 
 PROMPT
+    $prompt .= build_bench_prompt();
     $prompt .= fix_surface_text();
     $prompt .= <<"PROMPT";
 
