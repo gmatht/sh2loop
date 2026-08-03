@@ -159,13 +159,15 @@ sub walk {
                 && ($obj->{property}{name} // '') eq 'stdout'
                 && ref $prop eq 'HASH'
                 && ($prop->{name} // '') eq 'write';
-            # process.getuid() / process.getgid() — the native -O/-G file-test
-            # lowering (the runtime's evalUnary reads the same process ids)
+            # process.getuid() / process.getgid() / process.chdir() /
+            # process.exit() — the native -O/-G file-test lowering (the
+            # runtime's evalUnary reads the same process ids), the native
+            # `cd /` lowering, and the native `exit` lowering
             my $is_process_member = ref $obj eq 'HASH'
                 && ($obj->{type} // '') eq 'Identifier'
                 && ($obj->{name} // '') eq 'process'
                 && ref $prop eq 'HASH'
-                && ($prop->{name} // '') =~ /^(getuid|getgid)$/;
+                && ($prop->{name} // '') =~ /^(getuid|getgid|chdir|exit)$/;
             if (!$is_sh2 && !$is_sh2_fs && !$is_native && !$is_math && !$is_number_member && !$is_array_member && !$is_promise_member && !$is_string_method && !$is_sh2_state && !$is_stdout_write && !$is_buffer && !$is_process_member) {
                 push @problems, "non-sh2 callee: " . ($cname || $type);
             } elsif (($is_sh2 || $is_sh2_fs) && !$whitelist{$cname}) {
