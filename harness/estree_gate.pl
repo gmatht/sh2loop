@@ -140,14 +140,23 @@ sub walk {
             # direct calls on the sh2 runtime's own state fields — the
             # native special-var lowerings (`$@` → sh2.positional.join(' '),
             # `$#` → sh2.positional.length, `${@:1}` →
-            # sh2.positional.slice(...)) read fields, never dispatched
+            # sh2.positional.slice(...)) read fields, never dispatched; the
+            # native define/shopt lowerings call the state MAPS directly
+            # (`sh2.functions.set(name, fn)`, `sh2.shoptState.set(opt, en)`)
+            # — the runtime helpers' exact bodies, no dispatch
             my $is_sh2_state = ref $obj eq 'HASH'
                 && ($obj->{type} // '') eq 'MemberExpression'
                 && ref $obj->{object} eq 'HASH'
                 && ($obj->{object}{type} // '') eq 'Identifier'
                 && ($obj->{object}{name} // '') eq 'sh2'
                 && ref $prop eq 'HASH'
-                && ($prop->{name} // '') =~ /^(join|length|slice|concat)$/;
+                && (($prop->{name} // '') =~ /^(join|length|slice|concat)$/
+                    # `sh2.functions.set(name, fn)` / `sh2.shoptState.set(opt, en)`
+                    # — the state-MAP `.set` calls (the inner member is the
+                    # map; the outer prop is `set`)
+                    || (($prop->{name} // '') eq 'set'
+                        && ref $obj->{property} eq 'HASH'
+                        && ($obj->{property}{name} // '') =~ /^(functions|shoptState)$/));
             # process.stdout.write — the native echo lowering (src/shir.rs
             # try_native_echo): a direct module-stdout write, no dispatch
             my $is_stdout_write = ref $obj eq 'HASH'
