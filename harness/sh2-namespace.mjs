@@ -2455,6 +2455,126 @@ builtins.tail = function (args) {
   return true;
 };
 
+// cut — select fields (-f) or character/byte positions (-c/-b) from each
+// line of the input (file operands or the current fd-0 target — the
+// pipeline simulation feeds it the previous stage's captured output, so
+// `echo $s | cut -d: -f1` no longer spawns a subprocess per call). GNU
+// cut semantics for the supported surface: `-d DELIM` (attached or
+// separate; the FIRST char only, GNU's rule), `-f/-c/-b LIST` with the
+// comma-separated range grammar `N`, `N-M`, `N-`, `-M` (ranges merge and
+// dedupe — `-f1-3,2-4` is `1,2,3,4`), `-s` (suppress lines without the
+// delimiter), `--output-delimiter=STR` / `--output-delimiter STR` (the
+// field join, default = the input delimiter), `--` (end of options).
+// Line rules (verified against GNU coreutils 9.x): a line with NO
+// delimiter passes through WHOLE for -f (any field list) unless -s;
+// fields beyond the line's split length are omitted from the join
+// (`a:b` with -f1,3 → `a`), but EMPTY interior fields are kept
+// (`a::b` with -f1,2 → `a:`); -c/-b past the line end yields an empty
+// line; the output's trailing newline mirrors the input's. No
+// -f/-c/-b at all is GNU's "you must specify a list" error (exit 1).
+builtins.cut = function (args) {
+  // returns the MERGED, sorted [lo, hi] range list for a range-list arg
+  // (hi may be MAX_SAFE_INTEGER for an open `N-` range; null = malformed:
+  // `0`, a decreasing range, a bare `-`, garbage). GNU merges adjacent /
+  // overlapping ranges (`-f1-3,2-4` is 1..4) — the per-line selection
+  // clamps hi to the line length, so open ranges are cheap.
+  const parseList = (s) => {
+    const ranges = [];
+    for (const part of String(s).split(',')) {
+      const m = /^(\d*)-(\d*)$/.exec(part.trim()) || /^(\d+)$/.exec(part.trim());
+      if (!m) return null;
+      let lo, hi;
+      if (m[0].includes('-')) {
+        const [, a, b] = m;
+        if (a === '' && b === '') return null;
+        lo = a === '' ? 1 : parseInt(a, 10);
+        hi = b === '' ? Number.MAX_SAFE_INTEGER : parseInt(b, 10);
+      } else {
+        lo = hi = parseInt(m[1], 10);
+      }
+      if (lo < 1 || hi < 1 || hi < lo) return null;
+      ranges.push([lo, hi]);
+    }
+    ranges.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+    const merged = [];
+    for (const r of ranges) {
+      const last = merged[merged.length - 1];
+      if (last && r[0] <= last[1] + 1) last[1] = Math.max(last[1], r[1]);
+      else merged.push([...r]);
+    }
+    return merged;
+  };
+  // positions of a line of length L under the merged ranges (clamped)
+  const positions = (ranges, L) => {
+    const out = [];
+    for (const [lo, hi] of ranges) {
+      const h = Math.min(hi, L);
+      for (let p = lo; p <= h; p++) out.push(p);
+    }
+    return out;
+  };
+  let delim = '\t';
+  let mode = null; // 'f' | 'c' | 'b'
+  let pos = null;
+  let suppress = false;
+  let outDelim = null;
+  const files = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = String(args[i]);
+    if (a === '--') { for (i++; i < args.length; i++) files.push(args[i]); break; }
+    if (a === '--output-delimiter') { outDelim = String(args[++i] ?? ''); continue; }
+    if (a.startsWith('--output-delimiter=')) { outDelim = a.slice('--output-delimiter='.length); continue; }
+    if (a === '-s') { suppress = true; continue; }
+    if (a === '-d') { delim = String(args[++i] ?? '')[0] || '\t'; continue; }
+    if (a.startsWith('-d') && a.length > 2) { delim = a[2]; continue; }
+    if (a === '-f' || a === '-c' || a === '-b') { mode = a[1]; pos = parseList(args[++i]); if (pos === null) { emitErr(this, `cut: invalid field/character list '${args[i]}'\n`); this.lastExit = 1; return false; } continue; }
+    if (a.length > 2 && (a[1] === 'f' || a[1] === 'c' || a[1] === 'b')) {
+      // attached value: `-f1,3` / `-c3-5` / `-b1-2` (but NOT `-c` alone,
+      // and NOT `-d:` — the -d case was handled above)
+      mode = a[1]; pos = parseList(a.slice(2));
+      if (pos === null) { emitErr(this, `cut: invalid field/character list '${a.slice(2)}'\n`); this.lastExit = 1; return false; }
+      continue;
+    }
+    files.push(a);
+  }
+  if (mode === null) {
+    emitErr(this, 'cut: you must specify a list of bytes, characters, or fields\n');
+    this.lastExit = 1;
+    return false;
+  }
+  const sources = files.length ? files.map(f => readFileSafe(f)) : [readFd0(this)];
+  const joinDelim = outDelim !== null ? outDelim : delim;
+  const out = [];
+  for (const text of sources) {
+    const endsNL = text.endsWith('\n');
+    const lines = text.split('\n');
+    if (endsNL) lines.pop(); // drop the split's trailing '' element
+    for (let li = 0; li < lines.length; li++) {
+      const line = lines[li];
+      let sel;
+      if (mode === 'f') {
+        if (!line.includes(delim)) { if (suppress) continue; sel = line; }
+        else {
+          const fields = line.split(delim);
+          const picked = [];
+          for (const p of positions(pos, fields.length)) picked.push(fields[p - 1]);
+          sel = picked.join(joinDelim);
+        }
+      } else {
+        const chars = [...line];
+        const picked = [];
+        for (const p of positions(pos, chars.length)) picked.push(chars[p - 1]);
+        sel = picked.join('');
+      }
+      out.push(sel);
+    }
+    if (endsNL) out.push(''); // GNU emits the final newline even when the last line selected nothing
+  }
+  emit(this, out.join('\n'));
+  this.lastExit = 0;
+  return true;
+};
+
 builtins.wc = function (args) {
   let countLines = false, countWords = false, countChars = false;
   const files = [];
