@@ -65,10 +65,10 @@ make_runner() { # N pre body setup cleanup > out
   {
     echo '#!/bin/sh'
     [ -n "$setup" ] && echo "$setup"
-    printf '%s' "$pre" | sed 's/^/ /'
+    printf '%s\n' "$pre" | sed 's/^/ /'
     echo "__count=0"
     echo 'while [ $__count -lt '"$n"' ]; do'
-    printf '%s' "$body" | sed 's/^/  /'
+    printf '%s\n' "$body" | sed 's/^/  /'
     echo '  __count=$((__count+1))'
     echo 'done'
     [ -n "$cleanup" ] && echo "$cleanup"
