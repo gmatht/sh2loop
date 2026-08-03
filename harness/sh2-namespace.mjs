@@ -534,6 +534,77 @@ export const sh2 = {
     return r;
   },
 
+  // ── sync function dispatch ────────────────────────────────────────
+  // The `f args...` script-function call lift (see src/shir.rs
+  // fn_call_sync_set): the SYNC twin of exec()'s function-dispatch path —
+  // identical arg flattening + ARRAY_LIT/BADSUB/PS/GLOB magic expansion,
+  // positional save/restore, RETURN-signal unwinding and lastExit
+  // recording (the exact exec body for a defined function) — minus the
+  // async exec machinery: no promise per call, no builtin/external
+  // fallback dispatch. The emitter only emits this for functions whose
+  // every definition body AND the call-site args are provably await-free
+  // (the define arrow is emitted non-async for them), so `fn()` returns
+  // the value directly. A target that is missing at call time (a
+  // conditional/guarded definition that never ran) falls back the way the
+  // async exec path would without spawning: builtin, else command-not-
+  // found with status 127.
+  fnCall(name, args = []) {
+    const flat = [];
+    for (const a of args) {
+      if (Array.isArray(a)) flat.push(...a.map(String));
+      else flat.push(String(a));
+    }
+    for (let i = 0; i < flat.length; i++) {
+      if (flat[i] === ARRAY_LIT_MAGIC) {
+        flat.splice(i, 1);
+        i--;
+        continue;
+      }
+      if (flat[i] === BADSUB_MAGIC) {
+        this.lastExit = 1;
+        return false;
+      }
+      if (typeof flat[i] === 'string' && flat[i].startsWith(PS_MAGIC)) {
+        flat[i] = materializePath(flat[i].slice(PS_MAGIC.length));
+      } else if (typeof flat[i] === 'string' && flat[i].startsWith(GLOB_MAGIC)) {
+        const pat = flat[i].slice(GLOB_MAGIC.length);
+        const hits = globExpand(pat);
+        if (hits.length > 0) flat.splice(i, 1, ...hits);
+        else flat[i] = pat; // no match: bash keeps the pattern (nullglob off)
+      }
+    }
+    const fn = this.functions.get(name);
+    if (typeof fn !== 'function') {
+      // The definition never ran (guarded/conditional define, or a call
+      // before the define). bash falls back to the builtin, then to
+      // command-not-found (status 127) — replicate without the spawn.
+      if (typeof builtins[name] === 'function') {
+        return builtins[name].call(this, flat);
+      }
+      this._reportCommandNotFound(name);
+      this.lastExit = 127;
+      return false;
+    }
+    const saved = this.positional;
+    this.positional = flat;
+    let r;
+    try {
+      r = fn();
+    } catch (e) {
+      // `return N` inside a loop body is a sh2.return Signal; the loop
+      // rethrows it and the function call turns it into the return value.
+      if (isSignal(e, 'RETURN')) r = undefined;
+      else throw e;
+    } finally {
+      this.positional = saved;
+    }
+    // bash: a function's status is its `return N` value (or the last
+    // command's status when it falls off the end).
+    if (typeof r === 'string' && (r === '0' || r === '1')) this.lastExit = Number(r);
+    else if (typeof r === 'number') this.lastExit = r;
+    return this.lastExit === 0;
+  },
+
   // ── test expressions ───────────────────────────────────────────────
   test(expr) {
     try {
