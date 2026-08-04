@@ -29,7 +29,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 SUB="$ROOT/sh2perl"
-BT="$ROOT/backends"
+BT="$SUB/backends"   # worktrees live INSIDE the sh2perl submodule
+                     # (they share the submodule's core); $ROOT/backends
+                     # was a path inconsistency — the worktrees are here.
 FT="$ROOT/frontends"
 WORKSPACE="$ROOT"
 
@@ -77,6 +79,33 @@ gated() {
   fi
 }
 
+# Invoke `pi` for a scoped fix (opencode-go + deepseek-v4-flash, with
+# automatic API-key rotation handled by the opencode-go provider — same
+# invocation the main_loop_estree.pl / main_loop_rust.pl workers use).
+# Args: $1=log_file, $2=scope_label (shown in the prompt), $3=scope_dir,
+# $4=prompt_body. The prompt is written to a temp file (avoids quoting
+# nightmares with multi-line bodies) and piped to `pi` on stdin.
+pi_fix() {
+  local log="$1" scope_label="$2" scope_dir="$3" body="$4"
+  local prompt_file; prompt_file=$(mktemp --suffix=.pi-prompt)
+  {
+    printf '%s\n' "$body"
+    printf '\n--- SCOPE ---\n'
+    printf 'Work only inside: %s\n' "$scope_dir"
+    printf 'Also allowed (shared test infra): %s/harness/\n' "$WORKSPACE"
+    printf 'NEVER touch: %s/sh2perl/src/shir.rs, %s/sh2perl/src/ir.rs, %s/sh2perl/src/estree.rs, %s/sh2perl/src/parser/ (single-owner core)\n' \
+      "$WORKSPACE" "$WORKSPACE" "$WORKSPACE" "$WORKSPACE"
+  } > "$prompt_file"
+  echo "    [$scope_label] invoking pi (opencode-go + deepseek-v4-flash, key rotation automatic)..." >> "$log"
+  if pi --mode json --provider opencode-go --model deepseek-v4-flash \
+        --thinking xhigh < "$prompt_file" >> "$log" 2>&1; then
+    echo "    [$scope_label] pi fix complete" >> "$log"
+  else
+    echo "    [$scope_label] pi fix FAILED (rc=$?)" >> "$log"
+  fi
+  rm -f "$prompt_file"
+}
+
 # Per-language build command. Returns the command (echo) — call gated()
 # to run it. light=1 for syntax/parse checks; 0 for full build + corpus.
 build_cmd() {
@@ -111,7 +140,7 @@ ensure_worktree () {
 sync_worktree () {
   local lang="$1"
   local dir="$BT/$lang" branch="backend/$lang"
-  [ -d "$dir/.git" ] || { echo "  [$lang] no worktree — run setup first"; return; }
+  [ -e "$dir/.git" ] || { echo "  [$lang] no worktree — run setup first"; return; }
   echo "  [$lang] merging main into $branch"
   git -C "$dir" fetch origin main 2>/dev/null || git -C "$SUB" fetch origin main 2>/dev/null || true
   git -C "$dir" merge main -m "merge main into $branch" --no-edit >/dev/null 2>&1 \
@@ -279,8 +308,9 @@ do_start_workers () {
       echo "  [$lang] worker already running (pid $(cat "$dir/loop-backend-$lang.pid"))"
       continue
     fi
-    # heavy: load-gated. The per-worktree worker is a background loop.
-    wait_for_load || true
+    # startup gate: brief (60s) — startup is a fork, not a build. The
+    # per-iteration --wait inside the worker handles the real heavy ops.
+    wait_for_load 1.5 30 60 || true
     nohup bash -c "
       set -euo pipefail
       cd '$dir'
@@ -294,10 +324,15 @@ do_start_workers () {
             # heavy: wait for low load, then build
             bash \"$WORKSPACE/setup_backends.sh\" --wait 2>>\"\$LOG\" || true
             echo \"[\$(date +%FT%T)] $lang: build start\" >> '$WORKSPACE/loop-backend-$lang.log'
-            cargo build --manifest-path '$SUB/Cargo.toml' >> '$WORKSPACE/loop-backend-$lang.log' 2>&1 || true
-            # commit within scope only (worktree dir + harness/*)
-            git -C '$WORKSPACE' add \$changes 2>/dev/null || true
-            git -C '$WORKSPACE' commit -m 'backend $lang: build/fix (auto)' 2>/dev/null || true
+            if cargo build --manifest-path '$SUB/Cargo.toml' >> '$WORKSPACE/loop-backend-$lang.log' 2>&1; then
+              # build OK: commit within scope only (worktree dir + harness/*)
+              git -C '$WORKSPACE' add \$changes 2>/dev/null || true
+              git -C '$WORKSPACE' commit -m 'backend $lang: build/fix (auto)' 2>/dev/null || true
+            else
+              # build FAIL: invoke pi (scoped) for a fix
+              echo \"[\$(date +%FT%T)] $lang: build FAILED — invoking pi (deepseek-v4-flash, scoped)\" >> '$WORKSPACE/loop-backend-$lang.log'
+              bash \"$WORKSPACE/setup_backends.sh\" --pi-fix-backend '$lang' 2>>\"\$LOG\" || true
+            fi
           fi
         fi
         sleep 300
@@ -314,7 +349,9 @@ do_start_workers () {
       echo "  [$lang] worker already running (pid $(cat "$WORKSPACE/loop-frontend-$lang.pid"))"
       continue
     fi
-    wait_for_load || true
+    # startup gate: brief (60s) — startup is a fork. Per-iteration --wait
+    # inside the worker handles real heavy ops.
+    wait_for_load 1.5 30 60 || true
     nohup bash "$dir/run_frontend_worker.sh" >/dev/null 2>&1 &
     echo $! > "$WORKSPACE/loop-frontend-$lang.pid"
     echo "  [$lang] worker started (pid $(cat "$WORKSPACE/loop-frontend-$lang.pid")) — log: $WORKSPACE/loop-frontend-$lang.log"
@@ -333,6 +370,25 @@ case "${1:-}" in
                   # before heavy ops. Args: [threshold=1.5] [poll=60] [max_wait=1800]
                   shift
                   wait_for_load "${1:-1.5}" "${2:-60}" "${3:-1800}" || true
+                  exit 0 ;;
+  --pi-fix-backend) # internal: invoked by the per-worktree backend worker
+                  # when its build FAILS. Calls pi (opencode-go +
+                  # deepseek-v4-flash, automatic key rotation) with a
+                  # prompt scoped to backends/<lang>/ + harness/*.
+                  # Usage: setup_backends.sh --pi-fix-backend <lang>
+                  shift; fix_lang="$1"
+                  fix_dir="$BT/$fix_lang"; fix_log="$WORKSPACE/loop-backend-$fix_lang.log"
+                  {
+                    printf 'The %s backend in %s is failing to build.\n\n' "$fix_lang" "$fix_dir"
+                    printf 'Tail of the build log (%s):\n' "$fix_log"
+                    tail -50 "$fix_log" 2>/dev/null || true
+                    printf '\nThe shIR (A1) contract is the source of truth. Render the %s backend in idiomatic %s.\n' "$fix_lang" "$fix_lang"
+                    printf 'Shared core (DO NOT TOUCH): sh2perl/src/shir.rs, sh2perl/src/ir.rs, sh2perl/src/estree.rs, sh2perl/src/parser/\n'
+                    printf 'You may create or edit files inside backends/%s/ and harness/.\n' "$fix_lang"
+                  } > /tmp/pi-fix-prompt-$$
+                  pi --mode json --provider opencode-go --model deepseek-v4-flash \
+                     --thinking xhigh < /tmp/pi-fix-prompt-$$ >> "$fix_log" 2>&1 || true
+                  rm -f /tmp/pi-fix-prompt-$$
                   exit 0 ;;
   --noop-gated)   # internal: print the gated build cmd and exit (for the
                   # frontend worker's self-test). Usage: setup_backends.sh --noop-gated <kind> <lang>
