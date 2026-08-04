@@ -25,6 +25,86 @@ import path from 'node:path';
 
 const SPAWN_TIMEOUT_MS = 5000; // per external command
 
+// ── BRE/ERE → JS regex translation (shared by grepText and builtins.sed) ──
+// GNU BRE semantics: bare `( ) { } + ? |` are literals, `\x`-escapes are the
+// ERE operators; POSIX classes translate. ERE ≈ JS already; -F is a literal.
+const posixClass = (name) => ({
+  alpha: 'a-zA-Z', digit: '0-9', alnum: 'a-zA-Z0-9', upper: 'A-Z',
+  lower: 'a-z', space: '\\s', blank: ' \\t',
+  punct: '\\x21-\\x2F\\x3A-\\x40\\x5B-\\x60\\x7B-\\x7E',
+  print: '\\x20-\\x7E', graph: '\\x21-\\x7E',
+  cntrl: '\\x00-\\x1F\\x7F', xdigit: 'a-fA-F0-9',
+  word: 'a-zA-Z0-9_', ascii: '\\x00-\\x7F',
+})[name] ?? '';
+const classToJs = (pat, start) => {
+  let j = start + 1;
+  let neg = false;
+  if (pat[j] === '^') { neg = true; j++; }
+  let inner = '';
+  if (pat[j] === ']') { inner += '\\]'; j++; } // leading ] is literal
+  while (j < pat.length && pat[j] !== ']') { inner += pat[j]; j++; }
+  if (j >= pat.length) return null; // unterminated → treat as literal
+  inner = inner.replace(/\[:(\w+):\]/g, (m, name) => posixClass(name));
+  return { js: '[' + (neg ? '^' : '') + inner + ']', next: j + 1 };
+};
+const breToJs = (pat) => {
+  let out = '';
+  let i = 0;
+  while (i < pat.length) {
+    const c = pat[i];
+    if (c === '\\') {
+      const d = pat[i + 1];
+      if (d === undefined) { out += '\\\\'; i++; continue; }
+      if (d === '(') out += '(';
+      else if (d === ')') out += ')';
+      else if (d === '{') out += '{';
+      else if (d === '}') out += '}';
+      else if (d === '+') out += '+';
+      else if (d === '?') out += '?';
+      else if (d === '|') out += '|';
+      else out += '\\' + d; // \. \[ \$ etc. — same meaning in JS
+      i += 2;
+      continue;
+    }
+    if (c === '^') { out += i === 0 ? '^' : '\\^'; i++; continue; }
+    if (c === '$') { out += i === pat.length - 1 ? '$' : '\\$'; i++; continue; }
+    if (c === '(' || c === ')' || c === '{' || c === '}' || c === '+' || c === '?' || c === '|') {
+      out += '\\' + c; i++; continue;
+    }
+    if (c === '[') {
+      const cls = classToJs(pat, i);
+      if (cls) { out += cls.js; i = cls.next; continue; }
+      out += '\\['; i++; continue;
+    }
+    out += c;
+    i++;
+  }
+  return out;
+};
+const ereToJs = (pat) => {
+  let out = '';
+  let i = 0;
+  while (i < pat.length) {
+    const c = pat[i];
+    if (c === '\\') {
+      const d = pat[i + 1];
+      if (d === undefined) { out += '\\\\'; i++; continue; }
+      out += '\\' + d; // \\( → literal (, \\. → literal ., \\1 → backref
+      i += 2;
+      continue;
+    }
+    if (c === '[') {
+      const cls = classToJs(pat, i);
+      if (cls) { out += cls.js; i = cls.next; continue; }
+      out += '\\['; i++; continue;
+    }
+    out += c;
+    i++;
+  }
+  return out;
+};
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 export const sh2 = {
   // node:fs/promises — the native readFile/writeFile surface the emitter's
   // pure-capture lowerings (`$(cat f)`, `$(sort f)`, `$(wc -l < f)`) call
@@ -971,85 +1051,7 @@ export const sh2 = {
     }
     if (patterns.length === 0) throw new Error('grepText: no pattern');
 
-    // BRE → JS regex (GNU grep BRE semantics: bare `( ) { } + ? |` are
-    // literals, `\x`-escapes are the ERE operators; POSIX classes
-    // translate). ERE ≈ JS already; -F is a literal.
-    const posixClass = (name) => ({
-      alpha: 'a-zA-Z', digit: '0-9', alnum: 'a-zA-Z0-9', upper: 'A-Z',
-      lower: 'a-z', space: '\\s', blank: ' \\t',
-      punct: '\\x21-\\x2F\\x3A-\\x40\\x5B-\\x60\\x7B-\\x7E',
-      print: '\\x20-\\x7E', graph: '\\x21-\\x7E',
-      cntrl: '\\x00-\\x1F\\x7F', xdigit: 'a-fA-F0-9',
-      word: 'a-zA-Z0-9_', ascii: '\\x00-\\x7F',
-    })[name] ?? '';
-    const classToJs = (pat, start) => {
-      let j = start + 1;
-      let neg = false;
-      if (pat[j] === '^') { neg = true; j++; }
-      let inner = '';
-      if (pat[j] === ']') { inner += '\\]'; j++; } // leading ] is literal
-      while (j < pat.length && pat[j] !== ']') { inner += pat[j]; j++; }
-      if (j >= pat.length) return null; // unterminated → treat as literal
-      inner = inner.replace(/\[:(\w+):\]/g, (m, name) => posixClass(name));
-      return { js: '[' + (neg ? '^' : '') + inner + ']', next: j + 1 };
-    };
-    const breToJs = (pat) => {
-      let out = '';
-      let i = 0;
-      while (i < pat.length) {
-        const c = pat[i];
-        if (c === '\\') {
-          const d = pat[i + 1];
-          if (d === undefined) { out += '\\\\'; i++; continue; }
-          if (d === '(') out += '(';
-          else if (d === ')') out += ')';
-          else if (d === '{') out += '{';
-          else if (d === '}') out += '}';
-          else if (d === '+') out += '+';
-          else if (d === '?') out += '?';
-          else if (d === '|') out += '|';
-          else out += '\\' + d; // \. \[ \$ etc. — same meaning in JS
-          i += 2;
-          continue;
-        }
-        if (c === '^') { out += i === 0 ? '^' : '\\^'; i++; continue; }
-        if (c === '$') { out += i === pat.length - 1 ? '$' : '\\$'; i++; continue; }
-        if (c === '(' || c === ')' || c === '{' || c === '}' || c === '+' || c === '?' || c === '|') {
-          out += '\\' + c; i++; continue;
-        }
-        if (c === '[') {
-          const cls = classToJs(pat, i);
-          if (cls) { out += cls.js; i = cls.next; continue; }
-          out += '\\['; i++; continue;
-        }
-        out += c;
-        i++;
-      }
-      return out;
-    };
-    const ereToJs = (pat) => {
-      let out = '';
-      let i = 0;
-      while (i < pat.length) {
-        const c = pat[i];
-        if (c === '\\') {
-          const d = pat[i + 1];
-          if (d === undefined) { out += '\\\\'; i++; continue; }
-          out += '\\' + d; // \\( → literal (, \\. → literal ., \\1 → backref
-          i += 2;
-          continue;
-        }
-        if (c === '[') {
-          const cls = classToJs(pat, i);
-          if (cls) { out += cls.js; i = cls.next; continue; }
-          out += '\\['; i++; continue;
-        }
-        out += c;
-        i++;
-      }
-      return out;
-    };
-    const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // BRE/ERE → JS regex (module-level helpers — shared with builtins.sed).
     const srcs = patterns.map(p =>
       opts.flavor === 'fixed' ? escapeRe(p)
         : opts.flavor === 'ere' ? ereToJs(p) : breToJs(p));
@@ -2784,6 +2786,452 @@ builtins.wc = function (args) {
   emit(this, out);
   this.lastExit = 0;
   return true;
+};
+
+// ── tr ───────────────────────────────────────────────────────────────
+// GNU tr: translate / delete / squeeze characters. Native so the exec
+// allowlist never has to admit it (the cat/head/cut pattern — reads the
+// current fd0 target, emits through the current fd1 sink).
+//
+// SET grammar (the GNU subset the corpus + benches need): literal chars,
+// `a-z` ranges, POSIX classes `[:alpha:]` etc. (composable: `[:digit:]x`),
+// escapes `\a \b \f \n \r \t \v \\ \ooo \0 \xHH`. Translation maps
+// SET1→SET2 (SET2 shorter → its last char repeats; longer → extras
+// ignored — GNU defaults). Options: -c/-C complement SET1, -d delete,
+// -s squeeze, -t truncate SET1 to SET2's length. Unparseable sets or a
+// missing operand fail the status like GNU (message to fd2, exit 1).
+function trExpandSet(sh, s) {
+  const out = [];
+  const push = (c) => { const n = typeof c === 'string' ? c.codePointAt(0) : c; if (n >= 0 && n <= 255) out.push(n); };
+  const chars = [...String(s)];
+  let i = 0;
+  while (i < chars.length) {
+    const c = chars[i];
+    if (c === '\\') {
+      const n = chars[i + 1];
+      if (n === undefined) { push('\\'); i++; continue; }  // trailing \: literal (GNU warns, keeps)
+
+      switch (n) {
+        case 'a': push(7); break;
+        case 'b': push(8); break;
+        case 'f': push(12); break;
+        case 'n': push(10); break;
+        case 'r': push(13); break;
+        case 't': push(9); break;
+        case 'v': push(11); break;
+        case '\\': push(92); break;
+        case '0': {
+          // \0 alone = NUL; \0NNN = octal. GNU reads up to 3 octal digits.
+          let oct = '0';
+          let j = i + 2;
+          while (j < chars.length && oct.length < 4 && /[0-7]/.test(chars[j])) { oct += chars[j]; j++; }
+          push(parseInt(oct, 8));
+          i = j - 1;
+          break;
+        }
+        case 'x': {
+          let hex = '';
+          let j = i + 2;
+          while (j < chars.length && hex.length < 2 && /[0-9a-fA-F]/.test(chars[j])) { hex += chars[j]; j++; }
+          if (hex) { push(parseInt(hex, 16)); i = j - 1; }
+          else push('x');
+          break;
+        }
+        default: push(n); break;   // unknown escape: literal char (GNU errors; corpus has none)
+      }
+      i += 2;
+      continue;
+    }
+    if (c === '[' && chars[i + 1] === ':') {
+      const m = /^\[:([A-Za-z]+):\]/.exec(chars.slice(i).join(''));
+      if (m) {
+        const cls = trClasses[m[1]];
+        if (cls) { for (const cc of cls) push(cc); i += m[0].length; continue; }
+      }
+    }
+    if (chars[i + 1] === '-' && chars[i + 2] !== undefined && chars[i + 2] !== ']') {
+      // a-z range (a literal `-` at the END of a set stays literal).
+      const lo = c.codePointAt(0), hi = chars[i + 2].codePointAt(0);
+      if (lo <= hi) { for (let k = lo; k <= hi; k++) push(k); i += 3; continue; }
+      // descending range: GNU errors; keep the chars literally.
+    }
+    push(c);
+    i++;
+  }
+  return out;
+}
+
+// expand `a-z`-style range specs to code arrays (the trClasses defs below)
+function trRange(...specs) {
+  const out = [];
+  for (const s of specs) {
+    for (let i = 0; i < s.length; i++) {
+      if (s[i + 1] === '-' && s[i + 2] !== undefined) {
+        const lo = s.codePointAt(i), hi = s.codePointAt(i + 2);
+        for (let k = lo; k <= hi; k++) out.push(k);
+        i += 2;
+      } else out.push(s.codePointAt(i));
+    }
+  }
+  return out;
+}
+const trClasses = {
+  alpha: trRange('a-z', 'A-Z'), digit: trRange('0-9'), alnum: trRange('a-z', 'A-Z', '0-9'),
+  upper: trRange('A-Z'), lower: trRange('a-z'),
+  space: [9, 10, 11, 12, 13, 32], blank: [32, 9],
+  punct: trRange('!-/', ':-@', '[-`', '{-~'),
+  print: trRange(' -~'), graph: trRange('!-~'),
+  cntrl: (() => { const a = []; for (let n = 0; n <= 31; n++) a.push(n); a.push(127); return a; })(),
+  xdigit: trRange('0-9', 'a-f', 'A-F'),
+};
+
+builtins.tr = function (args) {
+  let complement = false, del = false, squeeze = false, truncate = false;
+  const sets = [];
+  for (const a of args) {
+    const m = /^-[cCdDstt]+$/.exec(a);
+    if (m && sets.length === 0) {
+      for (const ch of a.slice(1)) {
+        if (ch === 'c' || ch === 'C') complement = true;
+        else if (ch === 'd') del = true;
+        else if (ch === 's') squeeze = true;
+        else if (ch === 't') truncate = true;
+      }
+      continue;
+    }
+    if (a === '--' && sets.length === 0) continue;
+    sets.push(a);
+  }
+  if (sets.length === 0) {
+    emitErr(this, 'tr: missing operand\n');
+    this.lastExit = 1;
+    return false;
+  }
+  if (del && sets.length > 1) {
+    emitErr(this, `tr: extra operand \u2018${sets[1]}\u2019\n`);
+    this.lastExit = 1;
+    return false;
+  }
+  if (del && squeeze) {
+    emitErr(this, 'tr: cannot combine -d and -s\n'); // GNU: mutually exclusive
+    this.lastExit = 1;
+    return false;
+  }
+  let set1 = trExpandSet(this, sets[0]);
+  if (complement) {
+    const have = new Set(set1);
+    set1 = [];
+    for (let k = 0; k <= 255; k++) if (!have.has(k)) set1.push(k);
+  }
+  const set1s = new Set(set1);
+  if (del) {
+    const text = readFd0(this);
+    let out = '';
+    if (!squeeze) {
+      for (const ch of text) if (!set1s.has(ch.codePointAt(0))) out += ch;
+    } else {
+      let prev = -1;
+      for (const ch of text) {
+        const n = ch.codePointAt(0);
+        if (set1s.has(n)) { if (n !== prev) out += ch; prev = n; }
+        else { out += ch; prev = -1; }
+      }
+    }
+    emit(this, out);
+    this.lastExit = 0;
+    return true;
+  }
+  let set2 = sets.length > 1 ? trExpandSet(this, sets[1]) : [];
+  if (sets.length === 1) {
+    if (!squeeze) {
+      // tr SET1 with no SET2 and no -d: GNU errors. Mirror: message + exit 1.
+      emitErr(this, `tr: missing operand after \u2018${sets[0]}\u2019\n`);
+      this.lastExit = 1;
+      return false;
+    }
+  } else if (set2.length === 0) {
+    // empty SET2 (e.g. `tr a ''`): GNU deletes SET1 chars. (Corpus has none.)
+    del = true;
+  }
+  if (truncate) set1 = set1.slice(0, set2.length);
+  // translation table: index = input byte, value = output byte (-1 = keep)
+  const tab = new Int16Array(256);
+  for (let k = 0; k < 256; k++) tab[k] = -1;
+  for (let k = 0; k < set1.length; k++) {
+    const src = set1[k];
+    tab[src] = set2.length > 0
+      ? set2[Math.min(k, set2.length - 1)]   // SET2 shorter: last char repeats
+      : src;
+  }
+  const squeezeSet = squeeze ? new Set(set2.length > 0 ? set2 : set1) : null;
+  const text = readFd0(this);
+  let out = '';
+  let prev = -1;
+  for (const ch of text) {
+    const n = ch.codePointAt(0);
+    const t = n <= 255 ? tab[n] : -1;
+    if (t < 0) {
+      if (squeezeSet && squeezeSet.has(n)) { if (n !== prev) out += ch; prev = n; }
+      else { out += ch; prev = -1; }
+    } else {
+      const r = String.fromCodePoint(t);
+      if (squeezeSet && squeezeSet.has(t)) { if (t !== prev) out += r; prev = t; }
+      else { out += r; prev = -1; }
+    }
+  }
+  emit(this, out);
+  this.lastExit = 0;
+  return true;
+};
+
+// ── sed (native subset) ─────────────────────────────────────────────
+// GNU sed, the subset the corpus/benches need: `s/PAT/REPL/[gp]` with BRE
+// patterns (the shared breToJs), `-n` + `p`/`d` commands, line-number /
+// `$` / `/RE/` / `'RE'` addresses (single + ranges), `{ ...; ... }` groups,
+// repeatable `-e`, file operands. Anything outside the grammar fails the
+// status with GNU's message (never a throw) — stdout stays empty like
+// GNU's script-error behavior.
+function sedParseScript(script) {
+  const cmds = [];
+  const n = script.length;
+  let i = 0;
+  while (i < n) {
+    while (i < n && /\s/.test(script[i])) i++;
+    if (i >= n || script[i] === ';') { i++; continue; }
+    if (script[i] === '#') { while (i < n && script[i] !== '\n') i++; continue; }
+    // addresses: [addr] or [addr,addr]
+    const addr = [];
+    for (let a = 0; a < 2; a++) {
+      if (i >= n) break;
+      if (script[i] === '$') { addr.push({ type: 'last' }); i++; }
+      else if (/\d/.test(script[i])) {
+        let num = '';
+        while (i < n && /\d/.test(script[i])) num += script[i++];
+        addr.push({ type: 'num', n: parseInt(num, 10) });
+      } else if (script[i] === '/' || script[i] === '\\' || script[i] === "'") {
+        const delim = script[i];
+        const quoted = delim === "'";
+        i++;
+        let re = '';
+        let closed = false;
+        while (i < n) {
+          const c = script[i];
+          if (c === '\\') {
+            const d = script[i + 1] ?? '';
+            if (quoted) { re += d; i += 2; continue; }   // 'RE': backslashes literal
+            if (d === delim) { re += '\\' + delim; i += 2; continue; }
+            re += '\\' + d; i += 2; continue;
+          }
+          if (c === delim) { i++; closed = true; break; }
+          re += c; i++;
+        }
+        if (!closed) throw new Error('unterminated address regex');
+        addr.push({ type: 're', src: re });
+      } else break;
+      if (script[i] === ',') { i++; continue; }
+      break;
+    }
+    while (i < n && /\s/.test(script[i])) i++;
+    if (i >= n) throw new Error('missing command');
+    const c = script[i];
+    if (c === 's') {
+      i++;
+      if (i >= n) throw new Error('missing s delimiter');
+      const delim = script[i];
+      i++;
+      let pat = '', repl = '';
+      for (let phase = 0; phase < 2; phase++) {
+        while (i < n) {
+          const ch = script[i];
+          if (ch === '\\') {
+            const esc = '\\' + (script[i + 1] ?? '');
+            if (phase === 0) pat += esc; else repl += esc;
+            i += 2;
+            continue;
+          }
+          if (ch === delim) { i++; break; }
+          if (phase === 0) pat += ch; else repl += ch;
+          i++;
+        }
+      }
+      let flags = '';
+      while (i < n && /[gpi]/.test(script[i])) { flags += script[i]; i++; }
+      cmds.push({ type: 's', addr, pat, repl, global: flags.includes('g'), print: flags.includes('p'), ci: flags.includes('i') });
+      continue;
+    }
+    if (c === 'p' || c === 'd' || c === 'q') { i++; cmds.push({ type: c, addr }); continue; }
+    if (c === '{') {
+      i++;
+      let depth = 1;
+      let j = i;
+      while (j < n && depth > 0) {
+        const ch = script[j];
+        if (ch === '\\') { j += 2; continue; }
+        if (ch === 's') {
+          // skip an s/// body (its `;`/`}` are data)
+          const d2 = script[j + 1];
+          let k = j + 2;
+          if (d2 === undefined) { j++; continue; }
+          for (let phase = 0; phase < 2 && k < n; phase++) {
+            while (k < n) {
+              if (script[k] === '\\') { k += 2; continue; }
+              if (script[k] === d2) { k++; break; }
+              k++;
+            }
+          }
+          j = k;
+          continue;
+        }
+        if (ch === '{') depth++;
+        else if (ch === '}') depth--;
+        j++;
+      }
+      if (depth > 0) throw new Error('unterminated {');
+      const inner = script.slice(i, j);
+      i = j + 1;
+      cmds.push({ type: 'group', addr, cmds: sedParseScript(inner) });
+      continue;
+    }
+    throw new Error(`unknown command \u2018${c}\u2019`);
+  }
+  return cmds;
+}
+
+// sed replacement text → JS replacement string: `&` → `$&` (whole match),
+// `\1`..`\9` → `$1`..`$9`, `\&` → literal `&`, `\\` → `\\`, `\t`/`\n`
+// and other `\x` → the GNU escape value.
+function sedReplJs(repl) {
+  let out = '';
+  for (let i = 0; i < repl.length; i++) {
+    const c = repl[i];
+    if (c === '\\') {
+      const d = repl[i + 1] ?? '';
+      i++;
+      if (d === '&') out += '&';
+      else if (d === '\\') out += '\\\\';
+      else if (d === 't') out += '\t';
+      else if (d === 'n') out += '\n';
+      else if (d >= '1' && d <= '9') out += '$' + d;
+      else out += '\\' + d;
+      continue;
+    }
+    if (c === '&') out += '$&';
+    else out += c;
+  }
+  return out;
+}
+
+builtins.sed = function (args) {
+  let quiet = false;
+  const scripts = [];
+  const positionals = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = String(args[i]);
+    if (a === '-n') { quiet = true; continue; }
+    if (a === '-e') { scripts.push(String(args[++i] ?? '')); continue; }
+    if (a.startsWith('-e') && a.length > 2) { scripts.push(a.slice(2)); continue; }
+    if (a === '--') { positionals.push(...args.slice(i + 1).map(String)); break; }
+    positionals.push(a);
+  }
+  let scriptText, files;
+  if (scripts.length === 0) {
+    if (positionals.length === 0) { emitErr(this, 'sed: no script\n'); this.lastExit = 4; return false; }
+    scriptText = positionals[0];
+    files = positionals.slice(1);
+  } else {
+    scriptText = scripts.join('\n');
+    files = positionals;
+  }
+  let cmds;
+  try { cmds = sedParseScript(scriptText); }
+  catch (e) {
+    emitErr(this, `sed: -e expression #1, char 1: ${e.message}\n`);
+    this.lastExit = 4;
+    return false;
+  }
+  let failed = false;
+  const sources = files.length ? files : [null];
+  let out = '';
+  for (const f of sources) {
+    let text;
+    if (f === null || f === '-') text = readFd0(this);
+    else if (fs.existsSync(f)) text = fs.readFileSync(f, 'utf8');
+    else { emitErr(this, `sed: can't read ${f}: No such file or directory\n`); failed = true; continue; }
+    const endsNL = text.endsWith('\n');
+    const lines = text.split('\n');
+    if (endsNL) lines.pop();
+    // per-command range state (a 2-address range spans lines)
+    const rangeState = new Map();
+    const addrHit = (ad, li, last, line) => {
+      if (ad.type === 'num') return li + 1 === ad.n;
+      if (ad.type === 'last') return last;
+      return new RegExp(breToJs(ad.src)).test(line);
+    };
+    const runList = (list, line, li, last) => {
+      let deleted = false;
+      let quit = false;
+      let cur = line;
+      const printLine = () => { out += cur + (last && !endsNL ? '' : '\n'); };
+      for (let ci = 0; ci < list.length; ci++) {
+        const cmd = list[ci];
+        if (deleted || quit) break;
+        let hit;
+        if (cmd.addr.length === 0) hit = true;
+        else if (cmd.addr.length === 1) hit = addrHit(cmd.addr[0], li, last, cur);
+        else {
+          let st = rangeState.get(cmd);
+          if (!st) { st = { active: false }; rangeState.set(cmd, st); }
+          if (!st.active) {
+            if (addrHit(cmd.addr[0], li, last, cur)) { st.active = true; hit = true; }
+            else hit = false;
+          } else {
+            hit = true;
+            if (addrHit(cmd.addr[1], li, last, cur)) st.active = false;
+          }
+        }
+        if (!hit) continue;
+        if (cmd.type === 's') {
+          const src = breToJs(cmd.pat);
+          const rep = sedReplJs(cmd.repl);
+          const ciFlag = cmd.ci ? 'i' : '';
+          if (cmd.global) {
+            const next = cur.replace(new RegExp(src, ciFlag + 'g'), rep);
+            const did = next !== cur;
+            cur = next;
+            if (did && cmd.print) printLine();
+          } else {
+            const re = new RegExp(src, ciFlag);
+            if (re.test(cur)) {
+              cur = cur.replace(re, rep);
+              if (cmd.print) printLine();
+            }
+          }
+        } else if (cmd.type === 'p') {
+          printLine();
+        } else if (cmd.type === 'd') {
+          deleted = true;
+        } else if (cmd.type === 'q') {
+          if (!quiet) printLine();   // q prints the pattern space (auto-print) then quits
+          quit = true;
+        } else if (cmd.type === 'group') {
+          const rr = runList(cmd.cmds, cur, li, last);
+          cur = rr.cur;
+          deleted = deleted || rr.deleted;
+          quit = quit || rr.quit;
+        }
+      }
+      return { cur, deleted, quit };
+    };
+    for (let li = 0; li < lines.length; li++) {
+      const last = li === lines.length - 1;
+      const r = runList(cmds, lines[li], li, last);
+      if (!quiet && !r.deleted) out += r.cur + (last && !endsNL ? '' : '\n');
+      if (r.quit) break;
+    }
+  }
+  emit(this, out);
+  this.lastExit = failed ? 2 : 0;
+  return !failed;
 };
 
 builtins.cmp = function (args) {
