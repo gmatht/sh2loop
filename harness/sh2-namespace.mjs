@@ -758,7 +758,21 @@ export const sh2 = {
   // guarantees the body never reads/writes positionals and the call-site
   // args are magic-free). Args are evaluated EAGERLY at the call site
   // (the array literal), exactly the fnCall argument order.
-  callDirect(fn, args) {
+  // The native-direct function call (src/shir.rs DIRECT_FN_CALLS): the
+  // emitter passes the module binding `let __fn_f` (init null — the
+  // define reassigns it to the real arrow) plus the call-site args, and
+  // replicates the sync fnCall's status semantics EXACTLY — the
+  // RETURN-signal catch (sh2.return sets lastExit then throws), the
+  // numeric/`'0'`/`'1'` return-value recording, the final
+  // `lastExit === 0` boolean — minus the arg flattening, magic expansion,
+  // Map lookup and positional save/restore (the analysis guarantees the
+  // body never reads/writes positionals and the call-site args are
+  // magic-free). Args are evaluated EAGERLY at the call site (the array
+  // literal), exactly the fnCall argument order. A null binding (the
+  // define never ran — guarded/conditional definitions) falls back the
+  // way fnCall would: builtin, else command-not-found with status 127.
+  callDirect(name, fn, args) {
+    if (typeof fn !== 'function') return this.callUndefined(name, args ?? []);
     let r;
     try {
       r = args ? fn(...args) : fn();
