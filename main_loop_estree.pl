@@ -507,8 +507,45 @@ sub write_metric_file {
 }
 
 # ── invoke pi (streaming, mirrors main_loop_rust.pl) ─────────────────
+# Wait (fail-open) until MemAvailable > min_free MB and swap usage <
+# max_swap_frac, polling every 30s up to max_wait_s. Returns when free,
+# or after max_wait_s regardless (so pi isn't starved indefinitely).
+sub wait_for_ram_perl {
+    my ($min_free, $max_swap_frac, $max_wait_s) = @_;
+    $min_free = 2048 unless defined $min_free;
+    $max_swap_frac = 0.5 unless defined $max_swap_frac;
+    $max_wait_s = 600 unless defined $max_wait_s;
+    my $waited = 0;
+    while ($waited < $max_wait_s) {
+        my %mi;
+        if (open my $fh, '<', '/proc/meminfo') {
+            while (<$fh>) {
+                if (/^(MemAvailable|SwapTotal|SwapFree):\s+(\d+)/) { $mi{$1} = $2; }
+            }
+            close $fh;
+        }
+        my $avail_mb = ($mi{MemAvailable} // 0) / 1024;
+        my $swap_frac = 0;
+        if (($mi{SwapTotal} // 0) > 0) {
+            $swap_frac = (($mi{SwapTotal} - ($mi{SwapFree} // 0)) / $mi{SwapTotal});
+        }
+        if ($avail_mb >= $min_free && $swap_frac <= $max_swap_frac) {
+            return 0;
+        }
+        printf "  RAM tight (MemAvailable=%dMB, swap=%.2f) — waiting 30s (waited %ds)\\n",
+            $avail_mb, $swap_frac, $waited;
+        sleep 30;
+        $waited += 30;
+    }
+    print "  RAM still tight after ${max_wait_s}s; proceeding (fail-open)\\n";
+    return 1;
+}
+
 sub invoke_pi {
     my ($prompt) = @_;
+    # RAM gate (fail-open): pi agents (--thinking xhigh) hold 200-700MB
+    # each; don't start a new one while MemAvailable < 2048MB or swap > 50%.
+    wait_for_ram_perl(2048, 0.5, 600);
     print "\nInvoking pi to fix ESTree failures...\n";
     my $pi_pid = open(my $pi_fh, '-|', 'pi', '--mode', 'json', '--provider', 'opencode-go', '--model', 'deepseek-v4-flash', '--thinking', 'xhigh', $prompt);
     unless (defined $pi_pid) {
