@@ -525,19 +525,28 @@ sub wait_for_ram_perl {
             close $fh;
         }
         my $avail_mb = ($mi{MemAvailable} // 0) / 1024;
-        my $swap_frac = 0;
-        if (($mi{SwapTotal} // 0) > 0) {
-            $swap_frac = (($mi{SwapTotal} - ($mi{SwapFree} // 0)) / $mi{SwapTotal});
+        my $tight = 0;
+        if ($avail_mb < $min_free) {
+            $tight = 1;  # low RAM = OOM risk, regardless of swap
+        } elsif ($avail_mb < $min_free * 2) {
+            # moderate RAM: high swap is the secondary pressure signal
+            if (($mi{SwapTotal} // 0) > 0) {
+                my $swap_frac = (($mi{SwapTotal} - ($mi{SwapFree} // 0)) / $mi{SwapTotal});
+                $tight = 1 if $swap_frac > $max_swap_frac;
+            }
+            # else (plenty of RAM) high swap is ignored
         }
-        if ($avail_mb >= $min_free && $swap_frac <= $max_swap_frac) {
+        if (!$tight) {
             return 0;
         }
-        printf "  RAM tight (MemAvailable=%dMB, swap=%.2f) — waiting 30s (waited %ds)\\n",
-            $avail_mb, $swap_frac, $waited;
+        printf "  RAM tight (MemAvailable=%dMB%s) - waiting 30s (waited %ds)\n",
+            $avail_mb,
+            ($avail_mb < $min_free ? " < ${min_free}MB" : " + high swap"),
+            $waited;
         sleep 30;
         $waited += 30;
     }
-    print "  RAM still tight after ${max_wait_s}s; proceeding (fail-open)\\n";
+    print "  RAM still tight after ${max_wait_s}s; proceeding (fail-open)\n";
     return 1;
 }
 

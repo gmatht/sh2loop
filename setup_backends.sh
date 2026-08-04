@@ -67,9 +67,13 @@ wait_for_load() {
 }
 
 # RAM gate: wait until MemAvailable (from /proc/meminfo) is above
-# min_free (MB, default 2048) AND swap usage is below max_swap_frac
-# (default 0.5), polling every poll_secs. Fail-open (return 1 on
-# timeout, caller proceeds with a warning) — same as wait_for_load.
+# min_free (MB, default 2048). Swap is a SECONDARY signal, not an
+# independent blocker: if MemAvailable is plentiful (>= min_free*2), high
+# swap is ignored (swapped-out pages are stale; the system has room to
+# pull them back). If MemAvailable is moderately low (min_free..min_free*2)
+# AND swap is high (swap_frac > max_swap_frac, default 0.5), that is real
+# pressure and we wait. Poll every poll_secs. Fail-open (return 1 on
+# timeout) — same as wait_for_load.
 # RAM is the binding constraint for the pi agents (xhigh thinking loads
 # ~200-700MB each) and for cargo/go builds; the CPU gate alone does not
 # protect against OOM.
@@ -86,12 +90,17 @@ wait_for_ram() {
     swap_used_kb=$(awk -v t="$swap_tot_kb" -v f="$(awk '/^SwapFree:/{print $2}' /proc/meminfo)" 'BEGIN{print t-f}')
     local avail_mb=$(( avail_kb / 1024 ))
     local tight=0
-    if (( avail_mb < min_free )); then tight=1; fi
-    if (( swap_tot_kb > 0 )); then
-      if awk -v u="$swap_used_kb" -v t="$swap_tot_kb" -v m="$max_swap_frac" 'BEGIN{exit !(u/t > m)}'; then tight=1; fi
+    if (( avail_mb < min_free )); then
+      tight=1  # low RAM = OOM risk, regardless of swap
+    elif (( avail_mb < min_free * 2 )); then
+      # moderate RAM: high swap is the secondary pressure signal
+      if (( swap_tot_kb > 0 )); then
+        if awk -v u="$swap_used_kb" -v t="$swap_tot_kb" -v m="$max_swap_frac" 'BEGIN{exit !(u/t > m)}'; then tight=1; fi
+      fi
+      # else (plenty of RAM) high swap is ignored
     fi
     if (( tight == 0 )); then return 0; fi
-    echo "    memAvail=${avail_mb}MB < ${min_free}MB or swap ${swap_used_kb}/${swap_tot_kb} > ${max_swap_frac}; waiting ${poll_secs}s (waited ${waited}s)..." >&2
+    echo "    memAvail=${avail_mb}MB < ${min_free}MB (or moderate + swap ${swap_used_kb}/${swap_tot_kb} > ${max_swap_frac}); waiting ${poll_secs}s (waited ${waited}s)..." >&2
     sleep "$poll_secs"
     waited=$((waited + poll_secs))
   done
