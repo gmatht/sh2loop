@@ -2755,7 +2755,6 @@ builtins.grep = function (args) {
   // --include/--exclude file-name filters (GNU: glob against the BASE
   // name; applies to -r walk results and command-line file operands)
   const nameOk = (p) => {
-    if (process.env.GREP_DEBUG) process.stderr.write("nameOk " + p + " includes=" + JSON.stringify(opts.includes) + " glob=" + opts.includes.map(g => globMatch(g, path.basename(p))).join(",") + "\n");
     const bn = path.basename(p);
     if (opts.includes.length && !opts.includes.some((g) => globMatch(g, bn))) return false;
     if (opts.excludes.some((g) => globMatch(g, bn))) return false;
