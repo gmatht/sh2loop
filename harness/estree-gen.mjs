@@ -85,6 +85,8 @@ function exprUnwrapped(node) {
       return `[${node.elements.map(e => e === null || e === undefined ? '' : e.type === 'SpreadElement' ? expr(e) : parenSeq(e, expr(e))).join(', ')}]`;
     case 'SpreadElement':
       return `...${parenSeq(node.argument, expr(node.argument))}`;
+    case 'RestElement':
+      return `...${expr(node.argument)}`;
     case 'ObjectExpression':
       return `{${node.properties.map(prop).join(', ')}}`;    case 'LogicalExpression':
       // Parenthesize compound operands: `??` must never mix bare with
