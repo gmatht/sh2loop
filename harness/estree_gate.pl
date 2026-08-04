@@ -17,7 +17,7 @@ use warnings;
 use JSON::PP;
 
 my %whitelist = map { $_ => 1 } qw(
-    exec getVar setVar test pipeline capture captureWords redirect caseMatch param arith brace setArray setArrayAppend assign arrayItems arrayLen arrayIndex join setLastExit arithEval idiv imod guard not contains builtin grepText cutText fnCall
+    exec getVar setVar test pipeline capture captureWords redirect caseMatch param arith brace setArray setArrayAppend assign arrayItems arrayLen arrayIndex join setLastExit arithEval idiv imod guard not contains builtin grepText cutText bcSqrt fnCall callDirect callUndefined
     define subshell background block whileLoop whileLoopSync cstyleFor cstyleForSync forLoop forLoopSync listVar and or
     shopt return break continue unsupported
     trimCapture dirname basename readFile writeFile appendFile lstat unlink rm mkdir
@@ -54,6 +54,24 @@ if (ref $data ne 'HASH' || ($data->{type} // '') ne 'Program') {
 
 my @problems;
 
+# Module-level `let f = ...` declarations whose init is an arrow — the
+# native-direct function bindings. Identifier callees with one of these
+# names are the direct calls (`sh2.callDirect(f, ...)`); collecting the
+# declared names keeps the gate strict about everything else.
+my %native_fn_bindings;
+for my $s (@{ $data->{body} // [] }) {
+    next unless ref $s eq 'HASH' && ($s->{type} // '') eq 'VariableDeclaration';
+    for my $d (@{ $s->{declarations} // [] }) {
+        next unless ref $d eq 'HASH';
+        my $id = $d->{id} // {};
+        my $init = $d->{init} // {};
+        if ((($id->{type} // '') eq 'Identifier')
+            && (($init->{type} // '') eq 'ArrowFunctionExpression')) {
+            $native_fn_bindings{ $id->{name} // '' } = 1;
+        }
+    }
+}
+
 sub walk {
     my ($n) = @_;
     return unless defined $n;
@@ -86,7 +104,13 @@ sub walk {
             my $is_native = ($callee->{type} // '') eq 'Identifier'
                 && (($callee->{name} // '') eq 'Number' || ($callee->{name} // '') eq 'String'
                     || ($callee->{name} // '') eq 'parseInt' || ($callee->{name} // '') eq 'parseFloat'
-                    || ($callee->{name} // '') eq 'Promise');
+                    || ($callee->{name} // '') eq 'Promise'
+                    # the native-direct function bindings (src/shir.rs
+                    # NATIVE_DIRECT_FNS): module-level `let f = (...args)
+                    # => ...` declarations called directly from
+                    # `sh2.callDirect(f, ...)` — the callee name must be one
+                    # of those declared bindings (collected below)
+                    || $native_fn_bindings{ $callee->{name} // '' });
             my $is_math = ref $obj eq 'HASH'
                 && ($obj->{type} // '') eq 'Identifier'
                 && ($obj->{name} // '') eq 'Math'

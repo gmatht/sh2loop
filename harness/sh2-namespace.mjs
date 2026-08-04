@@ -32,6 +32,67 @@ export const sh2 = {
   // estree_gate.pl).
   fs: fsp,
 
+  // ── wasm "binary" registry (Plan 9) ───────────────────────────────
+  // sh2runtime ships its own EXECUTABLE FORMATS: js builtins plus wasm
+  // modules (posixutils-rs cores compiled to wasm — bc first). The
+  // emitter dispatches exec("name") through the Plan 9 manifest; a wasm
+  // call is pure CPU and SYNCHRONOUS — the *Sync loop gates stay green.
+  // The loader instantiates lazily ONCE (sync WebAssembly.Module/Instance);
+  // input/output strings marshal through the module's bump arena.
+  _wasm: new Map(),
+  _loadWasm(name) {
+    if (this._wasm.has(name)) return this._wasm.get(name);
+    const bytes = fs.readFileSync(new URL(`./wasm/${name}.wasm`, import.meta.url));
+    const inst = new WebAssembly.Instance(new WebAssembly.Module(bytes), {});
+    const { memory, alloc, reset, arena_base } = inst.exports;
+    const base = arena_base();
+    const enc = new TextEncoder();
+    const dec = new TextDecoder();
+    const put = (str) => {
+      const b = enc.encode(str);
+      const p = alloc(b.length);
+      new Uint8Array(memory.buffer, base + p, b.length).set(b);
+      return p;
+    };
+    const get = (packed) => {
+      const p = Number(packed >> 32n);
+      const l = Number(packed & 0xffffffffn);
+      return l ? dec.decode(new Uint8Array(memory.buffer, base + p, l)) : '';
+    };
+    const api = { _reset: reset };
+    // bc number core (harness/wasm/bcwasm.wasm): exact arbitrary-precision
+    // arithmetic/sqrt (posixutils-rs Number(BigDecimal)) — the
+    // SH2_BC_NATIVE=exact tier. Errors (negative sqrt, div-by-zero, parse)
+    // return '' — bc's no-stdout-on-error.
+    if (name === 'bcwasm') {
+      const { bc_sqrt, bc_add, bc_sub, bc_mul, bc_div, bc_pow } = inst.exports;
+      const one = (fn, a, scale = 0) => {
+        const r = fn(put(a), a.length, scale);
+        const out = get(r);
+        reset();
+        return out;
+      };
+      const two = (fn, a, b, scale = 0) => {
+        const r = fn(put(a), a.length, put(b), b.length, scale);
+        const out = get(r);
+        reset();
+        return out;
+      };
+      api.sqrt = (a, scale) => one(bc_sqrt, a, scale);
+      api.add = (a, b, scale) => two(bc_add, a, b, scale);
+      api.sub = (a, b, scale) => two(bc_sub, a, b, scale);
+      api.mul = (a, b, scale) => two(bc_mul, a, b, scale);
+      api.div = (a, b, scale) => two(bc_div, a, b, scale);
+      api.pow = (a, b, scale) => two(bc_pow, a, b, scale);
+    }
+    this._wasm.set(name, api);
+    return api;
+  },
+  // `sh2.bcSqrt(x, scale)` — the exact sqrt (SH2_BC_NATIVE=exact tier).
+  bcSqrt(x, scale = 0) {
+    return this._loadWasm('bcwasm').sqrt(String(x), scale >>> 0);
+  },
+
   // ── state ──────────────────────────────────────────────────────────
   vars: new Map(),
   arrays: new Map(),   // name -> array of strings (declare -a / arr=(...) / arr[i]=)
@@ -603,6 +664,43 @@ export const sh2 = {
     if (typeof r === 'string' && (r === '0' || r === '1')) this.lastExit = Number(r);
     else if (typeof r === 'number') this.lastExit = r;
     return this.lastExit === 0;
+  },
+
+  // ── direct native function calls ─────────────────────────────────
+  // The emitter lowers provably-positional-free sync-function calls to
+  // direct JS calls on module-level `let f` bindings (src/shir.rs
+  // native_direct_fn_set): `sh2.callDirect(f)` (no args) or
+  // `sh2.callDirect(f, [args])`. Replicates the sync fnCall's status
+  // semantics EXACTLY — the RETURN-signal catch (sh2.return sets lastExit
+  // then throws), the numeric/`'0'`/`'1'` return-value recording, the
+  // final `lastExit === 0` boolean — minus the arg flattening, magic
+  // expansion, Map lookup and positional save/restore (the analysis
+  // guarantees the body never reads/writes positionals and the call-site
+  // args are magic-free). Args are evaluated EAGERLY at the call site
+  // (the array literal), exactly the fnCall argument order.
+  callDirect(fn, args) {
+    let r;
+    try {
+      r = args ? fn(...args) : fn();
+    } catch (e) {
+      if (isSignal(e, 'RETURN')) return this.lastExit === 0;
+      throw e;
+    }
+    if (typeof r === 'number') this.lastExit = r;
+    else if (typeof r === 'string' && (r === '0' || r === '1')) this.lastExit = Number(r);
+    return this.lastExit === 0;
+  },
+  // The fallback binding of a native-direct function (`let f =
+  // (...__sh2_args) => sh2.callUndefined("f", __sh2_args)`) — the exact
+  // tail of fnCall's undefined-target path: builtin fallback (with the
+  // flattened args), else command-not-found + status 127.
+  callUndefined(name, args) {
+    if (typeof builtins[name] === 'function') {
+      return builtins[name].call(this, args.map(String));
+    }
+    this._reportCommandNotFound(name);
+    this.lastExit = 127;
+    return false;
   },
 
   // ── test expressions ───────────────────────────────────────────────
