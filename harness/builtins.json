@@ -1,6 +1,6 @@
 [
- ".",
  ":",
+ ".",
  "basename",
  "break",
  "cd",
@@ -16,6 +16,7 @@
  "exit",
  "export",
  "false",
+ "grep",
  "head",
  "let",
  "local",
