@@ -66,6 +66,39 @@ wait_for_load() {
   return 1
 }
 
+# RAM gate: wait until MemAvailable (from /proc/meminfo) is above
+# min_free (MB, default 2048) AND swap usage is below max_swap_frac
+# (default 0.5), polling every poll_secs. Fail-open (return 1 on
+# timeout, caller proceeds with a warning) — same as wait_for_load.
+# RAM is the binding constraint for the pi agents (xhigh thinking loads
+# ~200-700MB each) and for cargo/go builds; the CPU gate alone does not
+# protect against OOM.
+wait_for_ram() {
+  local min_free="${1:-2048}"
+  local max_swap_frac="${2:-0.5}"
+  local poll_secs="${3:-30}"
+  local max_wait="${4:-1800}"
+  local waited=0
+  while (( waited < max_wait )); do
+    local avail_kb swap_tot_kb swap_used_kb
+    avail_kb=$(awk '/^MemAvailable:/{print $2}' /proc/meminfo)
+    swap_tot_kb=$(awk '/^SwapTotal:/{print $2}' /proc/meminfo)
+    swap_used_kb=$(awk -v t="$swap_tot_kb" -v f="$(awk '/^SwapFree:/{print $2}' /proc/meminfo)" 'BEGIN{print t-f}')
+    local avail_mb=$(( avail_kb / 1024 ))
+    local tight=0
+    if (( avail_mb < min_free )); then tight=1; fi
+    if (( swap_tot_kb > 0 )); then
+      if awk -v u="$swap_used_kb" -v t="$swap_tot_kb" -v m="$max_swap_frac" 'BEGIN{exit !(u/t > m)}'; then tight=1; fi
+    fi
+    if (( tight == 0 )); then return 0; fi
+    echo "    memAvail=${avail_mb}MB < ${min_free}MB or swap ${swap_used_kb}/${swap_tot_kb} > ${max_swap_frac}; waiting ${poll_secs}s (waited ${waited}s)..." >&2
+    sleep "$poll_secs"
+    waited=$((waited + poll_secs))
+  done
+  echo "    RAM still tight after ${waited}s; proceeding (fail-open)" >&2
+  return 1
+}
+
 # Run a command under the load gate. If --light, skip the gate.
 # Returns the command's exit status.
 gated() {
@@ -97,6 +130,8 @@ pi_fix() {
       "$WORKSPACE" "$WORKSPACE" "$WORKSPACE" "$WORKSPACE"
   } > "$prompt_file"
   echo "    [$scope_label] invoking pi (opencode-go + deepseek-v4-flash, key rotation automatic)..." >> "$log"
+  # RAM gate (fail-open, up to 10 min): don't start pi while RAM is tight
+  wait_for_ram 2048 0.5 30 600 || true
   if pi --mode json --provider opencode-go --model deepseek-v4-flash \
         --thinking xhigh < "$prompt_file" >> "$log" 2>&1; then
     echo "    [$scope_label] pi fix complete" >> "$log"
@@ -308,9 +343,6 @@ do_start_workers () {
       echo "  [$lang] worker already running (pid $(cat "$dir/loop-backend-$lang.pid"))"
       continue
     fi
-    # startup gate: brief (60s) — startup is a fork, not a build. The
-    # per-iteration --wait inside the worker handles the real heavy ops.
-    wait_for_load 1.5 30 60 || true
     nohup bash -c "
       set -euo pipefail
       cd '$dir'
@@ -375,10 +407,12 @@ case "${1:-}" in
   --frontends)    MODE=frontends; shift ;;
   --build)        MODE=build; shift; SCOPE="${1:-all}"; shift || true ;;
   --start-workers) MODE=start-workers; shift ;;
-  --wait)          # public: wait for load, then exit 0. Workers use this
-                  # before heavy ops. Args: [threshold=1.5] [poll=60] [max_wait=1800]
+  --wait)          # public: wait for load + RAM, then exit 0. Workers use this
+                  # before heavy ops. Args: [load_thr] [load_poll] [load_max]
+                  # [ram_min_free] [ram_max_swap] [ram_poll] [ram_max]
                   shift
                   wait_for_load "${1:-1.5}" "${2:-60}" "${3:-1800}" || true
+                  wait_for_ram "${4:-2048}" "${5:-0.5}" "${6:-30}" "${7:-1800}" || true
                   exit 0 ;;
   --pi-fix-backend) # internal: invoked by the per-worktree backend worker
                   # when its build FAILS. Calls pi (opencode-go +
@@ -396,6 +430,8 @@ case "${1:-}" in
                     printf 'You may create or edit files inside backends/%s/ and harness/.\n' "$fix_lang"
                     printf 'If a SHARED-CORE change is required (shIR node, deserializer, contract field, parser fix) to fix this, APPEND a structured request to core-requests/%s-<timestamp>.md per core-requests/README.md (NEED / WHY / MINIMAL-CORE-CHANGE / FAILING-CASE) and exit 0. Do NOT touch the core — the estree worker implements core requests.\n' "$fix_lang"
                   } > /tmp/pi-fix-prompt-$$
+                  # RAM gate (fail-open, up to 10 min): don't start pi while RAM is tight
+                  wait_for_ram 2048 0.5 30 600 || true
                   pi --mode json --provider opencode-go --model deepseek-v4-flash \
                      --thinking xhigh < /tmp/pi-fix-prompt-$$ >> "$fix_log" 2>&1 || true
                   rm -f /tmp/pi-fix-prompt-$$
@@ -416,6 +452,8 @@ case "${1:-}" in
                     printf 'You may create or edit files inside frontends/%s/ and harness/.\n' "$fix_name"
                     printf 'If a SHARED-CORE change is required (shIR node, deserializer, contract field, parser fix) to fix this, APPEND a structured request to core-requests/%s-<timestamp>.md per core-requests/README.md (NEED / WHY / MINIMAL-CORE-CHANGE / FAILING-CASE) and exit 0. Do NOT touch the core — the estree worker implements core requests.\n' "$fix_name"
                   } > /tmp/pi-fix-prompt-$$
+                  # RAM gate (fail-open, up to 10 min): don't start pi while RAM is tight
+                  wait_for_ram 2048 0.5 30 600 || true
                   pi --mode json --provider opencode-go --model deepseek-v4-flash \
                      --thinking xhigh < /tmp/pi-fix-prompt-$$ >> "$fix_log" 2>&1 || true
                   rm -f /tmp/pi-fix-prompt-$$
