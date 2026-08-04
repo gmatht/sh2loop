@@ -105,6 +105,231 @@ const ereToJs = (pat) => {
 };
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+// ── grep argv parser (shared: grepText lift + builtins.grep) ────────
+// The exact GNU grep flag grammar the runtime implements. `allowFiles`:
+// the FIRST positional is the pattern, the REST are FILE operands (the
+// builtin); without it every positional is a pattern (the echo|grep lift
+// contract — grepText only ever sees echoed text). Returns
+// { opts, patterns, files }.
+// opts: invert(v) count(c) lineNo(n) only(o) quiet(q) whole(x) ci(i)
+//   max(-m N) after(-A N) before(-B N) flavor(bre|ere|fixed)
+//   filesOnly(l) filesWithout(L) noName(h) forceName(H) nul(Z)
+//   byteOffset(b) wholeWord(w) color(--color=always) recursive(r)
+function parseGrepArgs(args, allowFiles) {
+  const opts = { invert: false, count: false, lineNo: false, only: false,
+    quiet: false, whole: false, ci: false, max: Infinity, after: 0,
+    before: 0, flavor: 'bre', filesOnly: false, filesWithout: false,
+    noName: false, forceName: false, nul: false, byteOffset: false,
+    wholeWord: false, color: false, recursive: false };
+  const patterns = [];
+  const files = [];
+  let patternSeen = false;
+  let afterDD = false;
+  const shortFlags = 'vincoqxwlLhHZbr';
+  for (let i = 0; i < args.length; i++) {
+    const a = String(args[i]);
+    if (!afterDD && a === '--') { afterDD = true; continue; }
+    if (!afterDD && a.startsWith('--color')) {
+      // --color=always colors the matches; --color / =never / =auto are
+      // no-ops on a pipe (the harness stdout is never a tty).
+      if (a === '--color=always') opts.color = true;
+      continue;
+    }
+    if (!afterDD && a.length > 1 && a.startsWith('-')) {
+      if (a === '-e' || a === '-E' || a === '-F') {
+        if (a === '-E') opts.flavor = 'ere';
+        if (a === '-F') opts.flavor = 'fixed';
+        patterns.push(String(args[++i])); // -e PAT (also marks a pattern)
+        patternSeen = true;
+        continue;
+      }
+      if (a === '-f') {
+        // pattern file: each line is a pattern (an interior empty line is
+        // an empty pattern — matches every line, GNU); a missing file is
+        // reported like a missing input file (exit 2)
+        const pf = String(args[++i]);
+        let content;
+        try { content = fs.readFileSync(pf, 'utf8'); }
+        catch { throw new Error(`grep: ${pf}: No such file or directory`); }
+        const plines = content.split('\n');
+        if (content.endsWith('\n')) plines.pop();
+        for (const pl of plines) patterns.push(pl);
+        patternSeen = true;
+        continue;
+      }
+      if (a === '-A' || a === '-B' || a === '-C' || a === '-m') {
+        const v = Number(args[++i]);
+        if (!Number.isFinite(v) || v < 0) throw new Error(`grep: bad ${a} value`);
+        if (a === '-A') opts.after = v;
+        if (a === '-B') opts.before = v;
+        if (a === '-C') { opts.after = v; opts.before = v; }
+        if (a === '-m') opts.max = v;
+        continue;
+      }
+      const body = a.slice(1);
+      // single-char flags, possibly combined (`-vi`); -H and -h override
+      // each other, last one wins (GNU)
+      if (body.length > 0 && [...body].every(ch => shortFlags.includes(ch))) {
+        if (body.includes('v')) opts.invert = true;
+        if (body.includes('i')) opts.ci = true;
+        if (body.includes('n')) opts.lineNo = true;
+        if (body.includes('c')) opts.count = true;
+        if (body.includes('o')) opts.only = true;
+        if (body.includes('q')) opts.quiet = true;
+        if (body.includes('x')) opts.whole = true;
+        if (body.includes('w')) opts.wholeWord = true;
+        if (body.includes('b')) opts.byteOffset = true;
+        if (body.includes('l')) opts.filesOnly = true;
+        if (body.includes('L')) opts.filesWithout = true;
+        if (body.includes('h')) { opts.noName = true; opts.forceName = false; }
+        if (body.includes('H')) { opts.forceName = true; opts.noName = false; }
+        if (body.includes('Z')) opts.nul = true;
+        if (body.includes('r')) opts.recursive = true;
+        continue;
+      }
+      throw new Error(`grep: unsupported flag ${a}`);
+    }
+    if (!patternSeen) { patterns.push(a); patternSeen = true; }
+    else if (allowFiles) files.push(a);
+    else throw new Error('grep: file operand');
+  }
+  if (patterns.length === 0) throw new Error('grep: no pattern');
+  return { opts, patterns, files };
+}
+
+// Build the match regexes from the parsed patterns: BRE/ERE/fixed flavors
+// (the shared breToJs/ereToJs), -x whole-line anchoring, -w GNU word
+// boundaries (word constituents = [A-Za-z0-9_], the C-locale rule).
+function grepRegexes(opts, patterns) {
+  const srcs = patterns.map(p =>
+    opts.flavor === 'fixed' ? escapeRe(p)
+      : opts.flavor === 'ere' ? ereToJs(p) : breToJs(p));
+  const src = srcs.map(s2 => `(?:${s2})`).join('|');
+  const ci = opts.ci ? 'i' : '';
+  const core = opts.wholeWord
+    ? `(?<![A-Za-z0-9_])(?:${src})(?![A-Za-z0-9_])`
+    : `(?:${src})`;
+  // An invalid BRE/ERE (unmatched `\(`/`\)` group, a bad interval, …)
+  // is a SyntaxError in JS but a runtime error in GNU grep: the caller
+  // turns it into GNU's error semantics (message to fd-2, exit 2, no
+  // output). `new RegExp` is the only construction point, so the try/catch
+  // lives here and every call site inherits it.
+  try {
+    const matchRe = opts.whole ? new RegExp(`^(?:${core})$`, ci) : new RegExp(core, ci);
+    const gRe = new RegExp(matchRe.source, ci + 'g');
+    return { matchRe, gRe };
+  } catch {
+    throw new Error('grep: Unmatched ( or \\(');
+  }
+}
+
+// The per-source line selection core (shared by grepText and
+// builtins.grep): filters/transforms the content lines and pushes the
+// formatted output lines (terminator included) to `out`. `prefix` ("" or
+// "name:") precedes every line (multi-file / -r / -H forms); `byteOffset`
+// prefixes the line-start (plain) or match (with -o) byte offset (GNU -b:
+// LINENO:OFFSET:line with -n); `color` wraps each match in GNU's
+// --color=always codes. Returns the number of SELECTED lines (the -m /
+// exit-status unit).
+function grepSelect(out, content, opts, matchRe, gRe, prefix, byteOffset, color) {
+  const s = String(content ?? '');
+  // empty input has NO lines (GNU: `printf '' | grep -v x` prints
+  // nothing and exits 1 — the split of '' yields one empty line)
+  if (s === '') {
+    if (opts.count) out.push(prefix + '0\n');
+    return 0;
+  }
+  const lines = s.split('\n');
+  if (s.endsWith('\n')) lines.pop();
+  const isMatch = (line) => matchRe.test(line);
+  const lineSel = (line) => { const m = isMatch(line); return opts.invert ? !m : m; };
+  const C0 = '\x1b[01;31m\x1b[K';
+  const C1 = '\x1b[m\x1b[K';
+  const colorize = (m) => color ? C0 + m + C1 : m;
+  let selected = 0;
+  if (opts.quiet) {
+    for (const line of lines) {
+      if (!lineSel(line)) continue;
+      selected++;
+      if (selected >= opts.max) break;
+    }
+    return selected;
+  }
+  if (opts.count) {
+    // GNU counts SELECTED LINES (the -o flag does not change the unit;
+    // -m caps the count)
+    let n = 0;
+    for (const line of lines) {
+      if (!lineSel(line)) continue;
+      selected++;
+      n++;
+      if (selected >= opts.max) break;
+    }
+    out.push(prefix + String(n) + '\n');
+    return selected;
+  }
+  if (opts.only) {
+    let lineStart = 0;
+    for (let li = 0; li < lines.length; li++) {
+      const line = lines[li];
+      if (!lineSel(line)) { lineStart += Buffer.byteLength(line, 'utf8') + 1; continue; }
+      selected++;
+      const mm = [...line.matchAll(gRe)].filter(x => x[0] !== '');
+      for (const x of mm) {
+        out.push(prefix
+          + (opts.lineNo ? `${li + 1}:` : '')
+          + (byteOffset ? `${lineStart + x.index}:` : '')
+          + colorize(x[0]) + '\n');
+      }
+      lineStart += Buffer.byteLength(line, 'utf8') + 1;
+      if (selected >= opts.max) break;
+    }
+    return selected;
+  }
+  if (opts.after === 0 && opts.before === 0) {
+    let lineStart = 0;
+    for (let li = 0; li < lines.length; li++) {
+      const line = lines[li];
+      if (!lineSel(line)) { lineStart += Buffer.byteLength(line, 'utf8') + 1; continue; }
+      selected++;
+      const shown = color ? line.replace(gRe, (m) => m === '' ? m : C0 + m + C1) : line;
+      out.push(prefix
+        + (opts.lineNo ? `${li + 1}:` : '')
+        + (byteOffset ? `${lineStart}:` : '')
+        + shown + '\n');
+      lineStart += Buffer.byteLength(line, 'utf8') + 1;
+      if (selected >= opts.max) break;
+    }
+    return selected;
+  }
+  // -A/-B/-C: merge overlapping/adjacent ranges around each selected
+  // line, `--` between disjoint groups (GNU). With -n, context lines
+  // carry `-` and selected lines `:` (GNU).
+  const sel = lines.map(lineSel);
+  const ranges = [];
+  for (let li = 0; li < lines.length; li++) {
+    if (!sel[li]) continue;
+    selected++;
+    const lo = Math.max(0, li - opts.before);
+    const hi = Math.min(lines.length - 1, li + opts.after);
+    if (ranges.length && lo <= ranges[ranges.length - 1][1] + 1) {
+      ranges[ranges.length - 1][1] = Math.max(ranges[ranges.length - 1][1], hi);
+    } else {
+      ranges.push([lo, hi]);
+    }
+    if (selected >= opts.max) break;
+  }
+  for (let r = 0; r < ranges.length; r++) {
+    if (r > 0) out.push('--\n');
+    for (let li = ranges[r][0]; li <= ranges[r][1]; li++) {
+      out.push(prefix
+        + (opts.lineNo ? `${li + 1}${sel[li] ? ':' : '-'}` : '')
+        + lines[li] + '\n');
+    }
+  }
+  return selected;
+}
+
 export const sh2 = {
   // node:fs/promises — the native readFile/writeFile surface the emitter's
   // pure-capture lowerings (`$(cat f)`, `$(sort f)`, `$(wc -l < f)`) call
@@ -1020,132 +1245,14 @@ export const sh2 = {
   // emitted (the emitter wraps it in sh2.trimCapture for `$(...)`).
   grepText(text, args, captureMode) {
     const s = String(text ?? '');
-    const opts = { invert: false, count: false, lineNo: false, only: false,
-      quiet: false, whole: false, ci: false, max: Infinity, after: 0,
-      before: 0, flavor: 'bre' };
-    const patterns = [];
-    let positionals = 0;
-    let afterDD = false;
-    for (let i = 0; i < args.length; i++) {
-      const a = String(args[i]);
-      if (!afterDD && a === '--') { afterDD = true; continue; }
-      if (!afterDD && a.length > 1 && a.startsWith('-')) {
-        if (a === '-e' || a === '-E' || a === '-F') {
-          if (a === '-E') opts.flavor = 'ere';
-          if (a === '-F') opts.flavor = 'fixed';
-          patterns.push(String(args[++i])); // -e PAT (also marks a pattern)
-          continue;
-        }
-        if (a === '-A' || a === '-B' || a === '-C' || a === '-m') {
-          const v = Number(args[++i]);
-          if (!Number.isFinite(v) || v < 0) throw new Error(`grepText: bad ${a} value`);
-          if (a === '-A') opts.after = v;
-          if (a === '-B') opts.before = v;
-          if (a === '-C') { opts.after = v; opts.before = v; }
-          if (a === '-m') opts.max = v;
-          continue;
-        }
-        const body = a.slice(1);
-        // single-char flags v/i/n/c/o/q/x, possibly combined (`-vi`)
-        if (body.length > 0 && [...body].every(ch => 'vincoqx'.includes(ch))) {
-          if (body.includes('v')) opts.invert = true;
-          if (body.includes('i')) opts.ci = true;
-          if (body.includes('n')) opts.lineNo = true;
-          if (body.includes('c')) opts.count = true;
-          if (body.includes('o')) opts.only = true;
-          if (body.includes('q')) opts.quiet = true;
-          if (body.includes('x')) opts.whole = true;
-          continue;
-        }
-        throw new Error(`grepText: unsupported flag ${a}`);
-      }
-      positionals++;
-      if (positionals > 1) throw new Error('grepText: file operand');
-      patterns.push(a);
-    }
-    if (patterns.length === 0) throw new Error('grepText: no pattern');
-
-    // BRE/ERE → JS regex (module-level helpers — shared with builtins.sed).
-    const srcs = patterns.map(p =>
-      opts.flavor === 'fixed' ? escapeRe(p)
-        : opts.flavor === 'ere' ? ereToJs(p) : breToJs(p));
-    const src = srcs.map(s2 => `(?:${s2})`).join('|');
-    const ci = opts.ci ? 'i' : '';
-    const matchRe = opts.whole ? new RegExp(`^(?:${src})$`, ci) : new RegExp(src, ci);
-    const gRe = new RegExp(matchRe.source, ci + 'g');
-    const isMatch = (line) => matchRe.test(line);
-
-    const lines = s.split('\n');
-    if (s.endsWith('\n')) lines.pop();
-    const lineSel = (line) => { const m = isMatch(line); return opts.invert ? !m : m; };
-    let out = '';
-    let selected = 0; // selected LINES (the -m / status unit)
-    if (opts.quiet) {
-      for (const line of lines) {
-        if (!lineSel(line)) continue;
-        selected++;
-        if (selected >= opts.max) break;
-      }
-    } else if (opts.count) {
-      let n = 0;
-      for (const line of lines) {
-        if (!lineSel(line)) continue;
-        selected++;
-        if (opts.only) {
-          // -c -o counts MATCHES (GNU); empty matches print nothing
-          n += (line.match(gRe) || []).filter(x => x !== '').length;
-        } else {
-          n++;
-        }
-        if (selected >= opts.max) break;
-      }
-      out = String(n) + '\n';
-    } else if (opts.only) {
-      for (let li = 0; li < lines.length; li++) {
-        const line = lines[li];
-        if (!lineSel(line)) continue;
-        selected++;
-        const mm = (line.match(gRe) || []).filter(x => x !== '');
-        for (const m of mm) out += (opts.lineNo ? `${li + 1}:` : '') + m + '\n';
-        if (selected >= opts.max) break;
-      }
-    } else if (opts.after === 0 && opts.before === 0) {
-      for (let li = 0; li < lines.length; li++) {
-        const line = lines[li];
-        if (!lineSel(line)) continue;
-        selected++;
-        out += (opts.lineNo ? `${li + 1}:` : '') + line + '\n';
-        if (selected >= opts.max) break;
-      }
-    } else {
-      // -A/-B/-C: merge overlapping/adjacent ranges around each selected
-      // line, `--` between disjoint groups (GNU). With -n, context lines
-      // carry `-` and selected lines `:` (GNU).
-      const sel = lines.map(lineSel);
-      const ranges = [];
-      for (let li = 0; li < lines.length; li++) {
-        if (!sel[li]) continue;
-        selected++;
-        const lo = Math.max(0, li - opts.before);
-        const hi = Math.min(lines.length - 1, li + opts.after);
-        if (ranges.length && lo <= ranges[ranges.length - 1][1] + 1) {
-          ranges[ranges.length - 1][1] = Math.max(ranges[ranges.length - 1][1], hi);
-        } else {
-          ranges.push([lo, hi]);
-        }
-        if (selected >= opts.max) break;
-      }
-      for (let r = 0; r < ranges.length; r++) {
-        if (r > 0) out += '--\n';
-        for (let li = ranges[r][0]; li <= ranges[r][1]; li++) {
-          out += (opts.lineNo ? `${li + 1}${sel[li] ? ':' : '-'}` : '') + lines[li] + '\n';
-        }
-      }
-    }
+    const { opts, patterns } = parseGrepArgs(args, false);
+    const { matchRe, gRe } = grepRegexes(opts, patterns);
+    const out = [];
+    const selected = grepSelect(out, s, opts, matchRe, gRe, '', opts.byteOffset, opts.color);
     const matched = selected > 0;
     this.lastExit = matched ? 0 : 1;
-    if (captureMode) return out;
-    if (out.length > 0) emit(this, out);
+    if (captureMode) return out.join('');
+    if (out.length > 0) emit(this, out.join(''));
     return matched;
   },
 
@@ -2594,6 +2701,123 @@ builtins.cat = function (args) {
   emit(this, out);
   this.lastExit = failed ? 1 : 0;
   return !failed;
+};
+
+// grep — the file/stdin form of the mini-grep (the echo|grep pipeline
+// lift uses grepText on the echoed text; this builtin covers FILE
+// operands + stdin, the full corpus flag surface: v/i/n/c/o/q/x/w/b,
+// -A/-B/-C/-m, -e/-E/-F/-f, -l/-L, -h/-H, -Z, -r, --color=always, `--`).
+// Reads each source (file operand, directory tree under -r, else the
+// current fd-0 target), runs the shared line selection, emits through the
+// CURRENT fd-1 sink (module stdout / capture buffer / pipe / redirect
+// target) and records lastExit: 0 iff any line was selected, 1 if none,
+// 2 on a file error (GNU: reports to fd-2, continues the remaining
+// files). Filename prefixes follow GNU: >1 source, a -r directory
+// expansion, or -H; suppressed by -h. -l/-L print the matching/empty
+// source names (-Z: NUL-terminated, GNU).
+builtins.grep = function (args) {
+  let parsed;
+  try {
+    parsed = parseGrepArgs(args, true);
+  } catch (e) {
+    // a missing -f pattern file is a real grep error (exit 2), not an
+    // emitter bug — report like GNU and fail the status
+    if (String(e.message).startsWith('grep: ')) {
+      emitErr(this, String(e.message) + '\n');
+      this.lastExit = 2;
+      return false;
+    }
+    throw e; // unsupported flag/shape: an emitter bug, fail loudly
+  }
+  const { opts, patterns, files } = parsed;
+  let matchRe, gRe;
+  try {
+    ({ matchRe, gRe } = grepRegexes(opts, patterns));
+  } catch (e) {
+    // an invalid BRE/ERE pattern: GNU reports to fd-2 and exits 2 with
+    // no output — replicate (the message text is not corpus-observed)
+    emitErr(this, String(e.message) + '\n');
+    this.lastExit = 2;
+    return false;
+  }
+  const out = [];
+  let anySelected = false;
+  let failed = false;
+  // enumerate sources: FILE operands (directories expand under -r), else
+  // the current fd-0 input (pipe / heredoc / herestring / file redirect)
+  const sources = []; // {name, content} | {name, read}
+  let sawDir = false;
+  const walkDir = (dir) => {
+    const res = [];
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+    catch {
+      failed = true;
+      emitErr(this, `grep: ${dir}: No such file or directory\n`);
+      return res;
+    }
+    for (const e of entries) {
+      const p = dir + '/' + e.name;
+      if (e.isDirectory()) res.push(...walkDir(p));
+      else if (e.isFile() || e.isSymbolicLink()) res.push(p);
+    }
+    return res;
+  };
+  if (files.length === 0) {
+    sources.push({ name: '(standard input)', content: readFd0(this) });
+  } else {
+    for (const f of files) {
+      if (f === '-') { sources.push({ name: '(standard input)', content: readFd0(this) }); continue; }
+      let st = null;
+      try { st = fs.statSync(f); } catch {
+        failed = true;
+        emitErr(this, `grep: ${f}: No such file or directory\n`);
+        continue;
+      }
+      if (st.isDirectory()) {
+        if (!opts.recursive) {
+          failed = true;
+          emitErr(this, `grep: ${f}: Is a directory\n`);
+          continue;
+        }
+        sawDir = true;
+        for (const p of walkDir(f)) sources.push({ name: p, read: () => fs.readFileSync(p, 'utf8') });
+      } else {
+        sources.push({ name: f, read: () => fs.readFileSync(f, 'utf8') });
+      }
+    }
+  }
+  const prefix = (sources.length > 1 || sawDir || opts.forceName) && !opts.noName
+    ? (n) => n + ':' : () => '';
+  const sep = opts.nul ? '\0' : '\n';
+  for (const s of sources) {
+    let content;
+    if ('content' in s) content = s.content;
+    else {
+      try { content = s.read(); } catch {
+        failed = true;
+        emitErr(this, `grep: ${s.name}: No such file or directory\n`);
+        continue;
+      }
+    }
+    if (opts.quiet) {
+      const n = grepSelect([], content, opts, matchRe, gRe, '', false, false);
+      if (n > 0) { anySelected = true; break; } // -q: stop at the first hit
+      continue;
+    }
+    if (opts.filesOnly || opts.filesWithout) {
+      const n = grepSelect([], content, opts, matchRe, gRe, '', false, false);
+      if (n > 0) anySelected = true;
+      if (opts.filesOnly && n > 0) out.push(s.name + sep);
+      if (opts.filesWithout && n === 0) out.push(s.name + sep);
+      continue;
+    }
+    const n = grepSelect(out, content, opts, matchRe, gRe, prefix(s.name), opts.byteOffset, opts.color);
+    if (n > 0) anySelected = true;
+  }
+  if (out.length > 0) emit(this, out.join(''));
+  this.lastExit = failed ? 2 : (anySelected ? 0 : 1);
+  return this.lastExit === 0;
 };
 
 builtins.head = function (args) {
