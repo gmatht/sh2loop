@@ -205,7 +205,7 @@ sub run_tests {
     chdir "$project_root/sh2perl";
     my $out_file = "$project_root/sh2perl/last_test_run.log";
     # Run ./fail with a generous total timeout (30 minutes for all 169 tests)
-    my ($output, $timed_out, $exit_code) = run_with_timeout(1800, "bash -c './fail 2>&1 | tee " . $out_file . "'");
+    my ($output, $timed_out, $exit_code) = run_with_timeout(1800, "bash -c 'nice -n 10 ./fail 2>&1 | tee " . $out_file . "'");
     if ($timed_out) {
         # Log partial output and return failure
         if (open my $fh, '>', $out_file) {
