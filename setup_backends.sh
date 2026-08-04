@@ -36,7 +36,7 @@ FT="$ROOT/frontends"
 WORKSPACE="$ROOT"
 
 DEFAULT_BACKEND_LANGS="perl js c python zig go rust"
-DEFAULT_FRONTEND_LANGS="py-sh go-sh"
+DEFAULT_FRONTEND_LANGS="py-sh-go go-sh posix-sh-go perl-sh-go"
 
 # Active backends whose workers already run from the main checkout
 # (main_loop_rust.pl / main_loop_estree.pl); the per-worktree worker
@@ -314,6 +314,7 @@ do_start_workers () {
     nohup bash -c "
       set -euo pipefail
       cd '$dir'
+      fail_count=0
       while true; do
         # light: git status / scope check
         if git -C '$WORKSPACE' rev-parse --git-dir >/dev/null 2>&1; then
@@ -325,13 +326,21 @@ do_start_workers () {
             bash \"$WORKSPACE/setup_backends.sh\" --wait 2>>\"\$LOG\" || true
             echo \"[\$(date +%FT%T)] $lang: build start\" >> '$WORKSPACE/loop-backend-$lang.log'
             if cargo build --manifest-path '$SUB/Cargo.toml' >> '$WORKSPACE/loop-backend-$lang.log' 2>&1; then
+              fail_count=0
               # build OK: commit within scope only (worktree dir + harness/*)
               git -C '$WORKSPACE' add \$changes 2>/dev/null || true
               git -C '$WORKSPACE' commit -m 'backend $lang: build/fix (auto)' 2>/dev/null || true
             else
+              fail_count=\$((fail_count+1))
               # build FAIL: invoke pi (scoped) for a fix
-              echo \"[\$(date +%FT%T)] $lang: build FAILED — invoking pi (deepseek-v4-flash, scoped)\" >> '$WORKSPACE/loop-backend-$lang.log'
+              echo \"[\$(date +%FT%T)] $lang: build FAILED (\$fail_count/3) — invoking pi (deepseek-v4-flash, scoped)\" >> '$WORKSPACE/loop-backend-$lang.log'
               bash \"$WORKSPACE/setup_backends.sh\" --pi-fix-backend '$lang' 2>>\"\$LOG\" || true
+              if [ \"\$fail_count\" -ge 3 ]; then
+                echo \"[\$(date +%FT%T)] $lang: TRAPPED — escalating to core request and sleeping\" >> '$WORKSPACE/loop-backend-$lang.log'
+                # blocks until the estree worker removes core-requests/sleeping-$lang
+                bash \"$WORKSPACE/setup_backends.sh\" --worker-trapped '$lang' backend >> \"\$LOG\" 2>&1 || true
+                fail_count=0
+              fi
             fi
           fi
         fi
@@ -341,7 +350,7 @@ do_start_workers () {
     echo $! > "$dir/loop-backend-$lang.pid"
     echo "  [$lang] worker started (pid $(cat "$dir/loop-backend-$lang.pid")) — log: $WORKSPACE/loop-backend-$lang.log"
   done
-  for lang in py-sh go-sh posix-sh busybox-ash fish zsh perl-sh cpp-sh rust-sh; do
+  for lang in py-sh-go go-sh posix-sh-go perl-sh-go; do
     local dir="$FT/$lang"
     [ -d "$dir" ] || { echo "  [$lang] no frontend dir — skip (run --frontends first)"; continue; }
     [ -f "$dir/run_frontend_worker.sh" ] || { echo "  [$lang] no run_frontend_worker.sh — skip (run --frontends first)"; continue; }
@@ -349,9 +358,9 @@ do_start_workers () {
       echo "  [$lang] worker already running (pid $(cat "$WORKSPACE/loop-frontend-$lang.pid"))"
       continue
     fi
-    # startup gate: brief (60s) — startup is a fork. Per-iteration --wait
-    # inside the worker handles real heavy ops.
-    wait_for_load 1.5 30 60 || true
+    # startup is a fork — no load gate needed. The per-iteration --wait
+    # inside the worker handles the real heavy ops (build/test).
+    : # no-op
     nohup bash "$dir/run_frontend_worker.sh" >/dev/null 2>&1 &
     echo $! > "$WORKSPACE/loop-frontend-$lang.pid"
     echo "  [$lang] worker started (pid $(cat "$WORKSPACE/loop-frontend-$lang.pid")) — log: $WORKSPACE/loop-frontend-$lang.log"
@@ -385,10 +394,62 @@ case "${1:-}" in
                     printf '\nThe shIR (A1) contract is the source of truth. Render the %s backend in idiomatic %s.\n' "$fix_lang" "$fix_lang"
                     printf 'Shared core (DO NOT TOUCH): sh2perl/src/shir.rs, sh2perl/src/ir.rs, sh2perl/src/estree.rs, sh2perl/src/parser/\n'
                     printf 'You may create or edit files inside backends/%s/ and harness/.\n' "$fix_lang"
+                    printf 'If a SHARED-CORE change is required (shIR node, deserializer, contract field, parser fix) to fix this, APPEND a structured request to core-requests/%s-<timestamp>.md per core-requests/README.md (NEED / WHY / MINIMAL-CORE-CHANGE / FAILING-CASE) and exit 0. Do NOT touch the core — the estree worker implements core requests.\n' "$fix_lang"
                   } > /tmp/pi-fix-prompt-$$
                   pi --mode json --provider opencode-go --model deepseek-v4-flash \
                      --thinking xhigh < /tmp/pi-fix-prompt-$$ >> "$fix_log" 2>&1 || true
                   rm -f /tmp/pi-fix-prompt-$$
+                  exit 0 ;;
+  --pi-fix-frontend) # internal: invoked by the per-frontend worker
+                  # when its build FAILS. Calls pi (opencode-go +
+                  # deepseek-v4-flash, automatic key rotation) with a
+                  # prompt scoped to frontends/<name>/ + harness/*.
+                  # Usage: setup_backends.sh --pi-fix-frontend <name>
+                  shift; fix_name="$1"
+                  fix_dir="$FT/$fix_name"; fix_log="$WORKSPACE/loop-frontend-$fix_name.log"
+                  {
+                    printf 'The %s frontend in %s is failing to build.\n\n' "$fix_name" "$fix_dir"
+                    printf 'Tail of the build log (%s):\n' "$fix_log"
+                    tail -50 "$fix_log" 2>/dev/null || true
+                    printf '\nThe shIR (A1) contract is the source of truth (sh2perl/src/shir_json.rs). Parse the %s source language, emit the A1 shIR JSON byte-identical to the core frontend.\n' "$fix_name"
+                    printf 'Shared core (DO NOT TOUCH): sh2perl/src/shir.rs, sh2perl/src/ir.rs, sh2perl/src/estree.rs, sh2perl/src/parser/\n'
+                    printf 'You may create or edit files inside frontends/%s/ and harness/.\n' "$fix_name"
+                    printf 'If a SHARED-CORE change is required (shIR node, deserializer, contract field, parser fix) to fix this, APPEND a structured request to core-requests/%s-<timestamp>.md per core-requests/README.md (NEED / WHY / MINIMAL-CORE-CHANGE / FAILING-CASE) and exit 0. Do NOT touch the core — the estree worker implements core requests.\n' "$fix_name"
+                  } > /tmp/pi-fix-prompt-$$
+                  pi --mode json --provider opencode-go --model deepseek-v4-flash \
+                     --thinking xhigh < /tmp/pi-fix-prompt-$$ >> "$fix_log" 2>&1 || true
+                  rm -f /tmp/pi-fix-prompt-$$
+                  exit 0 ;;
+  --worker-trapped) # internal: a worker is TRAPPED (repeated build
+                  # failures, likely needing a core change it cannot make
+                  # in-scope). Ensure a core request exists (fallback to a
+                  # trapped marker request), create the sleeping marker
+                  # core-requests/sleeping-<name>, and SLEEP until the
+                  # estree worker removes the marker (the wake).
+                  # Usage: setup_backends.sh --worker-trapped <name> <kind>
+                  shift; t_name="$1"; t_kind="$2"
+                  t_reqdir="$WORKSPACE/core-requests"
+                  mkdir -p "$t_reqdir"
+                  # ensure a request exists (fallback if pi didn't write one)
+                  if ! ls "$t_reqdir/$t_name-"*.md >/dev/null 2>&1; then
+                    req="$t_reqdir/$t_name-$(date +%Y%m%d-%H%M%S).md"
+                    {
+                      printf '# %s: TRAPPED (build fails repeatedly)\n\n' "$t_name"
+                      printf '## NEED\n'
+                      printf 'The %s worker cannot build; it likely needs a shared-core change (shIR node / deserializer / contract / parser) it cannot make in-scope. Inspect the worker log and the pi-fix attempts.\n' "$t_name"
+                      printf '\n## WHY\n'
+                      printf 'Repeated build failures; see frontends-or-backends/%s and harness/.\n' "$t_kind"
+                      printf '\n## MINIMAL-CORE-CHANGE\n'
+                      printf 'To be determined by the estree worker from the failing build.\n'
+                      printf '\n## FAILING-CASE\n'
+                      printf 'See the worker log: %s/loop-frontend-or-backend-%s.log.\n' "$WORKSPACE" "$t_name"
+                    } > "$req"
+                  fi
+                  touch "$t_reqdir/sleeping-$t_name"
+                  echo "[$(date +%FT%T)] $t_name TRAPPED — sleeping until estree wakes (marker core-requests/sleeping-$t_name)" >> "$WORKSPACE/loop-frontend-or-backend-$t_name.log" 2>/dev/null || true
+                  while [ -f "$t_reqdir/sleeping-$t_name" ]; do
+                    sleep 60
+                  done
                   exit 0 ;;
   --noop-gated)   # internal: print the gated build cmd and exit (for the
                   # frontend worker's self-test). Usage: setup_backends.sh --noop-gated <kind> <lang>

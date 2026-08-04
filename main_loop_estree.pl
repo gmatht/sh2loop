@@ -668,9 +668,95 @@ if ($seed || !-e $estree_trusted_file) {
     exit 0;
 }
 
+
+# ── core-requests: mediate + implement worker escalations ────────────
+# The estree worker is the single owner of the shared core. Per-worktree
+# backend workers and per-frontend workers escalate core needs via
+# core-requests/<lang>-<ts>.md (see core-requests/README.md), and when
+# TRAPPED they sleep on core-requests/sleeping-<lang> until we wake them.
+# Each iteration: collect pending requests, pass ALL to one pi invocation
+# that MEDIATES between conflicting requests and implements each WITHOUT
+# regressing the ESTree corpus, then verify with fail-estree ourselves.
+# Green: commit (scoped) + move requests to done/ + WAKE the sleeping
+# workers (remove core-requests/sleeping-<lang>). Regressed: scoped_stash
+# (revert pi's changes), leave requests + markers (workers stay asleep).
+my $core_requests_dir = "$project_root/core-requests";
+
+sub process_core_requests {
+    return 0 if $dry_run;
+    my @reqs;
+    if (-d $core_requests_dir && opendir my $dh, $core_requests_dir) {
+        for my $f (sort readdir $dh) {
+            next unless $f =~ /\.md$/;
+            next if $f eq 'README.md';
+            next if $f =~ /^sleeping-/;
+            push @reqs, "$core_requests_dir/$f";
+        }
+        closedir $dh;
+    }
+    return 0 unless @reqs;
+    print "\n" . "=" x 70, "\n";
+    print "core-requests: " . scalar(@reqs) . " pending — mediating + implementing via pi\n";
+    print "  $_\n" for @reqs;
+
+    my $body = "There are " . scalar(@reqs) . " pending core-change requests from sibling workers.\n";
+    $body .= "You are the SINGLE OWNER of the shared core: your fix surface is\n";
+    $body .= "sh2perl/src/shir.rs, sh2perl/src/ir.rs, sh2perl/src/estree.rs, sh2perl/src/parser/, and harness/*.\n";
+    $body .= "MEDIATE between the requests:\n";
+    $body .= "  - priority: oldest first (by filename timestamp);\n";
+    $body .= "  - if two requests conflict (touch the same node/rule incompatibly), implement the\n";
+    $body .= "    one that maximizes corpus coverage and NOTE the rejection in the request file;\n";
+    $body .= "  - implement each WITHOUT regressing the ESTree corpus: after your changes run\n";
+    $body .= "    ./fail-estree and confirm estree_failed is 0 (or at least the trusted baseline).\n";
+    $body .= "    If a request would regress your backend, do NOT implement it; leave it pending\n";
+    $body .= "    with a note.\n\n";
+    $body .= "The requests:\n\n";
+    for my $r (@reqs) {
+        my $txt = eval { local $/; open my $fh, '<', $r; <$fh> };
+        $txt = "(unreadable request)" unless defined $txt;
+        $body .= "--- $r ---\n$txt\n";
+    }
+    invoke_pi($body);
+
+    # verify no regression in OUR backend
+    my ($out, $code) = run_fail_estree();
+    my $summary = parse_summary($out);
+    my $estree_trusted = 10_000;
+    if (open my $tf, '<', $estree_trusted_file) {
+        my $f = <$tf>; chomp $f;
+        my ($failed) = split /\t/, $f;
+        $estree_trusted = ($failed // '') + 0 if defined $failed && $failed ne '';
+        close $tf;
+    }
+    my $failed = defined $summary->{estree_failed} ? $summary->{estree_failed} : 10_000;
+    if ($failed <= $estree_trusted + 3) {
+        print "core-requests: GREEN (estree_failed=$failed <= trusted $estree_trusted+3). Committing + waking workers.\n";
+        scoped_commit("core-request: mediate + implement worker escalations", $summary);
+        for my $r (@reqs) {
+            my $bn = (split /\//, $r)[-1];
+            system('mv', $r, "$core_requests_dir/done/$bn");
+            # WAKE the sleeping worker for this request's language
+            if (my ($lang) = $bn =~ /^(.+)-\d{8}-\d{6}\.md$/) {
+                my $marker = "$core_requests_dir/sleeping-$lang";
+                if (-f $marker) {
+                    unlink $marker;
+                    print "  woke $lang (removed sleeping-$lang)\n";
+                }
+            }
+        }
+        log_decision('core-request', scalar(@reqs), 0, 'implemented');
+    } else {
+        print "core-requests: REGRESSION (estree_failed=$failed > trusted $estree_trusted+3). Stashing pi's changes; workers stay asleep.\n";
+        scoped_stash();
+        log_decision('core-request', scalar(@reqs), $failed, 'regression-stashed');
+    }
+    return 1;
+}
+
 my $iteration = 0;
 while (1) {
     $iteration++;
+    process_core_requests();  # mediate worker escalations (core-requests/)
     print "\n" . "=" x 70, "\n";
     print "iteration $iteration — running fail-estree", ($prefix ne '' ? " (prefix $prefix)" : ''), "\n";
     my ($out, $code) = run_fail_estree();
