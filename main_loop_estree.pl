@@ -552,9 +552,12 @@ sub wait_for_ram_perl {
 
 sub invoke_pi {
     my ($prompt) = @_;
-    # RAM gate (fail-open): pi agents (--thinking xhigh) hold 200-700MB
-    # each; don't start a new one while MemAvailable < 2048MB or swap > 50%.
-    wait_for_ram_perl(2048, 0.5, 600);
+    # RAM gate (fail-open, RELAXED — this is the LEAD worker, not a
+    # secondary): the secondary workers yield at 2GB/50% swap; the lead
+    # worker proceeds unless RAM is CRITICALLY low (<1GB) or moderately
+    # low (<2GB) with very high swap (>80%), and waits at most 120s. It
+    # must not be starved by the gates meant to throttle its followers.
+    wait_for_ram_perl(1024, 0.8, 120);
     print "\nInvoking pi to fix ESTree failures...\n";
     my $pi_pid = open(my $pi_fh, '-|', 'pi', '--mode', 'json', '--provider', 'opencode-go', '--model', 'deepseek-v4-flash', '--thinking', 'xhigh', $prompt);
     unless (defined $pi_pid) {
