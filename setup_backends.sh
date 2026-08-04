@@ -366,11 +366,12 @@ do_start_workers () {
             # heavy: wait for low load, then build
             bash \"$WORKSPACE/setup_backends.sh\" --wait 2>>\"\$LOG\" || true
             echo \"[\$(date +%FT%T)] $lang: build start\" >> '$WORKSPACE/loop-backend-$lang.log'
-            if cargo build --manifest-path '$SUB/Cargo.toml' >> '$WORKSPACE/loop-backend-$lang.log' 2>&1; then
+            if bash "$WORKSPACE/setup_backends.sh" --backend-gate '$lang' >> '$WORKSPACE/loop-backend-$lang.log' 2>&1; then
               fail_count=0
-              # build OK: commit within scope only (worktree dir + harness/*)
+              # gate OK (cargo build + corpus render through this backend):
+              # commit within scope only (worktree dir + harness/*)
               git -C '$WORKSPACE' add \$changes 2>/dev/null || true
-              git -C '$WORKSPACE' commit -m 'backend $lang: build/fix (auto)' 2>/dev/null || true
+              git -C '$WORKSPACE' commit -m 'backend $lang: gate pass (build/fix)' 2>/dev/null || true
             else
               fail_count=\$((fail_count+1))
               # build FAIL: invoke pi (scoped) for a fix
@@ -466,6 +467,38 @@ case "${1:-}" in
                   pi --mode json --provider opencode-go --model deepseek-v4-flash \
                      --thinking xhigh < /tmp/pi-fix-prompt-$$ >> "$fix_log" 2>&1 || true
                   rm -f /tmp/pi-fix-prompt-$$
+                  exit 0 ;;
+  --backend-gate) # internal: the backend worker's progress signal. Render the
+                  # shared corpus (sh2perl/examples/*.sh = 531 + shell
+                  # testdata from all frontends) through THIS backend and
+                  # report PASS/FAIL. perl -> shir-in-perl; js ->
+                  # shir-in-estree; scaffolds -> shIR processable (their
+                  # renderer gate lands with the renderer). Usage:
+                  #   setup_backends.sh --backend-gate <lang>
+                  shift; g_lang="$1"
+                  # compile check first (the worktree against the core)
+                  if ! cargo build --manifest-path "$SUB/Cargo.toml" >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
+                    echo "  [$g_lang] backend gate: cargo build FAILED"; exit 1
+                  fi
+                  corpus=$(ls "$SUB"/examples/*.sh "$WORKSPACE"/frontends/*/testdata/*.sh 2>/dev/null)
+                  pass=0; skip=0; fail=0; fails=""
+                  for f in $corpus; do
+                    # shIR emit first: if the CORE emits nothing (rc!=0 or
+                    # empty JSON — the 4 parse-error test examples do this),
+                    # it is a SKIP (nothing to render, not a backend gap).
+                    shir=$("$SUB/target/debug/debashc" --shir "$f" --raw 2>/dev/null)
+                    if [ -z "$shir" ]; then
+                      skip=$((skip+1)); continue
+                    fi
+                    case "$g_lang" in
+                      perl) ok=$(printf '%s' "$shir" | "$SUB/target/debug/debashc" --shir-in-perl - >/dev/null 2>&1 && echo 1 || echo 0);;
+                      js)   ok=$(printf '%s' "$shir" | "$SUB/target/debug/debashc" --shir-in-estree - >/dev/null 2>&1 && echo 1 || echo 0);;
+                      *)    ok=1;;  # scaffolds: shIR processable is the emit above
+                    esac
+                    if [ "$ok" = 1 ]; then pass=$((pass+1)); else fail=$((fail+1)); fails="$f $fails"; fi
+                  done
+                  echo "  [$g_lang] backend gate: $pass/$((pass+skip+fail)) corpus render OK, $fail fail, $skip skip (core-unparseable)"
+                  if [ "$fail" -gt 0 ]; then echo "  fails: $fails" | head -c 200; echo; exit 1; fi
                   exit 0 ;;
   --worker-trapped) # internal: a worker is TRAPPED (repeated build
                   # failures, likely needing a core change it cannot make
