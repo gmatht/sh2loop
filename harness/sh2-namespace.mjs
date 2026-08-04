@@ -1035,6 +1035,74 @@ export const sh2 = {
     return matched;
   },
 
+  // cutText(text, args, captureMode) — the sync twin of the cut builtin
+  // for the emitter's `echo X | cut OP` fast path (src/shir.rs
+  // try_native_echo_cut): the pipeline's fd-1 write + exit status are
+  // the helper's emit + lastExit, so the async pipeline machinery
+  // disappears. The text is the FULL cut stdin (echo's output — the
+  // emitter appends the trailing newline unless `-n`), the args are the
+  // statically-validated cut options; the per-line selection is the
+  // builtin's exact algorithm (parseCutList/cutPositions, the -s line
+  // drop, the trailing-newline rule). cut exits 0 on the lifted shapes,
+  // so lastExit = 0 and the return is truthy (&&/||/if contexts branch
+  // like the real pipeline). Emits through the CURRENT fd-1 sink
+  // (module stdout, capture buffer, redirect target) — exactly where
+  // the pipeline's last stage would write.
+  cutText(text, args, captureMode) {
+    const s = String(text ?? '');
+    let delim = '\t';
+    let mode = null; // 'f' | 'c' | 'b'
+    let pos = null;
+    let suppress = false;
+    let outDelim = null;
+    for (let i = 0; i < args.length; i++) {
+      const a = String(args[i]);
+      if (a === '--output-delimiter') { outDelim = String(args[++i] ?? ''); continue; }
+      if (a.startsWith('--output-delimiter=')) { outDelim = a.slice('--output-delimiter='.length); continue; }
+      if (a === '-s') { suppress = true; continue; }
+      if (a === '-d') { delim = String(args[++i] ?? '')[0] || '\t'; continue; }
+      if (a.startsWith('-d') && a.length > 2) { delim = a[2]; continue; }
+      if (a === '-f' || a === '-c' || a === '-b') { mode = a[1]; pos = parseCutList(args[++i]); if (pos === null) { throw new Error(`cutText: invalid field/character list '${args[i]}'`); } continue; }
+      if (a.length > 2 && (a[1] === 'f' || a[1] === 'c' || a[1] === 'b')) {
+        mode = a[1]; pos = parseCutList(a.slice(2));
+        if (pos === null) { throw new Error(`cutText: invalid field/character list '${a.slice(2)}'`); }
+        continue;
+      }
+      throw new Error(`cutText: unsupported arg ${a}`);
+    }
+    if (mode === null) throw new Error('cutText: no -f/-c/-b list');
+    const joinDelim = outDelim !== null ? outDelim : delim;
+    const endsNL = s.endsWith('\n');
+    const lines = s.split('\n');
+    if (endsNL) lines.pop(); // drop the split's trailing '' element
+    const out = [];
+    for (let li = 0; li < lines.length; li++) {
+      const line = lines[li];
+      let sel;
+      if (mode === 'f') {
+        if (!line.includes(delim)) { if (suppress) continue; sel = line; }
+        else {
+          const fields = line.split(delim);
+          const picked = [];
+          for (const p of cutPositions(pos, fields.length)) picked.push(fields[p - 1]);
+          sel = picked.join(joinDelim);
+        }
+      } else {
+        const chars = [...line];
+        const picked = [];
+        for (const p of cutPositions(pos, chars.length)) picked.push(chars[p - 1]);
+        sel = picked.join('');
+      }
+      out.push(sel);
+    }
+    if (endsNL) out.push(''); // GNU emits the final newline even when the last line selected nothing
+    const outText = out.join('\n');
+    this.lastExit = 0;
+    if (captureMode) return outText;
+    if (outText.length > 0) emit(this, outText);
+    return true;
+  },
+
   async forLoop(items, bodyFn) {
     // Glob-expand any GLOB_MAGIC item (including elements of brace/array
     // results, which arrive as magic-prefixed strings inside arrays).
@@ -2472,47 +2540,52 @@ builtins.tail = function (args) {
 // (`a::b` with -f1,2 → `a:`); -c/-b past the line end yields an empty
 // line; the output's trailing newline mirrors the input's. No
 // -f/-c/-b at all is GNU's "you must specify a list" error (exit 1).
+//
+// The shared range parser/selector (also used by cutText, the echo|cut
+// pipeline fast path): parseCutList returns the MERGED, sorted [lo, hi]
+// range list for a range-list arg (hi may be MAX_SAFE_INTEGER for an
+// open `N-` range; null = malformed: `0`, a decreasing range, a bare
+// `-`, garbage). GNU merges adjacent / overlapping ranges
+// (`-f1-3,2-4` is 1..4) — the per-line selection clamps hi to the line
+// length, so open ranges are cheap.
+function parseCutList(s) {
+  const ranges = [];
+  for (const part of String(s).split(',')) {
+    const m = /^(\d*)-(\d*)$/.exec(part.trim()) || /^(\d+)$/.exec(part.trim());
+    if (!m) return null;
+    let lo, hi;
+    if (m[0].includes('-')) {
+      const [, a, b] = m;
+      if (a === '' && b === '') return null;
+      lo = a === '' ? 1 : parseInt(a, 10);
+      hi = b === '' ? Number.MAX_SAFE_INTEGER : parseInt(b, 10);
+    } else {
+      lo = hi = parseInt(m[1], 10);
+    }
+    if (lo < 1 || hi < 1 || hi < lo) return null;
+    ranges.push([lo, hi]);
+  }
+  ranges.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+  const merged = [];
+  for (const r of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && r[0] <= last[1] + 1) last[1] = Math.max(last[1], r[1]);
+    else merged.push([...r]);
+  }
+  return merged;
+}
+
+// positions of a line of length L under the merged ranges (clamped)
+function cutPositions(ranges, L) {
+  const out = [];
+  for (const [lo, hi] of ranges) {
+    const h = Math.min(hi, L);
+    for (let p = lo; p <= h; p++) out.push(p);
+  }
+  return out;
+}
+
 builtins.cut = function (args) {
-  // returns the MERGED, sorted [lo, hi] range list for a range-list arg
-  // (hi may be MAX_SAFE_INTEGER for an open `N-` range; null = malformed:
-  // `0`, a decreasing range, a bare `-`, garbage). GNU merges adjacent /
-  // overlapping ranges (`-f1-3,2-4` is 1..4) — the per-line selection
-  // clamps hi to the line length, so open ranges are cheap.
-  const parseList = (s) => {
-    const ranges = [];
-    for (const part of String(s).split(',')) {
-      const m = /^(\d*)-(\d*)$/.exec(part.trim()) || /^(\d+)$/.exec(part.trim());
-      if (!m) return null;
-      let lo, hi;
-      if (m[0].includes('-')) {
-        const [, a, b] = m;
-        if (a === '' && b === '') return null;
-        lo = a === '' ? 1 : parseInt(a, 10);
-        hi = b === '' ? Number.MAX_SAFE_INTEGER : parseInt(b, 10);
-      } else {
-        lo = hi = parseInt(m[1], 10);
-      }
-      if (lo < 1 || hi < 1 || hi < lo) return null;
-      ranges.push([lo, hi]);
-    }
-    ranges.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
-    const merged = [];
-    for (const r of ranges) {
-      const last = merged[merged.length - 1];
-      if (last && r[0] <= last[1] + 1) last[1] = Math.max(last[1], r[1]);
-      else merged.push([...r]);
-    }
-    return merged;
-  };
-  // positions of a line of length L under the merged ranges (clamped)
-  const positions = (ranges, L) => {
-    const out = [];
-    for (const [lo, hi] of ranges) {
-      const h = Math.min(hi, L);
-      for (let p = lo; p <= h; p++) out.push(p);
-    }
-    return out;
-  };
   let delim = '\t';
   let mode = null; // 'f' | 'c' | 'b'
   let pos = null;
@@ -2527,11 +2600,11 @@ builtins.cut = function (args) {
     if (a === '-s') { suppress = true; continue; }
     if (a === '-d') { delim = String(args[++i] ?? '')[0] || '\t'; continue; }
     if (a.startsWith('-d') && a.length > 2) { delim = a[2]; continue; }
-    if (a === '-f' || a === '-c' || a === '-b') { mode = a[1]; pos = parseList(args[++i]); if (pos === null) { emitErr(this, `cut: invalid field/character list '${args[i]}'\n`); this.lastExit = 1; return false; } continue; }
+    if (a === '-f' || a === '-c' || a === '-b') { mode = a[1]; pos = parseCutList(args[++i]); if (pos === null) { emitErr(this, `cut: invalid field/character list '${args[i]}'\n`); this.lastExit = 1; return false; } continue; }
     if (a.length > 2 && (a[1] === 'f' || a[1] === 'c' || a[1] === 'b')) {
       // attached value: `-f1,3` / `-c3-5` / `-b1-2` (but NOT `-c` alone,
       // and NOT `-d:` — the -d case was handled above)
-      mode = a[1]; pos = parseList(a.slice(2));
+      mode = a[1]; pos = parseCutList(a.slice(2));
       if (pos === null) { emitErr(this, `cut: invalid field/character list '${a.slice(2)}'\n`); this.lastExit = 1; return false; }
       continue;
     }
@@ -2557,13 +2630,13 @@ builtins.cut = function (args) {
         else {
           const fields = line.split(delim);
           const picked = [];
-          for (const p of positions(pos, fields.length)) picked.push(fields[p - 1]);
+          for (const p of cutPositions(pos, fields.length)) picked.push(fields[p - 1]);
           sel = picked.join(joinDelim);
         }
       } else {
         const chars = [...line];
         const picked = [];
-        for (const p of positions(pos, chars.length)) picked.push(chars[p - 1]);
+        for (const p of cutPositions(pos, chars.length)) picked.push(chars[p - 1]);
         sel = picked.join('');
       }
       out.push(sel);

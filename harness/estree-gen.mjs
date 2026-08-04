@@ -80,7 +80,11 @@ function exprUnwrapped(node) {
       return `${node.async ? 'async ' : ''}${params} => ${body}`;
     }
     case 'ArrayExpression':
-      return `[${node.elements.map(e => e === null || e === undefined ? '' : parenSeq(e, expr(e))).join(', ')}]`;
+      // SpreadElement elements print as `...x` (never parenSeq-wrapped:
+      // `(...x)` inside an array literal is a SyntaxError)
+      return `[${node.elements.map(e => e === null || e === undefined ? '' : e.type === 'SpreadElement' ? expr(e) : parenSeq(e, expr(e))).join(', ')}]`;
+    case 'SpreadElement':
+      return `...${parenSeq(node.argument, expr(node.argument))}`;
     case 'ObjectExpression':
       return `{${node.properties.map(prop).join(', ')}}`;    case 'LogicalExpression':
       // Parenthesize compound operands: `??` must never mix bare with
