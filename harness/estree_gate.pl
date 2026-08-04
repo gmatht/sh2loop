@@ -91,7 +91,7 @@ sub walk {
                 && ($obj->{type} // '') eq 'Identifier'
                 && ($obj->{name} // '') eq 'Math'
                 && ref $prop eq 'HASH'
-                && ($prop->{name} // '') =~ /^(trunc|floor|ceil)$/;
+                && ($prop->{name} // '') =~ /^(trunc|floor|ceil|sqrt)$/;
             # Number.isNaN — the NaN-guarded numeric test lowering (bash's
             # "integer expression expected" error → the whole test is false)
             my $is_number_member = ref $obj eq 'HASH'
