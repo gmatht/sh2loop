@@ -120,7 +120,8 @@ function parseGrepArgs(args, allowFiles) {
     quiet: false, whole: false, ci: false, max: Infinity, after: 0,
     before: 0, flavor: 'bre', filesOnly: false, filesWithout: false,
     noName: false, forceName: false, nul: false, byteOffset: false,
-    wholeWord: false, color: false, recursive: false };
+    wholeWord: false, color: false, recursive: false,
+    includes: [], excludes: [] };
   const patterns = [];
   const files = [];
   let patternSeen = false;
@@ -133,6 +134,14 @@ function parseGrepArgs(args, allowFiles) {
       // --color=always colors the matches; --color / =never / =auto are
       // no-ops on a pipe (the harness stdout is never a tty).
       if (a === '--color=always') opts.color = true;
+      continue;
+    }
+    if (!afterDD && (a === '--include' || a.startsWith('--include='))) {
+      opts.includes.push(a === '--include' ? String(args[++i]) : a.slice('--include='.length));
+      continue;
+    }
+    if (!afterDD && (a === '--exclude' || a.startsWith('--exclude='))) {
+      opts.excludes.push(a === '--exclude' ? String(args[++i]) : a.slice('--exclude='.length));
       continue;
     }
     if (!afterDD && a.length > 1 && a.startsWith('-')) {
@@ -2743,23 +2752,40 @@ builtins.grep = function (args) {
   const out = [];
   let anySelected = false;
   let failed = false;
+  // --include/--exclude file-name filters (GNU: glob against the BASE
+  // name; applies to -r walk results and command-line file operands)
+  const nameOk = (p) => {
+    if (process.env.GREP_DEBUG) process.stderr.write("nameOk " + p + " includes=" + JSON.stringify(opts.includes) + " glob=" + opts.includes.map(g => globMatch(g, path.basename(p))).join(",") + "\n");
+    const bn = path.basename(p);
+    if (opts.includes.length && !opts.includes.some((g) => globMatch(g, bn))) return false;
+    if (opts.excludes.some((g) => globMatch(g, bn))) return false;
+    return true;
+  };
   // enumerate sources: FILE operands (directories expand under -r), else
   // the current fd-0 input (pipe / heredoc / herestring / file redirect)
   const sources = []; // {name, content} | {name, read}
   let sawDir = false;
   const walkDir = (dir) => {
     const res = [];
-    let entries;
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
-    catch {
+    let dh;
+    try { dh = fs.opendirSync(dir); } catch {
       failed = true;
       emitErr(this, `grep: ${dir}: No such file or directory\n`);
       return res;
     }
-    for (const e of entries) {
-      const p = dir + '/' + e.name;
-      if (e.isDirectory()) res.push(...walkDir(p));
-      else if (e.isFile() || e.isSymbolicLink()) res.push(p);
+    try {
+      let e;
+      // opendirSync/readSync — the RAW readdir order. GNU grep -r walks
+      // with readdir(3) (getdents order, not sorted); fs.readdirSync
+      // sorts (scandir+alphasort), which would reorder multi-file -r
+      // output vs bash.
+      while ((e = dh.readSync()) !== null) {
+        const p = dir + '/' + e.name;
+        if (e.isDirectory()) res.push(...walkDir(p));
+        else if ((e.isFile() || e.isSymbolicLink()) && nameOk(p)) res.push(p);
+      }
+    } finally {
+      dh.closeSync();
     }
     return res;
   };
@@ -2775,6 +2801,9 @@ builtins.grep = function (args) {
         emitErr(this, `grep: ${f}: No such file or directory\n`);
         continue;
       }
+      // --include/--exclude filter FILE operands, never directory
+      // operands (GNU: a dir is still walked/errored regardless)
+      if (!st.isDirectory() && !nameOk(f)) continue;
       if (st.isDirectory()) {
         if (!opts.recursive) {
           failed = true;
