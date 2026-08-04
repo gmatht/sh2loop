@@ -129,7 +129,7 @@ sub walk {
                     || ($obj->{type} // '') eq 'BinaryExpression' || ($obj->{type} // '') eq 'Literal'
                     || ($obj->{type} // '') eq 'Identifier')
                 && ref $prop eq 'HASH'
-                && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase|toUpperCase|charAt|slice|split|join|flat|sort|then|catch|trim|replace|lastIndexOf|concat|filter|map|indexOf)$/;
+                && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase|toUpperCase|charAt|slice|split|join|flat|sort|then|catch|trim|replace|lastIndexOf|concat|filter|map|indexOf|test)$/;
             # Buffer.byteLength(text, 'utf8') — the native wc -c byte-count
             # lowering (the runtime wc's exact formula; node global)
             my $is_buffer = ref $obj eq 'HASH'
