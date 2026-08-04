@@ -2766,6 +2766,7 @@ builtins.grep = function (args) {
   if (files.length === 0) {
     sources.push({ name: '(standard input)', content: readFd0(this) });
   } else {
+    const dirCounts = []; // -c on a dir operand (no -r): GNU emits a 0 count
     for (const f of files) {
       if (f === '-') { sources.push({ name: '(standard input)', content: readFd0(this) }); continue; }
       let st = null;
@@ -2778,6 +2779,7 @@ builtins.grep = function (args) {
         if (!opts.recursive) {
           failed = true;
           emitErr(this, `grep: ${f}: Is a directory\n`);
+          if (opts.count) dirCounts.push(f);
           continue;
         }
         sawDir = true;
@@ -2786,8 +2788,16 @@ builtins.grep = function (args) {
         sources.push({ name: f, read: () => fs.readFileSync(f, 'utf8') });
       }
     }
+    // GNU counts the FILE OPERANDS (not the successfully-read sources)
+    // for the prefix decision, and emits a `0` count line per dir operand
+    // (no -r) even though it errors on them.
+    const prefix = (files.length > 1 || sawDir || opts.forceName) && !opts.noName
+      ? (n) => n + ':' : () => '';
+    for (const d of dirCounts) out.push(prefix(d) + '0\n');
   }
-  const prefix = (sources.length > 1 || sawDir || opts.forceName) && !opts.noName
+  // the prefix decision: >1 file OPERANDS, a -r directory expansion, or
+  // -H (suppressed by -h) — GNU counts operands, not readable sources
+  const prefix = (files.length > 1 || sawDir || opts.forceName) && !opts.noName
     ? (n) => n + ':' : () => '';
   const sep = opts.nul ? '\0' : '\n';
   for (const s of sources) {
