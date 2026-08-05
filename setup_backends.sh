@@ -357,33 +357,31 @@ do_start_workers () {
       cd '$dir'
       fail_count=0
       while true; do
-        # light: git status / scope check
-        if git -C '$WORKSPACE' rev-parse --git-dir >/dev/null 2>&1; then
+        # FAILURE-DRIVEN: run the backend gate (cargo build + corpus render
+        # through this backend) EVERY iteration — not just on uncommitted
+        # changes (the old change-driven loop idled on a clean-but-broken
+        # tree). The --wait gate (CPU+RAM) throttles heavy runs.
+        bash \"$WORKSPACE/setup_backends.sh\" --wait 2>>\"\$LOG\" || true
+        echo \"[\$(date +%FT%T)] $lang: gate run\" >> '$WORKSPACE/loop-backend-$lang.log'
+        if bash "$WORKSPACE/setup_backends.sh" --backend-gate '$lang' >> '$WORKSPACE/loop-backend-$lang.log' 2>&1; then
+          fail_count=0
+          # gate OK: commit any scoped changes (worktree dir + harness/*)
           changes=\$(git -C '$WORKSPACE' status --porcelain 2>/dev/null \
                     | awk '/^.. /{print \$2}' \
                     | awk -v d='$dir' '\$0 ~ \"^\"d || \$0 ~ /^harness\\//' || true)
           if [ -n \"\$changes\" ]; then
-            # heavy: wait for low load, then build
-            bash \"$WORKSPACE/setup_backends.sh\" --wait 2>>\"\$LOG\" || true
-            echo \"[\$(date +%FT%T)] $lang: build start\" >> '$WORKSPACE/loop-backend-$lang.log'
-            if bash "$WORKSPACE/setup_backends.sh" --backend-gate '$lang' >> '$WORKSPACE/loop-backend-$lang.log' 2>&1; then
-              fail_count=0
-              # gate OK (cargo build + corpus render through this backend):
-              # commit within scope only (worktree dir + harness/*)
-              git -C '$WORKSPACE' add \$changes 2>/dev/null || true
-              git -C '$WORKSPACE' commit -m 'backend $lang: gate pass (build/fix)' 2>/dev/null || true
-            else
-              fail_count=\$((fail_count+1))
-              # build FAIL: invoke pi (scoped) for a fix
-              echo \"[\$(date +%FT%T)] $lang: build FAILED (\$fail_count/3) — invoking pi (deepseek-v4-flash, scoped)\" >> '$WORKSPACE/loop-backend-$lang.log'
-              bash \"$WORKSPACE/setup_backends.sh\" --pi-fix-backend '$lang' 2>>\"\$LOG\" || true
-              if [ \"\$fail_count\" -ge 3 ]; then
-                echo \"[\$(date +%FT%T)] $lang: TRAPPED — escalating to core request and sleeping\" >> '$WORKSPACE/loop-backend-$lang.log'
-                # blocks until the estree worker removes core-requests/sleeping-$lang
-                bash \"$WORKSPACE/setup_backends.sh\" --worker-trapped '$lang' backend >> \"\$LOG\" 2>&1 || true
-                fail_count=0
-              fi
-            fi
+            git -C '$WORKSPACE' add \$changes 2>/dev/null || true
+            git -C '$WORKSPACE' commit -m 'backend $lang: gate pass' 2>/dev/null || true
+          fi
+          echo \"[\$(date +%FT%T)] $lang: gate GREEN\" >> '$WORKSPACE/loop-backend-$lang.log'
+        else
+          fail_count=\$((fail_count+1))
+          echo \"[\$(date +%FT%T)] $lang: gate FAILED (\$fail_count/3) — invoking pi (deepseek-v4-flash, scoped)\" >> '$WORKSPACE/loop-backend-$lang.log'
+          bash \"$WORKSPACE/setup_backends.sh\" --pi-fix-backend '$lang' 2>>\"\$LOG\" || true
+          if [ \"\$fail_count\" -ge 3 ]; then
+            echo \"[\$(date +%FT%T)] $lang: TRAPPED — escalating to core request and sleeping\" >> '$WORKSPACE/loop-backend-$lang.log'
+            bash \"$WORKSPACE/setup_backends.sh\" --worker-trapped '$lang' backend >> \"\$LOG\" 2>&1 || true
+            fail_count=0
           fi
         fi
         sleep 300
