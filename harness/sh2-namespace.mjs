@@ -3919,17 +3919,26 @@ function writeFileSync(target, data, mode = 'w') {
 // the corpus never uses a TTY). The corpus compares final stdout only, so
 // the only observable difference is WHEN bytes hit the pipe.
 let _realStdoutWrite = null;
-let _stdoutParts = null;
+let _stdoutStr = null;      // string chunks — the echo/printf hot path (rope append, no per-call alloc)
+let _stdoutBin = null;      // Buffer chunks (rare: binary spawn output) — flushed after the string acc
 let _stdoutLen = 0;
 const STDOUT_BUF_LIMIT = 4096;
 
 function _flushStdout() {
-  if (!_stdoutParts || _stdoutParts.length === 0) return;
-  const parts = _stdoutParts;
-  _stdoutParts = [];
+  if (!_stdoutStr && (!_stdoutBin || _stdoutBin.length === 0)) return;
+  if (_stdoutBin && _stdoutBin.length > 0) {
+    // binary chunks queued: flush the string accumulator FIRST (write order
+    // is observable), then the buffers
+    if (_stdoutStr) { _realStdoutWrite(_stdoutStr); _stdoutStr = null; }
+    const bins = _stdoutBin;
+    _stdoutBin = null;
+    _realStdoutWrite(bins.length === 1 ? bins[0] : Buffer.concat(bins));
+  } else {
+    const s = _stdoutStr;
+    _stdoutStr = null;
+    _realStdoutWrite(s);
+  }
   _stdoutLen = 0;
-  const all = parts.length === 1 ? parts[0] : Buffer.concat(parts);
-  _realStdoutWrite(all);
 }
 
 function _installStdoutBuffer() {
@@ -3937,11 +3946,19 @@ function _installStdoutBuffer() {
   const out = process.stdout;
   _realStdoutWrite = out.write.bind(out);
   if (!out.isTTY) {
-    _stdoutParts = [];
+    _stdoutStr = '';
     out.write = function (chunk, encoding, cb) {
-      const b = typeof chunk === 'string' ? Buffer.from(chunk, encoding || 'utf8') : chunk;
-      _stdoutParts.push(b);
-      _stdoutLen += b.length;
+      if (typeof chunk === 'string' && (!encoding || encoding === 'utf8')) {
+        // hot path: rope append — no per-call Buffer.from allocation (the
+        // output:echo/printf bench bottleneck: 2.5M/s vs 27M/s measured)
+        _stdoutStr += chunk;
+        _stdoutLen += chunk.length;
+      } else {
+        if (_stdoutStr) { _realStdoutWrite(_stdoutStr); _stdoutStr = null; }
+        if (!_stdoutBin) _stdoutBin = [];
+        _stdoutBin.push(typeof chunk === 'string' ? Buffer.from(chunk, encoding || 'utf8') : chunk);
+        _stdoutLen += _stdoutBin[_stdoutBin.length - 1].length;
+      }
       if (_stdoutLen >= STDOUT_BUF_LIMIT) _flushStdout();
       return true;
     };
