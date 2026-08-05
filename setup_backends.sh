@@ -576,13 +576,19 @@ case "${1:-}" in
                       if ! cargo build --manifest-path "$SUB/Cargo.toml" >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
                         echo "  [$g_lang] backend gate: core build FAILED"; exit 1
                       fi
-                      # js's renderer lives in the WORKTREE (--shir-in-js,
-                      # worktree-local — mirrors the c_backend pattern): the
-                      # old empty-flag arm hit the cli's shell-command
-                      # fallback (never read stdin), which SIGPIPE-races the
-                      # corpus pipe under load (rc=141 false fails). Probe it
-                      # like the scaffolds; perl keeps the shared default.
-                      if [ "$g_lang" = "js" ]; then
+                      # js's + perl's renderers live in the WORKTREES
+                      # (--shir-in-js / --shir-in-perl, worktree-local —
+                      # mirrors the c_backend pattern): the old empty-flag
+                      # arm hit the cli's shell-command fallback (never read
+                      # stdin), which SIGPIPE-races the corpus pipe under
+                      # load (rc=141 false fails). Probe them like the
+                      # scaffolds. (perl's worktree renderer — src/
+                      # perl_backend.rs, shir_to_perl — renders the full ShIR
+                      # vocabulary without panicking, unlike the shared
+                      # core's legacy ir_to_perl which still has
+                      # ESTree-path-only unreachable! arms; see
+                      # core-requests/perl-*.md.)
+                      if [ "$g_lang" = "js" ] || [ "$g_lang" = "perl" ]; then
                         if ! (export CARGO_TARGET_DIR="$g_wt/target"; cargo build --manifest-path "$g_wt/Cargo.toml") >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
                           echo "  [$g_lang] backend gate: worktree build FAILED"; exit 1
                         fi
