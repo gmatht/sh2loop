@@ -820,7 +820,16 @@ export const sh2 = {
         else if (fd1.kind === 'file') streamWrite(fd1.target, d, fd1.mode ?? 'w');
         else if (fd1.kind === 'stderr') process.stderr.write(d); // `1>&2` dup
         else if (fd1.kind === 'closed') closedFdWrite = true; // bytes lost, like bash's EBADF
-        else if (fd1.kind === 'stdout') process.stdout.write(d);
+        else if (fd1.kind === 'stdout') {
+          // Child bytes hit the shared fd directly in bash (the child is a
+          // separate writer); routing them through the coalescing buffer
+          // would defer them until a later flush and REORDER them after
+          // shell-buffered echo/printf output (which bash flushes only at
+          // exit). Flush the pending shell strings (bash flushes before
+          // fork/exec — already done in _runProc) and write the chunk now.
+          _flushStdout();
+          _realStdoutWrite(d);
+        }
       });
       child.stderr.on('data', (d) => {
         // `2>&1` makes stderr part of the stdout target — into the capture
@@ -828,7 +837,7 @@ export const sh2 = {
         // bash routes the bytes exactly like the dup'd fd.
         if (fd2.kind === 'capture') { fd2.buf += d.toString('utf8'); killOnCap(fd2.buf); }
         else if (fd2.kind === 'file') streamWrite(fd2.target, d, fd2.mode ?? 'w');
-        else if (fd2.kind === 'stdout') process.stdout.write(d);
+        else if (fd2.kind === 'stdout') { _flushStdout(); _realStdoutWrite(d); } // `2>&1`
         else if (fd2.kind === 'closed') closedFdWrite = true; // bytes lost, like bash's EBADF
         else if (fd2.kind === 'stderr') process.stderr.write(d);
       });
@@ -3950,7 +3959,10 @@ function _installStdoutBuffer() {
     out.write = function (chunk, encoding, cb) {
       if (typeof chunk === 'string' && (!encoding || encoding === 'utf8')) {
         // hot path: rope append — no per-call Buffer.from allocation (the
-        // output:echo/printf bench bottleneck: 2.5M/s vs 27M/s measured)
+        // output:echo/printf bench bottleneck: 2.5M/s vs 27M/s measured).
+        // _flushStdout nulls the accumulator; a later append must not turn
+        // into the literal "null" prefix (`null + x`).
+        if (_stdoutStr === null) _stdoutStr = '';
         _stdoutStr += chunk;
         _stdoutLen += chunk.length;
       } else {
