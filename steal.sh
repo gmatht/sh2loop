@@ -77,7 +77,9 @@ cd "$WORK/ws" || exit 1
 # the submodule: fetch from the SERVER, not github (the desktop may not
 # have a github key — that was the hang). Redirect the URL + shallow.
 git config submodule.sh2perl.url "ssh://$SERVER/nvme/ai/sh2loop/sh2perl"
+echo "[$(date +%FT%T)] steal: fetching the submodule from $SERVER..."
 git submodule update --init --depth 1 sh2perl >/dev/null 2>&1
+echo "[$(date +%FT%T)] steal: clone done — starting the slot loops (the first gate builds the core, which takes minutes — that is NOT a freeze)"
 
 # a worker function: the SAME gate+pi loop, run for one leased slot
 run_slot() {
@@ -85,6 +87,7 @@ run_slot() {
   git -C sh2perl checkout "backend/$l" 2>/dev/null || git -C sh2perl checkout -b "backend/$l" 2>/dev/null
   git -C sh2perl worktree add "sh2perl/backends/$l" "backend/$l" 2>/dev/null || true
   local fail_count=0
+  echo "[$(date +%FT%T)] steal($l): loop started — first gate builds the core (~minutes), then the gate result"
   while true; do
     [ -f "$CANCEL" ] && { echo "[$(date +%FT%T)] steal($l): cancelled"; return; }
     load_ok || { echo "[$(date +%FT%T)] steal($l): desktop load rose — returning"; return; }
