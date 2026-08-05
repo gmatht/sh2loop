@@ -61,3 +61,7 @@ errors.log
 out.txt
 users.txt
 final_result.txt
+comparison.txt
+config.txt
+x.py
+frontends/*/generated/
