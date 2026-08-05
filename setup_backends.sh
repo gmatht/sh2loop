@@ -748,6 +748,17 @@ case "${1:-}" in
                   done
                   echo "  [$g_lang] backend gate: $pass/$((pass+skip+fail)) corpus render OK, $fail fail ($stub_files stubs, $eq_fail equiv), $skip skip — $stub_total stubs emitted${eq_gate:+; equiv: $eq_pass pass vs bash}"
                   if [ "$fail" -gt 0 ]; then echo "  fails: $fails" | head -c 200; echo; exit 1; fi
+                  # valgrind memory gate (the C worker): the generated C
+                  # must run without memory errors — a bounded sample (the
+                  # full 531 under valgrind is too slow for the gate loop)
+                  if [ "$g_lang" = "c" ] && command -v valgrind >/dev/null 2>&1; then
+                    sample=$(ls "$SUB"/examples/*.sh 2>/dev/null | head -25)
+                    if bash "$WORKSPACE/harness/c_valgrind.sh" $sample >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
+                      echo "  [$g_lang] backend gate: valgrind clean (25-sample)"
+                    else
+                      echo "  [$g_lang] backend gate: VALGRIND FAILURES — the renderer emits memory errors"; exit 1
+                    fi
+                  fi
                   exit 0 ;;
   --worker-trapped) # internal: a worker is TRAPPED (repeated build
                   # failures, likely needing a core change it cannot make
