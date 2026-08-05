@@ -9,3 +9,6 @@ harness/node_modules/
 # per-worktree cargo build dirs (work-stealing — NEVER commit these)
 sh2perl/backends/*/target/
 sh2perl/backends/*/target-core/
+
+# the estree-runner's transient scratch (mkdtemp under harness/) — NEVER commit
+harness/.estree-run-*/
