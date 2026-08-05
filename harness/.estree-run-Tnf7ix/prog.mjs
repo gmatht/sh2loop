@@ -1,0 +1,21 @@
+import { sh2 } from "/nvme/ai/sh2loop/harness/sh2-namespace.mjs";
+sh2._init("/nvme/ai/sh2loop/sh2perl/examples/011_brace_expansion.sh", []);
+sh2._setAllowlist(["/usr/bin/env","bash","Brace","expansion","examples","Demonstrates","various","brace","patterns","in","Bash","-euo","pipefail","Basic","1..5","a..c","00..04..2","Advanced","a","b","c","1","2","3","1..10..2","a..z..3","Practical","Create","numbered","files","file_","001..005",".txt","ls","rm","result","brace_expand:"]);
+let result = "";
+sh2.builtin("set", ["-e", "-u", "-o", "pipefail"]);
+process.stdout.write("== Basic brace expansion ==\n"), (sh2.lastExit = 0), true;
+process.stdout.write("1 2 3 4 5\n"), (sh2.lastExit = 0), true;
+process.stdout.write("a b c\n"), (sh2.lastExit = 0), true;
+process.stdout.write("00 02 04\n"), (sh2.lastExit = 0), true;
+process.stdout.write("== Advanced brace expansion ==\n"), (sh2.lastExit = 0), true;
+process.stdout.write("a1 a2 a3 b1 b2 b3 c1 c2 c3\n"), (sh2.lastExit = 0), true;
+process.stdout.write("1 3 5 7 9\n"), (sh2.lastExit = 0), true;
+process.stdout.write("a d g j m p s v y\n"), (sh2.lastExit = 0), true;
+process.stdout.write("== Practical examples ==\n"), (sh2.lastExit = 0), true;
+(sh2._g = sh2.builtin("touch", [["file_001.txt", "file_002.txt", "file_003.txt", "file_004.txt", "file_005.txt"]])), ((sh2.errexit && !sh2._g) ? process.exit(0) : sh2._g);
+(sh2._g = await sh2.exec("ls", ["\u0001SH2GLOB\u0001file_*.txt"])), ((sh2.errexit && !sh2._g) ? process.exit(0) : sh2._g);
+(sh2._g = await sh2.exec("rm", ["\u0001SH2GLOB\u0001file_*.txt"])), ((sh2.errexit && !sh2._g) ? process.exit(0) : sh2._g);
+result = "1 2 3 4 5";
+process.stdout.write([String(`brace_expand: ${result}`)].join(" ") + "\n"), (sh2.lastExit = 0), true;
+
+await sh2._finish();
