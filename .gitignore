@@ -50,3 +50,14 @@ examples.new/
 # pi session transcripts anywhere
 **/*.jsonl
 .estree_loop.lock
+
+# ad-hoc analysis scratch (the remaining stragglers)
+__tmp_run_*.pl
+analyze_*.pl
+analyze_*.mjs
+a.txt
+b.txt
+errors.log
+out.txt
+users.txt
+final_result.txt
