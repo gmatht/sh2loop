@@ -652,6 +652,32 @@ case "${1:-}" in
                       rm -f /tmp/gate_probe_$$;;
                   esac
                   corpus=$(ls "$SUB"/examples/*.sh "$WORKSPACE"/frontends/*/testdata/*.sh 2>/dev/null)
+                  # ── EQUIVALENCE gate (scaffolds only) ──────────────────────
+                  # A render-clean file (exit 0 + no stubs) must ALSO match
+                  # bash's stdout when compiled+run — wrong-but-compiling code
+                  # no longer passes. Only for scaffolds with a toolchain
+                  # (java has no javac here → render-only; js/perl have their
+                  # own correctness gates — fail-estree / ir_to_perl).
+                  # MULTITASKING: SERIAL by design. The gate is a correctness
+                  # signal, not a benchmark — 7 scaffold workers × parallel
+                  # gcc/go/rustc compiles would spike the shared 8-core box
+                  # (already load 20+). The worker's --wait load gate throttles
+                  # the gate as a whole; per-file runs are one-at-a-time. Set
+                  # EQUIV_PARALLEL=N to enable xargs -P N if gate time ever
+                  # becomes the bottleneck.
+                  eq_tool=""; eq_ext=""
+                  case "$g_lang" in
+                    c)      eq_tool="cc";        eq_ext="c";;
+                    go)     eq_tool="/snap/go/current/bin/go"; eq_ext="go";;
+                    python) eq_tool="python3";    eq_ext="py";;
+                    rust)   eq_tool="rustc";      eq_ext="rs";;
+                    zig)    eq_tool="zig";        eq_ext="zig";;
+                    sh)     eq_tool="sh";         eq_ext="sh";;
+                  esac
+                  eq_gate=0; eq_pass=0; eq_fail=0
+                  if [ "$g_stubgate" = 1 ] && [ -n "$eq_tool" ] && command -v "$eq_tool" >/dev/null 2>&1; then
+                    eq_gate=1
+                  fi
                   pass=0; skip=0; fail=0; fails=""; stub_total=0; stub_files=0
                   for f in $corpus; do
                     # shIR emit from the CORE (the A1 contract source of truth):
@@ -681,14 +707,38 @@ case "${1:-}" in
                     fi
                     stub_total=$((stub_total + s))
                     if [ "$ok" = 1 ] && [ "$s" -eq 0 ]; then
-                      pass=$((pass+1))
+                      if [ "$eq_gate" = 1 ]; then
+                        # EQUIVALENCE: compile+run the render, diff its stdout
+                        # against `bash "$f"`. A mismatch = wrong lowering the
+                        # worker must fix (the gate's new correctness oracle).
+                        printf '%s' "$g_out" > /tmp/eq_$$.$eq_ext
+                        eq_exit=1
+                        case "$g_lang" in
+                          c)    cc /tmp/eq_$$.c -o /tmp/eq_$$_bin 2>/dev/null && timeout 15 /tmp/eq_$$_bin > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
+                          go)   timeout 30 "$eq_tool" run /tmp/eq_$$.go > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
+                          python) timeout 15 python3 /tmp/eq_$$.py > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
+                          rust) rustc /tmp/eq_$$.rs -o /tmp/eq_$$_bin 2>/dev/null && timeout 15 /tmp/eq_$$_bin > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
+                          zig)  timeout 30 "$eq_tool" run /tmp/eq_$$.zig > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
+                          sh)   timeout 15 sh /tmp/eq_$$.sh > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
+                        esac
+                        if [ "$eq_exit" = 0 ] \
+                           && timeout 15 bash "$f" > /tmp/eq_$$_ref 2>/dev/null \
+                           && diff -q /tmp/eq_$$_out /tmp/eq_$$_ref >/dev/null 2>&1; then
+                          pass=$((pass+1)); eq_pass=$((eq_pass+1))
+                        else
+                          fail=$((fail+1)); eq_fail=$((eq_fail+1)); fails="$f $fails"
+                        fi
+                        rm -f /tmp/eq_$$_bin /tmp/eq_$$_out /tmp/eq_$$_ref /tmp/eq_$$.$eq_ext
+                      else
+                        pass=$((pass+1))
+                      fi
                     else
                       fail=$((fail+1))
                       [ "$s" -gt 0 ] && stub_files=$((stub_files+1))
                       fails="$f $fails"
                     fi
                   done
-                  echo "  [$g_lang] backend gate: $pass/$((pass+skip+fail)) corpus render OK, $fail fail ($stub_files with sh2 stubs), $skip skip (core-unparseable) — $stub_total sh2 stub/TODO markers emitted"
+                  echo "  [$g_lang] backend gate: $pass/$((pass+skip+fail)) corpus render OK, $fail fail ($stub_files stubs, $eq_fail equiv), $skip skip — $stub_total stubs emitted${eq_gate:+; equiv: $eq_pass pass vs bash}"
                   if [ "$fail" -gt 0 ]; then echo "  fails: $fails" | head -c 200; echo; exit 1; fi
                   exit 0 ;;
   --worker-trapped) # internal: a worker is TRAPPED (repeated build
