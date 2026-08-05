@@ -69,7 +69,8 @@ my $history_log  = "$project_root/.estree_history.log";
 my $lock_file    = "$project_root/.estree_loop.lock";
 # improvement-mode (M8 / PLAN.md §9) state
 my $metric_file  = "$project_root/.estree_metric.tsv";       # fail-estree --metric writes (current run)
-my $metric_prev  = "$project_root/.estree_metric_prev.tsv";  # committed-state metric baseline
+my $metric_prev  = "$project_root/.estree_metric_prev.tsv";
+my $bench_file    = "$project_root/.estree_bench.tsv";   # persisted benchmark trend (js/bash per bench)  # committed-state metric baseline
 my $improvement_idle_count = 0;
 
 my $dry_run = 0;
@@ -333,6 +334,24 @@ sub build_plan_prompt {
 # ── benchmark fruit (JS vs bash ops/sec) for the improvement prompt ──
 # Runs bench.sh on a fast subset and returns the rows sorted by worst
 # js:bash ratio — the per-iteration overhead and spawns that remain.
+# Persist a benchmark run to .estree_bench.tsv (appending a timestamped
+# block per run, so the trend accumulates: js/bash ratios improving =
+# the sh2.* sync/async removal paying off). Also logs a bench decision.
+sub write_bench_file {
+    my ($rows) = @_;
+    return unless @$rows;
+    open my $fh, '>>', $bench_file or return;
+    my $ts = localtime();
+    print $fh "# run $ts\n";
+    for my $r (@$rows) {
+        print $fh join("\t", $r->[0], $r->[1], ($r->[2] =~ /^\d+$/ ? $r->[2] : 'ERR'), $r->[3], $r->[4]), "\n";
+    }
+    close $fh;
+    # log the trend signal: rows[0] = worst ratio (sorted ascending),
+    # rows[-1] = best. Improving worst = sync-removal progress.
+    log_decision('bench', scalar(@$rows), $rows->[0][4] // '?', $rows->[-1][4] // '?');
+}
+
 sub build_bench_prompt {
     my $sb = $ENV{SHELLBENCH_DIR} // '/tmp/shellbench';
     my @samples = map { "$sb/sample/$_" }
@@ -347,6 +366,11 @@ sub build_bench_prompt {
     }
     @rows = sort { $a->[4] <=> $b->[4] } @rows;
     return '' unless @rows;
+    # PERSIST the benchmark trend (the user asked the worker to keep +
+    # log bench results): append a timestamped block to .estree_bench.tsv
+    # and log a bench decision so the sync-removal progress (js/bash
+    # ratios improving over time) is visible, not just in the pi prompt.
+    write_bench_file(\@rows);
     my $t = "BENCHMARK FRUIT (JS vs bash, ops/sec — LOW ratio = per-iteration overhead / spawns left):\n";
     $t .= sprintf("  %-30s %8s %8s %8s %6s\n", "bench", "bash", "dash", "js", "js/bash");
     for my $r (@rows) {
@@ -423,6 +447,16 @@ PROMPT
         my $il = $in_loop->{$k} // 0;
         my $mark = ($il > 0) ? "  [in-loop $il]" : "";
         $prompt .= sprintf("  %-16s %d%s\n", $k, $table->{$k}, $mark);
+    }
+    # curated improvement backlog (harness/improvement-backlog.md) — candidate
+    # tasks appended verbatim so the worker sees them without extra tooling.
+    my $backlog = "$project_root/harness/improvement-backlog.md";
+    if (-e $backlog) {
+        open my $bfh, '<', $backlog or die "read $backlog: $!";
+        local $/;
+        my $content = <$bfh>;
+        close $bfh;
+        $prompt .= "\nCANDIDATE TASKS (improvement backlog — pick one or find your own):\n$content\n";
     }
     $prompt .= <<"PROMPT";
 The highest-count runtime constructs (getVar/setVar/param/test/caseMatch/brace/

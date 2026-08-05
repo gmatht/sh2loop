@@ -1,0 +1,320 @@
+// --- shir.rs addition: integer range analysis (extracted 17:10:13) ---
+
+// ── Integer range analysis (spike; M8-adjacent) ──────────────────────
+// Refines the A2 `Int` verdict into a WIDTH (u32/i32/i64) by tracking a
+// conservative integer interval per variable through straight-line code.
+// Nothing here changes emitted output — it is the proof layer backends
+// (C/GLSL/wasm) consult for narrower integer types. Bash arithmetic is
+// 64-bit wrapped, so an op result is kept only when it provably cannot
+// overflow; unprovable provenance (cmdsub, exec, read, loops without a
+// fixpoint) → None (Any). Returns var -> (lo, hi) for provably-integer
+// vars.
+
+pub fn analyze_var_ranges(prog: &IrProgram) -> HashMap<String, (i64, i64)> {
+    let mut state: HashMap<String, Option<(i64, i64)>> = HashMap::new();
+    for s in &prog.stmts {
+        walk_stmt_ranges(s, &mut state);
+    }
+    state
+        .into_iter()
+        .filter_map(|(n, r)| r.map(|r| (n, r)))
+        .collect()
+}
+
+/// Width a [lo, hi] range maps to (target type table — C/Rust/GLSL).
+pub fn range_width_name(lo: i64, hi: i64) -> &'static str {
+    if lo >= 0 && hi <= u32::MAX as i64 {
+        "u32"
+    } else if lo >= i32::MIN as i64 && hi <= i32::MAX as i64 {
+        "i32"
+    } else {
+        "i64"
+    }
+}
+
+type Range = Option<(i64, i64)>;
+
+fn join(a: Range, b: Range) -> Range {
+    match (a, b) {
+        (Some((l1, h1)), Some((l2, h2))) => Some((l1.min(l2), h1.max(h2))),
+        _ => None,
+    }
+}
+
+fn walk_stmt_ranges(s: &IrStmt, state: &mut HashMap<String, Range>) {
+    match s {
+        IrStmt::Assign { targets, expr } if targets.len() == 1 && targets[0].indices.is_empty() => {
+            let name = targets[0].var.clone();
+            state.insert(name, ir_range(expr, state));
+        }
+        IrStmt::Expr(IrExpr::Call { func, args })
+            if func == "setVar"
+                && matches!(args.as_slice(), [IrExpr::Str(_, _), _]) =>
+        {
+            if let [IrExpr::Str(name, _), e] = args.as_slice() {
+                state.insert(name.clone(), ir_range(e, state));
+            }
+        }
+        IrStmt::Block(stmts) => {
+            for s in stmts {
+                walk_stmt_ranges(s, state);
+            }
+        }
+        IrStmt::Redirect { inner, .. } => {
+            for s in inner {
+                walk_stmt_ranges(s, state);
+            }
+        }
+        IrStmt::If { cond: _, then, elsifs, else_ } => {
+            let mut s1 = state.clone();
+            for s in then {
+                walk_stmt_ranges(s, &mut s1);
+            }
+            let mut s2 = state.clone();
+            for (_, b) in elsifs {
+                for s in b {
+                    walk_stmt_ranges(s, &mut s2);
+                }
+            }
+            for s in else_ {
+                walk_stmt_ranges(s, &mut s2);
+            }
+            // meet (join): a var's range after the if is the union of what
+            // each branch (or the pre-state, when a branch didn't assign it)
+            // produced.
+            let mut merged: HashMap<String, Range> = HashMap::new();
+            for (k, v) in s1 {
+                let w = s2.get(&k).copied().flatten();
+                merged.insert(k, join(v, w));
+            }
+            for (k, v) in s2 {
+                if !merged.contains_key(&k) {
+                    merged.insert(k, join(v, state.get(&k).copied().flatten()));
+                }
+            }
+            *state = merged;
+        }
+        IrStmt::While { body, .. }
+        | IrStmt::For { body, .. }
+        | IrStmt::DoWhile { body, .. } => {
+            // No fixpoint in the spike: vars assigned inside a loop body are
+            // unbounded → Any. (Step 2: widen + loop-cond bounding.)
+            let mut assigned: HashSet<String> = HashSet::new();
+            for s in body {
+                collect_assigned(s, &mut assigned);
+            }
+            for n in assigned {
+                state.insert(n, None);
+            }
+        }
+        // Subshell / Background / Function: definitions or child scopes —
+        // they cannot change the parent's ranges.
+        IrStmt::Subshell(_)
+        | IrStmt::Background(_)
+        | IrStmt::Function { .. }
+        | IrStmt::Case { .. }
+        | IrStmt::Pipeline { .. }
+        | IrStmt::Return(_)
+        | IrStmt::Exit(_)
+        | IrStmt::SetChildError(_)
+        | IrStmt::Require(_)
+        | IrStmt::RawText(_)
+        | IrStmt::Output { .. }
+        | IrStmt::WriteFile { .. }
+        | IrStmt::Declare { .. }
+        | IrStmt::DeclareArray { .. }
+        | IrStmt::Die { .. }
+        | IrStmt::Warn { .. }
+        | IrStmt::Exec { .. }
+        | IrStmt::Assign { .. } // guard failed (multi-target / indexed)
+        | IrStmt::Expr(_) => {}
+    }
+}
+
+fn collect_assigned(s: &IrStmt, out: &mut HashSet<String>) {
+    match s {
+        IrStmt::Assign { targets, .. } => {
+            for t in targets {
+                out.insert(t.var.clone());
+            }
+        }
+        IrStmt::Expr(IrExpr::Call { func, args }) if func == "setVar" => {
+            if let [IrExpr::Str(name, _), _] = args.as_slice() {
+                out.insert(name.clone());
+            }
+        }
+        IrStmt::Block(stmts) | IrStmt::Subshell(stmts) => {
+            for s in stmts {
+                collect_assigned(s, out);
+            }
+        }
+        IrStmt::If { cond: _, then, elsifs, else_ } => {
+            for s in then {
+                collect_assigned(s, out);
+            }
+            for (_, b) in elsifs {
+                for s in b {
+                    collect_assigned(s, out);
+                }
+            }
+            for s in else_ {
+                collect_assigned(s, out);
+            }
+        }
+        IrStmt::While { body, .. }
+        | IrStmt::For { body, .. }
+        | IrStmt::DoWhile { body, .. } => {
+            for s in body {
+                collect_assigned(s, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn ir_range(e: &IrExpr, state: &HashMap<String, Range>) -> Range {
+    match e {
+        IrExpr::Int(i) => Some((*i, *i)),
+        // bash vars are strings; a literal that parses as an integer is
+        // provably that value (matches the numeric lift's "sources that
+        // parse as integers").
+        IrExpr::Str(sv, _) => sv.trim().parse::<i64>().ok().map(|n| (n, n)),
+        IrExpr::Var(n, _) => state.get(n).copied().flatten(),
+        IrExpr::Call { func, args } if func == "getVar" => match args.as_slice() {
+            [IrExpr::Str(n, _)] => state.get(n).copied().flatten(),
+            _ => None,
+        },
+        IrExpr::Arith(a) => arith_range(a, state),
+        _ => None,
+    }
+}
+
+fn arith_range(a: &ArithAst, state: &HashMap<String, Range>) -> Range {
+    match a {
+        ArithAst::Num(i) => Some((*i, *i)),
+        ArithAst::Var(n) => state.get(n).copied().flatten(),
+        ArithAst::Bin { op, lhs, rhs } => {
+            let (l, r) = (arith_range(lhs, state)?, arith_range(rhs, state)?);
+            let (l0, l1, r0, r1) = (l.0, l.1, r.0, r.1);
+            match op.as_str() {
+                "+" => Some((l0.checked_add(r0)?, l1.checked_add(r1)?)),
+                "-" => Some((l0.checked_sub(r1)?, l1.checked_sub(r0)?)),
+                "*" => {
+                    // min/max over all four endpoint products; None on overflow
+                    let ps = [
+                        l0.checked_mul(r0)?,
+                        l0.checked_mul(r1)?,
+                        l1.checked_mul(r0)?,
+                        l1.checked_mul(r1)?,
+                    ];
+                    Some((*ps.iter().min()?, *ps.iter().max()?))
+                }
+                "/" => {
+                    if r0 <= 0 && r1 >= 0 {
+                        return None; // possible division by zero
+                    }
+                    let qs = [
+                        l0.checked_div(r0)?,
+                        l0.checked_div(r1)?,
+                        l1.checked_div(r0)?,
+                        l1.checked_div(r1)?,
+                    ];
+                    Some((*qs.iter().min()?, *qs.iter().max()?))
+                }
+                _ => None, // % , ^, ... conservative
+            }
+        }
+        ArithAst::Un { op, arg } => {
+            let (lo, hi) = arith_range(arg, state)?;
+            match op.as_str() {
+                "-" => Some((-hi, -lo)),
+                "+" => Some((lo, hi)),
+                _ => None,
+            }
+        }
+        _ => None, // Index / Cond / Assign / IncDec — step 2
+    }
+}
+
+
+
+#[cfg(test)]
+mod range_analysis_tests {
+    use super::*;
+
+    fn ranges_of(src: &str) -> HashMap<String, (i64, i64)> {
+        let cmds = crate::Parser::new(src).parse().expect("parse");
+        let prog = ast_to_ir(&cmds);
+        analyze_var_ranges(&prog)
+    }
+
+    #[test]
+    fn straight_line_widths() {
+        // x: literal 1 → u32; y: arith 1+1 → u32; z: cmdsub → Any; w: -5 → i32
+        let r = ranges_of("x=1\ny=$((x+1))\nz=$(echo 5)\nw=-5");
+        assert_eq!(r.get("x"), Some(&(1, 1)));
+        assert_eq!(r.get("y"), Some(&(2, 2)));
+        assert!(!r.contains_key("z"), "cmdsub provenance must be Any");
+        assert_eq!(r.get("w"), Some(&(-5, -5)));
+        assert_eq!(range_width_name(1, 1), "u32");
+        assert_eq!(range_width_name(-5, -5), "i32");
+        assert_eq!(range_width_name(0, 4_000_000_000), "u32");
+        assert_eq!(range_width_name(0, 10_000_000_000), "i64");
+    }
+
+    #[test]
+    fn branch_join_and_loop_invalidation() {
+        // if cond; then x=1; else x=1000000; fi → x ∈ [1, 1000000] → u32
+        let r = ranges_of("if [ a ]; then x=1; else x=1000000; fi");
+        assert_eq!(r.get("x"), Some(&(1, 1_000_000)));
+        // loop-assigned var → Any (no fixpoint in the spike)
+        let r2 = ranges_of("i=1\nwhile [ $i -lt 5 ]; do i=$((i+1)); done");
+        assert!(!r2.contains_key("i"), "loop body must invalidate to Any");
+        // a var NOT touched by the loop keeps its range
+        let r3 = ranges_of("i=1\nj=2\nwhile [ $i -lt 5 ]; do i=$((i+1)); done");
+        assert_eq!(r3.get("j"), Some(&(2, 2)));
+    }
+
+    #[test]
+    #[ignore] // corpus-wide tally — run on demand: cargo test -- --ignored --nocapture
+    fn corpus_var_width_tally() {
+        let mut widths: HashMap<&'static str, usize> = HashMap::new();
+        widths.insert("u32", 0);
+        widths.insert("i32", 0);
+        widths.insert("i64", 0);
+        let mut total_proven = 0usize;
+        let mut total_numeric = 0usize;
+        let mut files = 0usize;
+        let mut narrowed_files = 0usize;
+        for entry in std::fs::read_dir("examples").unwrap().flatten() {
+            let path = entry.path();
+            if path.extension().map(|e| e == "sh").unwrap_or(false) {
+                let src = std::fs::read_to_string(&path).unwrap_or_default();
+                let Ok(cmds) = crate::Parser::new(&src).parse() else { continue };
+                let prog = ast_to_ir(&cmds);
+                let ranges = analyze_var_ranges(&prog);
+                files += 1;
+                let numeric = numeric_lift_vars(&prog);
+                total_numeric += numeric.len();
+                let mut file_had_narrow = false;
+                for (n, (lo, hi)) in &ranges {
+                    total_proven += 1;
+                    let w = range_width_name(*lo, *hi);
+                    *widths.get_mut(w).unwrap() += 1;
+                    if w != "i64" {
+                        file_had_narrow = true;
+                    }
+                    let _ = n;
+                }
+                if file_had_narrow {
+                    narrowed_files += 1;
+                }
+            }
+        }
+        eprintln!(
+            "RANGE TALLY: files={} numeric_lift_vars={} range_proven={} widths={:?} files_with_narrow={}",
+            files, total_numeric, total_proven, widths, narrowed_files
+        );
+    }
+}
+
