@@ -370,8 +370,25 @@ do_start_workers () {
                     | awk '/^.. /{print \$2}' \
                     | awk -v d='$dir' '\$0 ~ \"^\"d || \$0 ~ /^harness\\//' || true)
           if [ -n \"\$changes\" ]; then
-            git -C '$WORKSPACE' add \$changes 2>/dev/null || true
-            git -C '$WORKSPACE' commit -m 'backend $lang: gate pass' 2>/dev/null || true
+            # concurrent-edit guard: never commit a merge-conflict marker
+            # (a pi session's stash-pop can leave one — it broke the gate)
+            if grep -lE '^(<<<<<<<|=======|>>>>>>>)' \$changes 2>/dev/null | grep -q .; then
+              echo \"[\$(date +%FT%T)] $lang: conflict markers in staged files — NOT committing; leaving for the owner\" >> '$WORKSPACE/loop-backend-$lang.log'
+            else
+              # harness/* edits touch the SHARED corpus — a quick regression
+              # check before the commit (the tiny backend gate cannot see it)
+              if echo \"\$changes\" | grep -q '^harness/'; then
+                if ! (cd '$WORKSPACE' && perl fail-estree --gate >/dev/null 2>&1); then
+                  echo \"[\$(date +%FT%T)] $lang: harness edits regress the core corpus — NOT committing\" >> '$WORKSPACE/loop-backend-$lang.log'
+                else
+                  git -C '$WORKSPACE' add \$changes 2>/dev/null || true
+                  git -C '$WORKSPACE' commit -m 'backend $lang: gate pass' 2>/dev/null || true
+                fi
+              else
+                git -C '$WORKSPACE' add \$changes 2>/dev/null || true
+                git -C '$WORKSPACE' commit -m 'backend $lang: gate pass' 2>/dev/null || true
+              fi
+            fi
           fi
           echo \"[\$(date +%FT%T)] $lang: gate GREEN\" >> '$WORKSPACE/loop-backend-$lang.log'
         else
@@ -379,9 +396,14 @@ do_start_workers () {
           echo \"[\$(date +%FT%T)] $lang: gate FAILED (\$fail_count/3) — invoking pi (deepseek-v4-flash, scoped)\" >> '$WORKSPACE/loop-backend-$lang.log'
           bash \"$WORKSPACE/setup_backends.sh\" --pi-fix-backend '$lang' 2>>\"\$LOG\" || true
           if [ \"\$fail_count\" -ge 3 ]; then
-            echo \"[\$(date +%FT%T)] $lang: TRAPPED — escalating to core request and sleeping\" >> '$WORKSPACE/loop-backend-$lang.log'
+            echo \"[\$(date +%FT%T)] $lang: TRAPPED — escalating and backing off 30 min (a repeated same-message failure is a bootstrap gap, not a pi-fixable edit)\" >> '$WORKSPACE/loop-backend-$lang.log'
             bash \"$WORKSPACE/setup_backends.sh\" --worker-trapped '$lang' backend >> \"\$LOG\" 2>&1 || true
+            # stash the pi's unlanded WIP (the broken edit would fail the
+            # next gate the same way) + back off so the loop stops burning
+            # pi sessions on a renderer that hasn't been written
+            git -C '$dir' stash -q 2>/dev/null || true
             fail_count=0
+            sleep 1800
           fi
         fi
         sleep 300
