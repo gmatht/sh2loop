@@ -656,8 +656,8 @@ case "${1:-}" in
                   # A render-clean file (exit 0 + no stubs) must ALSO match
                   # bash's stdout when compiled+run — wrong-but-compiling code
                   # no longer passes. Only for scaffolds with a toolchain
-                  # (java has no javac here → render-only; js/perl have their
-                  # own correctness gates — fail-estree / ir_to_perl).
+                  # (js/perl have their own correctness gates — fail-estree /
+                  # ir_to_perl).
                   # MULTITASKING: SERIAL by design. The gate is a correctness
                   # signal, not a benchmark — 7 scaffold workers × parallel
                   # gcc/go/rustc compiles would spike the shared 8-core box
@@ -673,6 +673,7 @@ case "${1:-}" in
                     rust)   eq_tool="rustc";      eq_ext="rs";;
                     zig)    eq_tool="zig";        eq_ext="zig";;
                     sh)     eq_tool="sh";         eq_ext="sh";;
+                    java)   eq_tool="javac";      eq_ext="java";;
                   esac
                   eq_gate=0; eq_pass=0; eq_fail=0
                   if [ "$g_stubgate" = 1 ] && [ -n "$eq_tool" ] && command -v "$eq_tool" >/dev/null 2>&1; then
@@ -711,7 +712,13 @@ case "${1:-}" in
                         # EQUIVALENCE: compile+run the render, diff its stdout
                         # against `bash "$f"`. A mismatch = wrong lowering the
                         # worker must fix (the gate's new correctness oracle).
-                        printf '%s' "$g_out" > /tmp/eq_$$.$eq_ext
+                        # java: javac requires the public class in a file named
+                        # Sh2Program.java — write there (serial gate, no clash).
+                        if [ "$g_lang" = java ]; then
+                          printf '%s' "$g_out" > /tmp/Sh2Program.java
+                        else
+                          printf '%s' "$g_out" > /tmp/eq_$$.$eq_ext
+                        fi
                         eq_exit=1
                         case "$g_lang" in
                           c)    cc /tmp/eq_$$.c -o /tmp/eq_$$_bin 2>/dev/null && timeout 15 /tmp/eq_$$_bin > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
@@ -720,6 +727,7 @@ case "${1:-}" in
                           rust) rustc /tmp/eq_$$.rs -o /tmp/eq_$$_bin 2>/dev/null && timeout 15 /tmp/eq_$$_bin > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
                           zig)  timeout 30 "$eq_tool" run /tmp/eq_$$.zig > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
                           sh)   timeout 15 sh /tmp/eq_$$.sh > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
+                          java) javac -d /tmp /tmp/Sh2Program.java 2>/dev/null && timeout 15 java -cp /tmp Sh2Program > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
                         esac
                         if [ "$eq_exit" = 0 ] \
                            && timeout 15 bash "$f" > /tmp/eq_$$_ref 2>/dev/null \
@@ -728,7 +736,7 @@ case "${1:-}" in
                         else
                           fail=$((fail+1)); eq_fail=$((eq_fail+1)); fails="$f $fails"
                         fi
-                        rm -f /tmp/eq_$$_bin /tmp/eq_$$_out /tmp/eq_$$_ref /tmp/eq_$$.$eq_ext
+                        rm -f /tmp/eq_$$_bin /tmp/eq_$$_out /tmp/eq_$$_ref /tmp/eq_$$.$eq_ext /tmp/Sh2Program.class /tmp/Sh2Program.java
                       else
                         pass=$((pass+1))
                       fi
