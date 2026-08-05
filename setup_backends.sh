@@ -422,10 +422,26 @@ case "${1:-}" in
                   cd "$rw_dir" || exit 1
                   fail_count=0
                   while true; do
-                    # WORK-STEALING: a leased slot is run by a desktop
+                    # WORK-STEALING: a leased slot is run by a desktop.
+                    # HEARTBEAT + RECLAIM: a stale lease (the desktop
+                    # vanished — no heartbeat for 10 min) is reaped; and
+                    # when the SERVER has spare compute (load < 0.6*nproc)
+                    # the work comes back even from a live desktop.
+                    load1=$(awk '{print $1}' /proc/loadavg)
+                    nproc=$(nproc)
                     if [ -f "$WORKSPACE/.leases/$rw_lang" ]; then
-                      echo "[$(date +%FT%T)] $rw_lang: leased to $(cut -d' ' -f1 "$WORKSPACE/.leases/$rw_lang") — yielding" >> "$LOG"
-                      sleep 300; continue
+                      lts=$(cut -d' ' -f2 "$WORKSPACE/.leases/$rw_lang")
+                      lage=$(( $(date +%s) - lts ))
+                      if [ "$lage" -gt 600 ]; then
+                        rm -f "$WORKSPACE/.leases/$rw_lang"
+                        echo "[$(date +%FT%T)] $rw_lang: reaped stale lease (${lage}s old) — resuming" >> "$LOG"
+                      elif awk -v l="$load1" -v n="$nproc" 'BEGIN { exit !(l < 0.6 * n) }'; then
+                        rm -f "$WORKSPACE/.leases/$rw_lang"
+                        echo "[$(date +%FT%T)] $rw_lang: server has spare compute (load $load1) — reclaimed" >> "$LOG"
+                      else
+                        echo "[$(date +%FT%T)] $rw_lang: leased to $(cut -d' ' -f1 "$WORKSPACE/.leases/$rw_lang") — yielding" >> "$LOG"
+                        sleep 300; continue
+                      fi
                     fi
                     if bash "$WORKSPACE/setup_backends.sh" --backend-gate "$rw_lang" >> "$LOG" 2>&1; then
                       fail_count=0
@@ -559,6 +575,37 @@ case "${1:-}" in
                       # shared target is fine (only js/perl/main build it)
                       if ! cargo build --manifest-path "$SUB/Cargo.toml" >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
                         echo "  [$g_lang] backend gate: core build FAILED"; exit 1
+                      fi
+                      # js's renderer lives in the WORKTREE (--shir-in-js,
+                      # worktree-local — mirrors the c_backend pattern): the
+                      # old empty-flag arm hit the cli's shell-command
+                      # fallback (never read stdin), which SIGPIPE-races the
+                      # corpus pipe under load (rc=141 false fails). Probe it
+                      # like the scaffolds; perl keeps the shared default.
+                      if [ "$g_lang" = "js" ]; then
+                        if ! (export CARGO_TARGET_DIR="$g_wt/target"; cargo build --manifest-path "$g_wt/Cargo.toml") >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
+                          echo "  [$g_lang] backend gate: worktree build FAILED"; exit 1
+                        fi
+                        g_bin="$g_wt/target/debug/debashc"
+                        # probe: feed an invalid shIR JSON — the deserializer's
+                        # "ShIR JSON ingress" marker proves --shir-in-js is wired.
+                        # The probe is EXPECTED to exit 1 (ingress error), so it
+                        # must stay inside an `if` condition — set -e (and the
+                        # scaffolds' probes, which return 0 only via the
+                        # shell-command fallback) would otherwise kill the gate.
+                        if printf '%s' '{"contract_version":1,"imports":[],"requires":[],"stmts":[],"subs":[],"var_types":[],"stmt_lines":[]}' \
+                          | "$g_bin" "--shir-in-$g_lang" - >/dev/null 2>/tmp/gate_probe_$$; then
+                          g_flag="--shir-in-$g_lang"
+                        elif grep -q "ShIR JSON ingress" /tmp/gate_probe_$$; then
+                          g_flag="--shir-in-$g_lang"
+                        elif [ -x "$g_wt/target/debug/${g_lang}_backend" ]; then
+                          g_binmode=1
+                        else
+                          rm -f /tmp/gate_probe_$$
+                          echo "  [$g_lang] backend gate: NO RENDERER — wire --shir-in-$g_lang into the worktree's cli/src/lib.rs dispatch (mirroring --shir-in-perl) or add a ${g_lang}_backend bin (c's pattern). The gate lands with the renderer."
+                          exit 1
+                        fi
+                        rm -f /tmp/gate_probe_$$
                       fi
                       ;;
                     *)
