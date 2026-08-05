@@ -69,6 +69,14 @@ for my $s (@{ $data->{body} // [] }) {
             && (($init->{type} // '') eq 'ArrowFunctionExpression')) {
             $native_fn_bindings{ $id->{name} // '' } = 1;
         }
+        # the native-DIRECT bindings (`let __fn_f = null;` — reassigned to
+        # the arrow at the define; called BARE from statement positions
+        # with a dead status write, src/shir.rs BARE_FN_CALLS)
+        if ((($id->{type} // '') eq 'Identifier')
+            && (($id->{name} // '') =~ /^__fn_/)
+            && (($init->{type} // '') eq 'Literal' && !defined $init->{value})) {
+            $native_fn_bindings{ $id->{name} // '' } = 1;
+        }
     }
 }
 
