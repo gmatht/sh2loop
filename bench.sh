@@ -93,7 +93,10 @@ time_js() { # script → seconds (or "ERR")
 time_c() { # script → seconds via the C backend (sh2c — the c_backend bin)
   local f=$1
   "$ROOT/sh2perl/backends/c/target/debug/c_backend" "$f" 2>/dev/null > /tmp/bench_runner.c || { echo ERR; return; }
-  gcc -O2 -o /tmp/bench_runner_c /tmp/bench_runner.c 2>/dev/null || { echo ERR; return; }
+  # tcc -O2 by default (7x faster to compile than gcc, equivalent runtimes);
+  # CC=... overrides (e.g. CC='gcc -O3').
+  local cc="${CC:-tcc -O2}"
+  $cc -o /tmp/bench_runner_c /tmp/bench_runner.c 2>/dev/null || { echo ERR; return; }
   local t
   t=$(/usr/bin/time -f "%e" timeout 60 /tmp/bench_runner_c 2>&1 >/dev/null)
   [[ "$t" =~ ^[0-9.]+$ ]] && echo "$t" || echo ERR
