@@ -453,6 +453,7 @@ export const sh2 = {
   _init(argv0, positional) {
     if (argv0 !== undefined) this.argv0 = argv0;
     if (positional) this.positional = [...positional];
+    _installStdoutBuffer();
   },
 
   // Security gate (see estree-runner.mjs): restrict spawned binaries to the
@@ -471,6 +472,7 @@ export const sh2 = {
     }
     for (const p of this.pending) { try { await p; } catch { /* bg failures ignored */ } }
     this.pending = [];
+    _flushStdout();
   },
 
   // ── variables ──────────────────────────────────────────────────────
@@ -728,6 +730,10 @@ export const sh2 = {
   },
 
   async _runProc(cmd, args) {
+    // bash flushes its stdout buffer before fork/exec — the child may
+    // write to the shared fd and must see the parent's earlier output
+    // first (see the stdout-coalescing buffer above).
+    _flushStdout();
     // A stray `}` / `)` that the parser recovered as a command name is a
     // bash parse error: bash executes everything BEFORE it, then aborts the
     // script (nothing after it runs). Abort here too — with exit 0, since
@@ -1486,6 +1492,9 @@ export const sh2 = {
   background(fn) {
     this.bgCount += 1;
     this.lastBg = this.bgCount;
+    // bash flushes stdout before forking the job (same shared-fd
+    // ordering as _runProc).
+    _flushStdout();
     // Run the body immediately (bash starts the job at once; stdout order
     // matters for the corpus) and keep the promise for `_finish`.
     const p = Promise.resolve().then(() => fn()).catch(() => {});
@@ -2117,6 +2126,10 @@ builtins.unset = function (args) {
 };
 
 builtins.read = function (args, env) {
+  // bash flushes stdout before reading (prompt visibility — the harness
+  // feeds stdin from a pipe/file, but the flush is harmless and matches
+  // the stdio discipline).
+  _flushStdout();
   const names = args.filter(a => !a.startsWith('-'));
   // `IFS=: read ...` — command-scoped env from the emitter
   const ifs = env && env.IFS !== undefined ? String(env.IFS) : ' \t\n';
@@ -2362,6 +2375,7 @@ builtins.readonly = function (args) {
 // `result` visible to the rest of the program).
 builtins.eval = function (args) {
   const code = args.join(' ');
+  _flushStdout();
   // Fast path: a STATIC eval string that parses as plain assignment(s)
   // and/or a simple builtin command the runtime can execute IN-PROCESS —
   // zero bash spawns (≈ bash's own in-process eval). CONSERVATIVE: the
@@ -3888,6 +3902,54 @@ function writeFileSync(target, data, mode = 'w') {
   }
 }
 
+// ── stdout coalescing buffer ────────────────────────────────────────
+// bash's stdio buffers stdout (~4KB) and flushes before fork/exec, before
+// `read`, and at exit: a 100k-echo loop costs ~125 write syscalls. Node
+// writes EVERY `process.stdout.write` as its own syscall (~100k for the
+// same loop), which is the shellbench output:echo gap (js 0.27x bash).
+// The wrapper below gives the generated program the SAME stdio discipline:
+// module-sink writes accumulate and flush as ONE write when the buffer
+// fills (4096 — glibc's default pipe buffer, so the tail-loss profile
+// under a kill matches bash's), before any subprocess interaction (spawn /
+// background / eval / source / trap-handler — bash flushes first because
+// the child writes to the shared fd), before `read` (prompt visibility),
+// and at `_finish`. A `process.exit` wrapper flushes on every exit path
+// (the exit builtin, errexit guards, `${x:?}` aborts, stray-`}` recovery).
+// TTY stdout passes through unbuffered (bash line-buffers interactively;
+// the corpus never uses a TTY). The corpus compares final stdout only, so
+// the only observable difference is WHEN bytes hit the pipe.
+let _realStdoutWrite = null;
+let _stdoutParts = null;
+let _stdoutLen = 0;
+const STDOUT_BUF_LIMIT = 4096;
+
+function _flushStdout() {
+  if (!_stdoutParts || _stdoutParts.length === 0) return;
+  const parts = _stdoutParts;
+  _stdoutParts = [];
+  _stdoutLen = 0;
+  const all = parts.length === 1 ? parts[0] : Buffer.concat(parts);
+  _realStdoutWrite(all);
+}
+
+function _installStdoutBuffer() {
+  if (_realStdoutWrite) return;
+  const out = process.stdout;
+  _realStdoutWrite = out.write.bind(out);
+  if (!out.isTTY) {
+    _stdoutParts = [];
+    out.write = function (chunk, encoding, cb) {
+      const b = typeof chunk === 'string' ? Buffer.from(chunk, encoding || 'utf8') : chunk;
+      _stdoutParts.push(b);
+      _stdoutLen += b.length;
+      if (_stdoutLen >= STDOUT_BUF_LIMIT) _flushStdout();
+      return true;
+    };
+  }
+  const realExit = process.exit.bind(process);
+  process.exit = (code) => { _flushStdout(); realExit(code); };
+}
+
 // ── process substitution materialization ────────────────────────────
 // The emitter tags `<(...)` argument positions with PS_MAGIC + captured
 // producer stdout; exec() turns them into temp file paths here.
@@ -4048,10 +4110,12 @@ function shellCapture(code) {
 }
 
 function runShellString(code) {
+  _flushStdout();
   try { spawnSync('bash', ['-c', code], { stdio: 'inherit' }); } catch { /* ignore */ }
 }
 
 function runShellFile(file, args) {
+  _flushStdout();
   try { spawnSync('bash', [file, ...args], { stdio: 'inherit' }); } catch { /* ignore */ }
 }
 
