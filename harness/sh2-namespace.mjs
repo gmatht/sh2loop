@@ -2322,7 +2322,11 @@ builtins.eval = function (args) {
   // ONCE (side effects are not duplicated), its real stdout is re-emitted
   // (everything before the marker), and the variable state after it is
   // parsed and synced back into the store.
-  const r = spawnSync('bash', ['-c', `${code}\n__SH2_EVAL_END__\nset\ndeclare -F`], { encoding: 'utf8' });
+  // the marker must be ECHOED — a bare `__SH2_EVAL_END__` line would be
+  // run as a command (not found, stderr suppressed) and NEVER appear on
+  // stdout, so the split below would fall through to the whole `set`
+  // env and leak it to the program's output.
+  const r = spawnSync('bash', ['-c', `${code}\necho __SH2_EVAL_END__\nset\ndeclare -F`], { encoding: 'utf8' });
   if (!r.error && r.stdout) {
     const [out, ...rest] = String(r.stdout).split('__SH2_EVAL_END__\n');
     if (out) emit(this, out);  // the code's real output — via the fd-aware emit (handles redirects/captures)
