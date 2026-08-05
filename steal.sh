@@ -1,45 +1,48 @@
 #!/usr/bin/env bash
 # steal.sh — the DESKTOP side of remote work-stealing.
 #
-# When this machine is IDLE, steal a worker slot from the server — the
-# whole task (the gate+pi loop) runs HERE ("worker, pi and all": this
-# machine's own `pi` binary drives the LLM sessions). Return the work
-# (commits + WIP) to the server when:
+# When this machine is IDLE, steal a FRACTION of the server's worker
+# slots — the whole tasks (the gate+pi loops) run HERE ("worker, pi and
+# all": this machine's own `pi` drives the LLM sessions). Return the
+# work when:
 #   * this machine's load rises (the desktop user is using it), or
 #   * the user cancels (touch ~/.steal-cancel, or SIGINT/SIGTERM), or
 #   * the max-lease duration elapses.
 #
+# The lease has a HEARTBEAT: steal.sh renews it every HEARTBEAT_MIN;
+# if the server stops hearing from us (or has spare compute), it reaps
+# the lease and restarts the workers locally.
+#
 # Usage:
-#   steal.sh --server <host> [--lang <lang>] [--load-max 1.5] [--max-min 180]
-#   touch ~/.steal-cancel   # cancel from anywhere
+#   steal.sh --server <host> [--fraction 0.8] [--allow-estree] \
+#            [--load-max 1.5] [--max-min 180]
 #
 # Requirements on this machine: git, ssh (key to the server), a working
-# `pi` (the same CLI the server's loops use), enough RAM/disk for a clone.
+# `pi`, enough RAM/disk for a clone per stolen slot.
 
 set -u
-SERVER="" LANG_PREF="" LOAD_MAX=1.5 MAX_MIN=180
+SERVER="" FRACTION=0.8 ALLOW_ESTREE=0 LOAD_MAX=1.5 MAX_MIN=180 HEARTBEAT_MIN=5
 while [ $# -gt 0 ]; do
   case "$1" in
     --server) SERVER="$2"; shift 2;;
-    --lang)   LANG_PREF="$2"; shift 2;;
+    --fraction) FRACTION="$2"; shift 2;;
+    --allow-estree) ALLOW_ESTREE=1; shift;;
     --load-max) LOAD_MAX="$2"; shift 2;;
     --max-min)  MAX_MIN="$2"; shift 2;;
+    --heartbeat-min) HEARTBEAT_MIN="$2"; shift 2;;
     *) echo "unknown: $1"; exit 1;;
   esac
 done
 [ -n "$SERVER" ] || { echo "need --server <host>"; exit 1; }
+[ "$FRACTION" -gt 0 ] 2>/dev/null || { echo "fraction must be > 0"; exit 1; }
 
 CANCEL="$HOME/.steal-cancel"
 rm -f "$CANCEL"
 trap 'touch "$CANCEL"' INT TERM
 
-# ── the desktop's own pi must exist (worker, pi and all) ─────────────
-if ! command -v pi >/dev/null 2>&1; then
-  echo "no `pi` on this machine — the stolen worker cannot drive LLM sessions. Install/alias pi first."
-  exit 1
-fi
+command -v pi >/dev/null 2>&1 || { echo "no `pi` on this machine — install/alias pi first"; exit 1; }
 
-load_ok() { # true when the desktop is idle enough to keep the work
+load_ok() {
   local l; l=$(awk '{print $1}' /proc/loadavg 2>/dev/null || echo 0)
   awk -v l="$l" -v m="$LOAD_MAX" 'BEGIN { exit !(l < m) }'
 }
@@ -47,86 +50,93 @@ load_ok() { # true when the desktop is idle enough to keep the work
 echo "[$(date +%FT%T)] steal: checking load (max $LOAD_MAX)..."
 load_ok || { echo "desktop busy (load $(awk '{print $1}' /proc/loadavg)) — no steal"; exit 0; }
 
-# ── 1. lease a slot ─────────────────────────────────────────────────
-if [ -n "$LANG_PREF" ]; then
-  LANG="$LANG_PREF"
-  echo "stealing slot: $LANG"
-  ssh "$SERVER" "bash /nvme/ai/sh2loop/coordinator.sh --lease $LANG $(hostname)" || { echo "lease failed"; exit 1; }
-else
-  # ask the server for any free slot
-  LANG=$(ssh "$SERVER" "for l in c go python rust zig py-sh-go go-sh posix-sh-go perl-sh-go; do bash /nvme/ai/sh2loop/coordinator.sh --status | grep -q \"\$l.*free\" && { echo \$l; break; }; done")
-  [ -n "$LANG" ] || { echo "no free slot on $SERVER"; exit 0; }
-  echo "leased free slot: $LANG"
-  ssh "$SERVER" "bash /nvme/ai/sh2loop/coordinator.sh --lease $LANG $(hostname)" || exit 1
-fi
+# ── 1. lease ceil(FRACTION * free) slots ────────────────────────────
+ESTREE_FLAG=""; [ "$ALLOW_ESTREE" = 1 ] && ESTREE_FLAG="--allow-estree"
+echo "[$(date +%FT%T)] steal: leasing $FRACTION of the free slots..."
+LEASED=$(ssh "$SERVER" "bash /nvme/ai/sh2loop/coordinator.sh --lease-fraction $FRACTION $(hostname) $ESTREE_FLAG" \
+          | grep "^leased " | awk '{print $2}')
+[ -n "$LEASED" ] || { echo "no free slots on $SERVER"; exit 0; }
+echo "[$(date +%FT%T)] steal: leased: $(echo $LEASED | tr '\n' ' ')"
 
-cleanup() { # always release the lease on exit
-  ssh "$SERVER" "bash /nvme/ai/sh2loop/coordinator.sh --release $LANG" >/dev/null 2>&1 || true
-  echo "[$(date +%FT%T)] steal: released $LANG"
+cleanup() {
+  for l in $LEASED; do
+    ssh "$SERVER" "bash /nvme/ai/sh2loop/coordinator.sh --release $l" >/dev/null 2>&1 || true
+  done
+  echo "[$(date +%FT%T)] steal: released all leases"
 }
 trap cleanup EXIT
 
-# ── 2. fetch the workspace (root + the pinned submodule) ────────────
+# ── 2. fetch the workspace once (the root + the pinned submodule) ───
 WORK=$(mktemp -d)
 echo "[$(date +%FT%T)] steal: cloning $SERVER..."
-git clone -q "ssh://$SERVER/nvme/ai/sh2loop" "$WORK/ws" 2>/dev/null \
-  || { echo "clone failed"; exit 1; }
+git clone -q "ssh://$SERVER/nvme/ai/sh2loop" "$WORK/ws" 2>/dev/null || { echo "clone failed"; exit 1; }
 cd "$WORK/ws" || exit 1
 git submodule update --init sh2perl >/dev/null 2>&1
-# the worker's branch + the worktree (the gate expects backends/<lang>)
-git -C sh2perl checkout "backend/$LANG" 2>/dev/null || git -C sh2perl checkout -b "backend/$LANG" 2>/dev/null
-git -C sh2perl worktree add "sh2perl/backends/$LANG" "backend/$LANG" 2>/dev/null || true
 
-# ── 3. run the worker loop HERE (gate → pi-fix → commit) ────────────
-fail_count=0
-while true; do
-  # return conditions checked every iteration:
-  [ -f "$CANCEL" ] && { echo "[$(date +%FT%T)] steal: cancelled by the desktop user"; break; }
-  load_ok || { echo "[$(date +%FT%T)] steal: desktop load rose — returning"; break; }
-  [ "$(find "$CANCEL" -mmin +$MAX_MIN 2>/dev/null | wc -l)" -ge 0 ] || true
-  # max-lease duration (use a marker file with a timestamp instead)
-  if [ -f "$WORK/started" ]; then :; else touch "$WORK/started"; fi
-  if [ "$(($(date +%s) - $(stat -c %Y "$WORK/started")))" -ge $((MAX_MIN * 60)) ]; then
-    echo "[$(date +%FT%T)] steal: max lease ($MAX_MIN min) reached — returning"; break
-  fi
-
-  # the same failure-driven loop the server's workers run
-  if bash "$WORK/ws/setup_backends.sh" --backend-gate "$LANG" >> "$WORK/loop.log" 2>&1; then
-    fail_count=0
-    # commit scoped changes (the worktree + harness)
-    changes=$(git -C "$WORK/ws" status --porcelain 2>/dev/null \
-              | awk '/^.. /{print $2}' \
-              | awk -v d="$WORK/ws/sh2perl/backends/$LANG" '$0 ~ "^"d || $0 ~ /^harness\//' || true)
-    if [ -n "$changes" ]; then
-      git -C "$WORK/ws" add $changes 2>/dev/null || true
-      git -C "$WORK/ws" commit -m "steal($LANG): gate pass (from $(hostname))" 2>/dev/null || true
-    fi
-    # the submodule side (the branch's renderer work)
-    cd "$WORK/ws/sh2perl" || exit 1
-    git add -A 2>/dev/null || true
-    git commit -m "steal($LANG): gate pass (from $(hostname))" 2>/dev/null || true
-    echo "[$(date +%FT%T)] steal($LANG): gate GREEN"
-  else
-    fail_count=$((fail_count+1))
-    echo "[$(date +%FT%T)] steal($LANG): gate FAILED ($fail_count/3) — invoking THIS machine's pi"
-    bash "$WORK/ws/setup_backends.sh" --pi-fix-backend "$LANG" 2>> "$WORK/loop.log" || true
-    if [ "$fail_count" -ge 3 ]; then
-      echo "[$(date +%FT%T)] steal($LANG): trapped — backing off"
+# a worker function: the SAME gate+pi loop, run for one leased slot
+run_slot() {
+  local l="$1"
+  git -C sh2perl checkout "backend/$l" 2>/dev/null || git -C sh2perl checkout -b "backend/$l" 2>/dev/null
+  git -C sh2perl worktree add "sh2perl/backends/$l" "backend/$l" 2>/dev/null || true
+  local fail_count=0
+  while true; do
+    [ -f "$CANCEL" ] && { echo "[$(date +%FT%T)] steal($l): cancelled"; return; }
+    load_ok || { echo "[$(date +%FT%T)] steal($l): desktop load rose — returning"; return; }
+    if bash "$WORK/ws/setup_backends.sh" --backend-gate "$l" >> "$WORK/loop-$l.log" 2>&1; then
       fail_count=0
-      sleep 600
+      git -C "$WORK/ws/sh2perl" add -A 2>/dev/null || true
+      git -C "$WORK/ws/sh2perl" commit -m "steal($l): gate pass (from $(hostname))" 2>/dev/null || true
+      echo "[$(date +%FT%T)] steal($l): gate GREEN"
+    else
+      fail_count=$((fail_count+1))
+      echo "[$(date +%FT%T)] steal($l): gate FAILED ($fail_count/3) — invoking THIS machine's pi"
+      bash "$WORK/ws/setup_backends.sh" --pi-fix-backend "$l" 2>> "$WORK/loop-$l.log" || true
+      if [ "$fail_count" -ge 3 ]; then
+        fail_count=0; sleep 600
+      fi
     fi
-  fi
-  sleep 120
+    sleep 120
+  done
+}
+
+# ── 3. run the loops + the heartbeat ────────────────────────────────
+for l in $LEASED; do
+  run_slot "$l" >> "$WORK/steal-$l.out" 2>&1 &
 done
 
+# the heartbeat: renew every HEARTBEAT_MIN so the server doesn't reap us
+HB_MIN=$((HEARTBEAT_MIN * 60))
+STARTED=$(date +%s)
+while true; do
+  # stop conditions: cancel / load / max-duration
+  [ -f "$CANCEL" ] && { echo "[$(date +%FT%T)] steal: cancelled by the user"; break; }
+  load_ok || { echo "[$(date +%FT%T)] steal: desktop load rose — returning"; break; }
+  [ $(( $(date +%s) - STARTED )) -ge $((MAX_MIN * 60)) ] && { echo "[$(date +%FT%T)] steal: max lease reached"; break; }
+  # heartbeat every slot
+  for l in $LEASED; do
+    ssh "$SERVER" "bash /nvme/ai/sh2loop/coordinator.sh --heartbeat $l $(hostname)" >/dev/null 2>&1 || true
+  done
+  sleep "$HB_MIN"
+done
+# stop the slot loops (the workers return via their own check next iteration)
+for l in $LEASED; do touch "$CANCEL"; done
+
 # ── 4. return the work: bundles + release ───────────────────────────
+sleep 5  # let the slot loops notice the cancel + commit
 cd "$WORK/ws" || exit 1
-echo "[$(date +%FT%T)] steal: bundling the work..."
-SUB_BUNDLE="$WORK/sub.bundle"; ROOT_BUNDLE="$WORK/root.bundle"
-git -C sh2perl bundle create "$SUB_BUNDLE" "backend/$LANG" >/dev/null 2>&1 || true
-git bundle create "$ROOT_BUNDLE" master >/dev/null 2>&1 || true
-scp -q "$SUB_BUNDLE" "$SERVER:/tmp/steal-sub-$LANG.bundle" 2>/dev/null || true
-scp -q "$ROOT_BUNDLE" "$SERVER:/tmp/steal-root-$LANG.bundle" 2>/dev/null || true
-ssh "$SERVER" "bash /nvme/ai/sh2loop/coordinator.sh --apply $LANG /tmp/steal-sub-$LANG.bundle /tmp/steal-root-$LANG.bundle; rm -f /tmp/steal-sub-$LANG.bundle /tmp/steal-root-$LANG.bundle" >/dev/null 2>&1 || true
-echo "[$(date +%FT%T)] steal: work returned to $SERVER (slot $LANG)"
+for l in $LEASED; do
+  echo "[$(date +%FT%T)] steal: bundling $l..."
+  git -C sh2perl add -A 2>/dev/null || true
+  git -C sh2perl commit -m "steal($l): return (from $(hostname))" 2>/dev/null || true
+  SUB_BUNDLE="$WORK/sub-$l.bundle"
+  git -C sh2perl bundle create "$SUB_BUNDLE" "backend/$l" >/dev/null 2>&1 || true
+  scp -q "$SUB_BUNDLE" "$SERVER:/tmp/steal-sub-$l.bundle" 2>/dev/null || true
+done
+git bundle create "$WORK/root.bundle" master >/dev/null 2>&1 || true
+scp -q "$WORK/root.bundle" "$SERVER:/tmp/steal-root.bundle" 2>/dev/null || true
+for l in $LEASED; do
+  ssh "$SERVER" "bash /nvme/ai/sh2loop/coordinator.sh --apply $l /tmp/steal-sub-$l.bundle /tmp/steal-root.bundle; rm -f /tmp/steal-sub-$l.bundle" >/dev/null 2>&1 || true
+done
+rm -f "$WORK/root.bundle"
+echo "[$(date +%FT%T)] steal: work returned to $SERVER ($(echo $LEASED | tr '\n' ' '))"
 rm -rf "$WORK"
