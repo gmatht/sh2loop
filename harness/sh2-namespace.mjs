@@ -2306,7 +2306,7 @@ builtins.eval = function (args) {
         this.setVar(s.slice(0, eq), s.slice(eq + 1));
       } else {
         const parts = s.split(/\s+/).filter(Boolean);
-        const b = this.builtins[parts[0]];
+        const b = parts[0] === undefined ? undefined : builtins[parts[0]];
         if (typeof b === 'function') {
           this.lastExit = b.call(this, parts.slice(1)) ? 0 : 1;
         } else {
