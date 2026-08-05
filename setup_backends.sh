@@ -502,6 +502,7 @@ case "${1:-}" in
                     tail -50 "$fix_log" 2>/dev/null || true
                     printf '\nThe shIR (A1) contract is the source of truth. Render the %s backend in idiomatic %s.\n' "$fix_lang" "$fix_lang"
                     printf 'The backend gate needs a RENDERER ENTRY in the worktree: wire a --shir-in-%s flag into the worktree''s cli/src/lib.rs argument dispatch (mirroring the --shir-in-perl/--shir-in-estree branches; takes shIR JSON on stdin via `-`) or add a %s_backend bin taking the .sh file (the c backend''s pattern). The gate probes the flag before the corpus loop — no flag, no bin = the gate stays red.\n' "$fix_lang" "$fix_lang"
+                    printf 'STUB GATE: the gate FAILS any file whose output contains sh2.* stub calls (sh2_exec()/sh2GetVar()/...) or TODO(unsupported) markers. Replace them with NATIVE lowering — the stub/TODO count is the progress metric and must drop toward zero.\n'
                     printf '\nCONCRETE RECIPE (the C backend''s PROVEN pattern — mirror it, do not reinvent):\n'
                     printf '  1. RENDERER: a library fn `shir_to_%s(&IrProgram) -> String` walking the ShIR nodes —\n' "$fix_lang"
                     printf '     read the reference: `git -C backends/c show backend/c:src/c_backend.rs` — the C\n'
@@ -567,7 +568,7 @@ case "${1:-}" in
                   # Usage: setup_backends.sh --backend-gate <lang>
                   shift; g_lang="$1"
                   g_wt="$BT/$g_lang"
-                  g_bin="$SUB/target/debug/debashc"; g_flag=""; g_binmode=0
+                  g_bin="$SUB/target/debug/debashc"; g_flag=""; g_binmode=0; g_stubgate=0
                   case "$g_lang" in
                     js|perl)
                       # production backends: consume the SHARED core binary
@@ -645,10 +646,13 @@ case "${1:-}" in
                         echo "  [$g_lang] backend gate: NO RENDERER — wire --shir-in-$g_lang into the worktree's cli/src/lib.rs dispatch (mirroring --shir-in-perl) or add a ${g_lang}_backend bin (c's pattern). The gate lands with the renderer."
                         exit 1
                       fi
+                      # scaffolds only: the sh2.*/TODO stub gate applies
+                      # (js/perl's sh2.* are the REAL runtime — not stubs)
+                      g_stubgate=1
                       rm -f /tmp/gate_probe_$$;;
                   esac
                   corpus=$(ls "$SUB"/examples/*.sh "$WORKSPACE"/frontends/*/testdata/*.sh 2>/dev/null)
-                  pass=0; skip=0; fail=0; fails=""
+                  pass=0; skip=0; fail=0; fails=""; stub_total=0; stub_files=0
                   for f in $corpus; do
                     # shIR emit from the CORE (the A1 contract source of truth):
                     # if the core emits nothing (rc!=0 or empty JSON — the 4
@@ -657,14 +661,34 @@ case "${1:-}" in
                     if [ -z "$shir" ]; then
                       skip=$((skip+1)); continue
                     fi
+                    g_out=""
                     if [ "$g_binmode" = 1 ]; then
-                      ok=$("$g_wt/target/debug/${g_lang}_backend" "$f" >/dev/null 2>&1 && echo 1 || echo 0)
+                      if g_out=$("$g_wt/target/debug/${g_lang}_backend" "$f" 2>/dev/null); then ok=1; else ok=0; g_out=""; fi
                     else
-                      ok=$(printf '%s' "$shir" | "$g_bin" "$g_flag" - >/dev/null 2>&1 && echo 1 || echo 0)
+                      if g_out=$(printf '%s' "$shir" | "$g_bin" "$g_flag" - 2>/dev/null); then ok=1; else ok=0; g_out=""; fi
                     fi
-                    if [ "$ok" = 1 ]; then pass=$((pass+1)); else fail=$((fail+1)); fails="$f $fails"; fi
+                    # STUB GATE (scaffolds only): an emitted sh2.* stub call
+                    # (sh2_exec()/sh2GetVar()/...) or TODO(unsupported) marker
+                    # is UNFINISHED lowering — the file FAILS until the stubs
+                    # are replaced with native code, so the failure-driven
+                    # worker grinds them to zero instead of sleeping on a
+                    # green-but-stubby renderer. js/perl are exempt: their
+                    # sh2.* are the real runtime, not stubs.
+                    if [ "$g_stubgate" = 1 ]; then
+                      s=$(printf '%s' "$g_out" | grep -cE "TODO\(unsupported\)|sh2[A-Za-z_]" || true)
+                    else
+                      s=0
+                    fi
+                    stub_total=$((stub_total + s))
+                    if [ "$ok" = 1 ] && [ "$s" -eq 0 ]; then
+                      pass=$((pass+1))
+                    else
+                      fail=$((fail+1))
+                      [ "$s" -gt 0 ] && stub_files=$((stub_files+1))
+                      fails="$f $fails"
+                    fi
                   done
-                  echo "  [$g_lang] backend gate: $pass/$((pass+skip+fail)) corpus render OK, $fail fail, $skip skip (core-unparseable)"
+                  echo "  [$g_lang] backend gate: $pass/$((pass+skip+fail)) corpus render OK, $fail fail ($stub_files with sh2 stubs), $skip skip (core-unparseable) — $stub_total sh2 stub/TODO markers emitted"
                   if [ "$fail" -gt 0 ]; then echo "  fails: $fails" | head -c 200; echo; exit 1; fi
                   exit 0 ;;
   --worker-trapped) # internal: a worker is TRAPPED (repeated build
