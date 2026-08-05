@@ -362,6 +362,7 @@ do_start_workers () {
     nice -n 19 nohup bash -c "
       set -euo pipefail
       cd '$dir'
+      LOG='$WORKSPACE/loop-backend-$lang.log'
       fail_count=0
       while true; do
         # WORK-STEALING: a leased slot is run by a desktop (steal.sh) — the
@@ -418,7 +419,7 @@ do_start_workers () {
             fail_count=0
             # lease-aware backoff: a desktop lease ends the 30-min sleep
             # early (the steal feature should not wait out the trap)
-            for _i in $(seq 1 30); do
+            for ((_i = 1; _i <= 30; _i++)); do
               [ -f \"\$WORKSPACE/.leases/$lang\" ] && { echo \"[\$(date +%FT%T)] $lang: leased during backoff — yielding\" >> '$WORKSPACE/loop-backend-$lang.log'; sleep 300; continue 2; }
               sleep 60
             done
@@ -426,7 +427,7 @@ do_start_workers () {
         fi
         sleep 300
       done
-    " >/dev/null 2>&1 &
+    " >/tmp/wl-err.log 2>&1 &
     echo $! > "$dir/loop-backend-$lang.pid"
     echo "  [$lang] worker started (pid $(cat "$dir/loop-backend-$lang.pid")) — log: $WORKSPACE/loop-backend-$lang.log"
   done
@@ -441,7 +442,7 @@ do_start_workers () {
     # startup is a fork — no load gate needed. The per-iteration --wait
     # inside the worker handles the real heavy ops (build/test).
     : # no-op
-    nice -n 19 nohup bash "$dir/run_frontend_worker.sh" >/dev/null 2>&1 &
+    nice -n 19 nohup bash "$dir/run_frontend_worker.sh" >/tmp/wl2.log 2>&1 &
     echo $! > "$WORKSPACE/loop-frontend-$lang.pid"
     echo "  [$lang] worker started (pid $(cat "$WORKSPACE/loop-frontend-$lang.pid")) — log: $WORKSPACE/loop-frontend-$lang.log"
   done
