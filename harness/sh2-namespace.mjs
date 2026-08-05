@@ -2288,17 +2288,42 @@ builtins.readonly = function (args) {
 // `result` visible to the rest of the program).
 builtins.eval = function (args) {
   const code = args.join(' ');
-  // run the code for its real output (inherit) ...
-  spawnSync('bash', ['-c', code], { stdio: 'inherit' });
-  // ... and once more to sync back variables it assigned
-  // (`eval "result=$((...))"` must leave `result` visible to the rest of
-  // the program). `set` prints every variable; only names with plain
-  // scalar values are synced. `declare -F` lists function names — register
-  // them so `type name` reports a function (the body is not portable into
-  // the runtime, but name/type queries and later re-definitions work).
-  const r = spawnSync('bash', ['-c', `${code}\nset\ndeclare -F`], { encoding: 'utf8' });
+  // Fast path: a STATIC eval string (no $ / backtick — no re-expansion at
+  // eval time) that parses as plain assignment(s) and/or a simple builtin
+  // command the runtime can execute IN-PROCESS — zero bash spawns (≈
+  // bash's own in-process eval). Dynamic strings ($, backtick, compound
+  // syntax, non-builtin commands) fall through to a single bash spawn.
+  if (!/[`$]/.test(code)) {
+    let ok = true;
+    for (const st of code.split(';')) {
+      const s = st.trim();
+      if (!s) continue;
+      const eq = s.indexOf('=');
+      if (eq > 0 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(s.slice(0, eq))) {
+        this.setVar(s.slice(0, eq), s.slice(eq + 1));
+      } else {
+        const parts = s.split(/\s+/).filter(Boolean);
+        const b = this.builtins[parts[0]];
+        if (typeof b === 'function') {
+          this.lastExit = b.call(this, parts.slice(1)) ? 0 : 1;
+        } else {
+          ok = false; // not runtime-executable static eval -> fall through
+          break;
+        }
+      }
+    }
+    if (ok) { this.lastExit = 0; return true; }
+  }
+  // Dynamic (or unparseable) eval: ONE bash spawn — run the code, then in
+  // the SAME process print a marker + `set` + `declare -F`. The code runs
+  // ONCE (side effects are not duplicated), its real stdout is re-emitted
+  // (everything before the marker), and the variable state after it is
+  // parsed and synced back into the store.
+  const r = spawnSync('bash', ['-c', `${code}\n__SH2_EVAL_END__\nset\ndeclare -F`], { encoding: 'utf8' });
   if (!r.error && r.stdout) {
-    for (const line of String(r.stdout).split('\n')) {
+    const [out, ...rest] = String(r.stdout).split('__SH2_EVAL_END__\n');
+    if (out) process.stdout.write(out);  // the code's real output
+    for (const line of (rest.join('__SH2_EVAL_END__\n') || '').split('\n')) {
       const eq = line.indexOf('=');
       if (eq > 0 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(line.slice(0, eq))) {
         this.setVar(line.slice(0, eq), line.slice(eq + 1));
