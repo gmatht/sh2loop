@@ -5,7 +5,7 @@
 # work (renderer, runtime, gate, metric) lives per-worktree.
 #
 #   setup_backends.sh [langs...]          create/verify worktrees (default:
-#                                         perl js c python zig go rust)
+#                                         perl js c python zig go rust sh java)
 #   setup_backends.sh --sync [langs]      merge main into each worktree branch
 #   setup_backends.sh --remove [langs]    remove the worktrees (keeps branches)
 #   setup_backends.sh --frontends [langs] scaffold frontends/<lang>/ dirs
@@ -35,8 +35,8 @@ BT="$SUB/backends"   # worktrees live INSIDE the sh2perl submodule
 FT="$ROOT/frontends"
 WORKSPACE="$ROOT"
 
-DEFAULT_BACKEND_LANGS="perl js c python zig go rust"
-DEFAULT_FRONTEND_LANGS="py-sh-go go-sh posix-sh-go perl-sh-go"
+DEFAULT_BACKEND_LANGS="perl js c python zig go rust sh java"
+DEFAULT_FRONTEND_LANGS="py-sh-go go-sh posix-sh-go perl-sh-go fish-sh-go zsh-sh-go"
 
 # Active backends whose workers already run from the main checkout
 # (main_loop_rust.pl / main_loop_estree.pl); the per-worktree worker
@@ -156,7 +156,7 @@ build_cmd() {
   local kind="$1" lang="$2"
   case "$kind:$lang" in
     backend:perl|backend:js)         echo "cargo build --manifest-path $SUB/Cargo.toml" ;;
-    backend:c|backend:python|backend:rust|backend:zig)
+    backend:c|backend:python|backend:rust|backend:zig|backend:sh|backend:java)
                                     echo "cargo build --manifest-path $SUB/Cargo.toml" ;;
     backend:go)                     echo "true" ;;  # no Go renderer yet; build = noop
     frontend:py-sh)                 echo "python3 -c 'import ast; ast.parse(open(\"$FT/py-sh/pysh.py\").read())'" ;;
@@ -265,7 +265,7 @@ while true; do
   # light ops (no load gate): git status, scope check
   # WORK-STEALING: a leased slot is run by a desktop — yield until released
   if [ -f "$WORKSPACE/.leases/$lang" ]; then
-    echo "[$(date +%FT%T)] frontend $lang: leased to $(cut -d' ' -f1 "$WORKSPACE/.leases/$lang") — yielding" >> "$LOG"
+    echo "[\$(date +%FT%T)] frontend $lang: leased to \$(cut -d' ' -f1 "\$WORKSPACE/.leases/$lang") — yielding" >> "\$LOG"
     sleep 300; continue
   fi
   changes=\$(git -C "\$WORKSPACE" status --porcelain 2>/dev/null \
@@ -314,9 +314,9 @@ do_build () {
   wait_for_load || true
   local -a langs=()
   case "$scope" in
-    backends)  langs=(perl js c python zig go rust) ;;
+    backends)  langs=(perl js c python zig go rust sh java) ;;
     frontends) langs=(py-sh go-sh) ;;
-    all|*)     langs=(perl js c python zig go rust py-sh go-sh) ;;
+    all|*)     langs=(perl js c python zig go rust sh java py-sh go-sh) ;;
   esac
   echo "=== build: scope=$scope langs=${langs[*]} ==="
   # parallel: run each build in background, wait for all. Bound the
@@ -350,7 +350,7 @@ do_build () {
 # + harness/* (frontends). Does NOT touch the shared core.
 do_start_workers () {
   echo "=== start-workers (load-gated; threshold=1.5×nproc) ==="
-  for lang in perl js c python zig go rust; do
+  for lang in $DEFAULT_BACKEND_LANGS; do
     local dir="$BT/$lang"
     [ -d "$dir" ] || { echo "  [$lang] no worktree — skip (run setup first)"; continue; }
     if [ -f "$dir/loop-backend-$lang.pid" ] && kill -0 "$(cat "$dir/loop-backend-$lang.pid")" 2>/dev/null; then
@@ -377,7 +377,7 @@ do_start_workers () {
     echo $! > "$dir/loop-backend-$lang.pid"
     echo "  [$lang] worker started (pid $(cat "$dir/loop-backend-$lang.pid")) — log: $WORKSPACE/loop-backend-$lang.log"
   done
-  for lang in py-sh-go go-sh posix-sh-go perl-sh-go; do
+  for lang in $DEFAULT_FRONTEND_LANGS; do
     local dir="$FT/$lang"
     [ -d "$dir" ] || { echo "  [$lang] no frontend dir — skip (run --frontends first)"; continue; }
     [ -f "$dir/run_frontend_worker.sh" ] || { echo "  [$lang] no run_frontend_worker.sh — skip (run --frontends first)"; continue; }
@@ -558,7 +558,7 @@ case "${1:-}" in
                   #          ir_to_perl live in the shared core — the estree/
                   #          rust loops own them; this gate is a watchdog +
                   #          escalates gaps via core-requests).
-                  #   scaffolds (c go python rust zig) -> the WORKTREE must
+                  #   scaffolds (c go python rust zig sh java) -> the WORKTREE must
                   #          have a renderer: a --shir-in-<lang> flag wired
                   #          into its debashc (cli/src/lib.rs dispatch), or a
                   #          <lang>_backend bin (c's pattern). Neither -> FAIL:
@@ -615,7 +615,7 @@ case "${1:-}" in
                       fi
                       ;;
                     *)
-                      # scaffolds (c go python rust zig): PER-WORKTREE target
+                      # scaffolds (c go python rust zig sh java): PER-WORKTREE target
                       # dirs — each compiles its OWN copy of the core
                       # ($g_wt/target-core) and its worktree renderer
                       # ($g_wt/target), so the five scaffold gates stop
