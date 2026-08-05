@@ -79,8 +79,10 @@ function exprUnwrapped(node) {
       return `await ${parenSeq(node.argument, expr(node.argument, PREC.AwaitExpression))}`;
     case 'UnaryExpression':
       // prefix: ++x / --x / !x / -x …; postfix: x++ / x-- (arith IncDec)
+      // `typeof` needs a space after the keyword (a bare `typeofx` would
+      // parse as one identifier) — the only word-operator in the surface.
       return node.prefix
-        ? `${node.operator}${parenIfCompound(node.argument)}`
+        ? `${node.operator}${node.operator === 'typeof' ? ' ' : ''}${parenIfCompound(node.argument)}`
         : `${parenIfCompound(node.argument)}${node.operator}`;
     case 'ArrowFunctionExpression': {
       const params = `(${node.params.map(p => expr(p)).join(', ')})`;
