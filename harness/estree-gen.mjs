@@ -38,8 +38,18 @@ function exprUnwrapped(node) {
       return node.name;
     case 'Literal': {
       // regex literal (`/\s+/`): ESTree Literal-with-regex, emitted by
-      // the native wc -w word-count lowering
-      if (node.regex) return `/${node.regex.pattern}/${node.regex.flags}`;
+      // the native wc -w word-count lowering and the native case-glob
+      // lowering. A literal regex cannot contain raw line terminators
+      // (newline/CR/U+2028/U+2029) — glob patterns may embed real
+      // newlines (`case $x in *'\n'*`), so escape them.
+      if (node.regex) {
+        const pat = node.regex.pattern
+          .replace(/\r/g, '\\r')
+          .replace(/\n/g, '\\n')
+          .replace(/\u2028/g, '\\u2028')
+          .replace(/\u2029/g, '\\u2029');
+        return `/${pat}/${node.regex.flags}`;
+      }
       const v = node.value;
       if (typeof v === 'string') return JSON.stringify(v);
       if (v === null) return 'null';
