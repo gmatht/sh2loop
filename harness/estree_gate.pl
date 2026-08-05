@@ -18,7 +18,7 @@ use JSON::PP;
 
 my %whitelist = map { $_ => 1 } qw(
     exec getVar setVar test pipeline capture captureWords redirect caseMatch param arith brace setArray setArrayAppend assign arrayItems arrayLen arrayIndex join setLastExit arithEval idiv imod guard not contains builtin grepText cutText bcSqrt fnCall callDirect callUndefined
-    define subshell background block whileLoop whileLoopSync cstyleFor cstyleForSync forLoop forLoopSync listVar and or
+    define subshell background block whileLoop whileLoopSync whileLoopBatch cstyleFor cstyleForSync forLoop forLoopSync forLoopBatch listVar and or
     shopt return break continue unsupported
     trimCapture dirname basename readFile writeFile appendFile lstat unlink rm mkdir
 );

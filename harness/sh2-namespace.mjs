@@ -1396,6 +1396,47 @@ export const sh2 = {
     return true;
   },
 
+  // Checkpointed twin of forLoopSync (the sync-ok-loops transform's
+  // `batch_ok` verdict): a loop whose body is sync-executable but that
+  // still cannot run as ONE blocking chunk (async region / glob iterable /
+  // signals) runs as sync chunks of `batch` iterations with a setImmediate
+  // yield between chunks — bash's output order and the capture bound
+  // preserved, at ~1/batch of the async forLoop's per-iteration await
+  // cost. Semantics mirror forLoopSync EXACTLY (flatten, GLOB_MAGIC,
+  // BREAK/CONTINUE/RETURN signals, _capExceeded) — only the yield cadence
+  // differs. Await-legal contexts only (the emitter gates it).
+  async forLoopBatch(items, bodyFn, batch) {
+    const expandItem = (x) => {
+      if (typeof x === 'string' && x.startsWith(GLOB_MAGIC)) {
+        const pat = x.slice(GLOB_MAGIC.length);
+        const hits = globExpand(pat);
+        return hits.length > 0 ? hits : [pat];
+      }
+      return [x];
+    };
+    const flat = [];
+    for (const it of items) {
+      if (Array.isArray(it)) for (const x of it) flat.push(...expandItem(x));
+      else flat.push(...expandItem(it));
+    }
+    let n = 0;
+    for (const v of flat) {
+      if (this._capExceeded()) break;
+      if (++n === batch) {
+        n = 0;
+        await new Promise((r) => setImmediate(r));
+      }
+      try {
+        bodyFn(v);
+      } catch (e) {
+        if (isSignal(e, 'BREAK')) break;
+        if (isSignal(e, 'CONTINUE')) continue;
+        throw e;
+      }
+    }
+    return true;
+  },
+
   listVar(name) {
     if (name === '@' || name === '*') return [...this.positional];
     return [];
@@ -1517,6 +1558,39 @@ export const sh2 = {
       try { c = condFn(); } catch (e) { if (isSignal(e, 'RETURN')) throw e; throw e; }
       if (!c) break;
       ran = true;
+      try {
+        bodyFn();
+        bodyLastExit = this.lastExit;
+      } catch (e) {
+        if (isSignal(e, 'BREAK')) break;
+        if (isSignal(e, 'CONTINUE')) continue;
+        throw e;
+      }
+    }
+    this.lastExit = ran ? bodyLastExit : 0;
+    return this.lastExit === 0;
+  },
+
+  // Checkpointed twin of whileLoopSync — see forLoopBatch: sync chunks of
+  // `batch` iterations with a setImmediate yield between chunks. Semantics
+  // mirror whileLoopSync EXACTLY (lastExit protocol, BREAK/CONTINUE/RETURN
+  // signals, _capExceeded) — only the yield cadence differs. Keeps the
+  // event loop responsive for interleaved background jobs where a blocking
+  // whileLoopSync would freeze it (e.g. `while true; do :; done &`).
+  async whileLoopBatch(condFn, bodyFn, batch) {
+    let ran = false;
+    let bodyLastExit = 0;
+    let n = 0;
+    for (;;) {
+      if (this._capExceeded()) break;
+      let c;
+      try { c = condFn(); } catch (e) { if (isSignal(e, 'RETURN')) throw e; throw e; }
+      if (!c) break;
+      ran = true;
+      if (++n === batch) {
+        n = 0;
+        await new Promise((r) => setImmediate(r));
+      }
       try {
         bodyFn();
         bodyLastExit = this.lastExit;
