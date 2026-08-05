@@ -263,6 +263,11 @@ LOG="$WORKSPACE/loop-frontend-$lang.log"
 echo "[\$(date +%FT%T)] frontend $lang worker started (pid=\$\$, scope=$dir)" >> "\$LOG"
 while true; do
   # light ops (no load gate): git status, scope check
+  # WORK-STEALING: a leased slot is run by a desktop — yield until released
+  if [ -f "$WORKSPACE/.leases/$lang" ]; then
+    echo "[$(date +%FT%T)] frontend $lang: leased to $(cut -d' ' -f1 "$WORKSPACE/.leases/$lang") — yielding" >> "$LOG"
+    sleep 300; continue
+  fi
   changes=\$(git -C "\$WORKSPACE" status --porcelain 2>/dev/null \
             | awk '/^.. /{print \$2}' \
             | awk -v d="$dir" '\$0 ~ "^"d || \$0 ~ /^harness\//' \
