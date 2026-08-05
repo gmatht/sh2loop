@@ -90,6 +90,15 @@ time_js() { # script → seconds (or "ERR")
   [[ "$t" =~ ^[0-9.]+$ ]] && echo "$t" || echo ERR
 }
 
+time_c() { # script → seconds via the C backend (sh2c — the c_backend bin)
+  local f=$1
+  "$ROOT/sh2perl/backends/c/target/debug/c_backend" "$f" 2>/dev/null > /tmp/bench_runner.c || { echo ERR; return; }
+  gcc -O2 -o /tmp/bench_runner_c /tmp/bench_runner.c 2>/dev/null || { echo ERR; return; }
+  local t
+  t=$(/usr/bin/time -f "%e" timeout 60 /tmp/bench_runner_c 2>&1 >/dev/null)
+  [[ "$t" =~ ^[0-9.]+$ ]] && echo "$t" || echo ERR
+}
+
 calibrate() { # pre body setup cleanup → N such that bash takes ~CAL_MS
   local pre=$1 body=$2 setup=$3 cleanup=$4
   local n=1000
@@ -111,7 +120,7 @@ ops() { # seconds → ops/sec (N / t), or ERR
 }
 
 echo "=== shellbench samples (bash / dash / transpiled JS) ==="
-printf "%-24s %12s %12s %12s\n" "bench" "bash/s" "dash/s" "js/s"
+printf "%-24s %12s %12s %12s %12s\n" "bench" "bash/s" "dash/s" "js/s" "c/s"
 OUT=/tmp/bench_sections; rm -rf "$OUT"
 for sample in ${@:-$SB/sample/*.sh}; do
   [ -f "$sample" ] || continue
@@ -125,9 +134,10 @@ for sample in ${@:-$SB/sample/*.sh}; do
     tb=$(time_shell bash /tmp/bench_runner.sh)
     td=$(time_shell dash /tmp/bench_runner.sh)
     tj=$(time_js /tmp/bench_runner.sh)
+    tc=$(time_c /tmp/bench_runner.sh)
     st=$(perl "$ROOT/harness/sh2stat.pl" /tmp/bench_runner.json 2>/dev/null || echo "-\t-\t-")
-    printf "%-24s %12s %12s %12s   sh2[%s]\n" "$(basename "$sample" .sh):$name" \
-      "$(ops "$n" "$tb")" "$(ops "$n" "$td")" "$(ops "$n" "$tj")" "$st"
+    printf "%-24s %12s %12s %12s %12s   sh2[%s]\n" "$(basename "$sample" .sh):$name" \
+      "$(ops "$n" "$tb")" "$(ops "$n" "$td")" "$(ops "$n" "$tj")" "$(ops "$n" "$tc")" "$st"
   done
 done
 
