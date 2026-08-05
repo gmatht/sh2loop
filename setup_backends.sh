@@ -434,6 +434,24 @@ case "${1:-}" in
                     printf 'Tail of the build log (%s):\n' "$fix_log"
                     tail -50 "$fix_log" 2>/dev/null || true
                     printf '\nThe shIR (A1) contract is the source of truth. Render the %s backend in idiomatic %s.\n' "$fix_lang" "$fix_lang"
+                    printf 'The backend gate needs a RENDERER ENTRY in the worktree: wire a --shir-in-%s flag into the worktree''s cli/src/lib.rs argument dispatch (mirroring the --shir-in-perl/--shir-in-estree branches; takes shIR JSON on stdin via `-`) or add a %s_backend bin taking the .sh file (the c backend''s pattern). The gate probes the flag before the corpus loop — no flag, no bin = the gate stays red.\n' "$fix_lang" "$fix_lang"
+                    printf '\nCONCRETE RECIPE (the C backend''s PROVEN pattern — mirror it, do not reinvent):\n'
+                    printf '  1. RENDERER: a library fn `shir_to_%s(&IrProgram) -> String` walking the ShIR nodes —\n' "$fix_lang"
+                    printf '     read the reference: `git -C backends/c show backend/c:src/c_backend.rs` — the C\n'
+                    printf '     renderer consumes the IR in-process, uses the A2 var_types verdicts (Int ->\n'
+                    printf '     the target''s int type, Str -> its string, missing -> the runtime store), and\n'
+                    printf '     emits a compile-able sh2.* stub or a /* TODO */ marker for anything outside\n'
+                    printf '     the lowable subset — the output ALWAYS compiles.\n'
+                    printf '  2. ENTRY: wire --shir-in-%s in the worktree''s cli/src/lib.rs — mirror the\n' "$fix_lang"
+                    printf '     --shir-in-perl arm (~line 661): read the file (or stdin via `-`) ->\n'
+                    printf '     shir_json_in::shir_json_to_ir -> shir_to_%s -> print.\n' "$fix_lang"
+                    printf '  3. BOOTSTRAP ORDER: get the gate GREEN on the MINIMAL subset FIRST (Output +\n'
+                    printf '     Assign only — the corpus loop starts tiny), then grow (If/While/arith/test).\n'
+                    printf '     Never aim for the whole corpus in one shot — land the first green, commit,\n'
+                    printf '     then extend.\n'
+                    printf '  4. RUNTIME: the per-language sh2.* port comes AFTER the renderer is green\n'
+                    printf '     (backends/c/docs/backend-c-core-needs.md section 7 table). Stubs are fine\n'
+                    printf '     for the first green.\n'
                     printf 'Shared core (DO NOT TOUCH): sh2perl/src/shir.rs, sh2perl/src/ir.rs, sh2perl/src/estree.rs, sh2perl/src/parser/\n'
                     printf 'You may create or edit files inside backends/%s/ and harness/.\n' "$fix_lang"
                     printf 'If a SHARED-CORE change is required (shIR node, deserializer, contract field, parser fix) to fix this, APPEND a structured request to core-requests/%s-<timestamp>.md per core-requests/README.md (NEED / WHY / MINIMAL-CORE-CHANGE / FAILING-CASE) and exit 0. Do NOT touch the core — the estree worker implements core requests.\n' "$fix_lang"
@@ -467,32 +485,67 @@ case "${1:-}" in
                   rm -f /tmp/pi-fix-prompt-$$
                   exit 0 ;;
   --backend-gate) # internal: the backend worker's progress signal. Render the
-                  # shared corpus (sh2perl/examples/*.sh = 531 + shell
-                  # testdata from all frontends) through THIS backend and
-                  # report PASS/FAIL. perl -> shir-in-perl; js ->
-                  # shir-in-estree; scaffolds -> shIR processable (their
-                  # renderer gate lands with the renderer). Usage:
-                  #   setup_backends.sh --backend-gate <lang>
+                  # shared corpus (sh2perl/examples/*.sh + frontend testdata)
+                  # through THIS backend and report PASS/FAIL.
+                  #   js, perl -> the CORE's production renderers (estree.rs /
+                  #          ir_to_perl live in the shared core — the estree/
+                  #          rust loops own them; this gate is a watchdog +
+                  #          escalates gaps via core-requests).
+                  #   scaffolds (c go python rust zig) -> the WORKTREE must
+                  #          have a renderer: a --shir-in-<lang> flag wired
+                  #          into its debashc (cli/src/lib.rs dispatch), or a
+                  #          <lang>_backend bin (c's pattern). Neither -> FAIL:
+                  #          the old `*) ok=1` was vacuous (never failed, so
+                  #          the scaffold workers idled at the shared commit).
+                  # Usage: setup_backends.sh --backend-gate <lang>
                   shift; g_lang="$1"
-                  # compile check first (the worktree against the core)
+                  g_wt="$BT/$g_lang"
+                  # compile the CORE first (the shIR emit below uses it)
                   if ! cargo build --manifest-path "$SUB/Cargo.toml" >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
-                    echo "  [$g_lang] backend gate: cargo build FAILED"; exit 1
+                    echo "  [$g_lang] backend gate: core build FAILED"; exit 1
                   fi
+                  g_bin="$SUB/target/debug/debashc"; g_flag=""; g_binmode=0
+                  case "$g_lang" in
+                    js)   g_flag="--shir-in-estree";;   # production estree->JS backend (core)
+                    perl) g_flag="--shir-in-perl";;    # production perl backend (core)
+                    *)
+                      # scaffolds: build the worktree (the branch's core + its
+                      # renderer) and find the renderer entry
+                      if ! cargo build --manifest-path "$g_wt/Cargo.toml" >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
+                        echo "  [$g_lang] backend gate: worktree build FAILED"; exit 1
+                      fi
+                      g_bin="$g_wt/target/debug/debashc"
+                      # probe: feed an invalid shIR JSON — the deserializer's
+                      # "ShIR JSON ingress" marker proves --shir-in-<lang> is
+                      # wired into the worktree's CLI
+                      printf '%s' '{"contract_version":1,"imports":[],"requires":[],"stmts":[],"subs":[],"var_types":[],"stmt_lines":[]}' \
+                        | "$g_bin" "--shir-in-$g_lang" - >/dev/null 2>/tmp/gate_probe_$$
+                      if grep -q "ShIR JSON ingress" /tmp/gate_probe_$$; then
+                        g_flag="--shir-in-$g_lang"
+                      elif [ -x "$g_wt/target/debug/${g_lang}_backend" ]; then
+                        g_binmode=1
+                      else
+                        rm -f /tmp/gate_probe_$$
+                        echo "  [$g_lang] backend gate: NO RENDERER — wire --shir-in-$g_lang into the worktree's cli/src/lib.rs dispatch (mirroring --shir-in-perl) or add a ${g_lang}_backend bin (c's pattern). The gate lands with the renderer."
+                        exit 1
+                      fi
+                      rm -f /tmp/gate_probe_$$;;
+                  esac
                   corpus=$(ls "$SUB"/examples/*.sh "$WORKSPACE"/frontends/*/testdata/*.sh 2>/dev/null)
                   pass=0; skip=0; fail=0; fails=""
                   for f in $corpus; do
-                    # shIR emit first: if the CORE emits nothing (rc!=0 or
-                    # empty JSON — the 4 parse-error test examples do this),
-                    # it is a SKIP (nothing to render, not a backend gap).
+                    # shIR emit from the CORE (the A1 contract source of truth):
+                    # if the core emits nothing (rc!=0 or empty JSON — the 4
+                    # parse-error examples), SKIP (not a backend gap).
                     shir=$("$SUB/target/debug/debashc" --shir "$f" --raw 2>/dev/null)
                     if [ -z "$shir" ]; then
                       skip=$((skip+1)); continue
                     fi
-                    case "$g_lang" in
-                      perl) ok=$(printf '%s' "$shir" | "$SUB/target/debug/debashc" --shir-in-perl - >/dev/null 2>&1 && echo 1 || echo 0);;
-                      js)   ok=$(printf '%s' "$shir" | "$SUB/target/debug/debashc" --shir-in-estree - >/dev/null 2>&1 && echo 1 || echo 0);;
-                      *)    ok=1;;  # scaffolds: shIR processable is the emit above
-                    esac
+                    if [ "$g_binmode" = 1 ]; then
+                      ok=$("$g_wt/target/debug/${g_lang}_backend" "$f" >/dev/null 2>&1 && echo 1 || echo 0)
+                    else
+                      ok=$(printf '%s' "$shir" | "$g_bin" "$g_flag" - >/dev/null 2>&1 && echo 1 || echo 0)
+                    fi
                     if [ "$ok" = 1 ]; then pass=$((pass+1)); else fail=$((fail+1)); fails="$f $fails"; fi
                   done
                   echo "  [$g_lang] backend gate: $pass/$((pass+skip+fail)) corpus render OK, $fail fail, $skip skip (core-unparseable)"
