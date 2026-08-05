@@ -351,6 +351,22 @@ parked until a statically-typed backend lands, per docs §8).
    determinism + gate are the gates. Success: total call sites decrease
    monotonically, corpus stays 516/516, `forLoopSync`/`cstyleForSync` and
    worker-invented native lowerings land.
+9. **M9 — shir_passes shared library:** the sh2.\* boundary is the
+   cut-down, not a per-backend shIR subset (kitchen-sink / cut-down /
+   shared-library design decision). The sh2.\* namespace is the
+   universal contract; the shared library is the locus of common
+   lowerings (every backend benefits at once, the metric is the
+   progress signal). Stage 0 = the new `src/shir_passes/` module
+   scaffolded (`PassContext` struct replaces the ten `static
+   Mutex<Option<…>>` globals in shir.rs; the `Analysis`/`Transform`/
+   `PatternLift` traits and the `Pipeline` runner are real; the
+   `Metric` tally is a first-class return value; the analysis/transform/
+   lift implementations are stubs that return defaults; `cargo test
+   --lib` 55 → 75). Stage 1 migrates the shir.rs analyses into the
+   trait implementations (the M3 guardrail — Perl output is
+   byte-identical — is the proof the migration is safe). Stage 2
+   extracts the M8 pattern lifts from shir.rs into the new module.
+   Design doc: `sh2perl/docs/ir-design.md` §"The sh2.* boundary".
 
 ---
 
@@ -625,6 +641,23 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
   baseline (5,107 sh2.* call sites across 516 examples; ~1,200 lowerable:
   getVar 512, setVar 253, param 197, test 129, caseMatch 42, brace 40, arith
   family 41, async loops 44).
+- **2026-08-04 — M9 stage 0: shir_passes shared library scaffolded.**
+  New `sh2perl/src/shir_passes/` module (1,382 lines, 8 files): the
+  `PassContext` struct (replaces the ten `static Mutex<Option<…>>`
+  globals in shir.rs — the determinism-test race goes away as a side
+  effect of the migration), the `Analysis`/`Transform`/`PatternLift`
+  traits and the `Pipeline` runner, the `Metric` tally (sh2.* call-site
+  count; the worker's commit signal promoted to a first-class return
+  value), and the pattern-lift skeleton (`contains` family as the
+  worked example). The analysis/transform/lift implementations are
+  stubs that return defaults — the real implementations migrate in
+  stage 1 (the M3 guardrail, "Perl output is byte-identical", is the
+  proof the migration is safe). `cargo test --lib` 55 → 75 (+20 new
+  in shir_passes, zero regressions). The design decision is documented
+  in `sh2perl/docs/ir-design.md` §"The sh2.* boundary": the sh2.*
+  namespace is the cut-down boundary, not a per-backend shIR subset.
+  No existing code path changes — the ESTree and Perl backends still
+  consume the existing shir.rs analyses.
 
 ---
 
@@ -688,6 +721,9 @@ per-iteration promises), `echo X | grep P >/dev/null 2>/dev/null` →
   - total increased (tolerance +1 for flakiness) → `scoped_stash`
   - flat for 3 rounds → idle (sleep 300), recheck later
   - any failure count > 0 → back to fix mode (unchanged)
+- **Backlog (`harness/improvement-backlog.md`):** curated candidate tasks
+  appended verbatim to the improvement prompt (submission channel for
+  ideas like the integer-range/BigInt task — see Task 1).
 - **Prompt (`build_improvement_prompt`):** the ladder, the exemplars, the
   current metric table, and the directive — for each construct still on the
   runtime/spawn path, find the best lowering you can think of. Same scoped
