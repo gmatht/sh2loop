@@ -117,9 +117,11 @@ calibrate() { # pre body setup cleanup → N such that bash takes ~CAL_MS
   echo "$n"
 }
 
-ops() { # seconds → ops/sec (N / t), or ERR
+ops() { # seconds → ops/sec (N / t), or ERR (t=0 → the run was sub-ms:
+  # the C column dead-code-eliminates unobserved loops — report the floor)
   local n=$1 t=$2
-  [[ "$t" =~ ^[0-9.]+$ ]] && { awk -v n="$n" -v t="$t" 'BEGIN { printf "%.0f", n / t }'; } || echo ERR
+  [[ "$t" =~ ^[0-9.]+$ ]] || { echo ERR; return; }
+  awk -v n="$n" -v t="$t" 'BEGIN { if (t > 0) printf "%.0f", n / t; else print ">1e9" }'
 }
 
 echo "=== shellbench samples (bash / dash / transpiled JS) ==="
@@ -147,7 +149,7 @@ done
 echo
 echo "=== ~/sqrt1337.sh (10k iterations, echo \$((i*i)) | grep 1337) ==="
 S=~/sqrt1337.sh
-printf "%-12s %12s %12s %12s\n" "shell" "time(s)" "ratio" ""
+printf "%-12s %12s %12s\n" "shell" "time(s)" "ratio"
 for sh in bash dash; do
   t=$(/usr/bin/time -f "%e" timeout 300 "$sh" "$S" 2>&1 >/dev/null)
   [[ "$t" =~ ^[0-9.]+$ ]] && printf "%-12s %12s %12s\n" "$sh" "$t" "1.0x" \
@@ -156,3 +158,17 @@ done
 tj=$(/usr/bin/time -f "%e" timeout 60 node "$ROOT/harness/estree-runner.mjs" \
       <("$DEBASHC" file --estree "$S" 2>/dev/null) --source "$S" 2>&1 >/dev/null)
 printf "%-12s %12s\n" "js" "$tj"
+# the C column: the c_backend renders sqrt1337 -> tcc -O2 -> run. The
+# renderer only lowers the lowable subset (echo/arith); a grep pipeline is
+# NOT lowable — verify the output matches bash before timing (a fast but
+# WRONG run is worse than an honest 'unlowerable').
+if "$ROOT/sh2perl/backends/c/target/debug/c_backend" "$S" 2>/dev/null > /tmp/sqrt1337.c    && tcc -O2 -o /tmp/sqrt1337_c /tmp/sqrt1337.c 2>/dev/null; then
+  if [ "$(/tmp/sqrt1337_c 2>/dev/null)" = "$(seq 1 10000 | awk '{s=$1*$1; if (s ~ /1337/) print $1}')" ]; then
+    tc=$(/usr/bin/time -f "%e" timeout 60 /tmp/sqrt1337_c 2>&1 >/dev/null)
+    printf "%-12s %12s\n" "c(tcc)" "$tc"
+  else
+    printf "%-12s %12s\n" "c(tcc)" "unlowerable"
+  fi
+else
+  printf "%-12s %12s\n" "c(tcc)" "render-err"
+fi
