@@ -5,3 +5,7 @@ sh2perl-*.pl
 tmp/
 check_sh_results/
 harness/node_modules/
+
+# per-worktree cargo build dirs (work-stealing — NEVER commit these)
+sh2perl/backends/*/target/
+sh2perl/backends/*/target-core/
