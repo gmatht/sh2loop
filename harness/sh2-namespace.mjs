@@ -2288,12 +2288,15 @@ builtins.readonly = function (args) {
 // `result` visible to the rest of the program).
 builtins.eval = function (args) {
   const code = args.join(' ');
-  // Fast path: a STATIC eval string (no $ / backtick — no re-expansion at
-  // eval time) that parses as plain assignment(s) and/or a simple builtin
-  // command the runtime can execute IN-PROCESS — zero bash spawns (≈
-  // bash's own in-process eval). Dynamic strings ($, backtick, compound
-  // syntax, non-builtin commands) fall through to a single bash spawn.
-  if (!/[`$]/.test(code)) {
+  // Fast path: a STATIC eval string that parses as plain assignment(s)
+  // and/or a simple builtin command the runtime can execute IN-PROCESS —
+  // zero bash spawns (≈ bash's own in-process eval). CONSERVATIVE: the
+  // string must contain no shell-interpreted characters (quotes, $,
+  // backtick, redirection, globs, compound syntax, comments). Anything
+  // else — including already-expanded but still-quoted words like
+  // `eval "echo \"$x\""` → `echo "42"` — falls through to the single
+  // bash spawn, which is always correct.
+  if (!/[`$"'\\|><&(){}*?[\]~!#]/.test(code)) {
     let ok = true;
     for (const st of code.split(';')) {
       const s = st.trim();
@@ -2322,7 +2325,7 @@ builtins.eval = function (args) {
   const r = spawnSync('bash', ['-c', `${code}\n__SH2_EVAL_END__\nset\ndeclare -F`], { encoding: 'utf8' });
   if (!r.error && r.stdout) {
     const [out, ...rest] = String(r.stdout).split('__SH2_EVAL_END__\n');
-    if (out) process.stdout.write(out);  // the code's real output
+    if (out) emit(this, out);  // the code's real output — via the fd-aware emit (handles redirects/captures)
     for (const line of (rest.join('__SH2_EVAL_END__\n') || '').split('\n')) {
       const eq = line.indexOf('=');
       if (eq > 0 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(line.slice(0, eq))) {
