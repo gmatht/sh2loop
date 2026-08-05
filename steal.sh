@@ -90,7 +90,7 @@ run_slot() {
     load_ok || { echo "[$(date +%FT%T)] steal($l): desktop load rose — returning"; return; }
     if bash "$WORK/ws/setup_backends.sh" --backend-gate "$l" >> "$WORK/loop-$l.log" 2>&1; then
       fail_count=0
-      git -C "$WORK/ws/sh2perl" add -A 2>/dev/null || true
+      git -C "$WORK/ws/sh2perl" add -A -- ':!backends/*/target' ':!backends/*/target-core' 2>/dev/null || true
       git -C "$WORK/ws/sh2perl" commit -m "steal($l): gate pass (from $(hostname))" 2>/dev/null || true
       echo "[$(date +%FT%T)] steal($l): gate GREEN"
     else
@@ -132,7 +132,7 @@ sleep 5  # let the slot loops notice the cancel + commit
 cd "$WORK/ws" || exit 1
 for l in $LEASED; do
   echo "[$(date +%FT%T)] steal: bundling $l..."
-  git -C sh2perl add -A 2>/dev/null || true
+  git -C sh2perl add -A -- ':!backends/*/target' ':!backends/*/target-core' 2>/dev/null || true
   git -C sh2perl commit -m "steal($l): return (from $(hostname))" 2>/dev/null || true
   SUB_BUNDLE="$WORK/sub-$l.bundle"
   git -C sh2perl bundle create "$SUB_BUNDLE" "backend/$l" >/dev/null 2>&1 || true
