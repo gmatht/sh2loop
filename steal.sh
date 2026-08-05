@@ -68,10 +68,16 @@ trap cleanup EXIT
 
 # ── 2. fetch the workspace once (the root + the pinned submodule) ───
 WORK=$(mktemp -d)
-echo "[$(date +%FT%T)] steal: cloning $SERVER..."
-git clone -q "ssh://$SERVER/nvme/ai/sh2loop" "$WORK/ws" 2>/dev/null || { echo "clone failed"; exit 1; }
+echo "[$(date +%FT%T)] steal: cloning $SERVER (shallow)..."
+# SHALLOW: the workspace is ~71MB of loose objects — a depth-1 clone is
+# tiny and fast (the return bundles still fetch into the server's FULL
+# history, so the shallow boundary is not a problem)
+git clone -q --depth 1 "ssh://$SERVER/nvme/ai/sh2loop" "$WORK/ws" 2>/dev/null || { echo "clone failed"; exit 1; }
 cd "$WORK/ws" || exit 1
-git submodule update --init sh2perl >/dev/null 2>&1
+# the submodule: fetch from the SERVER, not github (the desktop may not
+# have a github key — that was the hang). Redirect the URL + shallow.
+git config submodule.sh2perl.url "ssh://$SERVER/nvme/ai/sh2loop/sh2perl"
+git submodule update --init --depth 1 sh2perl >/dev/null 2>&1
 
 # a worker function: the SAME gate+pi loop, run for one leased slot
 run_slot() {
