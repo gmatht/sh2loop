@@ -361,73 +361,19 @@ do_start_workers () {
     # shared CPU; the backend/frontend workers yield to it
     nice -n 19 nohup bash -c "
       set -euo pipefail
-      cd '$dir'
-      LOG='$WORKSPACE/loop-backend-$lang.log'
-      fail_count=0
-      while true; do
-        # WORK-STEALING: a leased slot is run by a desktop (steal.sh) — the
-        # server loop yields until the lease is released
-        if [ -f \"\$WORKSPACE/.leases/$lang\" ]; then
-          echo \"[\$(date +%FT%T)] $lang: leased to \$(cut -d' ' -f1 \"\$WORKSPACE/.leases/$lang\") — yielding\" >> '$WORKSPACE/loop-backend-$lang.log'
-          sleep 300; continue
-        fi
-        # FAILURE-DRIVEN: run the backend gate (cargo build + corpus render
-        # through this backend) EVERY iteration — not just on uncommitted
-        # changes (the old change-driven loop idled on a clean-but-broken
-        # tree). The --wait gate (CPU+RAM) throttles heavy runs.
-        bash \"$WORKSPACE/setup_backends.sh\" --wait 2>>\"\$LOG\" || true
-        echo \"[\$(date +%FT%T)] $lang: gate run\" >> '$WORKSPACE/loop-backend-$lang.log'
-        if bash "$WORKSPACE/setup_backends.sh" --backend-gate '$lang' >> '$WORKSPACE/loop-backend-$lang.log' 2>&1; then
-          fail_count=0
-          # gate OK: commit any scoped changes (worktree dir + harness/*)
-          changes=\$(git -C '$WORKSPACE' status --porcelain 2>/dev/null \
-                    | awk '/^.. /{print \$2}' \
-                    | awk -v d='$dir' '\$0 ~ \"^\"d || \$0 ~ /^harness\\//' || true)
-          if [ -n \"\$changes\" ]; then
-            # concurrent-edit guard: never commit a merge-conflict marker
-            # (a pi session's stash-pop can leave one — it broke the gate)
-            if grep -lE '^(<<<<<<<|=======|>>>>>>>)' \$changes 2>/dev/null | grep -q .; then
-              echo \"[\$(date +%FT%T)] $lang: conflict markers in staged files — NOT committing; leaving for the owner\" >> '$WORKSPACE/loop-backend-$lang.log'
-            else
-              # harness/* edits touch the SHARED corpus — a quick regression
-              # check before the commit (the tiny backend gate cannot see it)
-              if echo \"\$changes\" | grep -q '^harness/'; then
-                if ! (cd '$WORKSPACE' && perl fail-estree --gate >/dev/null 2>&1); then
-                  echo \"[\$(date +%FT%T)] $lang: harness edits regress the core corpus — NOT committing\" >> '$WORKSPACE/loop-backend-$lang.log'
-                else
-                  git -C '$WORKSPACE' add \$changes 2>/dev/null || true
-                  git -C '$WORKSPACE' commit -m 'backend $lang: gate pass' 2>/dev/null || true
-                fi
-              else
-                git -C '$WORKSPACE' add \$changes 2>/dev/null || true
-                git -C '$WORKSPACE' commit -m 'backend $lang: gate pass' 2>/dev/null || true
-              fi
-            fi
-          fi
-          echo \"[\$(date +%FT%T)] $lang: gate GREEN\" >> '$WORKSPACE/loop-backend-$lang.log'
-        else
-          fail_count=\$((fail_count+1))
-          echo \"[\$(date +%FT%T)] $lang: gate FAILED (\$fail_count/3) — invoking pi (deepseek-v4-flash, scoped)\" >> '$WORKSPACE/loop-backend-$lang.log'
-          bash \"$WORKSPACE/setup_backends.sh\" --pi-fix-backend '$lang' 2>>\"\$LOG\" || true
-          if [ \"\$fail_count\" -ge 3 ]; then
-            echo \"[\$(date +%FT%T)] $lang: TRAPPED — escalating and backing off 30 min (a repeated same-message failure is a bootstrap gap, not a pi-fixable edit)\" >> '$WORKSPACE/loop-backend-$lang.log'
-            bash \"$WORKSPACE/setup_backends.sh\" --worker-trapped '$lang' backend >> \"\$LOG\" 2>&1 || true
-            # stash the pi's unlanded WIP (the broken edit would fail the
-            # next gate the same way) + back off so the loop stops burning
-            # pi sessions on a renderer that hasn't been written
-            git -C '$dir' stash -q 2>/dev/null || true
-            fail_count=0
-            # lease-aware backoff: a desktop lease ends the 30-min sleep
-            # early (the steal feature should not wait out the trap)
-            for ((_i = 1; _i <= 30; _i++)); do
-              [ -f \"\$WORKSPACE/.leases/$lang\" ] && { echo \"[\$(date +%FT%T)] $lang: leased during backoff — yielding\" >> '$WORKSPACE/loop-backend-$lang.log'; sleep 300; continue 2; }
-              sleep 60
-            done
-          fi
-        fi
-        sleep 300
+      # supervisor: restart the worker up to 5 times when it dies
+      attempts=0
+      while [ \$attempts -lt 5 ]; do
+        attempts=\$((attempts+1))
+        echo \"[\$(date +%FT%T)] $lang: worker attempt \$attempts\" >> '$WORKSPACE/loop-backend-$lang.log'
+        bash '$WORKSPACE/setup_backends.sh' --run-backend-worker '$lang'
+        echo \"[\$(date +%FT%T)] $lang: worker exited (attempt \$attempts) — restarting in 5s\" >> '$WORKSPACE/loop-backend-$lang.log'
+        sleep 5
       done
-    " >/tmp/wl-err.log 2>&1 &
+      echo \"[\$(date +%FT%T)] $lang: gave up after 5 attempts — re-run --start-workers\" >> '$WORKSPACE/loop-backend-$lang.log'
+    
+
+    " >/dev/null 2>&1 &
     echo $! > "$dir/loop-backend-$lang.pid"
     echo "  [$lang] worker started (pid $(cat "$dir/loop-backend-$lang.pid")) — log: $WORKSPACE/loop-backend-$lang.log"
   done
@@ -442,7 +388,18 @@ do_start_workers () {
     # startup is a fork — no load gate needed. The per-iteration --wait
     # inside the worker handles the real heavy ops (build/test).
     : # no-op
-    nice -n 19 nohup bash "$dir/run_frontend_worker.sh" >/tmp/wl2.log 2>&1 &
+    nice -n 19 nohup bash -c "
+      # frontend supervisor: restart the worker up to 5 times when it dies
+      attempts=0
+      while [ \$attempts -lt 5 ]; do
+        attempts=\$((attempts+1))
+        echo \"[\$(date +%FT%T)] frontend $lang: worker attempt \$attempts\" >> '$WORKSPACE/loop-frontend-$lang.log'
+        bash '$dir/run_frontend_worker.sh'
+        echo \"[\$(date +%FT%T)] frontend $lang: worker exited (attempt \$attempts) — restarting in 5s\" >> '$WORKSPACE/loop-frontend-$lang.log'
+        sleep 5
+      done
+      echo \"[\$(date +%FT%T)] frontend $lang: gave up after 5 attempts\" >> '$WORKSPACE/loop-frontend-$lang.log'
+    " >/dev/null 2>&1 &
     echo $! > "$WORKSPACE/loop-frontend-$lang.pid"
     echo "  [$lang] worker started (pid $(cat "$WORKSPACE/loop-frontend-$lang.pid")) — log: $WORKSPACE/loop-frontend-$lang.log"
   done
@@ -456,6 +413,59 @@ case "${1:-}" in
   --frontends)    MODE=frontends; shift ;;
   --build)        MODE=build; shift; SCOPE="${1:-all}"; shift || true ;;
   --start-workers) MODE=start-workers; shift ;;
+  --run-backend-worker) # internal: run ONE backend worker loop until it
+                  # dies (the start-workers supervisor relaunches it up to
+                  # 5 times). Usage: setup_backends.sh --run-backend-worker <lang>
+                  shift; rw_lang="$1"; rw_dir="$BT/$rw_lang"
+                  export WORKSPACE LOG
+                  LOG="$WORKSPACE/loop-backend-$rw_lang.log"
+                  cd "$rw_dir" || exit 1
+                  fail_count=0
+                  while true; do
+                    # WORK-STEALING: a leased slot is run by a desktop
+                    if [ -f "$WORKSPACE/.leases/$rw_lang" ]; then
+                      echo "[$(date +%FT%T)] $rw_lang: leased to $(cut -d' ' -f1 "$WORKSPACE/.leases/$rw_lang") — yielding" >> "$LOG"
+                      sleep 300; continue
+                    fi
+                    if bash "$WORKSPACE/setup_backends.sh" --backend-gate "$rw_lang" >> "$LOG" 2>&1; then
+                      fail_count=0
+                      changes=$(git -C "$WORKSPACE" status --porcelain 2>/dev/null \
+                                | awk '/^.. /{print $2}' \
+                                | awk -v d="$rw_dir" '$0 ~ "^"d || $0 ~ /^harness\//' || true)
+                      if [ -n "$changes" ]; then
+                        if grep -lE '^(<<<<<<<|=======|>>>>>>>)' $changes 2>/dev/null | grep -q .; then
+                          echo "[$(date +%FT%T)] $rw_lang: conflict markers in staged files — NOT committing" >> "$LOG"
+                        elif echo "$changes" | grep -q '^harness/'; then
+                          if (cd "$WORKSPACE" && perl fail-estree --gate >/dev/null 2>&1); then
+                            git -C "$WORKSPACE" add $changes 2>/dev/null || true
+                            git -C "$WORKSPACE" commit -m "backend $rw_lang: gate pass" 2>/dev/null || true
+                          else
+                            echo "[$(date +%FT%T)] $rw_lang: harness edits regress the core corpus — NOT committing" >> "$LOG"
+                          fi
+                        else
+                          git -C "$WORKSPACE" add $changes 2>/dev/null || true
+                          git -C "$WORKSPACE" commit -m "backend $rw_lang: gate pass" 2>/dev/null || true
+                        fi
+                      fi
+                      echo "[$(date +%FT%T)] $rw_lang: gate GREEN" >> "$LOG"
+                    else
+                      fail_count=$((fail_count+1))
+                      echo "[$(date +%FT%T)] $rw_lang: gate FAILED ($fail_count/3) — invoking pi (deepseek-v4-flash, scoped)" >> "$LOG"
+                      bash "$WORKSPACE/setup_backends.sh" --pi-fix-backend "$rw_lang" 2>> "$LOG" || true
+                      if [ "$fail_count" -ge 3 ]; then
+                        echo "[$(date +%FT%T)] $rw_lang: TRAPPED — escalating and backing off 30 min" >> "$LOG"
+                        bash "$WORKSPACE/setup_backends.sh" --worker-trapped "$rw_lang" backend >> "$LOG" 2>&1 || true
+                        git -C "$rw_dir" stash -q 2>/dev/null || true
+                        fail_count=0
+                        for ((_i = 1; _i <= 30; _i++)); do
+                          [ -f "$WORKSPACE/.leases/$rw_lang" ] && { echo "[$(date +%FT%T)] $rw_lang: leased during backoff — yielding" >> "$LOG"; sleep 300; continue 2; }
+                          sleep 60
+                        done
+                      fi
+                    fi
+                    sleep 300
+                  done
+                  ;;
   --wait)          # public: wait for load + RAM, then exit 0. Workers use this
                   # before heavy ops. Args: [load_thr] [load_poll] [load_max]
                   # [ram_min_free] [ram_max_swap] [ram_poll] [ram_max]
