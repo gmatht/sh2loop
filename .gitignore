@@ -21,3 +21,32 @@ frontends/*/go-sh
 frontends/*/perl-sh-go
 frontends/*/py-sh-go
 frontends/*/posix-sh-go
+
+# worker loops + the fleet state (logs, pids) — NEVER commit
+loop-*.log
+loop-*.pid
+.estree_*.tsv
+.estree_*.log
+.estree_history.log
+.estree_failures.tsv
+.estree_prev_failures.tsv
+.estree_perl_trusted_count
+.estree_trusted_count
+frontends/*/loop-*.log
+core-requests/
+grammars-v4/
+.demo-examples/
+examples.new/
+
+# ad-hoc command accidents (quoting/redirect typos)
+"${f}"
+"${tmpf}"
+&1
+&2
+&3
+&4
+-
+
+# pi session transcripts anywhere
+**/*.jsonl
+.estree_loop.lock
