@@ -352,7 +352,9 @@ do_start_workers () {
       echo "  [$lang] worker already running (pid $(cat "$dir/loop-backend-$lang.pid"))"
       continue
     fi
-    nohup bash -c "
+    # fleet niceness: heavy (19) — the estree worker (nice 5) owns the
+    # shared CPU; the backend/frontend workers yield to it
+    nice -n 19 nohup bash -c "
       set -euo pipefail
       cd '$dir'
       fail_count=0
@@ -423,7 +425,7 @@ do_start_workers () {
     # startup is a fork — no load gate needed. The per-iteration --wait
     # inside the worker handles the real heavy ops (build/test).
     : # no-op
-    nohup bash "$dir/run_frontend_worker.sh" >/dev/null 2>&1 &
+    nice -n 19 nohup bash "$dir/run_frontend_worker.sh" >/dev/null 2>&1 &
     echo $! > "$WORKSPACE/loop-frontend-$lang.pid"
     echo "  [$lang] worker started (pid $(cat "$WORKSPACE/loop-frontend-$lang.pid")) — log: $WORKSPACE/loop-frontend-$lang.log"
   done
@@ -522,18 +524,30 @@ case "${1:-}" in
                   # Usage: setup_backends.sh --backend-gate <lang>
                   shift; g_lang="$1"
                   g_wt="$BT/$g_lang"
-                  # compile the CORE first (the shIR emit below uses it)
-                  if ! cargo build --manifest-path "$SUB/Cargo.toml" >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
-                    echo "  [$g_lang] backend gate: core build FAILED"; exit 1
-                  fi
                   g_bin="$SUB/target/debug/debashc"; g_flag=""; g_binmode=0
                   case "$g_lang" in
-                    js)   g_flag="--shir-in-estree";;   # production estree->JS backend (core)
-                    perl) g_flag="--shir-in-perl";;    # production perl backend (core)
+                    js|perl)
+                      # production backends: consume the SHARED core binary
+                      # (estree.rs / ir_to_perl live in the core) — the
+                      # shared target is fine (only js/perl/main build it)
+                      if ! cargo build --manifest-path "$SUB/Cargo.toml" >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
+                        echo "  [$g_lang] backend gate: core build FAILED"; exit 1
+                      fi
+                      ;;
                     *)
-                      # scaffolds: build the worktree (the branch's core + its
-                      # renderer) and find the renderer entry
-                      if ! cargo build --manifest-path "$g_wt/Cargo.toml" >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
+                      # scaffolds (c go python rust zig): PER-WORKTREE target
+                      # dirs — each compiles its OWN copy of the core
+                      # ($g_wt/target-core) and its worktree renderer
+                      # ($g_wt/target), so the five scaffold gates stop
+                      # serializing on the SHARED cargo build lock (the
+                      # "Blocking waiting for file lock" contention). The
+                      # two manifests (main core vs the branch core) are the
+                      # same package — keep them in SEPARATE target dirs.
+                      if ! (export CARGO_TARGET_DIR="$g_wt/target-core";                             cargo build --manifest-path "$SUB/Cargo.toml") >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
+                        echo "  [$g_lang] backend gate: core build FAILED"; exit 1
+                      fi
+                      # build the worktree (the branch's core + its renderer)
+                      if ! (export CARGO_TARGET_DIR="$g_wt/target";                             cargo build --manifest-path "$g_wt/Cargo.toml") >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
                         echo "  [$g_lang] backend gate: worktree build FAILED"; exit 1
                       fi
                       g_bin="$g_wt/target/debug/debashc"
