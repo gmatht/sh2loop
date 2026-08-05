@@ -34,7 +34,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$SERVER" ] || { echo "need --server <host>"; exit 1; }
-[ "$FRACTION" -gt 0 ] 2>/dev/null || { echo "fraction must be > 0"; exit 1; }
+awk -v f="$FRACTION" 'BEGIN { exit !(f > 0) }' || { echo "fraction must be > 0"; exit 1; }
 
 CANCEL="$HOME/.steal-cancel"
 rm -f "$CANCEL"
