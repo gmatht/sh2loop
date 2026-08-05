@@ -777,6 +777,131 @@ sub collect_core_requests {
 # Finalize implemented core requests once the corpus is green: commit the
 # core changes pi made, move requests to core-requests/done/, and WAKE the
 # sleeping workers (remove core-requests/sleeping-<lang>).
+# Read the trusted ESTree failure count (from .estree_trusted_count).
+sub estree_trusted {
+    my $trusted = 10_000;
+    if (open my $tf, '<', $estree_trusted_file) {
+        my $f = <$tf>; chomp $f;
+        my ($failed) = split /\t/, $f;
+        $trusted = ($failed // '') + 0 if defined $failed && $failed ne '';
+        close $tf;
+    }
+    return $trusted;
+}
+
+# ── core-requests/transforms: compile-in + bisect worker-submitted IR passes ──
+# Secondary workers escalate the strongest form of a core need as a
+# CONCRETE IR transform (.rs file, core-requests/transforms/<lang>-<name>.rs
+# with `pub fn transform(&mut Vec<IrStmt>) -> bool`). The estree worker:
+#   1. compile-in: copy to src/transforms/<sanitized>.rs + register in
+#      all(). cargo build ONCE (all transforms registered).
+#      Compile error -> the compiler names the file -> send back (rejected/).
+#   2. gate: run fail-estree with all enabled (DEBASHC_TRANSFORMS empty).
+#      Green -> keep (commit the compile-in) + move to done/.
+#      Regressed -> bisect: binary search on DEBASHC_TRANSFORMS=first-n
+#      (NO rebuild per step — the transforms are env-gated), blame the
+#      first transform whose inclusion regresses, send it back (rejected/),
+#      re-test the remainder.
+my $transforms_dir = "$core_requests_dir/transforms";
+my $src_transforms = "$sh2perl/src/transforms.rs";
+
+sub process_core_transforms {
+    return 0 if $dry_run;
+    return 0 unless -d $transforms_dir;
+    opendir(my $dh, $transforms_dir) or return 0;
+    my @files = sort grep { /\.rs$/ } grep { !/^rejected\// } readdir $dh;
+    closedir $dh;
+    return 0 unless @files;
+    print "\n" . "=" x 70, "\n";
+    print "transforms: " . scalar(@files) . " worker-submitted IR passes — compile-in + gate\n";
+
+    # 1. compile-in (copy + register + cargo build once)
+    my @names = ();
+    for my $f (@files) {
+        (my $n = $f) =~ s/\.rs$//;
+        (my $m = $n) =~ s/-/_/g;   # valid Rust ident
+        push @names, $n;
+        system('cp', "$transforms_dir/$f", "$sh2perl/src/transforms/$m.rs");
+        if (open my $rfh, '<', $src_transforms) {
+            local $/; my $t = <$rfh>; close $rfh;
+            if ($t !~ /pub mod $m;/) {
+                $t =~ s/pub mod sub;/pub mod $m;\npub mod sub;/;
+                open my $wfh, '>', $src_transforms; print $wfh $t; close $wfh;
+            }
+            if ($t !~ /\(\s*"$n"/) {
+                # ${m}::transform — the braces delimit the Perl var so the
+                # Rust `::transform` stays literal text in the emitted line.
+                $t =~ s/\/\/ \(name, <name>::transform\)/("$n", ${m}::transform),\n        \/\/ (name, <name>::transform)/;
+                open my $wfh, '>', $src_transforms; print $wfh $t; close $wfh;
+            }
+        }
+        print "  compile-in: $f -> src/transforms/$m.rs\n";
+    }
+    print "transforms: cargo build (once, all registered)...\n";
+    if (system('cargo', 'build', '--manifest-path', "$sh2perl/Cargo.toml") != 0) {
+        print "transforms: COMPILE ERROR — sending all back (the compiler names the file)\n";
+        system('git', '-C', $sh2perl, 'checkout', '--', 'src/transforms.rs');
+        system('git', '-C', $sh2perl, 'clean', '-f', 'src/transforms/');
+        for my $f (@files) { system('mkdir', '-p', "$transforms_dir/rejected"); system('mv', "$transforms_dir/$f", "$transforms_dir/rejected/$f"); }
+        log_decision('transform-compile', scalar(@files), 0, 'all-sent-back');
+        return 1;
+    }
+
+    # 2. gate: all enabled
+    my $trusted = estree_trusted();
+    my $all_green = 0;
+    {
+        local $ENV{DEBASHC_TRANSFORMS} = '';
+        my ($out, $code) = run_fail_estree();
+        my $s = parse_summary($out);
+        my $failed = defined $s->{estree_failed} ? $s->{estree_failed} : 10_000;
+        if ($failed <= $trusted + 3) {
+            $all_green = 1;
+            print "transforms: all " . scalar(@names) . " GREEN (estree_failed=$failed) — keeping\n";
+            my @sub = submodule_changed_paths();
+            if (@sub) {
+                system('git', '-C', $sh2perl, 'add', @sub);
+                system('git', '-C', $sh2perl, 'commit', '-m', "transforms: worker-submitted IR passes (${\scalar @names})");
+                system('git', '-C', $project_root, 'add', 'sh2perl');
+            }
+            for my $f (@files) { system('mv', "$transforms_dir/$f", "$transforms_dir/done/$f"); }
+            log_decision('transform-gate', scalar(@names), $failed, 'keep-all');
+        }
+    }
+    return 1 if $all_green;
+
+    # 3. bisect: binary search for the first n that regresses
+    print "transforms: REGRESSION with all on — bisecting (env-gated, no rebuild)\n";
+    my ($lo, $hi) = (1, scalar @names);
+    while ($lo < $hi) {
+        my $mid = int(($lo + $hi) / 2);
+        my $subset = join(',', @names[0 .. $mid-1]);
+        local $ENV{DEBASHC_TRANSFORMS} = $subset;
+        my ($out, $code) = run_fail_estree();
+        my $s = parse_summary($out);
+        my $failed = defined $s->{estree_failed} ? $s->{estree_failed} : 10_000;
+        print "  bisect n=$mid ($subset): estree_failed=$failed\n";
+        if ($failed > $trusted + 3) { $hi = $mid; } else { $lo = $mid + 1; }
+    }
+    my $blamed = $names[$lo-1];
+    print "transforms: BLAMED transform $blamed (first to regress) — sending back\n";
+    (my $bm = $blamed) =~ s/-/_/g;
+    system('rm', '-f', "$sh2perl/src/transforms/$bm.rs");
+    if (open my $rfh, '<', $src_transforms) {
+        local $/; my $t = <$rfh>; close $rfh;
+        $t =~ s/pub mod $bm;\n//;
+        $t =~ s/\(\s*"$blamed", $bm::transform\),\n\s*//;
+        open my $wfh, '>', $src_transforms; print $wfh $t; close $wfh;
+    }
+    system('mkdir', '-p', "$transforms_dir/rejected");
+    system('mv', "$transforms_dir/$blamed.rs", "$transforms_dir/rejected/$blamed.rs");
+    # the blamed transform is reverted; rebuild so the crate is green, then
+    # re-test the remainder (repeat bisect if still regressed)
+    system('cargo', 'build', '--manifest-path', "$sh2perl/Cargo.toml");
+    log_decision('transform-blame', scalar(@names), 1, $blamed);
+    return 1;
+}
+
 sub finalize_core_requests {
     return unless @core_pending;
     my @sub = submodule_changed_paths();
@@ -808,6 +933,7 @@ my $iteration = 0;
 while (1) {
     $iteration++;
     collect_core_requests();   # fold pending core escalations into this iteration's pi prompt
+    process_core_transforms();  # compile-in + bisect worker-submitted IR passes
     print "\n" . "=" x 70, "\n";
     print "iteration $iteration — running fail-estree", ($prefix ne '' ? " (prefix $prefix)" : ''), "\n";
     my ($out, $code) = run_fail_estree();
