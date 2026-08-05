@@ -364,6 +364,12 @@ do_start_workers () {
       cd '$dir'
       fail_count=0
       while true; do
+        # WORK-STEALING: a leased slot is run by a desktop (steal.sh) — the
+        # server loop yields until the lease is released
+        if [ -f \"\$WORKSPACE/.leases/$lang\" ]; then
+          echo \"[\$(date +%FT%T)] $lang: leased to \$(cut -d' ' -f1 \"\$WORKSPACE/.leases/$lang\") — yielding\" >> '$WORKSPACE/loop-backend-$lang.log'
+          sleep 300; continue
+        fi
         # FAILURE-DRIVEN: run the backend gate (cargo build + corpus render
         # through this backend) EVERY iteration — not just on uncommitted
         # changes (the old change-driven loop idled on a clean-but-broken
@@ -410,7 +416,12 @@ do_start_workers () {
             # pi sessions on a renderer that hasn't been written
             git -C '$dir' stash -q 2>/dev/null || true
             fail_count=0
-            sleep 1800
+            # lease-aware backoff: a desktop lease ends the 30-min sleep
+            # early (the steal feature should not wait out the trap)
+            for _i in $(seq 1 30); do
+              [ -f \"\$WORKSPACE/.leases/$lang\" ] && { echo \"[\$(date +%FT%T)] $lang: leased during backoff — yielding\" >> '$WORKSPACE/loop-backend-$lang.log'; sleep 300; continue 2; }
+              sleep 60
+            done
           fi
         fi
         sleep 300
