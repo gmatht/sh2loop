@@ -131,7 +131,14 @@ def transform(prog):
                   file=sys.stderr)
             continue
         if not write_poss:
-            continue                                  # input-only params: pass-by-value
+            # PASS-BY-VALUE: read-only pointer params (const int *x) — the
+            # caller passes the VALUE (addrOf(v) -> getVar(v)); inside, the
+            # param IS the value (memLoad(N) -> getVar(N)). No return, no
+            # renumbering (the param keeps its position).
+            load_rewrites = set(read_poss)
+            s['body'] = [rewrite_value(b, load_rewrites) for b in s.get('body', [])]
+            plan[s['name']] = {'write_pos': None, 'read_poss': read_poss}
+            continue
         wp = write_poss[0]
         last_stmt, last_value = uses[wp]['writes'][-1]
         # dropping the write-param renumbers the later params: a read of
@@ -198,6 +205,11 @@ def transform(prog):
                                                             'type': 'Str', 'value': v}]})
                             else:
                                 call_args.append(a)
+                    if write_var is None and p['write_pos'] is None:
+                        # read-only param function: just pass values
+                        s['expr'] = {'func': 'fnCall', 'purity': 'Emulable', 'type': 'Call',
+                                     'args': [args[0], {'elements': call_args, 'type': 'Array'}]}
+                        continue
                     if write_var is None:
                         continue
                     # x = $(f v1 v2) — the shell value-return: the function
