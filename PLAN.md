@@ -12,6 +12,32 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v13: **shir_to_perl renders the modern IR — the ShIR→Perl path works
+>   end-to-end** (workspace, commits 09029ae/8eb49a6/cf1d76d/7bc474b/
+>   60e4165). `ir_to_perl` renamed `shir_to_perl` (sibling of
+>   `shir_to_estree`; the ShIR-consumer wrapper of the Perl backend, not a
+>   parallel renderer — header documents the Generator-owns-text layering
+>   and the `from_raw_perl` migration bridge). Dead scaffolding removed:
+>   `perl_generator_fixed.rs` (empty/uncompiled), `mir.rs`+`mir_new.rs`+
+>   `mir_words.rs` (commented out of lib.rs), `commands/mkdir.rs.bak`;
+>   `mir_simple.rs` KEPT (live via the cli `--mir` command). The renderer
+>   then gained the modern-node lowering `ast_to_ir` emits — `--shir` →
+>   `--shir-in-perl` went from `unreachable!` panics on the first word to
+>   **223/531 examples (42%) whose Perl compiles and matches bash
+>   stdout+exit**: Call funcs (exec/echo/printf/cd/export/… builtins,
+>   getVar/split/param/arith/brace/capture/captureWords/listVar/arrayIndex/
+>   arrayLen/setArray/test/redirect/block), Array/Interpolate/Arith/Arrow,
+>   test-string parser (`[ … ]` text → Perl booleans), Redirect (incl.
+>   heredoc/herestring/`2>&1` dups), `&&`/`||` chains, Case→if-elsif glob
+>   chains, Function→`sub` with `local @ARGV = @_`, bash word/glob/capture
+>   reconstruction for shell-outs (nested `$(…)`, SH2GLOB, braces), preamble
+>   ($main_exit_code/$CHILD_ERROR/$__argc + hoisted `my` declarations incl.
+>   test-string and array reads, `$1`→`$ARGV[n]`). External commands shell
+>   out via `bash -c` (matching bash stdout by running the same tools — the
+>   Generator's in-Perl emulations are not needed on the IR path).
+>   Verification: `harness/ir-perl-metric.sh` (corpus metric); Perl corpus
+>   gate unchanged (no new failures; the 97→96 delta is the known
+>   /tmp-flaky `100_pipeline_failure_basic`).
 > - v12: **frontend ladder t53–t61 + array-base design decision** (workspace).
 >   New testdata across all six frontends (9 features × 6 languages): param
 >   default, string substitution, array element write, array append, array
