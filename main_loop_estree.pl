@@ -246,7 +246,7 @@ ARCHITECTURE
 
 CURRENT STATE
 - ESTREE: $summary->{estree_passed}/$summary->{total} examples match bash
-- PERL (baseline, do not regress): $summary->{perl_passed}/$summary->{total}
+- PERL (CANARY ONLY - owned by the rust loop, absent; auto-stashed on regression, NOT your work item): $summary->{perl_passed}/$summary->{total}
 - estree failures: $summary->{estree_failed} total
 
 FAILURE CATEGORIES (current run)
@@ -278,7 +278,7 @@ STRATEGY
   (parameter expansion, arithmetic, brace expansion, arrays) clears the gate
   bucket (~${\scalar @$sorted} distinct constructs).
 - If a fix belongs in the runtime instead of the emitter, fix the runtime.
-- NEVER reduce the PERL pass count.
+- The PERL backend is owned by the rust loop (main_loop_rust.pl, absent). Do NOT work on it - a perl regression is auto-stashed, not fixed here. Your scope: the ESTree backend + the shared core's estree-facing parts + pending core-requests.
 - If you cannot fix something, move on — do not regress what works.
 PROMPT
     return $prompt;
@@ -482,7 +482,7 @@ VERIFY (mandatory, exactly like fix mode):
   that previously passed now failing means your lowering is wrong — fix or revert)
 - Structural gate stays green; NEW sh2.* names need estree_gate.pl whitelist
   entries; *Sync only for the pure-CPU loop exception (whileLoopSync precedent).
-- NEVER reduce the PERL pass count; no blocking I/O (async-only codegen).
+- The PERL backend is owned by the rust loop (absent) - do NOT work on it (a perl regression is auto-stashed); your scope is the ESTree emitter/runtime. No blocking I/O (async-only codegen).
 - Smallest change that wins the most. TRY the aggressive lowering and let the
   full suite judge (the loop stashes on regression) — only give up on an
   approach after it actually regresses a test, not on speculation. Every
@@ -1049,6 +1049,17 @@ while (1) {
         next;
     }
 
+    # ── perl canary tripwire: perl regressed beyond tolerance — stash any
+    # scoped changes (a shared-core change may have broken the perl leg),
+    # but do NOT prompt pi to fix perl (owned by the absent rust loop).
+    if (!$report_only && defined $summary->{perl_failed} && $summary->{perl_failed} > $perl_trusted + 3
+        && @{submodule_changed_paths()} > 0) {
+        print "\nPERL CANARY: perl failures $summary->{perl_failed} > trusted $perl_trusted — stashing scoped changes (shared-core change may have broken perl; NOT fixing here).\n";
+        my $stashed = scoped_stash();
+        log_decision('perl-canary-stash', $perl_trusted, $summary->{perl_failed}, $stashed ? 'stashed' : 'nothing to stash');
+        sleep 5;
+        next;
+    }
     # ── regression guard (only stash when pi actually changed something) ──
     if (!$report_only && defined $summary->{estree_failed} && $summary->{estree_failed} > $estree_trusted + 3) {
         my @ch = (submodule_changed_paths(), root_changed_paths());
