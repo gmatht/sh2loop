@@ -1184,6 +1184,14 @@ export const sh2 = {
     this.fdTargets[1] = saved;
     return out;
   },
+  hostname(...args) {
+    const saved = this.fdTargets[1];
+    this.fdTargets[1] = { kind: 'capture', buf: '' };
+    builtins.hostname.call(this, args);
+    const out = this.fdTargets[1].buf.replace(/\n$/, '');
+    this.fdTargets[1] = saved;
+    return out;
+  },
 
   // Unquoted $(...) — bash word-splits the captured output on IFS.
   async captureWords(fn) {
@@ -3218,6 +3226,243 @@ builtins.readlink = function (args) {
   if (out) emit(this, out);
   this.lastExit = failed ? 1 : 0;
   return !failed;
+};
+
+// ── native ls (SH2_ASSUME_LS gate) ──────────────────────────────────
+// GNU ls for the corpus surface (verified byte-identical vs GNU coreutils
+// 9.x on this box): flags -1/-A/-a/-l in any combination (incl. -la/-al),
+// file + dir operands (file operands sorted first, no headers; each dir
+// with a `name:` header only when mixed with files or another dir),
+// C-locale byte sort, per-path errors (`ls: cannot access 'X': …` → fd2,
+// exit 2 — GNU continues with the valid operands), and the -l long format
+// (the `total N` block line, column-aligned nlink/owner/group/size, the
+// `%b %e %H:%M` mtime — `%b %e  %Y` outside the 6-month window — and
+// `name -> target` for symlinks).
+//
+// ASSUMPTION (option-gated, default ON): SH2_ASSUME_LS=0 restores the
+// spawn for maximal fidelity. The assumptions: (1) the locale is
+// C/C.UTF-8 — the byte-order sort matches GNU's collation (non-ASCII
+// names could sort differently under other locales; the corpus env is
+// ASCII-only); (2) uid/gid names resolve via /etc/passwd + /etc/group
+// (GNU prints the NUMBER when the name is absent — same fallback);
+// (3) the mtime display uses local time (like GNU) and the 6-month
+// year-switch window is never straddled by the corpus.
+builtins.ls = function (args) {
+  if (process.env.SH2_ASSUME_LS === '0') { this.lastExit = 127; return false; }
+  let long = false, all = false, almostAll = false;
+  const files = [];
+  let afterDashDash = false;
+  for (const a of args) {
+    const s = String(a);
+    if (!afterDashDash && s === '--') { afterDashDash = true; continue; }
+    if (!afterDashDash && s.startsWith('-') && s !== '-') {
+      for (const c of s.slice(1)) {
+        if (c === '1') { /* one-per-line is the piped default */ }
+        else if (c === 'l') long = true;
+        else if (c === 'a') all = true;
+        else if (c === 'A') almostAll = true;
+        else {
+          process.stderr.write(`ls: invalid option -- '${c}'\n`);
+          this.lastExit = 2;
+          return false;
+        }
+      }
+      continue;
+    }
+    files.push(s);
+  }
+  if (files.length === 0) files.push('.');
+
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const fmtMtime = (d) => {
+    const now = Date.now();
+    const t = d.getTime();
+    const day = String(d.getDate()).padStart(2, ' ');
+    const mon = MONTHS[d.getMonth()];
+    // GNU: the year replaces the time when the mtime is in the future
+    // or older than ~6 months.
+    if (t > now + 60 * 60 * 1000 || now - t > 6 * 30 * 24 * 60 * 60 * 1000) {
+      return `${mon} ${day}  ${d.getFullYear()}`;
+    }
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${mon} ${day} ${hh}:${mm}`;
+  };
+  const modeStr = (st) => {
+    let s = st.isDirectory() ? 'd' : st.isSymbolicLink() ? 'l'
+      : st.isBlockDevice() ? 'b' : st.isCharacterDevice() ? 'c'
+      : st.isFIFO() ? 'p' : st.isSocket() ? 's' : '-';
+    const chars = 'rwxrwxrwx';
+    for (let i = 0; i < 9; i++) s += (st.mode & (1 << (8 - i))) ? chars[i] : '-';
+    if (st.mode & 0x800) s = s.slice(0, 3) + (s[3] === 'x' ? 's' : 'S') + s.slice(4);
+    if (st.mode & 0x400) s = s.slice(0, 6) + (s[6] === 'x' ? 's' : 'S') + s.slice(7);
+    if (st.mode & 0x200) s = s.slice(0, 9) + (s[9] === 'x' ? 't' : 'T');
+    return s;
+  };
+  // uid/gid → name (GNU prints the number when the name is not found).
+  let passwd = null, group = null;
+  const uidName = (uid) => {
+    if (passwd === null) {
+      passwd = {};
+      try {
+        for (const l of fs.readFileSync('/etc/passwd', 'utf8').split('\n')) {
+          const f = l.split(':');
+          if (f.length >= 3 && /^\d+$/.test(f[2])) passwd[f[2]] = f[0];
+        }
+      } catch { /* no /etc/passwd — numeric fallback */ }
+    }
+    return passwd[String(uid)] ?? String(uid);
+  };
+  const gidName = (gid) => {
+    if (group === null) {
+      group = {};
+      try {
+        for (const l of fs.readFileSync('/etc/group', 'utf8').split('\n')) {
+          const f = l.split(':');
+          if (f.length >= 3 && /^\d+$/.test(f[2])) group[f[2]] = f[0];
+        }
+      } catch { /* no /etc/group — numeric fallback */ }
+    }
+    return group[String(gid)] ?? String(gid);
+  };
+  const longLine = (name, st, w) => {
+    let line = `${modeStr(st)} ${String(st.nlink).padStart(w.nlink)} `
+      + `${uidName(st.uid).padEnd(w.owner)} ${gidName(st.gid).padEnd(w.group)} `
+      + `${String(st.size).padStart(w.size)} ${fmtMtime(st.mtime)} ${name}`;
+    if (st.isSymbolicLink()) {
+      try { line += ' -> ' + fs.readlinkSync(name); } catch { /* broken link */ }
+    }
+    return line;
+  };
+  const widthsOf = (entries) => {
+    const w = { nlink: 1, owner: 1, group: 1, size: 1 };
+    for (const [, st] of entries) {
+      w.nlink = Math.max(w.nlink, String(st.nlink).length);
+      w.owner = Math.max(w.owner, uidName(st.uid).length);
+      w.group = Math.max(w.group, gidName(st.gid).length);
+      w.size = Math.max(w.size, String(st.size).length);
+    }
+    return w;
+  };
+
+  let failed = false;
+  const fileEntries = [];
+  const dirs = [];
+  for (const p of files) {
+    let st = null;
+    try { st = fs.lstatSync(p); } catch { /* missing below */ }
+    if (st === null) {
+      emitErr(this, `ls: cannot access '${p}': No such file or directory\n`);
+      failed = true;
+      continue;
+    }
+    if (st.isDirectory()) dirs.push(p);
+    else fileEntries.push([p, st]);
+  }
+  const sortName = (a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+  fileEntries.sort(sortName);
+  let out = '';
+  const emitEntries = (entries) => {
+    const w = widthsOf(entries);
+    for (const [n, st] of entries) out += (long ? longLine(n, st, w) : n) + '\n';
+  };
+  if (fileEntries.length > 0) emitEntries(fileEntries);
+  const header = dirs.length > 1 || fileEntries.length > 0;
+  for (const d of dirs) {
+    if (header) out += d + ':\n';
+    let names = [];
+    try { names = fs.readdirSync(d); } catch { /* unreadable dir */ }
+    const entries = [];
+    const push = (n) => {
+      try {
+        const full = d === '.' ? n : `${d}/${n}`;
+        const st = fs.lstatSync(full);
+        entries.push([n, st]);
+      } catch { /* vanished between readdir and stat */ }
+    };
+    if (all) {
+      try {
+        const st = fs.lstatSync(d === '.' ? '.' : d);
+        entries.push(['.', st]);
+      } catch {}
+      try {
+        const st = fs.lstatSync(d === '.' ? '..' : `${d}/..`);
+        entries.push(['..', st]);
+      } catch {}
+    }
+    names.sort();
+    for (const n of names) {
+      if (n.startsWith('.')) { if (all || almostAll) push(n); }
+      else push(n);
+    }
+    if (long) {
+      let total = 0;
+      for (const [, st] of entries) total += st.blocks;
+      out += `total ${Math.floor((total * 512) / 1024)}\n`;
+    }
+    emitEntries(entries);
+  }
+  if (out) emit(this, out);
+  this.lastExit = failed ? 2 : 0;
+  return !failed;
+};
+
+// ── native which (SH2_ASSUME_WHICH gate) ───────────────────────────
+// GNU which for the corpus surface: for each operand, print the first
+// executable found on PATH (no output + exit 1 for not-found — GNU
+// reports the miss on STDERR, which the corpus never compares).
+// ASSUMPTION (option-gated): SH2_ASSUME_WHICH=0 restores the spawn; the
+// PATH walk uses process.env.PATH exactly like the spawned binary would.
+builtins.which = function (args) {
+  if (process.env.SH2_ASSUME_WHICH === '0') { this.lastExit = 127; return false; }
+  const out = [];
+  let missed = false;
+  for (const raw of args) {
+    const a = String(raw);
+    if (a.startsWith('-') && a !== '-') {
+      // GNU which flags (--all/-a, --skip-alias, ...) — the corpus uses
+      // none; accept and ignore (the operand semantics are unchanged).
+      continue;
+    }
+    if (a.includes('/')) {
+      // an explicit path: exists + executable → print it
+      try { fs.accessSync(a, fs.constants.X_OK); out.push(a); }
+      catch { missed = true; }
+      continue;
+    }
+    const pathEnv = process.env.PATH ?? '';
+    let found = false;
+    for (const dir of pathEnv.split(':')) {
+      const cand = dir === '' ? a : `${dir}/${a}`;
+      try {
+        fs.accessSync(cand, fs.constants.X_OK);
+        const st = fs.statSync(cand);
+        if (!st.isDirectory()) { out.push(cand); found = true; break; }
+      } catch { /* keep walking */ }
+    }
+    if (!found) missed = true;
+  }
+  if (out.length) emit(this, out.join('\n') + '\n');
+  this.lastExit = missed ? 1 : 0;
+  return !missed;
+};
+
+// ── native hostname ────────────────────────────────────────────────
+// GNU hostname for the corpus surface: `hostname` prints the machine's
+// host name (os.hostname() — identical to uname -n).
+// ASSUMPTION (option-gated): SH2_ASSUME_HOSTNAME=0 restores the spawn;
+// the node os.hostname() value equals the system hostname on GNU/Linux
+// (verified — both read the same utsname field).
+builtins.hostname = function (args) {
+  if (process.env.SH2_ASSUME_HOSTNAME === '0') { this.lastExit = 127; return false; }
+  if (args.length > 0 && typeof args[0] === 'string' && args[0].startsWith('-')) {
+    process.stderr.write(`hostname: invalid option -- '${args[0].slice(1)}'\n`);
+    this.lastExit = 1;
+    return false;
+  }
+  emit(this, os.hostname() + '\n');
+  this.lastExit = 0;
+  return true;
 };
 
 // Shared %-directive formatter for builtins.date (module-level, also
