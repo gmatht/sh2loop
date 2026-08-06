@@ -3347,7 +3347,11 @@ builtins.ls = function (args) {
 
   let failed = false;
   const fileEntries = [];
-  const dirs = [];
+  const dirs = [];   // [path, lstat] — the dir operands themselves
+  const dirOwn = []; // the dir operands' OWN lstats feed the FILE group's
+                     // width scan (GNU: `ls -l f d` pads f's columns to
+                     // the dir operand's nlink/owner/group/size — verified
+                     // vs GNU on this box)
   const operandCount = files.length;
   for (const p of files) {
     let st = null;
@@ -3357,18 +3361,18 @@ builtins.ls = function (args) {
       failed = true;
       continue;
     }
-    if (st.isDirectory()) dirs.push(p);
+    if (st.isDirectory()) { dirs.push([p, st]); dirOwn.push([p, st]); }
     else fileEntries.push([p, st]);
   }
   const sortName = (a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
   fileEntries.sort(sortName);
-  // GNU computes the -l column widths ONCE per invocation over ALL
-  // groups (a lone file's size column is padded to the widest size in
-  // the dir listings too), and separates the groups with a blank line
-  // (files → first dir, and between dirs) when a header prints.
-  const allGroups = [];
+  // The -l column widths: the FILE group scans the file entries PLUS the
+  // dir operands' own lstats (GNU pads `ls -l f d`'s f-line to d's own
+  // nlink/owner/group/size); each DIR group scans its own entries only.
+  // Groups are separated by a blank line (files → first dir, and between
+  // dirs) when a header prints.
   const dirEntries = [];
-  for (const d of dirs) {
+  for (const [d] of dirs) {
     let names = [];
     try { names = fs.readdirSync(d); } catch { /* unreadable dir */ }
     const entries = [];
@@ -3396,9 +3400,7 @@ builtins.ls = function (args) {
     }
     dirEntries.push([d, entries]);
   }
-  if (fileEntries.length > 0) allGroups.push(fileEntries);
-  for (const [, entries] of dirEntries) allGroups.push(entries);
-  const w = widthsOf(allGroups.flat());
+  const w = widthsOf([...fileEntries, ...dirOwn]);
   let out = '';
   if (fileEntries.length > 0) {
     for (const [n, st] of fileEntries) out += (long ? longLine(n, st, w) : n) + '\n';
@@ -3413,7 +3415,8 @@ builtins.ls = function (args) {
       for (const [, st] of entries) total += st.blocks;
       out += `total ${Math.floor((total * 512) / 1024)}\n`;
     }
-    for (const [n, st] of entries) out += (long ? longLine(n, st, w) : n) + '\n';
+    const dw = widthsOf(entries);
+    for (const [n, st] of entries) out += (long ? longLine(n, st, dw) : n) + '\n';
   }
   if (out) emit(this, out);
   this.lastExit = failed ? 2 : 0;
