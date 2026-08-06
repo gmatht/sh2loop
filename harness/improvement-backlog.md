@@ -47,3 +47,62 @@ what the static backends (C/Go/Zig) and the GLSL spike need downstream.
 ---
 
 (Empty backlog — the worker is free to pick its own pattern family.)
+## Task 2 (submitted 2026-08-06): full lifetime analysis — per-point bounds, copy-vs-move, allocation
+
+**The seed is landed** (shir_passes/lifetime.rs, `VarLifetimes` in the
+canonical pipeline, `--shir` `var_lifetimes`): per-variable live spans
+`(first, last)` in statement positions + a conservative escape set
+(array-element stores, closure captures, function returns). This task is
+the **full** version — the per-point dataflow the seed deliberately
+kept coarse, and the renderer decisions that consume it.
+
+**Problem — the C backend's fixed-buffer transform is only sound with
+per-point knowledge:**
+1. **Per-var bound, not per-point.** `analyze_string_lengths` flips a
+   var to `None` (heap) if ANY write is unbounded; a var bounded on its
+   hot path loses its stack buffer globally. Live ranges give per-point
+   bounds: bound the buffer where the var is live, reclaim/reuse it
+   after `last`. Also shrinks the NDEBUG-truncation hazard
+   (`strncpy` silently drops data when a write exceeds the bound).
+2. **Copy-vs-move / alias.** Bounded vars copy (`strncpy`); unbounded
+   vars alias (`char* a = b`). bash is value-semantics: a write to `b`
+   after `a=$b` must not change `a`. The escape/liveness data decides:
+   RHS dead after the assign → **move** (steal the buffer); both live
+   and either written → **copy**; otherwise alias is safe. Today the
+   draft dodges this only because every unbounded RHS is a stub that
+   exits 2.
+3. **Allocation placement.** The C draft has zero malloc/free. Real
+   captures (`v=$(cmd)`) need heap: function-live vars → heap, free at
+   `last`; loop-locals → one reused buffer per iteration; statement
+   temps (interpolation, `%s` args, `c_str()`) → stack arrays. The
+   existing `static char b[64]` in `c_str()` is a whole-program single
+   buffer — two conversions in one expression clobber (today saved only
+   because each `contains()` emits exactly one `c_str`).
+4. **Function returns.** `IrStmt::Function` is still a TODO in the C
+   renderer; a string-returning function needs a buffer that outlives
+   the callee. The escape set IS the decision: returned vars → heap/
+   copy; internal → stack. Nested `v=$(f)` is the same question.
+
+**Payoff:** the native C path stays bash-faithful while the stub layer
+lifts (the alias/truncation bugs above become reachable the moment the
+runtime store or real captures land); per-point bounds recover fixed
+buffers the global analysis throws away.
+
+**Acceptance bar:**
+1. `VarLifetimes` verdicts survive the ShIR JSON round-trip
+   (`--shir` → `shir_json_in` → byte-identical, determinism test
+   green).
+2. A per-point bound consumer exists (a C-renderer probe or a unit
+   test over `var_live_ranges`): a var unbounded globally but bounded
+   on its live path gets a stack buffer there.
+3. A move-vs-copy unit test over the escape set (`a=$b` where `b` is
+   dead after → move; where `b` is written again → copy).
+4. Corpus stays 516/516; `cargo test --lib` green; PERL pass count
+   unchanged (the analysis is additive — it must not change any
+   emission).
+
+**Why the worker, not the loop:** shared-core dataflow (`shir_passes/`
++ `src/shir.rs`) feeding every static backend (C/Zig/Go) — the same
+M8 "cheapest correct lowering" mandate as Task 1, and the
+improvement-mode metric (sh2.* call sites) is untouched by design:
+this is the C generator's correctness floor, not a JS speedup.
