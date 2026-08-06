@@ -2563,6 +2563,7 @@ builtins.readonly = function (args) {
 builtins.eval = function (args) {
   process.stderr.write("TRACE eval " + JSON.stringify(args) + "\n");
   const code = args.join(' ');
+  process.stderr.write("TRACE eval code=" + JSON.stringify(code) + " fastpath=" + !/[`$"'\\|><&(){}*?[\]~!#]/.test(code) + "\n");
   _flushStdout();
   // Fast path: a STATIC eval string that parses as plain assignment(s)
   // and/or a simple builtin command the runtime can execute IN-PROCESS —
@@ -4428,6 +4429,15 @@ function materializePath(content) {
   return f;
 }
 function readFileSafe(p) {
+  // /dev/fd/N resolves against the NODE process's fd table, whose high
+  // fds are internal pipes with no writer — `fs.readFileSync('/dev/fd/5')`
+  // would BLOCK FOREVER (double-paren-subshell.sh: `eval cmp /dev/fd/5 -`
+  // hung the runner exactly there). The shell's own fd table is modeled in
+  // fdTargets, so a source-level /dev/fd/N reference is never a real open
+  // fd here — bash errors on the unopened fd; an empty read is the
+  // closest non-blocking equivalent (cmp then diffs two empty files,
+  // status 0, no stdout).
+  if (typeof p === 'string' && /^\/dev\/fd\/\d+$/.test(p)) return '';
   try { return fs.readFileSync(p, 'utf8'); } catch { return ''; }
 }
 function findBin(name) {
