@@ -799,9 +799,10 @@ sub collect_core_requests {
     $b .= "  - implement each WITHOUT regressing the ESTree corpus (run ./fail-estree;\n";
     $b .= "    estree_failed must stay 0 / at the trusted baseline). If a request would regress,\n";
     $b .= "    leave it pending with a note.\n";
-    $b .= "  - FOR EVERY request: either implement it, or APPEND a line\n";
-    $b .= "    '## OUTCOME: rejected: <one-line reason>' to its file. A request WITHOUT\n";
-    $b .= "    an ## OUTCOME line is treated as UNTOUCHED and STAYS PENDING for the next\n";
+    $b .= "  - FOR EVERY request: either implement it, or APPEND a line to the\n";
+    $b .= "    file of the form '## OUTCOME: rejected: <one-line reason>' (only that\n";
+    $b .= "    exact marker counts — a bare mention is ignored). A request WITHOUT an\n";
+    $b .= "    outcome marker is treated as UNTOUCHED and STAYS PENDING for the next\n";
     $b .= "    iteration — it does NOT move to done/. Only requests you actually\n";
     $b .= "    addressed (implemented, or explicitly rejected with a reason in the file)\n";
     $b .= "    are finalized.\n\n";
@@ -982,7 +983,7 @@ sub request_has_outcome {
     return 0 unless -f $r;
     open my $fh, '<', $r or return 0;
     local $/; my $txt = <$fh>; close $fh;
-    return $txt =~ /^## OUTCOME:/m ? 1 : 0;
+    return $txt =~ /^## OUTCOME:\s*(implemented|rejected)/m ? 1 : 0;
 }
 
 my $iteration = 0;
