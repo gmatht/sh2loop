@@ -1996,10 +1996,15 @@ export const sh2 = {
   // Native `$((...))` boundary: bash aborts the whole expansion on an
   // arithmetic error (division by zero), yielding the EMPTY string. The
   // generated code passes a closure containing the native expression; the
-  // runtime converts the value and catches the idiv/imod zero-divisor throw.
+  // runtime converts the value and catches the idiv/imod zero-divisor
+  // throw. With the native div/mod lowering (SH2_ASSUME_ARITH_NATIVE=1)
+  // there is no throw — JS doubles give NaN/±Infinity for a zero divisor
+  // — so a non-finite result converts to '' too (the same bash abort; a
+  // native arith can never legitimately produce a non-finite integer).
   arithEval(f) {
     try {
-      return String(f());
+      const v = f();
+      return Number.isFinite(v) ? String(v) : '';
     } catch {
       return '';
     }
