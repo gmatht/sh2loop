@@ -372,6 +372,51 @@ Anything that cannot be reduced to atomic commits is rejected at intake.
 - Probes stay hermetic and deterministic; the oracle version is pinned.
 - Time-box traps; escalate instead of grinding.
 
+## Running the script (translate_one_application.sh)
+
+The playbook is executable: `./translate_one_application.sh` drives the
+mine → probe → fix → gate loop with pi (default model deepseek-v4-turbo;
+override with `MODEL=`). Detailed flags: run `./translate_one_application.sh
+--help`; the template library's extension contract: `templates/README.md`.
+
+```
+./translate_one_application.sh mine <app> [--lang sh|zsh|fish|py|pl|go]
+./translate_one_application.sh probe                  # oracle verdicts
+./translate_one_application.sh fix    [--commit]      # pi repair loop
+./translate_one_application.sh gate   [--tests DIR]   # ladder + acceptance
+./translate_one_application.sh run    <app> [--iterations N] [--tests DIR]
+./translate_one_application.sh dump-templates --lang L # regenerate seeds
+```
+
+Workflow (the phase → command mapping):
+
+1. **Mine** — `mine <app>` scans the app's construct footprint and emits
+   minimal probe templates (one construct per probe) into
+   `.translate-work/probes/` (work dir overridable with `WORK=`).
+2. **Probe** — `probe` runs the oracle (source-native vs target) per
+   probe and reports verdicts: PASS / MISMATCH / EMIT-FAIL / REFUSE /
+   TARGET-ERR (plus the byte-equality note for sh/zsh).
+3. **Fix** — `fix` drives pi on each red probe (scoped prompt: probe +
+   expected/actual + the discipline + no-regression guard). After
+   MAX_ATTEMPTS (default 3) it escalates: a structured core request in
+   `core-requests/` and a sleeping marker in the work dir — the probe is
+   declared a boundary, not grinded.
+4. **Gate** — `gate [--tests DIR]` runs the ladder + the user's
+   acceptance tests; reports escalated/queued counts. `run` loops
+   mine → fix → gate until green or the iteration cap.
+5. **Acceptance** — point `--tests` at the user's tests: they run through
+   the same oracle and become the outer gate.
+
+Language: detected from the app extension (sh→bash+posix-sh-go, zsh,
+fish, py, pl, go). Target (default estree): `--target estree|perl|c|sh`
+(the `--shir-in-<t>` pipe; estree executes end-to-end). `--commit`
+stages only `frontends/<lang>/` + `harness/` + `templates/` (never
+`git add .`) and is gated on the estree corpus gate. Env: MODEL, THINKING,
+WORK, TPLDIR, MAX_ATTEMPTS, MAX_PROBES, TIMEOUT, COMMIT.
+
+Semantic-divergence probes are documented, not forced (the fix prompt
+says so); stalled probes escalate to the core queue rather than looping.
+
 ## First hour checklist
 
 1. Run the app through the source parser → construct inventory.
