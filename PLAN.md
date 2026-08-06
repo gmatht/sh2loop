@@ -12,6 +12,18 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v7: **C backend: length analysis + debug-only asserts.** The
+>   `backend/c` worktree now consumes `var_lengths` (`analyze_string_lengths`,
+>   fbedac4): bounded Str vars render as fixed `char v[N+1]` buffers, with
+>   debug-only `assert(strlen(v) <= N)` at function boundaries and before
+>   every buffer write (NDEBUG truncates). Core fix: `analyze_string_lengths`
+>   infinite-recursed on single-stage filter captures (`$(basename $(pwd))` —
+>   `capture_stages` returns the call itself) → stack overflow in `--shir`
+>   blocked the C gate; fixed + depth-capped (resolves core-requests
+>   c-20260806-102527.md). C gate completes: 25/539 render-clean + equiv-pass
+>   vs bash, 506 stub-failures (draft's unfinished lowering), 4 equiv = core
+>   gaps (`--shir` emits 0 stmts for double-quote-with-sed-inside.sh; parse-
+>   error files can't reproduce bash's exit), 4 core-skip.
 > - v1: ESTree → JS linked against a bespoke sh2runtime "compiled-script API".
 > - v2: target C → wasm32-wasi. Rejected: C needs type inference + runtime lib;
 >   WASI has no fork/exec (but see v3 note — fork isn't a semantic need);
