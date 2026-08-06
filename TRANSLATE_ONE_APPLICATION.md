@@ -177,6 +177,77 @@ worktrees); +1 frontend worker per extra source language. The formula is
 always: **1 core + 1 per source frontend + 1 per target backend**, and
 never two workers with the same file in scope.
 
+## Translating into a set of languages (multi-target)
+
+The single-target method survives unchanged; what changes is the
+hub-and-spoke structure.
+
+1. **One shared ladder + contract, per-target verdicts.** The mined idiom
+   atoms are shared (a property of the *source* language). Each target
+   runs its own gate over the same ladder. Gap classification is
+   per-(source, target): the same probe can be a backend gap for one
+   target and green for another; the semantic-divergence outcome can
+   differ per target (a construct the contract cannot carry may be
+   natively expressible in one target and not another). The contract
+   stays target-neutral — all target-specific divergence lives in the
+   renderers.
+2. **Target order matters.** Prove the contract with the most expressive
+   target first (fewest divergence forks), then add cheaper targets. The
+   canonical form of each construct is decided once, in the contract,
+   and every target inherits it — never re-litigate a shape per backend.
+3. **Sync discipline.** Per-target branches; merge main into each BEFORE
+   every verification; renderers never touch the shared core; the core
+   is single-owner. Conflicts stay per-branch.
+4. **Fleet scales additively.** 1 core + 1 frontend per source language
+   + 1 backend per target, load-gated with the core first. The
+   dependency chain is unchanged per target — targets are parallel
+   after the contract is stable.
+5. **Integration per target.** The app is the final integration test in
+   each target; acceptance is source-behavior == translated-behavior per
+   target, never cross-target byte-equality (targets render
+   idiomatically — same semantics, different bytes).
+
+## Accepting contributions back (without overwriting)
+
+The failure mode: a contributor works from a snapshot, the acceptor's
+ tree moved, and a blind apply clobbers concurrent work. The fix is an
+acceptance discipline: **contributions are accepted as tests + spec +
+per-scope deltas — never full-file overwrites, and never against the
+live tree.**
+
+1. **Ladder tests and mined idioms** — purely additive; accepted as-is.
+   They go red until the pipeline implements them; red is the engine,
+   not an error.
+2. **Contract extensions** — accepted as SPEC (failing case + minimal
+   shape change), queued to the core owner, implemented against the
+   current tree. Never applied as a patch to the core.
+3. **Backend improvements** — accepted as per-backend branch deltas,
+   merged only when they do not touch the shared core; conflicts
+   resolved per-branch, never force-applied.
+4. **Core changes** — never accepted as patches at all. The core moves
+   under both sides; a blind merge would clobber one of them. The
+   contributor's intent (failing case + minimal change) is queued as a
+   request and reimplemented by the core owner against the current tree.
+
+**Mechanics**: the contribution is diffed against the pinned base SHA it
+started from (never the acceptor's live WIP); applied to a staging
+branch with 3-way merge; reject on conflict rather than force; the
+acceptance gate is the COMBINED test suite — the acceptor's ladders +
+the contribution's tests, all green, with the source-native oracle for
+every new test. Semantic decisions (divergence forks, oracle changes)
+are arbitrated by the contract owner — a contribution proposing
+different semantics is a proposal, not a fait accompli.
+
+In this workspace the channels already exist: `core-requests/` for core
+intent, `frontends/<lang>/testdata/` + `harness/` for tests,
+`backends/<lang>` branches + `--sync` for renderers, and the gitlink
+bump as the versioned acceptance point. The one-way rule keeps the
+acceptor's private state out of the contribution surface entirely.
+
+The principle: **accept the delta the contribution represents,
+re-expressed against the acceptor's current tree and verified by the
+combined gate — never the contributor's tree as-is.**
+
 ## Guardrails
 
 - The user's tests answer "does the translated app work?"; the probes
