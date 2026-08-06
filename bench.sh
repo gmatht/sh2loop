@@ -24,7 +24,7 @@ CAL_MS="${CAL_MS:-300}"
 
 # extract #bench sections from a sample: prints
 #   NAME<TAB>PRE-LINES<TAB>BODY-LINES<TAB>SETUP<TAB>CLEANUP   (tab-joined)
-extract_benches() { # sample outdir -> writes outdir/N/<name>.{pre,body,setup,cleanup}
+extract_benches() { # sample outdir -> writes outdir/N/<name>.{pre,body,setup,cleanup,post}
   local sample=$1 outdir=$2
   mkdir -p "$outdir"
   awk -F'\t' -v out="$outdir" '
@@ -40,16 +40,19 @@ extract_benches() { # sample outdir -> writes outdir/N/<name>.{pre,body,setup,cl
         printf "%s", body > out "/" idx ".body"
         printf "%s", setup > out "/" idx ".setup"
         printf "%s", cleanup > out "/" idx ".cleanup"
+        printf "%s", post > out "/" idx ".post"
         idx++
       }
       name=$0; sub(/^#bench[[:space:]]*"/, "", name); sub(/".*/, "", name)
-      pre=""; body=""; in_pre=1; in_body=0
+      pre=""; body=""; post=""; in_pre=1; in_body=0; in_post=0
       next
     }
-    name != "" && /^@begin/ { in_pre=0; in_body=1; next }
-    name != "" && /^@end/ { in_body=0; next }
+    # @begin/@end may be indented (they sit inside the section func wrapper)
+    name != "" && /^[[:space:]]*@begin/ { in_pre=0; in_body=1; next }
+    name != "" && /^[[:space:]]*@end/ { in_body=0; in_post=1; next }
     name != "" && in_body { body = body $0 "\n"; next }
-    name != "" && in_pre && $0 !~ /^@/ { pre = pre $0 "\n" }
+    name != "" && in_pre && $0 !~ /^@/ { pre = pre $0 "\n"; next }
+    name != "" && in_post { post = post $0 "\n" }
     END {
       if (name != "" && body != "") {
         print name > out "/" idx ".name"
@@ -57,6 +60,7 @@ extract_benches() { # sample outdir -> writes outdir/N/<name>.{pre,body,setup,cl
         printf "%s", body > out "/" idx ".body"
         printf "%s", setup > out "/" idx ".setup"
         printf "%s", cleanup > out "/" idx ".cleanup"
+        printf "%s", post > out "/" idx ".post"
         idx++
       }
       print idx
@@ -64,17 +68,23 @@ extract_benches() { # sample outdir -> writes outdir/N/<name>.{pre,body,setup,cl
   ' "$sample"
 }
 
-make_runner() { # N pre body setup cleanup > out
-  local n=$1 pre=$2 body=$3 setup=$4 cleanup=$5
+make_runner() { # N pre body setup cleanup post > out
+  local n=$1 pre=$2 body=$3 setup=$4 cleanup=$5 post=$6
   [ -z "$setup" ] && setup="setup() { :; }"
-  [ -z "$cleanup" ] && cleanup="cleanup() { :; }" 
+  [ -z "$cleanup" ] && cleanup="cleanup() { :; }"
   {
     echo '#!/bin/sh'
     [ -n "$setup" ] && echo "$setup"
-    printf '%s\n' "$pre" | sed 's/^/ /'
+    # the pre lines (the section's function wrapper: 'func() {' and any
+    # 'local var' decls) open a scope the post lines (@end's closing '}'
+    # + the 'func' call) close — together they define and call the
+    # section's function once, with the N-iteration loop inside it. pre /
+    # body / post are emitted VERBATIM: re-indenting would move here-doc
+    # terminators (EOF at column 0) off column 0 and break the runner.
+    printf '%s\n' "$pre"
     echo "__count=0"
     echo 'while [ $__count -lt '"$n"' ]; do'
-    printf '%s\n' "$body" | sed 's/^/  /'
+    printf '%s\n' "$body"
     echo '  __count=$((__count+1))'
     echo 'done'
     # observe the loop result: keeps the C column honest (a compiler that
@@ -82,14 +92,33 @@ make_runner() { # N pre body setup cleanup > out
     # lets the C column gate its stdout against bash's (fast-but-WRONG runs
     # are reported as WRONG, never blessed).
     echo 'echo "$__count"'
+    printf '%s\n' "$post"
     [ -n "$cleanup" ] && echo "$cleanup"
   } > /tmp/bench_runner.sh
+}
+
+
+timed() { # [timeout_secs=60] cmd... -> seconds with 6 decimals ("ERR" on timeout)
+  python3 -c '
+import subprocess, sys, time
+to = 60
+args = sys.argv[1:]
+if args and args[0].isdigit():
+    to = int(args[0]); args = args[1:]
+t0 = time.perf_counter()
+try:
+    subprocess.run(args, stdout=subprocess.DEVNULL,
+                   stderr=subprocess.DEVNULL, timeout=to)
+    print(f"{time.perf_counter() - t0:.6f}")
+except subprocess.TimeoutExpired:
+    print("ERR")
+' "$@"
 }
 
 time_shell() { # shell script → seconds (or "ERR")
   local sh=$1 f=$2
   local t
-  t=$(/usr/bin/time -f "%e" timeout 60 "$sh" "$f" 2>&1 >/dev/null)
+  t=$(timed 60 "$sh" "$f")
   [[ "$t" =~ ^[0-9.]+$ ]] && echo "$t" || echo ERR
 }
 
@@ -97,7 +126,7 @@ time_js() { # script → seconds (or "ERR")
   local f=$1
   "$DEBASHC" file --estree "$f" 2>/dev/null > /tmp/bench_runner.json || { echo ERR; return; }
   local t
-  t=$(/usr/bin/time -f "%e" timeout 60 node "$ROOT/harness/estree-runner.mjs" /tmp/bench_runner.json --source "$f" 2>&1 >/dev/null)
+  t=$(timed 60 node "$ROOT/harness/estree-runner.mjs" /tmp/bench_runner.json --source "$f")
   [[ "$t" =~ ^[0-9.]+$ ]] && echo "$t" || echo ERR
 }
 
@@ -105,11 +134,11 @@ cc_label() { # compiler invocation → column label (e.g. 'tcc -O3' -> tcc-O3)
   printf '%s' "$1" | awk '{f=$NF; sub(/^-+/, "", f); printf "%s-%s", $1, f}'
 }
 
-calibrate() { # pre body setup cleanup → N such that bash takes ~CAL_MS
-  local pre=$1 body=$2 setup=$3 cleanup=$4
+calibrate() { # pre body setup cleanup post → N such that bash takes ~CAL_MS
+  local pre=$1 body=$2 setup=$3 cleanup=$4 post=$5
   local n=1000
   while [ $n -le 100000000 ]; do
-    make_runner "$n" "$pre" "$body" "$setup" "$cleanup"
+    make_runner "$n" "$pre" "$body" "$setup" "$cleanup" "$post"
     local t
     t=$(time_shell bash /tmp/bench_runner.sh)
     [[ "$t" =~ ^[0-9.]+$ ]] || break
@@ -131,7 +160,7 @@ run_c() { # CCSPEC script → "TIME\tOUT" (ERR on render/compile/run failure);
   $cc -o /tmp/bench_runner_c /tmp/bench_runner.c 2>/dev/null || { echo ERR; return; }
   local t out
   out=$(timeout 60 /tmp/bench_runner_c 2>/dev/null)
-  t=$(/usr/bin/time -f "%e" timeout 60 /tmp/bench_runner_c 2>&1 >/dev/null)
+  t=$(timed 60 /tmp/bench_runner_c)
   [[ "$t" =~ ^[0-9.]+$ ]] || t=ERR
   printf '%s\t%s' "$t" "$out"
 }
@@ -156,8 +185,9 @@ for sample in ${@:-$SB/sample/*.sh}; do
     name=$(cat "$OUT/$i.name")
     pre=$(cat "$OUT/$i.pre"); body=$(cat "$OUT/$i.body")
     setup=$(cat "$OUT/$i.setup"); cleanup=$(cat "$OUT/$i.cleanup")
-    n=$(calibrate "$pre" "$body" "$setup" "$cleanup")
-    make_runner "$n" "$pre" "$body" "$setup" "$cleanup"
+    post=$(cat "$OUT/$i.post")
+    n=$(calibrate "$pre" "$body" "$setup" "$cleanup" "$post")
+    make_runner "$n" "$pre" "$body" "$setup" "$cleanup" "$post"
     tb=$(time_shell bash /tmp/bench_runner.sh)
     td=$(time_shell dash /tmp/bench_runner.sh)
     tj=$(time_js /tmp/bench_runner.sh)
@@ -186,13 +216,16 @@ echo "=== ~/sqrt1337.sh (10k iterations, echo \$((i*i)) | grep 1337) ==="
 S=~/sqrt1337.sh
 printf "%-12s %12s %12s\n" "shell" "time(s)" "ratio"
 for sh in bash dash; do
-  t=$(/usr/bin/time -f "%e" timeout 300 "$sh" "$S" 2>&1 >/dev/null)
+  t=$(timed 300 "$sh" "$S")
   [[ "$t" =~ ^[0-9.]+$ ]] && printf "%-12s %12s %12s\n" "$sh" "$t" "1.0x" \
     || printf "%-12s %12s %12s\n" "$sh" "ERR(>300s)" "1.0x"
 done
-tj=$(/usr/bin/time -f "%e" timeout 60 node "$ROOT/harness/estree-runner.mjs" \
-      <("$DEBASHC" file --estree "$S" 2>/dev/null) --source "$S" 2>&1 >/dev/null)
-printf "%-12s %12s\n" "js" "$tj"
+if "$DEBASHC" file --estree "$S" 2>/dev/null > /tmp/sqrt1337.json; then
+  tj=$(timed 60 node "$ROOT/harness/estree-runner.mjs" /tmp/sqrt1337.json --source "$S")
+  printf "%-12s %12s\n" "js" "$tj"
+else
+  printf "%-12s %12s\n" "js" "ERR"
+fi
 # the C column: the c_backend renders sqrt1337 -> tcc -O2 -> run. The
 # renderer only lowers the lowable subset (echo/arith); a grep pipeline is
 # NOT lowable — verify the output matches bash before timing (a fast but
@@ -207,7 +240,7 @@ if "$ROOT/sh2perl/backends/c/target/debug/c_backend" "$S" 2>/dev/null > /tmp/sqr
   if [ "$(/tmp/sqrt1337_c 2>/dev/null)" = "$(seq 1 10000 | awk '{s=$1*$1; if (s ~ /1337/) print $1}')" ]; then
     for cc in "${LEVELS[@]}"; do
       $cc -o /tmp/sqrt1337_c /tmp/sqrt1337.c 2>/dev/null
-      tc=$(/usr/bin/time -f "%e" timeout 60 /tmp/sqrt1337_c 2>&1 >/dev/null)
+      tc=$(timed 60 /tmp/sqrt1337_c)
       printf "%-12s %12s\n" "c($(cc_label "$cc"))" "$tc"
     done
   else
