@@ -1,0 +1,10 @@
+# PLAN v12: zsh array-subscript file detector (grep -Ef).
+# zsh arrays are 1-based; the zsh frontend normalizes subscripts to the
+# canonical 0-based A1 form at emit, which the core's bash parse cannot
+# match byte-for-byte — the zsh gate waives byte-equality for files these
+# patterns match (executed-stdout is the semantic anchor). Length forms
+# (`${#x}`, `${#a[@]}`) deliberately do NOT match: no subscript, and they
+# stay byte-compared. One alternative per line.
+\$[A-Za-z_][A-Za-z0-9_]*\[
+\$\{[A-Za-z_][A-Za-z0-9_]*\[
+(^|[[:space:]])[A-Za-z_][A-Za-z0-9_]*\[
