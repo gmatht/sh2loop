@@ -30,6 +30,13 @@ revision history).
 
 - `cd sh2perl && cargo build --bin debashc`
 - `./fail` — full corpus gate (517 examples; generated Perl vs bash stdout)
+- The shIR shared library lives at `sh2perl/src/shir_passes/` (PLAN §3,
+  design note in `sh2perl/docs/ir-design.md` §"The sh2.* boundary"):
+  `PassContext` (analysis verdicts; replaces the ten `static Mutex<…>`
+  globals in `shir.rs`), the `Metric` (sh2.* call-site tally, the
+  worker's commit signal), and the trait scaffolding for analyses,
+  transforms, and pattern lifts. Every backend consumes the same
+  pipeline; the only thing that varies is the renderer.
 - `./fail <prefix>` — subset by filename prefix
 - `./fail-coreutils` — red regression tests from the GNU coreutils suite
   probe (`tests/coreutils/`; each documents a known parser/transpiler gap

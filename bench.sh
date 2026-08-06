@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
-# bench.sh — bash / dash / transpiled-JS benchmark.
+# bench.sh — bash / dash / transpiled-JS / transpiled-C benchmark.
 #   * shellbench samples (/tmp/shellbench/sample/*.sh): each #bench section
 #     is extracted, wrapped in an N-iteration loop (N auto-calibrated so bash
-#     takes ~CAL_MS), and timed under bash, dash, and the transpiled JS.
-#   * ~/sqrt1337.sh (the 10k-iteration echo|grep search) timed under all three.
+#     takes ~CAL_MS), and timed under bash, dash, the transpiled JS, and the
+#     transpiled C at one or more compiler levels.
+#   * ~/sqrt1337.sh (the 10k-iteration echo|grep search) timed under all.
 #
 # Usage: bench.sh [sample.sh ...]    (default: all shellbench samples)
 # Env:   SHELLBENCH_DIR  where shellbench was cloned (default /tmp/shellbench)
 #        CAL_MS          calibration target for bash per bench (default 300)
+#        CC_LEVELS       | -separated compiler invocations for the C column
+#                        (default: tcc -D__STDC_NO_VLA__ -O2; the define stops
+#                        glibc 2.39 regex.h emitting a VLA-in-param prototype,
+#                        which tcc 0.9.27 can't parse — gcc ignores it).
+#                        e.g. 'tcc -D__STDC_NO_VLA__ -O0|tcc -D__STDC_NO_VLA__ -O3'
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -71,6 +77,11 @@ make_runner() { # N pre body setup cleanup > out
     printf '%s\n' "$body" | sed 's/^/  /'
     echo '  __count=$((__count+1))'
     echo 'done'
+    # observe the loop result: keeps the C column honest (a compiler that
+    # dead-code-eliminates the loop would otherwise report a bogus floor) and
+    # lets the C column gate its stdout against bash's (fast-but-WRONG runs
+    # are reported as WRONG, never blessed).
+    echo 'echo "$__count"'
     [ -n "$cleanup" ] && echo "$cleanup"
   } > /tmp/bench_runner.sh
 }
@@ -90,16 +101,8 @@ time_js() { # script → seconds (or "ERR")
   [[ "$t" =~ ^[0-9.]+$ ]] && echo "$t" || echo ERR
 }
 
-time_c() { # script → seconds via the C backend (sh2c — the c_backend bin)
-  local f=$1
-  "$ROOT/sh2perl/backends/c/target/debug/c_backend" "$f" 2>/dev/null > /tmp/bench_runner.c || { echo ERR; return; }
-  # tcc -O2 by default (7x faster to compile than gcc, equivalent runtimes);
-  # CC=... overrides (e.g. CC='gcc -O3').
-  local cc="${CC:-tcc -O2}"
-  $cc -o /tmp/bench_runner_c /tmp/bench_runner.c 2>/dev/null || { echo ERR; return; }
-  local t
-  t=$(/usr/bin/time -f "%e" timeout 60 /tmp/bench_runner_c 2>&1 >/dev/null)
-  [[ "$t" =~ ^[0-9.]+$ ]] && echo "$t" || echo ERR
+cc_label() { # compiler invocation → column label (e.g. 'tcc -O3' -> tcc-O3)
+  printf '%s' "$1" | awk '{f=$NF; sub(/^-+/, "", f); printf "%s-%s", $1, f}'
 }
 
 calibrate() { # pre body setup cleanup → N such that bash takes ~CAL_MS
@@ -117,6 +120,22 @@ calibrate() { # pre body setup cleanup → N such that bash takes ~CAL_MS
   echo "$n"
 }
 
+out_shell() { # shell script → stdout (for the C-column correctness gate)
+  timeout 60 "$1" "$2" 2>/dev/null
+}
+
+run_c() { # CCSPEC script → "TIME\tOUT" (ERR on render/compile/run failure);
+  # the same binary is run twice — once for stdout (the gate), once timed.
+  local cc=$1 f=$2
+  "$ROOT/sh2perl/backends/c/target/debug/c_backend" "$f" 2>/dev/null > /tmp/bench_runner.c || { echo ERR; return; }
+  $cc -o /tmp/bench_runner_c /tmp/bench_runner.c 2>/dev/null || { echo ERR; return; }
+  local t out
+  out=$(timeout 60 /tmp/bench_runner_c 2>/dev/null)
+  t=$(/usr/bin/time -f "%e" timeout 60 /tmp/bench_runner_c 2>&1 >/dev/null)
+  [[ "$t" =~ ^[0-9.]+$ ]] || t=ERR
+  printf '%s\t%s' "$t" "$out"
+}
+
 ops() { # seconds → ops/sec (N / t), or ERR (t=0 → the run was sub-ms:
   # the C column dead-code-eliminates unobserved loops — report the floor)
   local n=$1 t=$2
@@ -124,8 +143,11 @@ ops() { # seconds → ops/sec (N / t), or ERR (t=0 → the run was sub-ms:
   awk -v n="$n" -v t="$t" 'BEGIN { if (t > 0) printf "%.0f", n / t; else print ">1e9" }'
 }
 
-echo "=== shellbench samples (bash / dash / transpiled JS) ==="
-printf "%-24s %12s %12s %12s %12s\n" "bench" "bash/s" "dash/s" "js/s" "c/s"
+echo "=== shellbench samples (bash / dash / transpiled JS / transpiled C) ==="
+IFS='|' read -ra LEVELS <<< "${CC_LEVELS:-tcc -D__STDC_NO_VLA__ -O2}"
+printf "%-24s %12s %12s %12s" "bench" "bash/s" "dash/s" "js/s"
+for cc in "${LEVELS[@]}"; do printf " %12s" "$(cc_label "$cc")/s"; done
+printf "\n"
 OUT=/tmp/bench_sections; rm -rf "$OUT"
 for sample in ${@:-$SB/sample/*.sh}; do
   [ -f "$sample" ] || continue
@@ -139,10 +161,23 @@ for sample in ${@:-$SB/sample/*.sh}; do
     tb=$(time_shell bash /tmp/bench_runner.sh)
     td=$(time_shell dash /tmp/bench_runner.sh)
     tj=$(time_js /tmp/bench_runner.sh)
-    tc=$(time_c /tmp/bench_runner.sh)
+    ref=$(out_shell bash /tmp/bench_runner.sh)   # C column must match this
+    printf "%-24s %12s %12s %12s" "$(basename "$sample" .sh):$name" \
+      "$(ops "$n" "$tb")" "$(ops "$n" "$td")" "$(ops "$n" "$tj")"
+    for cc in "${LEVELS[@]}"; do
+      ro=$(run_c "$cc" /tmp/bench_runner.sh)
+      t=${ro%%$'\t'*}
+      o=${ro#*$'\t'}
+      if [ "$t" = ERR ]; then
+        printf " %12s" "ERR"
+      elif [ "$o" = "$ref" ]; then
+        printf " %12s" "$(ops "$n" "$t")"
+      else
+        printf " %12s" "WRONG"
+      fi
+    done
     st=$(perl "$ROOT/harness/sh2stat.pl" /tmp/bench_runner.json 2>/dev/null || echo "-\t-\t-")
-    printf "%-24s %12s %12s %12s %12s   sh2[%s]\n" "$(basename "$sample" .sh):$name" \
-      "$(ops "$n" "$tb")" "$(ops "$n" "$td")" "$(ops "$n" "$tj")" "$(ops "$n" "$tc")" "$st"
+    printf "   sh2[%s]\n" "$st"
   done
 done
 
@@ -162,13 +197,22 @@ printf "%-12s %12s\n" "js" "$tj"
 # renderer only lowers the lowable subset (echo/arith); a grep pipeline is
 # NOT lowable — verify the output matches bash before timing (a fast but
 # WRONG run is worse than an honest 'unlowerable').
-if "$ROOT/sh2perl/backends/c/target/debug/c_backend" "$S" 2>/dev/null > /tmp/sqrt1337.c    && tcc -O2 -o /tmp/sqrt1337_c /tmp/sqrt1337.c 2>/dev/null; then
+# the C column: the c_backend renders sqrt1337 -> compile -> run. The
+# renderer only lowers the lowable subset (echo/arith); a grep pipeline is
+# NOT lowable — verify the output matches bash before timing (a fast but
+# WRONG run is worse than an honest 'unlowerable'). Correctness is checked
+# once (level-independent), then each CC_LEVELS compiler is timed.
+cc0="${LEVELS[0]}"
+if "$ROOT/sh2perl/backends/c/target/debug/c_backend" "$S" 2>/dev/null > /tmp/sqrt1337.c && $cc0 -o /tmp/sqrt1337_c /tmp/sqrt1337.c 2>/dev/null; then
   if [ "$(/tmp/sqrt1337_c 2>/dev/null)" = "$(seq 1 10000 | awk '{s=$1*$1; if (s ~ /1337/) print $1}')" ]; then
-    tc=$(/usr/bin/time -f "%e" timeout 60 /tmp/sqrt1337_c 2>&1 >/dev/null)
-    printf "%-12s %12s\n" "c(tcc)" "$tc"
+    for cc in "${LEVELS[@]}"; do
+      $cc -o /tmp/sqrt1337_c /tmp/sqrt1337.c 2>/dev/null
+      tc=$(/usr/bin/time -f "%e" timeout 60 /tmp/sqrt1337_c 2>&1 >/dev/null)
+      printf "%-12s %12s\n" "c($(cc_label "$cc"))" "$tc"
+    done
   else
-    printf "%-12s %12s\n" "c(tcc)" "unlowerable"
+    printf "%-12s %12s\n" "c($(cc_label "$cc0"))" "unlowerable"
   fi
 else
-  printf "%-12s %12s\n" "c(tcc)" "render-err"
+  printf "%-12s %12s\n" "c($(cc_label "$cc0"))" "render-err"
 fi
