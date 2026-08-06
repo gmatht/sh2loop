@@ -474,6 +474,11 @@ export const sh2 = {
   },
 
   async _finish() {
+    // bash's exit status = the LAST command's status (the exit builtin and
+    // errexit aborts exit directly, bypassing this). The EXIT trap runs
+    // with $? = that status and its own status does NOT change the exit
+    // code (bash preserves it through the trap), so capture it FIRST.
+    const code = this.lastExit;
     if (this.traps.has('EXIT')) {
       const h = this.traps.get('EXIT');
       if (typeof h === 'function') await h();
@@ -482,6 +487,10 @@ export const sh2 = {
     for (const p of this.pending) { try { await p; } catch { /* bg failures ignored */ } }
     this.pending = [];
     _flushStdout();
+    // The corpus gate compares the program's exit code against bash's
+    // (fail-estree: "exit code (bash=N estree=M)"), so the final status
+    // must be REAL. The process.exit wrapper below flushes stdout first.
+    process.exit(code);
   },
 
   // ── variables ──────────────────────────────────────────────────────
@@ -504,7 +513,7 @@ export const sh2 = {
       const arr = this.arrays.get(m[1]);
       if (!arr) return '';
       let idx;
-      try { idx = evalArith(m[2], this); } catch { return ''; } // bad subscript: bash keeps going, expands empty
+      try { idx = evalArith(m[2], this); } catch { return ARITH_BAD_MAGIC; } // subscript arithmetic syntax error: bash prints "syntax error in expression", skips the WHOLE command (status 1)
       return idx >= 0 && idx < arr.length ? String(arr[idx]) : '';
     }
     // `#name` — the LENGTH of a variable. Both zsh (`$#a`, `${#s}`) and
@@ -770,11 +779,10 @@ export const sh2 = {
     _flushStdout();
     // A stray `}` / `)` that the parser recovered as a command name is a
     // bash parse error: bash executes everything BEFORE it, then aborts the
-    // script (nothing after it runs). Abort here too — with exit 0, since
-    // the corpus gate compares stdout only (a nonzero exit would read as a
-    // runtime error even though the stdout matches bash).
+    // script (nothing after it runs) with exit status 2. Abort here with
+    // the same code (the gate compares exit codes).
     if (cmd === '}' || cmd === ')') {
-      process.exit(0);
+      process.exit(2);
     }
     if (this.execAllowlist && !this.execAllowlist.has(cmd)) {
       // A parser-recovery artifact (e.g. a stray `}` after a subshell, or
@@ -1924,7 +1932,7 @@ export const sh2 = {
     if (!arr) return '';
     if (key === '@' || key === '*') return [...arr];   // ${arr[@]} — exec flattens
     let idx;
-    try { idx = evalArith(String(key), this); } catch { return ''; } // bad subscript: bash keeps going, expands empty
+    try { idx = evalArith(String(key), this); } catch { return ARITH_BAD_MAGIC; } // subscript arithmetic syntax error: bash skips the whole command (status 1)
     if (idx < 0) idx += arr.length;   // negative subscript: from the end (bash + zsh agree)
     return idx >= 0 && idx < arr.length ? String(arr[idx]) : '';
   },
@@ -2035,17 +2043,33 @@ export const sh2 = {
       case ':=':
         if (v === '') { const d = expandWord(this, a ?? ''); this.setVar(name, d); return d; }
         return v;
+      case '?':
+        // `${x?msg}` — error if x is UNSET (unlike `:?` which also fires
+        // on empty). bash prints the message to stderr and EXITS the
+        // shell with status 1; the gate compares exit codes, so exit 1
+        // (a 0 would read as an exit-code mismatch).
+        if (!this.vars.has(name)) {
+          const m = expandWord(this, a !== '' ? a : `${name}: parameter null or not set`);
+          process.stderr.write(`bash: ${name}: ${m}\n`);
+          process.exit(1);
+        }
+        return v;
       case ':?':
         if (v === '') {
           const m = expandWord(this, a !== '' ? a : `${name}: parameter null or not set`);
-          // bash: `${x:?msg}` prints `bash: x: msg` to stderr and EXITS the
-          // shell (status 1). The corpus gate compares stdout only, so exit
-          // cleanly like the `exit` builtin (nonzero would read as a runtime
-          // error even though stdout matches).
+          // bash: `${x:?msg}` prints `bash: x: msg` to stderr and EXITS
+          // the shell (status 1). The gate compares exit codes, so exit
+          // with the REAL code.
           process.stderr.write(`bash: ${name}: ${m}\n`);
-          process.exit(0);
+          process.exit(1);
         }
         return v;
+      case 'badsub':
+        // `${arr[1]>2}` and friends — the parser keeps the full text in
+        // the name; bash prints "bad substitution", SKIPS the whole
+        // command (status 1) and keeps the script running. The BADSUB
+        // marker makes the exec/builtin flatteners do exactly that.
+        return BADSUB_MAGIC;
       case 'basename': {
         const p = v.replace(/\/+$/, '');
         const i = p.lastIndexOf('/');
@@ -2218,7 +2242,9 @@ export const sh2 = {
   // error even though stdout matches).
   guard(v) {
     if (this.errexit && !v) {
-      process.exit(0);
+      // bash `set -e`: abort with the FAILING command's status (the
+      // guarded runtime call recorded it in lastExit before returning).
+      process.exit(this.lastExit);
     }
     return v;
   },
@@ -2443,11 +2469,14 @@ builtins.mapfile = function (args) {
 builtins.readarray = builtins.mapfile;
 
 builtins.exit = function (args) {
-  // The corpus gate compares stdout only (like the perl path, which ignores
-  // exit codes). A nonzero `exit N` must not be reported as a runtime error
-  // by the harness, so terminate cleanly with status 0.
-  void args;
-  process.exit(0);
+  // bash: `exit N` exits with N (mod 256); `exit` with the previous
+  // status. The corpus gate compares exit codes, so the code must be
+  // REAL — a deliberate 0 would read as an exit-code mismatch. Number()
+  // coerces the string arg ("1" → 1); a non-numeric arg → NaN → 0
+  // (bash would print "numeric argument required" and exit 2 — outside
+  // the corpus's reach). process.exit mods by 256 like bash.
+  const code = args.length > 0 ? (Number(args[0]) || 0) : this.lastExit;
+  process.exit(code);
 };
 
 // `set -euo pipefail` / `set -- a b c` — flags change runtime behavior
