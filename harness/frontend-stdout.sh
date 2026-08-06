@@ -70,6 +70,8 @@ run_native() {  # <file> -> stdout on stdout
       grep -q 'exec\.' "$f" && imports="$imports\n\t\"os/exec\""
       grep -q 'bufio\.' "$f" && imports="$imports\n\t\"bufio\""
       grep -q 'strings\.' "$f" && imports="$imports\n\t\"strings\""
+      grep -q 'filepath\.' "$f" && imports="$imports\n\t\"path/filepath\""
+      grep -q 'bytes\.' "$f" && imports="$imports\n\t\"bytes\""
       grep -qE 'os\.(Getenv|WriteFile|Setenv|Stat|Stdin|Stdout)' "$f" && imports="$imports\n\t\"os\""
       { printf 'package main\n\nimport (\n%b\n)\n\nfunc main() {\n' "$imports"; cat "$f"; printf '\n}\n'; } > "$tmp/main.go"
     fi
