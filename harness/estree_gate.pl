@@ -32,13 +32,15 @@ close $fh;
 
 # debashc --estree prints NOTHING on stdout when the parse fails (the CLI
 # reports the error on stderr and exits 0), so the gate receives an empty
-# artifact. A parse failure is a faithful EMPTY program — bash rejects the
-# same file (the corpus parse-error tests all have empty bash stdout), so
-# the runner must execute nothing (exit 0, no output) instead of this
-# structural check failing on a file that has nothing structural in it.
-# Materialize the canonical empty Program in place for the runner.
+# artifact. Every corpus file that reaches this path is REJECTED by bash
+# too (syntax error: bash exit 2, no stdout), so the faithful artifact is
+# an exit-2 program — the runner then matches bash's verdict (before this,
+# the empty Program exited 0: "exit code (bash=2 estree=0)" failures).
+# The CLI now emits this fallback itself; this materialization covers
+# other producers of empty artifacts (older binaries, --shir-in-estree
+# ingest of an empty file).
 if ($content =~ /^\s*$/) {
-    $content = '{"type":"Program","sourceType":"module","body":[]}';
+    $content = '{"type":"Program","sourceType":"module","body":[{"type":"ExpressionStatement","expression":{"type":"CallExpression","callee":{"type":"MemberExpression","object":{"type":"Identifier","name":"process"},"property":{"type":"Identifier","name":"exit"},"computed":false,"optional":false},"arguments":[{"type":"Literal","value":2,"raw":"2"}],"optional":false}}]}';
     open my $wfh, '>', $file or die "write $file: $!";
     print $wfh $content;
     close $wfh;
