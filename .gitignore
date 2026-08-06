@@ -1,68 +1,8 @@
-logs/
-kip*
-sh/
-sh2perl-*.pl
-tmp/
-check_sh_results/
-harness/node_modules/
-
-# per-worktree cargo build dirs (work-stealing — NEVER commit these)
-sh2perl/backends/*/target/
-sh2perl/backends/*/target-core/
-
-# the estree-runner's transient scratch (mkdtemp under harness/) — NEVER commit
-harness/.estree-run-*/
-
-# LLM session transcripts + scratch dumps — NEVER commit
-sessions/
-allshell.txt
-valid.txt
-frontends/*/go-sh
-frontends/*/perl-sh-go
-frontends/*/py-sh-go
-frontends/*/posix-sh-go
-
-# worker loops + the fleet state (logs, pids) — NEVER commit
-loop-*.log
-loop-*.pid
-.estree_*.tsv
-.estree_*.log
-.estree_history.log
-.estree_failures.tsv
-.estree_prev_failures.tsv
-.estree_perl_trusted_count
-.estree_trusted_count
-frontends/*/loop-*.log
-core-requests/
-grammars-v4/
-.demo-examples/
-examples.new/
-
-# ad-hoc command accidents (quoting/redirect typos)
-"${f}"
-"${tmpf}"
-&1
-&2
-&3
-&4
--
-
-# pi session transcripts anywhere
-**/*.jsonl
-.estree_loop.lock
-
-# ad-hoc analysis scratch (the remaining stragglers)
-__tmp_run_*.pl
-analyze_*.pl
-analyze_*.mjs
-a.txt
-b.txt
-errors.log
-out.txt
-users.txt
-final_result.txt
-comparison.txt
-config.txt
-x.py
-frontends/*/generated/
-.translate-work/
+# built frontend binaries — build-on-test (Makefiles: test: build); never commit
+frontends/*/[a-z-]*-go
+frontends/go-sh/go-sh
+frontends/py-sh-go/py-sh-go
+frontends/c-sh-go/c-sh-go
+frontends/zsh-sh-go/zsh-sh-go
+frontends/fish-sh-go/fish-sh-go
+frontends/posix-sh-go/posix-sh-go
