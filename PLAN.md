@@ -68,6 +68,13 @@ Covers three related work items:
 >   range_proven 40 → 51, files_with_narrow 20 → 26; length bounds
 >   byte-identical (correctness tightening — the corpus has no
 >   single-execution self-accumulations); Perl gate 436/95 unchanged.
+>   Follow-up (`8690206`): ranges now store `(i128, i128)` over an
+>   explicit frontend integer domain — bash's i64 wrap is a *parameter*
+>   (`INT_DOMAIN`), not baked into the storage; the width table gains a
+>   u64 bucket (fires only past i64::MAX, i.e. C-frontend unsigned
+>   values); bash behavior byte-identical (50/0/1 tally). C-frontend
+>   remainder: `IrExpr::Int` past i64, cfront literal parsing, per-var
+>   domains from `var_types`.
 > - v8: **lifetime analysis pass (`VarLifetimes`).** New
 >   `shir_passes/lifetime.rs`: per-variable live spans `(first, last)`
 >   in a pre-order statement walk + a conservative escape set
