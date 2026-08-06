@@ -1145,6 +1145,64 @@ export const sh2 = {
     const idx = s.lastIndexOf('/');
     return idx < 0 ? '.' : (idx === 0 ? '/' : s.slice(0, idx));
   },
+
+  // `$(mktemp TPL)` — value-returning twin of builtins.mktemp (the
+  // emitter's capture lift for the FILE form; `-d` has the native
+  // fs.mkdtemp path). Creates the unique file and RETURNS its path —
+  // the exact value the builtin would emit minus the trailing newline —
+  // with the same lastExit protocol (0 + path, 1 + "" on a too-few-X
+  // template / exhausted retries). Mirrors builtins.mktemp's arg parse
+  // (flags -d/-u/-t/--suffix; the FIRST positional is the template),
+  // the trailing-X-run rule (≥3 X's), the random-suffix retry loop and
+  // the error messages.
+  mktempValue(args) {
+    let isDir = false, dry = false, template = null, suffix = '';
+    const pos = [];
+    for (let i = 0; i < args.length; i++) {
+      const a = String(args[i]);
+      if (a === '-d') isDir = true;
+      else if (a === '-u') dry = true;
+      else if (a === '-t' && pos.length === 0) template = path.join(os.tmpdir(), 'tmp.XXXXXXXXXX');
+      else if (a === '--suffix') suffix = String(args[++i] ?? '');
+      else if (a.startsWith('--suffix=')) suffix = a.slice(9);
+      else if (a.startsWith('-')) { /* other flags: best-effort */ }
+      else pos.push(a);
+    }
+    if (pos.length === 1) template = pos[0];
+    const tpl = template ?? path.join(os.tmpdir(), 'tmp.XXXXXXXXXX');
+    const xRun = tpl.match(/X+$/);
+    if (!xRun || xRun[0].length < 3) {
+      emitErr(this, `mktemp: too few X's in template \`${tpl}'\n`);
+      this.lastExit = 1;
+      return '';
+    }
+    if (suffix.length > xRun[0].length) {
+      emitErr(this, `mktemp: suffix is too long (no room for it in the template)\n`);
+      this.lastExit = 1;
+      return '';
+    }
+    const base = tpl.slice(0, tpl.length - xRun[0].length);
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    const rand = (n) => Array.from({ length: n }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const name = base + rand(xRun[0].length - suffix.length) + suffix;
+      try {
+        if (dry) { this.lastExit = 0; return name; }
+        if (isDir) fs.mkdirSync(name);
+        else fs.closeSync(fs.openSync(name, 'wx'));
+        this.lastExit = 0;
+        return name;
+      } catch (e) {
+        if (e && e.code === 'EEXIST') continue; // collision — retry
+        emitErr(this, `mktemp: cannot create ${isDir ? 'directory' : 'file'} \`${name}': ${e?.message ?? e}\n`);
+        this.lastExit = 1;
+        return '';
+      }
+    }
+    emitErr(this, `mktemp: failed to create ${isDir ? 'directory' : 'file'} via template \`${tpl}'\n`);
+    this.lastExit = 1;
+    return '';
+  },
   basename(x) {
     let s = String(x ?? '');
     while (s.endsWith('/') && s.length > 1) s = s.slice(0, -1);
