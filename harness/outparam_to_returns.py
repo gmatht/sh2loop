@@ -134,14 +134,19 @@ def transform(prog):
             continue                                  # input-only params: pass-by-value
         wp = write_poss[0]
         last_stmt, last_value = uses[wp]['writes'][-1]
-        # rewrite the function: the last store becomes the Return; loads of
-        # pass-by-value params become direct reads; other stores drop
+        # rewrite the function: the last store becomes an ECHO of the value
+        # (the shell value-return channel — fnCall returns status, so values
+        # flow via stdout capture); loads of pass-by-value params become
+        # direct reads; other stores drop
         load_rewrites = set(read_poss)
         new_body = []
         for b in s.get('body', []):
             if b is last_stmt:
-                new_body.append({'type': 'Return',
-                                 'value': rewrite_value(last_value, load_rewrites)})
+                new_body.append({'type': 'Expr', 'expr': {
+                    'func': 'exec', 'purity': 'Emulable', 'type': 'Call',
+                    'args': [{'style': 'DoubleQuoted', 'type': 'Str', 'value': 'echo'},
+                             {'elements': [rewrite_value(last_value, load_rewrites)],
+                              'type': 'Array'}]}})
             elif (b.get('type') == 'Expr'
                   and is_call(b.get('expr', {}), 'memStore')
                   and param_pos(b['expr'].get('args', [{}])[0]) == wp):
@@ -179,11 +184,18 @@ def transform(prog):
                                 call_args.append(a)
                     if write_var is None:
                         continue
+                    # x = $(f v1 v2) — the shell value-return: the function
+                    # echoes, the caller captures
                     s['expr'] = {'func': 'setVar', 'purity': 'Emulable', 'type': 'Call',
                                  'args': [
                                      {'style': 'DoubleQuoted', 'type': 'Str', 'value': write_var},
-                                     {'func': 'fnCall', 'purity': 'Emulable', 'type': 'Call',
-                                      'args': [args[0], {'elements': call_args, 'type': 'Array'}]}]}
+                                     {'func': 'capture', 'purity': 'Emulable', 'type': 'Call',
+                                      'args': [{'type': 'Arrow', 'body': [
+                                          {'type': 'Expr', 'expr': {
+                                              'func': 'fnCall', 'purity': 'Emulable',
+                                              'type': 'Call',
+                                              'args': [args[0],
+                                                       {'elements': call_args, 'type': 'Array'}]}}]}]}]}
     return prog
 
 def main():
