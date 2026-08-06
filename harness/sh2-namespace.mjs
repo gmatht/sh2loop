@@ -3348,6 +3348,7 @@ builtins.ls = function (args) {
   let failed = false;
   const fileEntries = [];
   const dirs = [];
+  const operandCount = files.length;
   for (const p of files) {
     let st = null;
     try { st = fs.lstatSync(p); } catch { /* missing below */ }
@@ -3361,15 +3362,13 @@ builtins.ls = function (args) {
   }
   const sortName = (a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
   fileEntries.sort(sortName);
-  let out = '';
-  const emitEntries = (entries) => {
-    const w = widthsOf(entries);
-    for (const [n, st] of entries) out += (long ? longLine(n, st, w) : n) + '\n';
-  };
-  if (fileEntries.length > 0) emitEntries(fileEntries);
-  const header = dirs.length > 1 || fileEntries.length > 0;
+  // GNU computes the -l column widths ONCE per invocation over ALL
+  // groups (a lone file's size column is padded to the widest size in
+  // the dir listings too), and separates the groups with a blank line
+  // (files → first dir, and between dirs) when a header prints.
+  const allGroups = [];
+  const dirEntries = [];
   for (const d of dirs) {
-    if (header) out += d + ':\n';
     let names = [];
     try { names = fs.readdirSync(d); } catch { /* unreadable dir */ }
     const entries = [];
@@ -3395,12 +3394,26 @@ builtins.ls = function (args) {
       if (n.startsWith('.')) { if (all || almostAll) push(n); }
       else push(n);
     }
+    dirEntries.push([d, entries]);
+  }
+  if (fileEntries.length > 0) allGroups.push(fileEntries);
+  for (const [, entries] of dirEntries) allGroups.push(entries);
+  const w = widthsOf(allGroups.flat());
+  let out = '';
+  if (fileEntries.length > 0) {
+    for (const [n, st] of fileEntries) out += (long ? longLine(n, st, w) : n) + '\n';
+  }
+  // GNU prints the dir header when the operand COUNT (including
+  // missing ones — `ls . missing` still headers `.:`) exceeds one.
+  const header = operandCount > 1;
+  for (const [d, entries] of dirEntries) {
+    if (header) out += (out.length ? '\n' : '') + d + ':\n';
     if (long) {
       let total = 0;
       for (const [, st] of entries) total += st.blocks;
       out += `total ${Math.floor((total * 512) / 1024)}\n`;
     }
-    emitEntries(entries);
+    for (const [n, st] of entries) out += (long ? longLine(n, st, w) : n) + '\n';
   }
   if (out) emit(this, out);
   this.lastExit = failed ? 2 : 0;
