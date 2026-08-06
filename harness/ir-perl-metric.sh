@@ -42,10 +42,9 @@ for f in "$CORPUS"/$PREFIX*.sh; do
     cp "$f" "$tmp/run/script.sh"
     ( cd "$tmp/run" && timeout 15 bash script.sh ) > "$tmp/b.out" 2>/dev/null; bc=$?
     ( cd "$tmp/run" && timeout 15 perl "$tmp/ir.pl" ) > "$tmp/i.out" 2>/dev/null; ic=$?
-    # normalize: mirror the fail gate — CRLF + whole-string edge whitespace
-    # (NOT per-line: interior trailing whitespace is a real bug to catch).
-    perl -pe 's/\r\n/\n/g; s/^\s+|\s+$//g' "$tmp/b.out" > "$tmp/b.n"
-    perl -pe 's/\r\n/\n/g; s/^\s+|\s+$//g' "$tmp/i.out" > "$tmp/i.n"
+    # compare byte-for-byte (Linux; no whitespace normalization — any
+    # difference is a real renderer bug).
+    cp "$tmp/b.out" "$tmp/b.n"; cp "$tmp/i.out" "$tmp/i.n"
     # side-effect check (mirror fail): files present in the scratch dir
     # after perl but not after bash (litter), or vice versa (deleted).
     ( cd "$tmp/run" && find . -type f ! -name script.sh | sort ) > "$tmp/b.files"
