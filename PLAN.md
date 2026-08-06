@@ -12,6 +12,22 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v15: **renderer v3 — 304/531, env-export for shell-outs, var-export
+>   correctness bug, function/case/param/subshell semantics** (workspace,
+>   submodule 283→304: 12 commits). The `bash -c` shell-outs embedded Perl
+>   vars as `"$var"` — unset in the child (silently broken: `grep -m 1` on
+>   empty input, `rm` of literal names); `emit_shell_cmd` now scans the
+>   command for `$name` and emits `$ENV{name} = $name;` first. Also:
+>   `test || cmd` tail negation (regression from the chain rewrite),
+>   `(( ))`/`let` arith conditions → native booleans, subshell copy
+>   semantics (save/restore assigned vars), `local NAME=\$N` (positional
+>   refs, split-word values, quotes), case patterns strip source quotes,
+>   fn-call args flatten the Array, setArray skips the name arg, `#`/`##`
+>   shortest/longest (non-greedy globs), `%/%%` with `C*` last/first
+>   occurrence, shopt nocasematch runtime flag, `$longline`-style env
+>   capture vars. Metric (stdout-only): 283 → 304/531 (57%). Corpus gate:
+>   no regressions from this work (the 3 Generator-path failures are the
+>   estree worker's uncommitted shir.rs WIP).
 > - v14: **shir_to_perl renderer work continues — 283/531 vs bash
 >   (stdout-only, matching the fail gate); bash-free for 20 commands**
 >   (workspace, submodule 224→283: 9 commits). The Generator's per-command
