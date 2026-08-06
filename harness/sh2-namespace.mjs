@@ -1490,8 +1490,13 @@ export const sh2 = {
       try {
         await bodyFn(v);
       } catch (e) {
-        if (isSignal(e, 'BREAK')) { bodyLastExit = this.lastExit; break; }
-        if (isSignal(e, 'CONTINUE')) { bodyLastExit = this.lastExit; continue; }
+        // bash: break/continue terminate the iteration with STATUS 0 (the
+        // loop's exit status rule — "last command executed in the body" —
+        // treats the control-flow keyword itself as the last command,
+        // whose status is 0: `for i in 1; do false || continue; done; echo
+        // $?` → 0).
+        if (isSignal(e, 'BREAK')) { bodyLastExit = 0; break; }
+        if (isSignal(e, 'CONTINUE')) { bodyLastExit = 0; continue; }
         throw e;
       }
       bodyLastExit = this.lastExit;
@@ -1532,8 +1537,13 @@ export const sh2 = {
       try {
         bodyFn(v);
       } catch (e) {
-        if (isSignal(e, 'BREAK')) { bodyLastExit = this.lastExit; break; }
-        if (isSignal(e, 'CONTINUE')) { bodyLastExit = this.lastExit; continue; }
+        // bash: break/continue terminate the iteration with STATUS 0 (the
+        // loop's exit status rule — "last command executed in the body" —
+        // treats the control-flow keyword itself as the last command,
+        // whose status is 0: `for i in 1; do false || continue; done; echo
+        // $?` → 0).
+        if (isSignal(e, 'BREAK')) { bodyLastExit = 0; break; }
+        if (isSignal(e, 'CONTINUE')) { bodyLastExit = 0; continue; }
         throw e;
       }
       bodyLastExit = this.lastExit;
