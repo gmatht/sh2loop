@@ -20,7 +20,7 @@ my %whitelist = map { $_ => 1 } qw(
     exec getVar setVar test pipeline capture captureWords redirect caseMatch param arith brace setArray setArrayAppend assign arrayItems arrayLen arrayIndex join setLastExit arithEval idiv imod guard not contains builtin grepText cutText bcSqrt fnCall callDirect callUndefined
     define subshell background block whileLoop whileLoopSync whileLoopBatch cstyleFor cstyleForSync forLoop forLoopSync forLoopBatch listVar and or
     shopt return break continue unsupported
-    trimCapture dirname basename readFile writeFile appendFile lstat unlink rm mkdir
+    trimCapture dirname basename readFile writeFile appendFile lstat access unlink rm mkdir
 );
 
 my $file = shift @ARGV or die "usage: estree_gate.pl <program.estree.json>\n";
@@ -96,9 +96,11 @@ sub walk {
                 && ($prop->{type} // '') eq 'Identifier';
             my $cname = ref $prop eq 'HASH' ? ($prop->{name} // '') : '';
             # sh2.fs.<name> — the runtime's node:fs/promises surface for
-            # the pure-capture lowerings (`$(cat f)` → sh2.fs.readFile) and
+            # the pure-capture lowerings (`$(cat f)` → sh2.fs.readFile),
             # the native echo-to-file redirect lowering (`echo x > f` →
-            # await sh2.fs.writeFile / appendFile). Async-only codegen.
+            # await sh2.fs.writeFile / appendFile), and the `-r`/`-w`/`-x`
+            # file-test permission chain (`[[ -r f ]]` →
+            # await sh2.fs.access(f, 4).then(...)). Async-only codegen.
             my $is_sh2_fs = ref $obj eq 'HASH'
                 && ($obj->{type} // '') eq 'MemberExpression'
                 && ref $obj->{object} eq 'HASH'
@@ -108,7 +110,7 @@ sub walk {
                 && ($obj->{property}{name} // '') eq 'fs'
                 && ref $prop eq 'HASH'
                 && ($prop->{type} // '') eq 'Identifier'
-                && $prop->{name} =~ /^(readFile|writeFile|appendFile|lstat|unlink|rm|mkdir)$/;
+                && $prop->{name} =~ /^(readFile|writeFile|appendFile|lstat|access|unlink|rm|mkdir)$/;
             my $is_native = ($callee->{type} // '') eq 'Identifier'
                 && (($callee->{name} // '') eq 'Number' || ($callee->{name} // '') eq 'String'
                     || ($callee->{name} // '') eq 'parseInt' || ($callee->{name} // '') eq 'parseFloat'
