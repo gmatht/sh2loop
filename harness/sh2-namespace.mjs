@@ -2563,7 +2563,6 @@ builtins.readonly = function (args) {
 builtins.eval = function (args) {
   process.stderr.write("TRACE eval " + JSON.stringify(args) + "\n");
   const code = args.join(' ');
-  process.stderr.write("TRACE eval code=" + JSON.stringify(code) + " fastpath=" + !/[`$"'\\|><&(){}*?[\]~!#]/.test(code) + "\n");
   _flushStdout();
   // Fast path: a STATIC eval string that parses as plain assignment(s)
   // and/or a simple builtin command the runtime can execute IN-PROCESS —
