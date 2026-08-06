@@ -1875,16 +1875,22 @@ export const sh2 = {
   // the handle is {id: <name>} and load/store read/write the sh2 store.
   // Slice 2 (malloc) extends this to numeric ids over a typed slot arena.
   addrOf(name) {
-    // a handle to a variable's storage: { id, offset } with offset 0
-    return { id: String(name), offset: 0 };
+    // a handle to a variable's storage, encoded as a tagged string
+    // (the store is string-typed; an object handle would be coerced).
+    // Format: mem:<allocation-id>:<offset> — slice 1: the
+    // allocation is the named variable itself, offset 0. Slice 2 (malloc)
+    // uses numeric ids over a typed slot arena with real offsets.
+    return "\u0001mem:" + String(name) + ":0";
   },
   memLoad(h) {
-    if (!h || typeof h !== 'object' || h.id === undefined) return ''; // null/bad handle
-    return this.getVar(String(h.id));
+    const m = /^\u0001mem:([^:]*):(-?\d+)$/.exec(String(h));
+    if (!m) return '';                       // null/bad handle
+    return this.getVar(m[1]);
   },
   memStore(h, v) {
-    if (!h || typeof h !== 'object' || h.id === undefined) return;   // null store: no-op
-    this.setVar(String(h.id), String(v ?? ''));
+    const m = /^\u0001mem:([^:]*):(-?\d+)$/.exec(String(h));
+    if (!m) return;                          // null store: no-op
+    this.setVar(m[1], String(v ?? ''));
   },
 
   // ── parameter expansion / arithmetic / brace expansion ─────────────
