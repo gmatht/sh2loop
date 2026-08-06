@@ -12,6 +12,21 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v11: **C backend: seq-range loops + range-width narrowing + cross-language
+>   demo** (backend/c 6510f93→668355d; workspace 1b54df8). The C renderer
+>   (`shir_to_c` bin over the `--shir` contract; `estree_to_c` retired —
+>   ESTree JSON is the JS runtime's contract, "wrong shape for everyone
+>   else") consumes `for i in $(seq A B)` as `Array([Range])` / bare
+>   `Range` / pre-lift captureWords → native `for (<width> i = a; i <= b;
+>   i++)`, wires `range_width_name` (u32/i32/i64 when the var AND every
+>   arith expr mentioning it provably fit), inlines `contains` → strstr,
+>   and emits no helper shims (hand-written idiom). Demo:
+>   `show_sqrt_langs.sh` runs sqrt1337.sh through every backend, diffed vs
+>   bash — today c/js/sh pass; perl blocked by a genuine seq-for bug, go/
+>   rust/python by the unlanded `Array([Range])` unwrap + `contains`
+>   inlining (core-requests: perl-20260806-sqrt1337-seq-for.md,
+>   contract-20260806-array-range-iter.md; contract §5.6 documents the
+>   iter shapes + per-language lowering).
 > - v10: **const/var analysis + markup** (main 1c372fd/a85f46c/4065360/
 >   cfb98fa; backend/c 2df5cf5). `shir::analyze_var_const` gives every
 >   assigned variable a conservative `Const`/`Var` verdict: `Const` only
