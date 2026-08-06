@@ -775,6 +775,21 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
   consumes this IR). Submodule main tip: `a85f46c` (seq_range_for via
   `6b31498` + the C worker's const/var analysis commits); the clean
   standalone commit is preserved on branch `seq-range-for` (`fae1ed1`).
+- **2026-08-06 — sqrt1337 → hand-js equivalence (two emitter
+  refinements).** (a) Echo single-arg collapse: `echo $i` emitted
+  `[String(i)].join(" ")` — a one-element join never inserts the
+  separator, so the echo_join_args general path now short-circuits the
+  single non-literal arg to the bare value (`String(i) + "\n"`);
+  array-valued single args (`$(...)` captureWords) still splice + join.
+  (b) Plan 4 if-deadness: the empty-else `else { sh2.lastExit = 0; }`
+  (false cond + no else → `$?` = 0) is dropped when the liveness scan
+  proves the if's status unread (the backward scan already treats the
+  If as a writer; mark_lastexit_dead + the if-lowering consult the
+  verdict) — a plain `if (c) { ... }`, no else. sqrt1337's loop body is
+  now exactly the hand-js form: `for (let i = 1; i <= 10000; i++) { if
+  (String(i * i).includes("1337")) { process.stdout.write(String(i) +
+  "\n"); } }` — zero sh2.* calls, zero dead status writes.
+  fail-estree 526/531 (the 5 pre-existing flaky/env failures only).
 
 ---
 
