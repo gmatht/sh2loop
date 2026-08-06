@@ -1869,6 +1869,24 @@ export const sh2 = {
     return idx >= 0 && idx < arr.length ? String(arr[idx]) : '';
   },
 
+  // ── sh2.mem — allocation_id + offset pointer emulation (slice 1) ──────
+  // Pointers lower to (allocation_id, offset) handles. Slice 1: pointers to
+  // NAMED variables — the allocation is the variable itself, offset 0, so
+  // the handle is {id: <name>} and load/store read/write the sh2 store.
+  // Slice 2 (malloc) extends this to numeric ids over a typed slot arena.
+  addrOf(name) {
+    // a handle to a variable's storage: { id, offset } with offset 0
+    return { id: String(name), offset: 0 };
+  },
+  memLoad(h) {
+    if (!h || typeof h !== 'object' || h.id === undefined) return ''; // null/bad handle
+    return this.getVar(String(h.id));
+  },
+  memStore(h, v) {
+    if (!h || typeof h !== 'object' || h.id === undefined) return;   // null store: no-op
+    this.setVar(String(h.id), String(v ?? ''));
+  },
+
   // ── parameter expansion / arithmetic / brace expansion ─────────────
   param(op, name, a, b, value) {
     // `value` — the emitter's value-override for LIFTED variables: their
