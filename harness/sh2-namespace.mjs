@@ -1477,16 +1477,26 @@ export const sh2 = {
       if (Array.isArray(it)) for (const x of it) flat.push(...expandItem(x));
       else flat.push(...expandItem(it));
     }
+    // bash: the loop's exit status is the last body command's status (or
+    // 0 if the body never ran — including a BREAK on the first iteration
+    // boundary and the capture bound). The body's own statements record
+    // lastExit, so snapshot it after each iteration (mirror of the
+    // whileLoop bodyLastExit discipline).
+    let bodyLastExit = 0;
+    let ran = false;
     for (const v of flat) {
       if (this._capExceeded()) break; // bound infinite producers in a capture
+      ran = true;
       try {
         await bodyFn(v);
       } catch (e) {
-        if (isSignal(e, 'BREAK')) break;
-        if (isSignal(e, 'CONTINUE')) continue;
+        if (isSignal(e, 'BREAK')) { bodyLastExit = this.lastExit; break; }
+        if (isSignal(e, 'CONTINUE')) { bodyLastExit = this.lastExit; continue; }
         throw e;
       }
+      bodyLastExit = this.lastExit;
     }
+    this.lastExit = ran ? bodyLastExit : 0;
     return true;
   },
 
@@ -1511,16 +1521,24 @@ export const sh2 = {
       if (Array.isArray(it)) for (const x of it) flat.push(...expandItem(x));
       else flat.push(...expandItem(it));
     }
+    // Same bodyLastExit discipline as the async twin (bash: the loop's
+    // status is the last body command's status, or 0 if the body never
+    // ran).
+    let bodyLastExit = 0;
+    let ran = false;
     for (const v of flat) {
       if (this._capExceeded()) break;
+      ran = true;
       try {
         bodyFn(v);
       } catch (e) {
-        if (isSignal(e, 'BREAK')) break;
-        if (isSignal(e, 'CONTINUE')) continue;
+        if (isSignal(e, 'BREAK')) { bodyLastExit = this.lastExit; break; }
+        if (isSignal(e, 'CONTINUE')) { bodyLastExit = this.lastExit; continue; }
         throw e;
       }
+      bodyLastExit = this.lastExit;
     }
+    this.lastExit = ran ? bodyLastExit : 0;
     return true;
   },
 
