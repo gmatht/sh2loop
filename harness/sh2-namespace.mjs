@@ -1959,6 +1959,44 @@ export const sh2 = {
           if (real.includes('*')) return BADSUB_MAGIC;
           return this.arrayItems(real);
         }
+        // zsh `:flag` modifiers — `${x:l}` (lowercase), `${x:u}`
+        // (uppercase), `${p:t}` (basename), `${p:h}` (dirname), `${p:r}`
+        // (strip one suffix), `${p:e}` (extension). A bare single-letter
+        // flag in the offset slot is never a bash slice (bash `${x:l}` is
+        // a bad substitution) and never a zsh slice (zsh offsets are
+        // numeric or `${x[$i,$j]}`-shaped, which lower to expressions like
+        // "i-1" that don't match a single flag letter), so a known flag
+        // with no length arg is unambiguous. Gated on zsh mode: bash
+        // sources keep the pre-existing offset behavior byte-for-byte.
+        if (this.lang === 'zsh' && (b === undefined || b === null || b === '')) {
+          const flag = String(a ?? '');
+          switch (flag) {
+            case 'l': return v.toLowerCase();
+            case 'u': return v.toUpperCase();
+            case 't': {            // basename: strip trailing slashes, keep last component
+              const p = v.replace(/\/+$/, '');
+              const i = p.lastIndexOf('/');
+              return i >= 0 ? p.slice(i + 1) : p;
+            }
+            case 'h': {            // dirname: strip trailing slashes, drop last component
+              const p = v.replace(/\/+$/, '');
+              const i = p.lastIndexOf('/');
+              return i >= 0 ? p.slice(0, i) : '.';
+            }
+            case 'r': {            // remove one suffix: cut the last extension (after the last slash)
+              const p = v.replace(/\/+$/, '');
+              const i = p.lastIndexOf('/');
+              const dot = p.lastIndexOf('.');
+              return dot > i ? p.slice(0, dot) : p;
+            }
+            case 'e': {            // extension: text after the last dot of the last component
+              const p = v.replace(/\/+$/, '');
+              const i = p.lastIndexOf('/');
+              const dot = p.lastIndexOf('.');
+              return dot > i ? p.slice(dot + 1) : '';
+            }
+          }
+        }
         // ${@:off:len} / ${*:off:len} — positional slice. bash offsets are
         // 1-BASED for @/* (${@:1} = all params; ${@:0} includes $0);
         // negative offsets count from the end.
