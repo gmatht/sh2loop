@@ -12,8 +12,29 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
-> - v11: **C backend: seq-range loops + range-width narrowing + cross-language
->   demo** (backend/c 6510f93→668355d; workspace 1b54df8). The C renderer
+> - v12: **frontend ladder t53–t61 + array-base design decision** (workspace).
+>   New testdata across all six frontends (9 features × 6 languages): param
+>   default, string substitution, array element write, array append, array
+>   count, seq-range for, until loop, grep→contains idiom, while-read loop.
+>   Every file probe-verified through the core (`debashc --shir` emits valid
+>   A1 + estree-runner == native stdout) before landing; native oracles
+>   confirmed for all 54. Go wrapper (`frontend-stdout.sh`) gains `strings`
+>   import detection. **Decision — array base (0 vs 1): canonical 0-based in
+>   shIR.** Frontends normalize subscripts at emit (zsh/fish `-1` on positive
+>   literals AND dynamic indices and writes; bash identity; negative indices
+>   are base-invariant — `a[-1]` means last everywhere; counts are
+>   base-independent). No base annotation in the contract; executors/backends
+>   stay language-blind. Rationale: shIR JSON is consumed by backends without
+>   the source language (only the estree runner gets `--source`), so raw
+>   subscripts would force every backend to reimplement the offset; the
+>   runner's `lang === 'zsh'` branch is exactly that smell — and it already
+>   misses the write path (zsh `a[2]=X` writes 0-based, breaking the
+>   executed-stdout oracle). Fish already emits normalized subscripts (its
+>   t21 works with zero runner support) — the proven pattern. Consequence:
+>   drop the runner's zsh branches; zsh's byte-equality oracle waives array-
+>   subscript files (byte-equality is a conformance net only where the core
+>   parses faithfully; executed-stdout is the semantic anchor, per §8).
+
 >   (`shir_to_c` bin over the `--shir` contract; `estree_to_c` retired —
 >   ESTree JSON is the JS runtime's contract, "wrong shape for everyone
 >   else") consumes `for i in $(seq A B)` as `Array([Range])` / bare
