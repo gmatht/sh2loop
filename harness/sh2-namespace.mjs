@@ -1848,31 +1848,14 @@ export const sh2 = {
       return this.assocGet(nm, String(key));
     }
     const arr = this.arrays.get(nm);
-    if (!arr) {
-      // zsh `${s[2,3]}` on a scalar — a 1-based INCLUSIVE substring range
-      // (chars 2..3 of "hello" → "el"). bash `${s[2,3]}` on a scalar is a
-      // bad-subscript error (empty), but the A1 form is indistinguishable;
-      // the comma-range shape is zsh-only in practice, so zsh semantics win.
-      const rm = /^(\d+),(\d+)$/.exec(String(key));
-      if (rm) {
-        const v = String(this.getVar(nm));
-        const a = Number(rm[1]) - 1, b = Number(rm[2]);
-        if (a < 0 || b < 0) return '';
-        return v.slice(a, b);
-      }
-      return '';
-    }
+    // (No scalar-comma-range / 1-based handling here: since PLAN v12 the A1
+    // contract is canonical 0-based — frontends normalize zsh/fish
+    // subscripts at emit, so the executor stays language-blind.)
+    if (!arr) return '';
     if (key === '@' || key === '*') return [...arr];   // ${arr[@]} — exec flattens
     let idx;
     try { idx = evalArith(String(key), this); } catch { return ''; } // bad subscript: bash keeps going, expands empty
-    if (this.lang === 'zsh') {
-      // zsh arrays are 1-BASED: `$a[2]` is the 2nd element, and a
-      // negative index counts from the end. The A1 subscript is
-      // indistinguishable from bash's 0-based one, so the executor
-      // applies the base from the source language.
-      if (idx > 0) idx -= 1;
-      else if (idx < 0) idx += arr.length;
-    }
+    if (idx < 0) idx += arr.length;   // negative subscript: from the end (bash + zsh agree)
     return idx >= 0 && idx < arr.length ? String(arr[idx]) : '';
   },
 
