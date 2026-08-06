@@ -1090,9 +1090,16 @@ export const sh2 = {
   },
 
   // ── test expressions ───────────────────────────────────────────────
-  test(expr) {
+  test(expr, style) {
     try {
-      const tokens = tokenizeTest(expr);
+      // `[[ ]]` (the emitter tags the call with a second `"[["` arg):
+      // bash does NOT word-split in `[[ ]]` — an unquoted expansion that
+      // evaluates EMPTY stays an empty OPERAND (`[[ -n $(empty) ]]` is
+      // FALSE — the dangling `-n` is a syntax error only when literally
+      // present). In `[ ]` the empty vanishes (word-splitting) and a
+      // lone `-n` becomes a non-empty string test (true) — the two must
+      // differ.
+      const tokens = tokenizeTest(expr, style === '[[');
       const ast = parseTest(tokens);
       const r = evalTest(ast, this);
       this.lastExit = r ? 0 : 1;
@@ -4855,7 +4862,7 @@ function ansiCDecode(s) {
   return out;
 }
 
-export function tokenizeTest(expr) {
+export function tokenizeTest(expr, keepEmpty) {
   const tokens = [];
   let i = 0;
   const n = expr.length;
@@ -5042,7 +5049,9 @@ export function tokenizeTest(expr) {
     // Unquoted expansions that evaluate to EMPTY vanish under bash
     // word-splitting (`[ ${A% *} -gt ${B#* } ]` with both unset becomes
     // `[ -gt ]`); only quoted empties survive as an empty argument.
-    if (started && (tok !== '' || quoted)) tokens.push(tok);
+    // EXCEPT in `[[ ]]` (keepEmpty — no word-splitting there): the empty
+    // expansion remains an empty operand (`[[ -n $(empty) ]]` → false).
+    if (started && (tok !== '' || quoted || keepEmpty)) tokens.push(tok);
   }
   return tokens;
 }
