@@ -284,6 +284,82 @@ divergence forks never enter the fix loop).
 Combined: branch = who can touch what; merge = when and how changes
 become shared; bisect = which change broke what.
 
+## Accepting contributions — full plan (core worker as evaluator)
+
+### Roles
+
+- **Core worker**: evaluates contributions, cherry-picks accepted commits,
+  runs bisect. Owns the acceptance gate. It polls for pending contributions
+  (convention: branches named `contrib/<id>`, or a pending-manifest file)
+  in addition to its normal gate cycle.
+- **Orchestrator**: arbitrates semantic-divergence forks; the only authority
+  that can override a verdict.
+
+### Intake (contributor provides)
+
+1. The pinned base SHA the work started from.
+2. A branch (or patch series) of SMALL ATOMIC commits — one construct /
+   one change per commit, each with its own tests. This is a quality
+   requirement AND the precondition that makes bisect effective.
+3. New tests: additive, with source-native oracles, hermetic and
+   deterministic.
+4. Core intent as SPEC files (NEED / WHY / MINIMAL-CORE-CHANGE /
+   FAILING-CASE) — never code commits touching the shared core.
+5. Scope declared per commit (frontend / backend / harness / …).
+
+Anything that cannot be reduced to atomic commits is rejected at intake.
+
+### Staging evaluation (core worker, in a worktree — never the live tree)
+
+1. `git worktree add` at the pinned base; apply the series (cherry-pick,
+   3-way merge). A conflict = reject or request a rebase, never force.
+2. Run the FULL gate on the staged tree: acceptor ladders + contribution
+   tests + core unit tests + determinism + corpus byte-identity.
+3. Verdicts — the gate is the factual layer; the worker's AI judges only
+   scope violations and semantic-divergence proposals:
+   - **ACCEPT** — gate green, scope rules respected.
+   - **ACCEPT-WITH-CHANGES** — gate green but scope/semantic concerns;
+     the worker proposes adjustments preserving the contributor's intent.
+   - **REJECT** — gate red; bisect the series to attribute the exact
+     failing commit(s); report commit + reason.
+   - **DEFER** — touches a semantic-divergence fork; arbitration by the
+     orchestrator, not the worker.
+
+### Cherry-pick to main
+
+1. Accepted series cherry-picked ONE COMMIT AT A TIME onto main, the
+   combined gate run after each.
+2. A cherry-pick that breaks the gate is attributed immediately (it is
+   the last commit applied) — fix it or exclude it before continuing.
+3. After the full series: the combined gate, then the gitlink bump
+   records the acceptance.
+
+### Bisect duties (core worker)
+
+1. **The sieve** — a mixed series (some good, some bad commits): bisect
+   the staged series (GOOD = first green, BAD = the red tip) to attribute
+   the offending commit; cherry-pick everything except it (and its fix,
+   if a later commit repaired it).
+2. **Post-acceptance attribution** — a previously-green behavior breaks
+   later: bisect `last-green..now-red`, criterion = the failing probe;
+   the attributed commit is fixed, reverted, or queued.
+3. Mechanics: `git bisect run <hermetic gate script>` in a worktree,
+   load-gated. The criterion is a single probe or a corpus subset, never
+   the full app suite.
+4. Preconditions enforced: deterministic failures only (nondeterministic
+   → fix the test first), a range must exist, atomic commits (keeps the
+   range small).
+
+### Guardrails
+
+- Never evaluate, cherry-pick, or bisect on the live working tree.
+- The gitlink bump is the only main-line write beyond the worker's own
+   scoped commits.
+- Verdicts are gate-driven; the AI judges scope and semantics, never the
+   facts.
+- A contribution that cannot be reduced to atomic commits is rejected at
+   intake — bisect needs them.
+
 ## Guardrails
 
 - The user's tests answer "does the translated app work?"; the probes
