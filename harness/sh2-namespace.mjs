@@ -1733,6 +1733,12 @@ export const sh2 = {
     }
     const out = [];
     for (const e of elements ?? []) {
+      // Unquoted `$var`/`$(...)` elements carry the A1 `split` marker,
+      // which the estree lowering emits as a NATIVE JS array of already
+      // IFS-split strings (e.g. x="a b"; arr=($x) → ["a","b"]). Splice
+      // them like bash's field-splitting instead of String()-joining them
+      // into one element ("a,b").
+      if (Array.isArray(e)) { out.push(...e); continue; }
       // `arr=(`cmd`)` — the parser folds a backtick capture into a single
       // literal element (backticks included). bash captures the command's
       // stdout and word-splits it into elements; execute through
@@ -1775,6 +1781,10 @@ export const sh2 = {
     }
     const arr = this.arrays.get(nm) ?? [];
     for (const e of elements ?? []) {
+      // A1 `split`-marked elements arrive as native JS arrays of already
+      // IFS-split strings — splice them (bash field-splitting) instead of
+      // String()-joining into one element.
+      if (Array.isArray(e)) { arr.push(...e); continue; }
       if (String(e) === '$@' || String(e) === '$*') {
         arr.push(...this.positional.map(String));
         continue;
