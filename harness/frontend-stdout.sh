@@ -96,10 +96,19 @@ for f in "$dir"/*"$ext"; do
     echo "FAIL $bn (frontend emit)"
     fails=$((fails+1)); continue
   fi
-  # 2b. A1 -> ESTree
+  # 2b. A1 -> ESTree. debashc is rebuilt by the estree worker whenever
+  # core changes land; a CONCURRENT cargo relink can briefly leave a
+  # truncated/invalid binary at target/debug/debashc, failing exactly one
+  # invocation while every other test passes (the fish-sh-go gate hit this
+  # on t40_nested_loop at 18:04:22-27). Retry once after the link usually
+  # finishes; a real deterministic regression fails the retry too and is
+  # still reported as FAIL.
   if ! "$debashc" --shir-in-estree "$tmp/a1.json" > "$tmp/e.json" 2>/dev/null; then
-    echo "FAIL $bn (A1 -> ESTree conversion)"
-    fails=$((fails+1)); continue
+    sleep 3
+    if ! "$debashc" --shir-in-estree "$tmp/a1.json" > "$tmp/e.json" 2>/dev/null; then
+      echo "FAIL $bn (A1 -> ESTree conversion)"
+      fails=$((fails+1)); continue
+    fi
   fi
   # 2c. run transpiled JS
   trans_out=$(timeout 20 node "$runner" "$tmp/e.json" --source "$f" 2>/dev/null) || true
