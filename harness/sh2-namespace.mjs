@@ -603,6 +603,7 @@ export const sh2 = {
   // producer stdout; materialize them to temp files (bash passes a
   // /dev/fd/N path).
   async exec(name, args = [], env = undefined) {
+    process.stderr.write("TRACE exec " + String(name) + "\n");
     if (env && typeof env === 'object') {
       // command-scoped env vars: VAR=x cmd
       for (const [k, v] of Object.entries(env)) process.env[k] = String(v);
@@ -1061,6 +1062,7 @@ export const sh2 = {
 
   // ── command substitution ───────────────────────────────────────────
   async capture(fn) {
+    process.stderr.write("TRACE capture\n");
     const saved = this.fdTargets[1];
     const savedStart = this.captureStart;
     this.fdTargets[1] = { kind: 'capture', buf: '' };
@@ -1109,6 +1111,7 @@ export const sh2 = {
 
   // ── redirects ──────────────────────────────────────────────────────
   async redirect(fn, specs = []) {
+    process.stderr.write("TRACE redirect\n");
     const saved = { ...this.fdTargets };
     const persistent = specs.filter(s => s.persist);
     try {
@@ -1204,6 +1207,7 @@ export const sh2 = {
 
   // ── pipelines ──────────────────────────────────────────────────────
   async pipeline(stages) {
+    process.stderr.write("TRACE pipeline\n");
     const saved = { ...this.fdTargets };
     let prev = null;
     try {
@@ -1474,6 +1478,7 @@ export const sh2 = {
 
   // ── subshell / background / block ──────────────────────────────────
   async subshell(fn) {
+    process.stderr.write("TRACE subshell\n");
     const saved = {
       vars: this.vars, exported: this.exported, positional: this.positional,
       fdTargets: this.fdTargets, traps: this.traps, shoptState: this.shoptState,
@@ -2036,6 +2041,7 @@ function isSignal(e, kind) { return e instanceof Signal && e.kind === kind; }
 const builtins = {};
 
 builtins.echo = function (args) {
+  process.stderr.write("TRACE echo " + JSON.stringify(args) + "\n");
   let text;
   if (args[0] === '-n') text = args.slice(1).join(' ');
   else if (args[0] === '-e') text = args.slice(1).join(' ').replace(/\\n/g, '\n').replace(/\\t/g, '\t');
@@ -2135,6 +2141,7 @@ builtins.unset = function (args) {
 };
 
 builtins.read = function (args, env) {
+  process.stderr.write("TRACE read " + JSON.stringify(args) + " ifs=" + (env&&env.IFS) + "\n");
   // bash flushes stdout before reading (prompt visibility — the harness
   // feeds stdin from a pipe/file, but the flush is harmless and matches
   // the stdio discipline).
@@ -2156,11 +2163,23 @@ builtins.read = function (args, env) {
     this.lastExit = 1;
     return false;
   }
-  const re = new RegExp('[' + ifs.replace(/[\]^$.*+?()[{}|\\]/g, '\\$&') + ']+');
-  const fields = line.split(re).filter(s => s !== '');
+  // IFS splitting: a WHITESPACE-only IFS (space/tab/newline) collapses runs
+  // and drops empty fields; a NON-whitespace IFS (IFS=:) keeps every empty
+  // field (`toolchain:x:1005:1005::/home/...` → the empty gecos is a real
+  // field — dropping it shifts all later columns).
+  const esc = ifs.replace(/[\]^$.*+?()[{}|\\]/g, '\\$&');
+  let fields;
+  if (/^[ \t\n]+$/.test(ifs)) {
+    fields = line.split(new RegExp('[' + esc + ']+')).filter(s => s !== '');
+  } else {
+    fields = line.split(new RegExp('[' + esc + ']'));
+  }
   if (names.length === 0) names.push('REPLY');
+  // The remainder joins on the FIRST IFS char (`IFS=: read a b <<< "x:y:z"`
+  // → b="y:z" — bash joins the leftover fields with the first IFS char).
+  const joinSep = /^[ \t\n]+$/.test(ifs) ? (ifs[0] ?? ' ') : ifs[0] ?? ' ';
   for (let i = 0; i < names.length; i++) {
-    if (i === names.length - 1) this.setVar(names[i], fields.slice(i).join(' '));
+    if (i === names.length - 1) this.setVar(names[i], fields.slice(i).join(joinSep));
     else this.setVar(names[i], fields[i] ?? '');
   }
   this.lastExit = 0;
@@ -2383,6 +2402,7 @@ builtins.readonly = function (args) {
 // sync back any variables it assigned (`eval "result=$((...))"` must leave
 // `result` visible to the rest of the program).
 builtins.eval = function (args) {
+  process.stderr.write("TRACE eval " + JSON.stringify(args) + "\n");
   const code = args.join(' ');
   _flushStdout();
   // Fast path: a STATIC eval string that parses as plain assignment(s)
@@ -2423,7 +2443,30 @@ builtins.eval = function (args) {
   // run as a command (not found, stderr suppressed) and NEVER appear on
   // stdout, so the split below would fall through to the whole `set`
   // env and leak it to the program's output.
-  const r = spawnSync('bash', ['-c', `${code}\necho __SH2_EVAL_END__\nset\ndeclare -F`], { encoding: 'utf8' });
+  //
+  // Wire the EMULATED stdin into the child: the default pipe would never
+  // be written to, so a stdin-reading command inside the eval (`cmp -`,
+  // `cat`) would block forever — double-paren-subshell.sh's
+  // `eval cmp /dev/fd/5 -` hung exactly there. A string fd0 becomes the
+  // input (EOF after it), a file fd0 an open read fd, inherit for the
+  // script's own stdin, ignore for a closed fd.
+  process.stderr.write("TRACE eval fd0=" + JSON.stringify(this.fdTargets[0]) + " fd1=" + JSON.stringify(this.fdTargets[1]) + "\n");
+  const efd0 = this.fdTargets[0];
+  let syncInput;
+  let syncStdio = ['pipe', 'pipe', 'pipe'];
+  if (efd0.kind === 'string') syncInput = efd0.content;
+  else if (efd0.kind === 'file' && efd0.readMode) {
+    try { syncStdio[0] = fs.openSync(expandWord(this, efd0.target), 'r'); }
+    catch { syncStdio[0] = 'ignore'; }
+  } else if (efd0.kind === 'stdin') syncStdio[0] = 'inherit';
+  else syncStdio[0] = 'ignore'; // `<&-` / dup-of-closed — no stdin
+  let r;
+  try {
+    r = spawnSync('bash', ['-c', `${code}\necho __SH2_EVAL_END__\nset\ndeclare -F`], { encoding: 'utf8', stdio: syncStdio, input: syncInput });
+  } finally {
+    if (typeof syncStdio[0] === 'number') { try { fs.closeSync(syncStdio[0]); } catch {} }
+  }
+  process.stderr.write("TRACE eval spawn done status=" + r.status + "\n");
   if (!r.error && r.stdout) {
     const [out, ...rest] = String(r.stdout).split('__SH2_EVAL_END__\n');
     if (out) emit(this, out);  // the code's real output — via the fd-aware emit (handles redirects/captures)
@@ -3936,12 +3979,16 @@ const STDOUT_BUF_LIMIT = 4096;
 function _flushStdout() {
   if (!_stdoutStr && (!_stdoutBin || _stdoutBin.length === 0)) return;
   if (_stdoutBin && _stdoutBin.length > 0) {
-    // binary chunks queued: flush the string accumulator FIRST (write order
-    // is observable), then the buffers
-    if (_stdoutStr) { _realStdoutWrite(_stdoutStr); _stdoutStr = null; }
+    // Binary chunks were queued in program order (the string accumulator
+    // was eagerly flushed when the FIRST binary chunk arrived, so any
+    // string still pending came AFTER them) — write the buffers FIRST,
+    // then the pending string. Writing the string first would reorder
+    // `echo txt` … `echo $'\xE9'` … `echo more` (utf8-non-utf8-content.sh:
+    // the trailing shell echo would land BEFORE the raw-byte line).
     const bins = _stdoutBin;
     _stdoutBin = null;
     _realStdoutWrite(bins.length === 1 ? bins[0] : Buffer.concat(bins));
+    if (_stdoutStr) { _realStdoutWrite(_stdoutStr); _stdoutStr = null; }
   } else {
     const s = _stdoutStr;
     _stdoutStr = null;
@@ -4132,7 +4179,11 @@ function expandUnquoted(sh, code) {
 
 function shellCapture(code) {
   try {
-    const r = spawnSync('bash', ['-c', code], { encoding: 'utf8' });
+    // input: '' — the default spawnSync pipe is never written to or closed,
+    // so a stdin-reading cmdsub (`$(cmp -)` in a test expression) would
+    // block forever; feeding EOF matches the harness's own stdin discipline
+    // (nothing is ever written to the script's stdin either).
+    const r = spawnSync('bash', ['-c', code], { encoding: 'utf8', input: '' });
     if (r.error) return '';
     return String(r.stdout ?? '').replace(/\n+$/, '');
   } catch { return ''; }
@@ -4649,6 +4700,14 @@ function evalUnary(flag, arg, sh) {
     return false;
   }
   const p = path.resolve(sh.cwd, String(arg));
+  // `-r`/`-w`/`-x` — bash tests access(2) with R_OK/W_OK/X_OK (real
+  // effective-uid permission, following symlinks), NOT raw mode bits: a
+  // root-owned `crw-------` device is unreadable by a non-root user even
+  // though the owner-read bit is set (tty-cmdsub.sh).
+  if (flag === '-r' || flag === '-w' || flag === '-x') {
+    const want = flag === '-r' ? fs.constants.R_OK : flag === '-w' ? fs.constants.W_OK : fs.constants.X_OK;
+    try { fs.accessSync(p, want); return true; } catch { return false; }
+  }
   try {
     const st = fs.lstatSync(p);
     switch (flag) {
@@ -4657,9 +4716,6 @@ function evalUnary(flag, arg, sh) {
       case '-e': return true;
       case '-L': case '-h': return st.isSymbolicLink();
       case '-s': return st.isFile() && st.size > 0;
-      case '-x': return !!(st.mode & 0o111);
-      case '-w': return !!(st.mode & 0o222);
-      case '-r': return !!(st.mode & 0o444);
       case '-b': return st.isBlockDevice();
       case '-c': return st.isCharacterDevice();
       case '-S': return st.isSocket();
