@@ -2032,7 +2032,11 @@ export const sh2 = {
         }
         // ${@:off:len} / ${*:off:len} — positional slice. bash offsets are
         // 1-BASED for @/* (${@:1} = all params; ${@:0} includes $0);
-        // negative offsets count from the end.
+        // negative offsets count from the end. `"${@:off:len}"` expands
+        // to SEPARATE words (one per positional — an empty slice yields
+        // ZERO words), so the `@` form returns the ARRAY and the
+        // exec/echo/builtin arg flatteners splice it; `"${*:…}"` is the
+        // joined scalar (one space-joined word, like `"$*"`).
         if (name === '@' || name === '*') {
           const off = sliceOff(a);
           let list = this.positional;
@@ -2042,7 +2046,7 @@ export const sh2 = {
           const sl = b !== undefined && b !== null && b !== ''
             ? list.slice(start, start + (Number(b) || 0))
             : list.slice(start);
-          return sl.join(' ');
+          return name === '@' ? [...sl] : sl.join(' ');
         }
         if (a === '@' || a === '*') return this.arrayItems(name); // ${arr[@]} — exec flattens; template literals join via sh2.join
         const am = /^([A-Za-z_][A-Za-z0-9_]*)\[@\]$/.exec(name);
