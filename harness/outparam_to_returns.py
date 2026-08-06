@@ -134,18 +134,34 @@ def transform(prog):
             continue                                  # input-only params: pass-by-value
         wp = write_poss[0]
         last_stmt, last_value = uses[wp]['writes'][-1]
+        # dropping the write-param renumbers the later params: a read of
+        # pos N becomes pos N-1 ($2 -> $1 when the $1 out-param is dropped)
+        renum = {p: str(int(p) - 1) for p in read_poss if int(p) > int(wp)}
         # rewrite the function: the last store becomes an ECHO of the value
         # (the shell value-return channel — fnCall returns status, so values
         # flow via stdout capture); loads of pass-by-value params become
         # direct reads; other stores drop
         load_rewrites = set(read_poss)
+        def renum_value(v):
+            if isinstance(v, dict) and is_call(v, 'memLoad'):
+                args = v.get('args', [{}])
+                p = param_pos(args[0] if args else {})
+                if p in renum:
+                    return {'func': 'getVar', 'purity': 'Emulable', 'type': 'Call',
+                            'args': [{'style': 'DoubleQuoted', 'type': 'Str',
+                                      'value': renum[p]}]}
+            if isinstance(v, dict):
+                return {k: renum_value(x) for k, x in v.items()}
+            if isinstance(v, list):
+                return [renum_value(x) for x in v]
+            return v
         new_body = []
         for b in s.get('body', []):
             if b is last_stmt:
                 new_body.append({'type': 'Expr', 'expr': {
                     'func': 'exec', 'purity': 'Emulable', 'type': 'Call',
                     'args': [{'style': 'DoubleQuoted', 'type': 'Str', 'value': 'echo'},
-                             {'elements': [rewrite_value(last_value, load_rewrites)],
+                             {'elements': [renum_value(last_value)],
                               'type': 'Array'}]}})
             elif (b.get('type') == 'Expr'
                   and is_call(b.get('expr', {}), 'memStore')
