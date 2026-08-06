@@ -959,12 +959,16 @@ sub finalize_core_requests {
         scoped_commit("core-request: mediate + implement worker escalations", $s);
         print "\ncore-requests: core changes present; committing.\n";
     }
-    # Only requests pi actually ADDRESSED (an ## OUTCOME line appended) move
-    # to done/; the rest stay pending for the next iteration. A rejected
-    # request carries its reason in the file (the README's promise).
-    my @addressed = grep { request_has_outcome($_) } @core_pending;
-    my @untouched = grep { !request_has_outcome($_) } @core_pending;
-    for my $r (@addressed) {
+    # implemented -> done/ + WAKE the trapped worker (the fix landed);
+    # rejected -> done/ with the reason RECORDED but NO wake (a rejected
+    # request re-files uselessly — the -b loop; the rejection is the record);
+    # untouched -> STAYS PENDING, with a stall cap: after 3 consecutive
+    # cycles without implementation it auto-moves to done/ as 'stalled'
+    # (no wake) so the queue cannot grow with pi-ignored requests.
+    my @impl      = grep { request_outcome($_) eq 'implemented' } @core_pending;
+    my @rejected  = grep { request_outcome($_) eq 'rejected' } @core_pending;
+    my @untouched = grep { request_outcome($_) eq '' } @core_pending;
+    for my $r (@impl) {
         my $bn = (split /\//, $r)[-1];
         system('mv', $r, "$core_requests_dir/done/$bn");
         if (my ($lang) = $bn =~ /^(.+)-\d{8}-\d{6}\.md$/) {
@@ -975,12 +979,27 @@ sub finalize_core_requests {
             }
         }
     }
-    if (@untouched) {
-        print "  kept " . scalar(@untouched) . " request(s) pending (no ## OUTCOME line — pi did not address them):\n";
-        print "    $_\n" for @untouched;
+    for my $r (@rejected) {
+        my $bn = (split /\//, $r)[-1];
+        system('mv', $r, "$core_requests_dir/done/$bn");
+        print "  rejected (worker stays asleep): $bn\n";
     }
-    log_decision('core-request', scalar(@addressed), scalar(@untouched), 'addressed/untouched');
-    @core_pending = @untouched;
+    for my $r (@untouched) {
+        my $n = 0;
+        if (open my $cf, '<', "$r.stall") { $n = <$cf>; close $cf; }
+        $n++;
+        my $bn = (split /\//, $r)[-1];
+        if ($n >= 3) {
+            system('mv', "$r.stall", "$core_requests_dir/done/$bn.stall") if -f "$r.stall";
+            system('mv', $r, "$core_requests_dir/done/$bn");
+            print "  STALLED (pending 3 cycles, no implementation): $bn\n";
+        } else {
+            open my $cf, '>', "$r.stall"; print $cf $n; close $cf;
+            print "  kept pending (cycle $n/3): $bn\n";
+        }
+    }
+    log_decision('core-request', scalar(@impl), scalar(@rejected) + scalar(@untouched), 'impl/rejected/pending');
+    @core_pending = ();
 }
 
 # A request's verdict: 'implemented' | 'rejected' | '' (untouched/pending).
