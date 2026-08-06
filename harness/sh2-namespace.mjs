@@ -1122,6 +1122,39 @@ export const sh2 = {
     return idx < 0 ? s : (idx === 0 ? s : s.slice(idx + 1));
   },
 
+  // The `$(uname …)` / `$(date …)` / `$(readlink …)` pure-capture lifts:
+  // value-returning twins of the sync builtins — the builtin's emitted
+  // output minus the trailing newline the capture strips (exactly what
+  // `await sh2.capture(() => sh2.builtin(name, args))` would yield, with
+  // no capture machinery and no per-call promise). The builtin's
+  // lastExit is intentionally not recorded (the value is the contract;
+  // a failing readlink yields "" — the same string the capture path
+  // would produce).
+  uname(...flags) {
+    const saved = this.fdTargets[1];
+    this.fdTargets[1] = { kind: 'capture', buf: '' };
+    builtins.uname.call(this, flags);
+    const out = this.fdTargets[1].buf.replace(/\n$/, '');
+    this.fdTargets[1] = saved;
+    return out;
+  },
+  date(...args) {
+    const saved = this.fdTargets[1];
+    this.fdTargets[1] = { kind: 'capture', buf: '' };
+    builtins.date.call(this, args);
+    const out = this.fdTargets[1].buf.replace(/\n$/, '');
+    this.fdTargets[1] = saved;
+    return out;
+  },
+  readlink(...args) {
+    const saved = this.fdTargets[1];
+    this.fdTargets[1] = { kind: 'capture', buf: '' };
+    builtins.readlink.call(this, args);
+    const out = this.fdTargets[1].buf.replace(/\n$/, '');
+    this.fdTargets[1] = saved;
+    return out;
+  },
+
   // Unquoted $(...) — bash word-splits the captured output on IFS.
   async captureWords(fn) {
     const out = await this.capture(fn);
