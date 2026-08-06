@@ -110,7 +110,7 @@ sub walk {
                 && ($obj->{property}{name} // '') eq 'fs'
                 && ref $prop eq 'HASH'
                 && ($prop->{type} // '') eq 'Identifier'
-                && $prop->{name} =~ /^(readFile|writeFile|appendFile|lstat|access|unlink|rm|mkdir)$/;
+                && $prop->{name} =~ /^(readFile|writeFile|appendFile|lstat|access|unlink|rm|mkdir|mkdtemp)$/;
             my $is_native = ($callee->{type} // '') eq 'Identifier'
                 && (($callee->{name} // '') eq 'Number' || ($callee->{name} // '') eq 'String'
                     || ($callee->{name} // '') eq 'parseInt' || ($callee->{name} // '') eq 'parseFloat'
