@@ -12,6 +12,31 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v10: **const/var analysis + markup** (main 1c372fd/a85f46c/4065360/
+>   cfb98fa; backend/c 2df5cf5). `shir::analyze_var_const` gives every
+>   assigned variable a conservative `Const`/`Var` verdict: `Const` only
+>   for a single static assignment site that runs at most once (outside
+>   loops/function bodies) and is never a runtime-store write
+>   (`read`/`readarray`/`mapfile`/`unset`), a `let`/`(( ))` statement,
+>   native arith (`x++`, `((x=1))`), an array-element write (`arr[1]=z`
+>   incl. the index-baked-into-name lowering), or a dynamic write
+>   (`eval`/`source`/`.` anywhere → every var `Var`); everything else is
+>   `Var` (over-conservatism is the safe direction). Markup:
+>   `IrProgram.var_const: Vec<(String, VarKind)>` serialized in the ShIR
+>   JSON (`var_const: [{name, kind}]`, sorted, round-trips through
+>   `shir_json_in`, unknown kinds rejected) and carried on `PassContext`
+>   (`const_vars`/`is_const`) by the first REAL shir_passes pair —
+>   `analysis::ConstVar` + `transform::ConstMarkup` — wired into the
+>   canonical pipeline (which now runs its transforms on a clone and
+>   returns the post-pipeline program). shir_passes was an orphan module
+>   (declared nowhere in lib.rs; its 24 stage-0 tests never ran) — now
+>   compiled, 24 shir_passes + 11 const_analysis tests green. C backend:
+>   `Const` vars whose single assignment is a top-level literal `Assign`
+>   render as `const` declarations initialized from the literal (numeric
+>   Str parsed per the lift's criterion), the Assign stmt dropped;
+>   verified gcc-clean over the corpus (zero new failures) and
+>   byte-equal vs bash. Corpus gates byte-identical vs the pre-work
+>   baseline: PERL 436/95, ESTREE 525/6 at 531 examples.
 > - v9: **Loop fixpoints in the length + range analyses** (`bf3d6b2`). The
 >   range-analysis spike killed every loop-carried variable (loops → Any);
 >   now a `while [ $i -lt 100 ]; do i=$((i+1)); done` counter lands in
