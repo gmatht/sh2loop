@@ -1128,6 +1128,17 @@ export const sh2 = {
     return out.split(/\s+/).filter(w => w.length > 0);
   },
 
+  // The `split` marker on UNQUOTED expansions (for-iters `for w in $y`,
+  // exec args `set -- $y`): bash field-splits on default-IFS whitespace
+  // and drops empty fields — an empty/unset variable yields ZERO fields
+  // (zero iterations / zero args). The emitter lowers split(x) to the
+  // native `String(x).split(/\s+/).filter(w => w.length > 0)` (no
+  // dispatch); this helper is the fallback for the (currently unreachable)
+  // awaited-arg case, mirroring captureWords' split exactly.
+  split(s) {
+    return String(s ?? '').split(/\s+/).filter(w => w.length > 0);
+  },
+
   // ── redirects ──────────────────────────────────────────────────────
   async redirect(fn, specs = []) {
     process.stderr.write("TRACE redirect\n");
