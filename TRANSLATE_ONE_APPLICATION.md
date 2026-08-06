@@ -248,6 +248,42 @@ The principle: **accept the delta the contribution represents,
 re-expressed against the acceptor's current tree and verified by the
 combined gate — never the contributor's tree as-is.**
 
+## Git: branch, merge, bisect
+
+They map onto three different problems — isolation, reconciliation,
+attribution.
+
+**Branch — isolation.** Per-component worker branches/worktrees make the
+single-owner discipline mechanical (a worker cannot commit into another's
+files — the failure mode of overlapping scopes). Contribution staging: the
+contributor works from a pinned base SHA on their own branch; the acceptor
+applies to a STAGING branch, runs the combined gate, then merges. Failed
+experiments live on branches or scoped stashes, never on main. Never branch
+the shared core: single-owner means its evolution is serial by design.
+
+**Merge — reconciliation.** Sync discipline: merge main into each worker
+branch BEFORE every verification — conflicts surface early, while small.
+Acceptance gate: contribution → staging → merge main in → combined suite
+all green → merge to main. Merge is the moment of acceptance, gated by the
+suite, never by textual agreement. Scoped merges: never merge a commit
+that touches the shared core; a conflict in a shared-owner file is a stop
+signal — queue a request, don't force. The gitlink bump is the cross-repo
+merge: the workspace merges a pointer, not sh2perl's tree.
+
+**Bisect — attribution.** For when the no-regression guard and one-construct
+attribution fail: integration regressions (a probe green in isolation, red
+inside a compound idiom), corpus drift, contention between two workers on
+a shared file. Its power depends on the playbook's habits: small atomic
+commits (one construct each) keep the range tiny; one-construct probes
+make the GOOD/BAD check cheap. Preconditions: the failure must be
+deterministic (nondeterminism cannot be bisected), and there must be a
+range (a never-implemented feature has nothing to bisect; a
+semantic-divergence bug has no single causing commit — which is why
+divergence forks never enter the fix loop).
+
+Combined: branch = who can touch what; merge = when and how changes
+become shared; bisect = which change broke what.
+
 ## Guardrails
 
 - The user's tests answer "does the translated app work?"; the probes
