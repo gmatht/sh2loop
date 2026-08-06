@@ -593,6 +593,7 @@ export const sh2 = {
       this.arrays.set(m[1], arr);
       return true;
     }
+    if (value === ARITH_BAD_MAGIC) return true; // `x=$((bad))`: the expansion aborted — bash skips the assignment
     let v = String(Array.isArray(value) ? value.join(' ') : value ?? '');
     // nameref: `ref=...` assigns the TARGET variable
     if (this.refVars.has(name)) {
@@ -680,9 +681,10 @@ export const sh2 = {
         i--;
         continue;
       }
-      if (flat[i] === BADSUB_MAGIC) {
-        // `${!prefix*[@]}` bad substitution: bash skips the WHOLE command
-        // (status 1) but keeps the script running.
+      if (flat[i] === BADSUB_MAGIC || flat[i] === ARITH_BAD_MAGIC) {
+        // `${!prefix*[@]}` bad substitution / `$(( bad ))` arithmetic
+        // error: bash skips the WHOLE command (status 1) but keeps the
+        // script running.
         this.lastExit = 1;
         return false;
       }
@@ -918,9 +920,10 @@ export const sh2 = {
         i--;
         continue;
       }
-      if (flat[i] === BADSUB_MAGIC) {
-        // `${!prefix*[@]}` bad substitution: bash skips the WHOLE command
-        // (status 1) but keeps the script running.
+      if (flat[i] === BADSUB_MAGIC || flat[i] === ARITH_BAD_MAGIC) {
+        // `${!prefix*[@]}` bad substitution / `$(( bad ))` arithmetic
+        // error: bash skips the WHOLE command (status 1) but keeps the
+        // script running.
         this.lastExit = 1;
         return false;
       }
@@ -970,7 +973,7 @@ export const sh2 = {
         i--;
         continue;
       }
-      if (flat[i] === BADSUB_MAGIC) {
+      if (flat[i] === BADSUB_MAGIC || flat[i] === ARITH_BAD_MAGIC) {
         this.lastExit = 1;
         return false;
       }
@@ -2076,12 +2079,16 @@ export const sh2 = {
   },
 
   arith(src) {
-    // bash: an arithmetic evaluation error leaves the target unset, which
-    // reads back as the empty string — mirror that instead of crashing.
+    // bash: an arithmetic evaluation error (syntax error, empty operand
+    // like `$(( $1 * 100 ))` with an unset positional, division by zero)
+    // ABORTS the whole expansion — the command is skipped (status 1),
+    // the script continues. The magic marker lets the exec/builtin arg
+    // flatteners skip the command (mirror of BADSUB_MAGIC); the native
+    // echo emitter guards the bare-arith shape with the same marker.
     try {
       return String(evalArith(String(src), this));
     } catch {
-      return '';
+      return ARITH_BAD_MAGIC;
     }
   },
 
@@ -4409,6 +4416,7 @@ const ARRAY_LIT_MAGIC = '\u0001SH2ARRLIT\u0001';
 // forLoop expand the suffix against the filesystem.
 const GLOB_MAGIC = '\u0001SH2GLOB\u0001';
 const BADSUB_MAGIC = '\u0001SH2BADSUB\u0001';
+const ARITH_BAD_MAGIC = '\u0001SH2ARITH\u0001'; // `$(( bad ))` — expansion error: bash skips the whole command (status 1)
 function materializePath(content) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sh2-ps-'));
   const f = path.join(dir, 'ps');
