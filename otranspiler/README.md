@@ -13,10 +13,12 @@ otranspiler <input> [<output>] [flags]
   --source-lang L / --target L   force the language (a .sh could be zsh)
 ```
 
-Currently wired targets: `.js` (estree), `.pl` (perl), `.c` (shir_to_c),
-`.shir` (the A1 contract). The other worktree renderers (go/rust/zig/
-java/python/sh) exist but their `--shir-in-<lang>` ingress flags are not
-connected — a clear error, not a silent fallback.
+Wired targets: `.js` (estree), `.pl` (perl), `.c`, `.go`, `.py`, `.sh`,
+`.java`, `.rs`, `.zig` (the worktree `--shir-in-<lang>` ingress flags),
+and `.shir` (the A1 contract). sh/java's v1 renderers refuse constructs
+outside their subset (e.g. the seq-range Range node) with a clear error —
+refuse > guess, surfaced cleanly by otranspiler (never the CLI's
+shell-command fallback).
 
 Dogfooding: `otranspiler otranspiler/main.go -` (Go -> JS self-transpile)
 currently refuses — the go-sh frontend's subset stops at `bytes`/os/exec.

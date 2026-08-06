@@ -43,10 +43,14 @@ var sources = map[string]string{
 var targets = map[string]string{
 	".js":   "flag:estree",
 	".pl":   "flag:perl",
-	".c":    "bin:sh2perl/backends/c/target/debug/shir_to_c",
+	".c":    "flag:c",
+	".go":   "flag:go",
+	".py":   "flag:python",
+	".sh":   "flag:sh",
+	".java": "flag:java",
+	".rs":   "flag:rust",
+	".zig":  "flag:zig",
 	".shir": "",
-	// .sh/.go/.rs/.zig/.java/.py — the worktree renderers exist but the
-	// --shir-in-<lang> ingress flags are not wired yet: emit a clear error.
 }
 
 func workspaceRoot() string {
@@ -192,7 +196,13 @@ func render(root, lang string, a1 []byte) ([]byte, error) {
 	var cmd *exec.Cmd
 	if strings.HasPrefix(kind, "flag:") {
 		l := strings.TrimPrefix(kind, "flag:")
-		cmd = exec.Command(filepath.Join(root, "sh2perl/target/debug/debashc"), "--shir-in-"+l, "-")
+		bin := filepath.Join(root, "sh2perl/target/debug/debashc")
+		if l != "estree" && l != "perl" {
+			// the scaffold backends: the ingress flag lives on the
+			// WORKTREE's own debashc (sh2perl/backends/<lang>/...)
+			bin = filepath.Join(root, "sh2perl/backends/"+l+"/target/debug/debashc")
+		}
+		cmd = exec.Command(bin, "--shir-in-"+l, "-")
 		cmd.Dir = filepath.Join(root, "sh2perl")
 	} else if strings.HasPrefix(kind, "bin:") {
 		cmd = exec.Command(filepath.Join(root, strings.TrimPrefix(kind, "bin:")), "-")
