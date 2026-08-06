@@ -12,6 +12,24 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v8: **lifetime analysis pass (`VarLifetimes`).** New
+>   `shir_passes/lifetime.rs`: per-variable live spans `(first, last)`
+>   in a pre-order statement walk + a conservative escape set
+>   (array-element stores, closure captures, function returns;
+>   subprocess boundaries are uses, not escapes — the kernel copies).
+>   Wired into the canonical pipeline; `PassContext` gains
+>   `var_live_ranges`/`var_escapes`; `IrProgram.var_lifetimes` +
+>   ShIR JSON `var_lifetimes` serialization (beside `var_types`/
+>   `var_lengths`/`var_const`; round-trip through `shir_json_in`). The
+>   C backend's fixed-buffer transform (`char v[N+1]`) is only sound
+>   with per-point knowledge — the seed analysis answers where a
+>   buffer may live and how long it must survive; the full version
+>   (per-point bounds, copy-vs-move, malloc/free placement, function-
+>   return discipline) is backlog Task 2 for the estree worker.
+>   Also: unblocked the build (is_variable_name call-site fix) and
+>   completed the in-flight M9 const-migration compile (duplicate
+>   test-struct fields, missing trait import). `cargo test --lib`
+>   100 → 123.
 > - v7: **C backend: length analysis + debug-only asserts.** The
 >   `backend/c` worktree now consumes `var_lengths` (`analyze_string_lengths`,
 >   fbedac4): bounded Str vars render as fixed `char v[N+1]` buffers, with
