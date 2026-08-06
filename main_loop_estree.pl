@@ -798,7 +798,13 @@ sub collect_core_requests {
     $b .= "  - if two conflict, implement the one maximizing corpus coverage, note the rejection;\n";
     $b .= "  - implement each WITHOUT regressing the ESTree corpus (run ./fail-estree;\n";
     $b .= "    estree_failed must stay 0 / at the trusted baseline). If a request would regress,\n";
-    $b .= "    leave it pending with a note.\n\n";
+    $b .= "    leave it pending with a note.\n";
+    $b .= "  - FOR EVERY request: either implement it, or APPEND a line\n";
+    $b .= "    '## OUTCOME: rejected: <one-line reason>' to its file. A request WITHOUT\n";
+    $b .= "    an ## OUTCOME line is treated as UNTOUCHED and STAYS PENDING for the next\n";
+    $b .= "    iteration — it does NOT move to done/. Only requests you actually\n";
+    $b .= "    addressed (implemented, or explicitly rejected with a reason in the file)\n";
+    $b .= "    are finalized.\n\n";
     for my $r (@reqs) {
         my $txt = eval { local $/; open my $fh, '<', $r; <$fh> };
         $txt = "(unreadable request)" unless defined $txt;
@@ -944,11 +950,14 @@ sub finalize_core_requests {
         my $s = { estree_passed => 'core-request', total => scalar(@core_pending),
                   estree_failed => 0, perl_passed => '?', perl_failed => '?' };
         scoped_commit("core-request: mediate + implement worker escalations", $s);
-        print "\ncore-requests: implemented + committed; waking workers.\n";
-    } else {
-        print "\ncore-requests: no core changes to commit (pi rejected them all); moving to done/ anyway.\n";
+        print "\ncore-requests: core changes present; committing.\n";
     }
-    for my $r (@core_pending) {
+    # Only requests pi actually ADDRESSED (an ## OUTCOME line appended) move
+    # to done/; the rest stay pending for the next iteration. A rejected
+    # request carries its reason in the file (the README's promise).
+    my @addressed = grep { request_has_outcome($_) } @core_pending;
+    my @untouched = grep { !request_has_outcome($_) } @core_pending;
+    for my $r (@addressed) {
         my $bn = (split /\//, $r)[-1];
         system('mv', $r, "$core_requests_dir/done/$bn");
         if (my ($lang) = $bn =~ /^(.+)-\d{8}-\d{6}\.md$/) {
@@ -959,8 +968,21 @@ sub finalize_core_requests {
             }
         }
     }
-    log_decision('core-request', scalar(@core_pending), 0, 'implemented');
-    @core_pending = ();
+    if (@untouched) {
+        print "  kept " . scalar(@untouched) . " request(s) pending (no ## OUTCOME line — pi did not address them):\n";
+        print "    $_\n" for @untouched;
+    }
+    log_decision('core-request', scalar(@addressed), scalar(@untouched), 'addressed/untouched');
+    @core_pending = @untouched;
+}
+
+# A request is addressed iff pi appended an "## OUTCOME" section.
+sub request_has_outcome {
+    my ($r) = @_;
+    return 0 unless -f $r;
+    open my $fh, '<', $r or return 0;
+    local $/; my $txt = <$fh>; close $fh;
+    return $txt =~ /^## OUTCOME:/m ? 1 : 0;
 }
 
 my $iteration = 0;
