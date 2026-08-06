@@ -160,6 +160,7 @@ sub run_one_test {
     # Run Perl with 5.010 features and capture stdout/stderr
     my ($perl_out, $perl_stdout, $perl_stderr);
     $perl_out = `timeout $timeout_per_test perl -M5.010 '$perl_file' 2>"$tmp_dir/perl_stderr.txt"`;
+    my $perl_exit = $? >> 8;
     if (open my $fh, '<', "$tmp_dir/perl_stderr.txt") {
         local $/; $perl_stderr = <$fh>; close $fh;
     } else {
@@ -210,6 +211,7 @@ sub run_one_test {
     # Step 6: Determine result
     my @reasons;
     push @reasons, 'stdout mismatch' if !$stdout_match;
+    push @reasons, "exit code (bash=$bash_exit perl=$perl_exit)" if defined($bash_exit) && defined($perl_exit) && $bash_exit != $perl_exit;
     push @reasons, $se_msg if $se_msg;
 
     my $result;
