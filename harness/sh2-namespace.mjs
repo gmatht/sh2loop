@@ -2445,8 +2445,12 @@ builtins.read = function (args, env) {
   // the stdio discipline).
   _flushStdout();
   const names = args.filter(a => !a.startsWith('-'));
-  // `IFS=: read ...` — command-scoped env from the emitter
-  const ifs = env && env.IFS !== undefined ? String(env.IFS) : ' \t\n';
+  // `IFS=: read ...` — command-scoped env from the emitter; a plain
+  // (non-env) `IFS=,` assignment earlier in the script reads the STORE
+  // (frontends-ifs: the runtime's read honors the current IFS value).
+  const ifs = env && env.IFS !== undefined
+    ? String(env.IFS)
+    : (this.vars.get('IFS') !== undefined ? String(this.vars.get('IFS')) : ' \t\n');
   const src = this.fdTargets[0];
   const key = src.kind === 'string' ? ('s:' + src.content) : src.kind === 'file' ? ('f:' + src.target) : 'stdin';
   if (!this.readBufs.has(key)) {
