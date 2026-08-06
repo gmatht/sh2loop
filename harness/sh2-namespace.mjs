@@ -1188,7 +1188,19 @@ export const sh2 = {
   // iterates once with the empty string; bash iterates zero times).
   split(s) {
     if (this.lang === 'zsh') return [String(s ?? '')];
-    return String(s ?? '').split(/\s+/).filter(w => w.length > 0);
+    const text = String(s ?? '');
+    // Custom IFS (core request frontends-ifs 20260806): a NON-whitespace
+    // IFS (`IFS=, for w in $x` / `IFS=: read`) splits on the separator
+    // chars and KEEPS empty fields between adjacent separators (bash
+    // field semantics — same rule as the read builtin below). The
+    // default / whitespace-only IFS keeps the historic whitespace
+    // collapse (byte-identical corpus behavior).
+    const ifs = this.vars.get('IFS');
+    if (ifs === undefined || ifs === null || /^[ \t\n]+$/.test(String(ifs))) {
+      return text.split(/\s+/).filter(w => w.length > 0);
+    }
+    const esc = String(ifs).replace(/[\]^$.*+?()[{}|\\]/g, '\\$&');
+    return text.split(new RegExp('[' + esc + ']'));
   },
 
   // ── redirects ──────────────────────────────────────────────────────
