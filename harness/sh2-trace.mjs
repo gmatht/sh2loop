@@ -4008,18 +4008,7 @@ function _flushStdout() {
 function _installStdoutBuffer() {
   if (_realStdoutWrite) return;
   const out = process.stdout;
-  if (!out.isTTY) {
-    // SYNCHRONOUS real writes: the corpus harness reads the runner's stdout
-    // through a PIPE, whose kernel capacity is 64KB. An async out.write of a
-    // larger chunk queues in node's stream and is silently LOST when
-    // _finish's process.exit runs before the pipe drains (000__07_find_path_
-    // commands: 348KB find capture truncated at exactly 65536 bytes).
-    // writeSync blocks until the kernel accepts the whole buffer — bash's
-    // own blocking write semantics (the reader drains concurrently).
-    _realStdoutWrite = (d) => { try { fs.writeSync(1, d); } catch {} };
-  } else {
-    _realStdoutWrite = out.write.bind(out);
-  }
+  _realStdoutWrite = out.write.bind(out);
   if (!out.isTTY) {
     _stdoutStr = '';
     out.write = function (chunk, encoding, cb) {
@@ -4042,7 +4031,31 @@ function _installStdoutBuffer() {
     };
   }
   const realExit = process.exit.bind(process);
-  process.exit = (code) => { _flushStdout(); realExit(code); };
+  let exitScheduled = false;
+  // process.exit after a LARGE stdout write truncates the output at the
+  // 64KB pipe capacity: node's stdout is a pipe with a writer thread, and
+  // the exit kills it with bytes still in flight (000__07_find_path_
+  // commands: 348KB find capture → exactly 65536 bytes). The corpus
+  // harness reads the runner's stdout through a pipe, so every exit path
+  // (the `exit` builtin, errexit aborts, _finish) must wait for the
+  // pending writes to drain before the REAL exit. Poll writableLength
+  // (the 'drain' event alone can miss a stream that errors); a 5s cap
+  // keeps a wedged pipe from hanging the runner forever.
+  process.exit = (code) => {
+    _flushStdout();
+    if (exitScheduled) return;
+    exitScheduled = true;
+    const out = process.stdout;
+    const t0 = Date.now();
+    const tryExit = () => {
+      if (out.writableLength === 0 || Date.now() - t0 > 5000) {
+        realExit(code);
+      } else {
+        setTimeout(tryExit, 25);
+      }
+    };
+    tryExit();
+  };
 }
 
 // ── process substitution materialization ────────────────────────────
