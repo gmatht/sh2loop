@@ -21,6 +21,8 @@ my %whitelist = map { $_ => 1 } qw(
     define subshell background block whileLoop whileLoopSync whileLoopBatch cstyleFor cstyleForSync forLoop forLoopSync forLoopBatch listVar and or
     shopt return break continue unsupported
     trimCapture dirname basename uname date readlink split readFile writeFile appendFile lstat access unlink rm mkdir mkdtemp addrOf memLoad memStore
+    memAlloc memFree
+    assocSet assocGet assocNames assocValues
 );
 
 my $file = shift @ARGV or die "usage: estree_gate.pl <program.estree.json>\n";

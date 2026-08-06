@@ -550,17 +550,29 @@ export const sh2 = {
     }
   },
 
-  assocSet(name, value) {
+  // By-name form (core request frontends-assoc-arrays / py-sh-go
+  // 20260806): `assocSet(name, key, value)` — the explicit A1 shape for
+  // associative-array writes that frontends with hash/dict types (py
+  // dicts, perl hashes, zsh `typeset -A`, bash declare -A) can emit
+  // directly instead of the baked-name leak. The 2-arg form
+  // (`assocSet("map[key]", v)` — the baked-name lowering of
+  // `map[key]=v`) stays supported: same store, same key normalization.
+  assocSet(name, key, value) {
+    if (arguments.length >= 3) {
+      if (!this.assocStore.has(name)) this.assocStore.set(name, new Map());
+      this.assocStore.get(name).set(normAssocKey(String(key)), String(value));
+      return;
+    }
     const eq = name.indexOf('[');
     if (eq > 0 && name.endsWith(']')) {
-      const key = normAssocKey(name.slice(eq + 1, -1));
+      const k = normAssocKey(name.slice(eq + 1, -1));
       const base = name.slice(0, eq);
       if (!this.assocStore.has(base)) this.assocStore.set(base, new Map());
-      this.assocStore.get(base).set(key, String(value));
+      this.assocStore.get(base).set(k, String(key));
       return;
     }
     if (!this.assocStore.has(name)) this.assocStore.set(name, new Map());
-    this.assocStore.get(name).set('', String(value));
+    this.assocStore.get(name).set('', String(key));
   },
 
   assocGet(name, key) {
@@ -1927,6 +1939,60 @@ export const sh2 = {
     const m = /^\u0001mem:([^:]*):(-?\d+)$/.exec(String(h));
     if (!m) return;                          // null store: no-op
     this.setVar(m[1], String(v ?? ''));
+  },
+
+  // ── sh2.mem arena — slice 2 (core request c-mem-slice2) ────────────
+  // Heap pointers (C malloc / dynamic pointer arithmetic). The handle is
+  // the slice-1 tagged-string format with a NUMERIC allocation id and the
+  // element size in the offset field: `\u0001mem:<id>:<size>` (slice 1's
+  // id is a variable NAME — memLoad/memStore below branch on that). The
+  // arena is a flat element slot array; load/store scale the element
+  // offset by the type's element size (the `type` arg: a byte size or a
+  // C type name — the table maps the common ones), so `p + n` pointer
+  // arithmetic gets its sizeof(*p) semantics. `memFree` drops the slot.
+  memAlloc(size) {
+    const id = (this.memSeq = (this.memSeq ?? 0) + 1);
+    const n = Math.max(0, Math.floor(Number(size) || 0));
+    (this.memArena ??= {})[id] = new Array(n).fill(0);
+    return `\u0001mem:${id}:${n}`;
+  },
+  memElemSize(type) {
+    if (typeof type === 'number') return Math.max(1, Math.floor(type));
+    const t = String(type ?? 'int');
+    const sizes = {
+      char: 1, 'signed char': 1, 'unsigned char': 1, 'short': 2, 'short int': 2,
+      int: 4, 'unsigned int': 4, long: 8, 'long int': 8, 'long long': 8,
+      float: 4, double: 8, 'void*': 8, ptr: 8, pointer: 8,
+      int8: 1, int16: 2, int32: 4, int64: 8,
+    };
+    return sizes[t] ?? 1;
+  },
+  _memArenaOf(h) {
+    const m = /^\u0001mem:([^:]+):(-?\d+)$/.exec(String(h));
+    if (!m) return null;                     // null/bad handle
+    const id = m[1];
+    if (!/^\d+$/.test(id)) return null;      // slice-1 named-var handle
+    const arr = (this.memArena ?? {})[Number(id)];
+    if (!arr) return null;                   // freed / never allocated
+    const size = Math.max(1, Number(m[2]) || 1);
+    return { arr, size };
+  },
+  memLoad(h, offset, type) {
+    const a = this._memArenaOf(h);
+    if (!a) return '';                       // slice-1 / null: the old seam
+    const i = (Number(offset) || 0) * this.memElemSize(type);
+    return i >= 0 && i < a.arr.length ? String(a.arr[i]) : '';
+  },
+  memStore(h, offset, type, v) {
+    const a = this._memArenaOf(h);
+    if (!a) return;                          // slice-1 / null store: no-op
+    const i = (Number(offset) || 0) * this.memElemSize(type);
+    if (i >= 0 && i < a.arr.length) a.arr[i] = String(v ?? '');
+  },
+  memFree(h) {
+    const m = /^\u0001mem:([^:]+):(-?\d+)$/.exec(String(h));
+    if (!m || !/^\d+$/.test(m[1])) return;
+    delete (this.memArena ?? {})[Number(m[1])];
   },
 
   // ── parameter expansion / arithmetic / brace expansion ─────────────
