@@ -498,6 +498,16 @@ export const sh2 = {
       try { idx = evalArith(m[2], this); } catch { return ''; } // bad subscript: bash keeps going, expands empty
       return idx >= 0 && idx < arr.length ? String(arr[idx]) : '';
     }
+    // `#name` — the LENGTH of a variable. Both zsh (`$#a`, `${#s}`) and
+    // bash (`${#s}` unquoted) lower to getVar("#name") in A1: arrays
+    // count elements, scalars count characters. (`$#` alone — the
+    // positional count — is the `#` case in the switch below.)
+    const lm = /^#([A-Za-z_][A-Za-z0-9_]*)$/.exec(name);
+    if (lm) {
+      const real = lm[1];
+      if (this.arrays.has(real) || this.assocNames.has(real)) return String(this.arrayLen(real));
+      return String(this.getVar(real).length);
+    }
     switch (name) {
       case '?': return String(this.lastExit);
       case '$': return String(process.pid);
@@ -1814,7 +1824,20 @@ export const sh2 = {
       return this.assocGet(nm, String(key));
     }
     const arr = this.arrays.get(nm);
-    if (!arr) return '';
+    if (!arr) {
+      // zsh `${s[2,3]}` on a scalar — a 1-based INCLUSIVE substring range
+      // (chars 2..3 of "hello" → "el"). bash `${s[2,3]}` on a scalar is a
+      // bad-subscript error (empty), but the A1 form is indistinguishable;
+      // the comma-range shape is zsh-only in practice, so zsh semantics win.
+      const rm = /^(\d+),(\d+)$/.exec(String(key));
+      if (rm) {
+        const v = String(this.getVar(nm));
+        const a = Number(rm[1]) - 1, b = Number(rm[2]);
+        if (a < 0 || b < 0) return '';
+        return v.slice(a, b);
+      }
+      return '';
+    }
     if (key === '@' || key === '*') return [...arr];   // ${arr[@]} — exec flattens
     let idx;
     try { idx = evalArith(String(key), this); } catch { return ''; } // bad subscript: bash keeps going, expands empty
@@ -4591,7 +4614,12 @@ export function parseTest(tokens) {
     if (isUnaryFlag(t)) {
       i++;
       const arg = tokens[i];
-      if (arg === undefined) throw new Error(`missing operand for ${t}`);
+      if (arg === undefined) {
+        // `[[ -n $x ]]` with x empty: the operand expanded away, leaving a
+        // dangling flag. The empty expansion IS the operand — `-n ""` is
+        // false, so `! -n ` is true (zsh t27).
+        return { op: 'unary', flag: t, arg: '' };
+      }
       i++;
       return { op: 'unary', flag: t, arg };
     }
