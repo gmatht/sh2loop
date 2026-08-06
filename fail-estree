@@ -95,10 +95,15 @@ sub run_one_test {
         }
         if ($perl_verdict eq 'PASS') {
             my $perl_out = `timeout $timeout_per_test perl -M5.010 '$perl_file' 2>"$tmp_dir/pserr.txt"`;
+            my $perl_exit = $? >> 8;
             my $bash_out = `timeout $timeout_per_test bash '$test_file' 2>"$tmp_dir/bserr.txt"`;
+            my $bash_exit = $? >> 8;
             if (normalize($perl_out) ne normalize($bash_out)) {
                 $perl_verdict = 'FAIL';
                 $perl_reason = 'stdout mismatch';
+            } elsif ($perl_exit != $bash_exit) {
+                $perl_verdict = 'FAIL';
+                $perl_reason = "exit code (bash=$bash_exit perl=$perl_exit)";
             }
         }
     }
@@ -134,9 +139,13 @@ sub run_one_test {
                 $est_reason = "runtime error: $err";
             } else {
                 my $bash_out = `timeout $timeout_per_test bash '$test_file' 2>"$tmp_dir/bserr2.txt"`;
+                my $bash_exit2 = $? >> 8;
                 if (normalize($est_out) ne normalize($bash_out)) {
                     $est_verdict = 'FAIL';
                     $est_reason = 'stdout mismatch';
+                } elsif ($est_exit != $bash_exit2) {
+                    $est_verdict = 'FAIL';
+                    $est_reason = "exit code (bash=$bash_exit2 estree=$est_exit)";
                 }
             }
         }
