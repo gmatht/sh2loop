@@ -6,3 +6,7 @@ frontends/c-sh-go/c-sh-go
 frontends/zsh-sh-go/zsh-sh-go
 frontends/fish-sh-go/fish-sh-go
 frontends/posix-sh-go/posix-sh-go
+# estree-runner temp dirs (scratch — never commit)
+harness/.estree-run-*/
+# c-frontend generated templates (worker output — never commit)
+templates/
