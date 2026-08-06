@@ -65,3 +65,4 @@ comparison.txt
 config.txt
 x.py
 frontends/*/generated/
+.translate-work/
