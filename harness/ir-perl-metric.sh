@@ -26,12 +26,14 @@ for f in "$CORPUS"/$PREFIX*.sh; do
     if ! perl -c "$tmp/ir.pl" >/dev/null 2>&1; then
         syn=$((syn+1)); echo -e "$name\tsyntax" >> "$tmp/failures.tsv"; continue
     fi
-    # 3. run in a scratch dir (hermetic: no CWD/-tmp churn)
+    # 3. run in a scratch dir (hermetic: no CWD/-tmp churn). The real gate
+    # (fail) compares STDOUT only — stderr warnings are captured but not
+    # compared, so do the same here.
     rm -rf "$tmp/run"; mkdir -p "$tmp/run"
     cp "$f" "$tmp/run/script.sh"
-    ( cd "$tmp/run" && timeout 15 bash script.sh ) > "$tmp/b.out" 2>&1; bc=$?
-    ( cd "$tmp/run" && timeout 15 perl "$tmp/ir.pl" ) > "$tmp/i.out" 2>&1; ic=$?
-    # normalize: strip trailing whitespace per line
+    ( cd "$tmp/run" && timeout 15 bash script.sh ) > "$tmp/b.out" 2>/dev/null; bc=$?
+    ( cd "$tmp/run" && timeout 15 perl "$tmp/ir.pl" ) > "$tmp/i.out" 2>/dev/null; ic=$?
+    # normalize: strip leading/trailing whitespace + trailing space per line
     sed 's/[[:space:]]*$//' "$tmp/b.out" > "$tmp/b.n"; sed 's/[[:space:]]*$//' "$tmp/i.out" > "$tmp/i.n"
     if diff -q "$tmp/b.n" "$tmp/i.n" >/dev/null 2>&1 && [ "$bc" = "$ic" ]; then
         pass=$((pass+1))
