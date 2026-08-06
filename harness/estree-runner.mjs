@@ -85,6 +85,9 @@ const moduleSrc =
   `import { sh2 } from ${JSON.stringify(nsPath)};\n` +
   `sh2._init(${JSON.stringify(name)}, ${JSON.stringify(positional)});\n` +
   `sh2._setAllowlist(${JSON.stringify([...new Set(allowlist)])});\n` +
+  (sourceFile && /\.zsh$/.test(sourceFile)
+    ? `sh2._setLang("zsh");\n`  // zsh arrays are 1-based; see sh2-namespace.mjs _setLang
+    : '') +
   js +
   `\nawait sh2._finish();\n`;
 

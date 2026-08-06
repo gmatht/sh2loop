@@ -456,15 +456,6 @@ export const sh2 = {
     _installStdoutBuffer();
   },
 
-  // Source-language mode (estree-runner.mjs sets it from the --source
-  // file extension). The A1 contract is bash-shaped; constructs whose
-  // semantics differ per source language (zsh arrays are 1-BASED) are
-  // resolved here, at the execution boundary, where the language is
-  // known. bash/posix sources never set it → unchanged behavior.
-  _setLang(lang) {
-    this.lang = lang;
-  },
-
   // Security gate (see estree-runner.mjs): restrict spawned binaries to the
   // external commands that actually appear in the source script. Builtins
   // (echo, cd, read, ...) are handled natively and never spawn, so they are
@@ -506,16 +497,6 @@ export const sh2 = {
       let idx;
       try { idx = evalArith(m[2], this); } catch { return ''; } // bad subscript: bash keeps going, expands empty
       return idx >= 0 && idx < arr.length ? String(arr[idx]) : '';
-    }
-    // `#name` — the LENGTH of a variable. Both zsh (`$#a`, `${#s}`) and
-    // bash (`${#s}` unquoted) lower to getVar("#name") in A1: arrays
-    // count elements, scalars count characters. (`$#` alone — the
-    // positional count — is the `#` case in the switch below.)
-    const lm = /^#([A-Za-z_][A-Za-z0-9_]*)$/.exec(name);
-    if (lm) {
-      const real = lm[1];
-      if (this.arrays.has(real) || this.assocNames.has(real)) return String(this.arrayLen(real));
-      return String(this.getVar(real).length);
     }
     switch (name) {
       case '?': return String(this.lastExit);
@@ -1833,31 +1814,10 @@ export const sh2 = {
       return this.assocGet(nm, String(key));
     }
     const arr = this.arrays.get(nm);
-    if (!arr) {
-      // zsh `${s[2,3]}` on a scalar — a 1-based INCLUSIVE substring range
-      // (chars 2..3 of "hello" → "el"). bash `${s[2,3]}` on a scalar is a
-      // bad-subscript error (empty), but the A1 form is indistinguishable;
-      // the comma-range shape is zsh-only in practice, so zsh semantics win.
-      const rm = /^(\d+),(\d+)$/.exec(String(key));
-      if (rm) {
-        const v = String(this.getVar(nm));
-        const a = Number(rm[1]) - 1, b = Number(rm[2]);
-        if (a < 0 || b < 0) return '';
-        return v.slice(a, b);
-      }
-      return '';
-    }
+    if (!arr) return '';
     if (key === '@' || key === '*') return [...arr];   // ${arr[@]} — exec flattens
     let idx;
     try { idx = evalArith(String(key), this); } catch { return ''; } // bad subscript: bash keeps going, expands empty
-    if (this.lang === 'zsh') {
-      // zsh arrays are 1-BASED: `$a[2]` is the 2nd element, and a
-      // negative index counts from the end. The A1 subscript is
-      // indistinguishable from bash's 0-based one, so the executor
-      // applies the base from the source language.
-      if (idx > 0) idx -= 1;
-      else if (idx < 0) idx += arr.length;
-    }
     return idx >= 0 && idx < arr.length ? String(arr[idx]) : '';
   },
 
@@ -2490,7 +2450,6 @@ builtins.eval = function (args) {
   // `eval cmp /dev/fd/5 -` hung exactly there. A string fd0 becomes the
   // input (EOF after it), a file fd0 an open read fd, inherit for the
   // script's own stdin, ignore for a closed fd.
-  process.stderr.write("TRACE eval fd0=" + JSON.stringify(this.fdTargets[0]) + " fd1=" + JSON.stringify(this.fdTargets[1]) + "\n");
   const efd0 = this.fdTargets[0];
   let syncInput;
   let syncStdio = ['pipe', 'pipe', 'pipe'];
@@ -2506,7 +2465,6 @@ builtins.eval = function (args) {
   } finally {
     if (typeof syncStdio[0] === 'number') { try { fs.closeSync(syncStdio[0]); } catch {} }
   }
-  process.stderr.write("TRACE eval spawn done status=" + r.status + "\n");
   if (!r.error && r.stdout) {
     const [out, ...rest] = String(r.stdout).split('__SH2_EVAL_END__\n');
     if (out) emit(this, out);  // the code's real output — via the fd-aware emit (handles redirects/captures)
@@ -4631,12 +4589,7 @@ export function parseTest(tokens) {
     if (isUnaryFlag(t)) {
       i++;
       const arg = tokens[i];
-      if (arg === undefined) {
-        // `[[ -n $x ]]` with x empty: the operand expanded away, leaving a
-        // dangling flag. The empty expansion IS the operand — `-n ""` is
-        // false, so `! -n ` is true (zsh t27).
-        return { op: 'unary', flag: t, arg: '' };
-      }
+      if (arg === undefined) throw new Error(`missing operand for ${t}`);
       i++;
       return { op: 'unary', flag: t, arg };
     }

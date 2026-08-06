@@ -29,16 +29,31 @@ case "$lang" in
   *) echo "unknown lang: $lang"; exit 2 ;;
 esac
 
+# Native-interpreter limitation list: tests the NATIVE interpreter cannot
+# run (a real language gap — e.g. fish has no heredocs at all) while the
+# transpiled pipeline handles them. Listed tests compare the transpiled
+# run against a RECORDED expected stdout (\n escapes) instead of the
+# native run, so the transpiler path keeps real coverage. Format:
+#   "name.ext|expected-stdout-with-\\n-escapes" (one entry per line)
+native_limits_fish="t43_heredoc.fish|line1\nline2"
+
 run_native() {  # <file> -> stdout on stdout
   local f=$1
   if [ "$lang" = go ]; then
-    # wrap into a runnable Go program: import only what the example uses
-    local imports=""
-    grep -q 'fmt\.'  "$f" && imports="$imports\n\t\"fmt\""
-    grep -q 'exec\.' "$f" && imports="$imports\n\t\"os/exec\""
-    grep -q 'bufio\.' "$f" && imports="$imports\n\t\"bufio\""
-    grep -qE 'os\.(Getenv|WriteFile|Setenv|Stat|Stdin)' "$f" && imports="$imports\n\t\"os\""
-    { printf 'package main\n\nimport (\n%b\n)\n\nfunc main() {\n' "$imports"; cat "$f"; printf '\n}\n'; } > "$tmp/main.go"
+    if grep -q 'func main()' "$f"; then
+      # already a full program (its own package main/import/func main) —
+      # wrapping it again would nest a package decl inside func main
+      # (t01_print.go). Run it as-is.
+      cp "$f" "$tmp/main.go"
+    else
+      # wrap into a runnable Go program: import only what the example uses
+      local imports=""
+      grep -q 'fmt\.'  "$f" && imports="$imports\n\t\"fmt\""
+      grep -q 'exec\.' "$f" && imports="$imports\n\t\"os/exec\""
+      grep -q 'bufio\.' "$f" && imports="$imports\n\t\"bufio\""
+      grep -qE 'os\.(Getenv|WriteFile|Setenv|Stat|Stdin|Stdout)' "$f" && imports="$imports\n\t\"os\""
+      { printf 'package main\n\nimport (\n%b\n)\n\nfunc main() {\n' "$imports"; cat "$f"; printf '\n}\n'; } > "$tmp/main.go"
+    fi
     (cd "$tmp" && timeout 20 go run main.go) < /dev/null 2>/dev/null
   else
     timeout 20 "${native[@]}" "$f" < /dev/null 2>/dev/null
@@ -55,8 +70,26 @@ for f in "$dir"/*"$ext"; do
     echo "SKIP $bn (native interpreter '${native[0]}' not installed)"
     skips=$((skips+1)); continue
   fi
-  # 1. native execution (capture stdout even on nonzero exit)
-  native_out=$(run_native "$f") || true
+  # 1. native execution (capture stdout even on nonzero exit). A test on
+  # the native-limitation list compares against its RECORDED expected
+  # stdout instead (the native interpreter cannot run it — a runtime
+  # limitation, never a transpiler bug).
+  limits=""
+  case "$lang" in
+    fish) limits=$native_limits_fish ;;
+  esac
+  native_out=""
+  if [ -n "$limits" ]; then
+    for entry in $limits; do
+      if [ "${entry%%|*}" = "$bn" ]; then
+        native_out=$(printf '%b' "${entry#*|}")
+        break
+      fi
+    done
+  fi
+  if [ -z "$native_out" ]; then
+    native_out=$(run_native "$f") || true
+  fi
   # 2. frontend emit
   if ! "$bin" --shir "$f" --raw > "$tmp/a1.json" 2>/dev/null; then
     echo "FAIL $bn (frontend emit)"
