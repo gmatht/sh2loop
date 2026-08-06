@@ -30,6 +30,20 @@ case "$lang" in
   *) echo "unknown lang: $lang"; exit 2 ;;
 esac
 
+# Go toolchain resolution. The PATH wrapper /snap/bin/go re-execs through
+# snap-confine, which fails in containerized workers ("home directories
+# outside of /home needs configuration" / missing cap_dac_override) even
+# though the direct snap binary works fine. Honor an explicit GO, else
+# prefer the direct binary, else fall back to PATH.
+gobin=go
+if [ "$lang" = go ]; then
+  if [ -n "${GO:-}" ] && [ -x "$GO" ]; then
+    gobin="$GO"
+  elif [ -x /snap/go/current/bin/go ]; then
+    gobin=/snap/go/current/bin/go
+  fi
+fi
+
 # Native-interpreter limitation list: tests the NATIVE interpreter cannot
 # run (a real language gap — e.g. fish has no heredocs at all) while the
 # transpiled pipeline handles them. Listed tests compare the transpiled
@@ -59,7 +73,7 @@ run_native() {  # <file> -> stdout on stdout
       grep -qE 'os\.(Getenv|WriteFile|Setenv|Stat|Stdin|Stdout)' "$f" && imports="$imports\n\t\"os\""
       { printf 'package main\n\nimport (\n%b\n)\n\nfunc main() {\n' "$imports"; cat "$f"; printf '\n}\n'; } > "$tmp/main.go"
     fi
-    (cd "$tmp" && timeout 20 go run main.go) < /dev/null 2>/dev/null
+    (cd "$tmp" && timeout 20 "$gobin" run main.go) < /dev/null 2>/dev/null
   else
     timeout 20 "${native[@]}" "$f" < /dev/null 2>/dev/null
   fi
