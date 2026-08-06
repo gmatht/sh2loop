@@ -4008,7 +4008,18 @@ function _flushStdout() {
 function _installStdoutBuffer() {
   if (_realStdoutWrite) return;
   const out = process.stdout;
-  _realStdoutWrite = out.write.bind(out);
+  if (!out.isTTY) {
+    // SYNCHRONOUS real writes: the corpus harness reads the runner's stdout
+    // through a PIPE, whose kernel capacity is 64KB. An async out.write of a
+    // larger chunk queues in node's stream and is silently LOST when
+    // _finish's process.exit runs before the pipe drains (000__07_find_path_
+    // commands: 348KB find capture truncated at exactly 65536 bytes).
+    // writeSync blocks until the kernel accepts the whole buffer — bash's
+    // own blocking write semantics (the reader drains concurrently).
+    _realStdoutWrite = (d) => { try { fs.writeSync(1, d); } catch {} };
+  } else {
+    _realStdoutWrite = out.write.bind(out);
+  }
   if (!out.isTTY) {
     _stdoutStr = '';
     out.write = function (chunk, encoding, cb) {
