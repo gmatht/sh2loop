@@ -19,6 +19,12 @@ no-op builtins, `let`, fixed buffers + debug-only length asserts).
   `cut`/`sed`/`expr`, command substitution, `eval`, string tests,
   real subshells/pipelines), so the binary hits a `sh2.*` stub
   (`exit 2`) — never blessed, reported WRONG by the output gate.
+- **JS (estree-runner) vs bash/dash**: js wins almost everywhere — it
+  beats bash on every row except shell-builtin workloads the estree
+  lowering routes through the `sh2.*` runtime (`${var//p/r}`
+  substitution: bash 2.7–3.6× js; `expr substr`: 1.9×; `print`: 5×),
+  and dash's C parameter-expansion builtins crush the js runtime on
+  string ops (60–780×). On fork/exec-bound benches js wins ~10–50×.
 - **gcc -O3 vs tcc -O0…-O3 is a wash** on these micro-benchmarks
   (all within ±15% run-to-run noise): the rendered loop bodies are a
   handful of instructions, so the bottleneck is loop/printf overhead,
@@ -86,6 +92,43 @@ minimal: a `while` loop over an increment and a `printf`/assignment.
 Larger, real workloads (not micro-loops) are where gcc -O3's advantage
 would show. Notable noise outliers: `count:typeset -i` tcc-O3 19.2M,
 `null:assign variable` tcc-O0 16.0M, `func:func` tcc-O1 28.1M.
+
+### When is bash/dash faster than js?
+
+Much rarer than the tcc case, and the pattern is the mirror image of
+it: **js loses only where the estree lowering emits an `sh2.*` RUNTIME
+call instead of native JS** — the per-iteration runtime invocation
+(JS function call + string parsing) is slower than the interpreter's
+C builtin. Concretely, from the data:
+
+- **`${var/pattern/replacement}` substitution** (stringop4 builtin):
+  bash 2.7–3.6× js (bash ~154–175k vs js ~48–57k), dash 580–780× js
+  (dash 33–37M — its C substitution builtin).
+- **`expr substr`** (stringop2 expr): bash 1.9× js (758 vs 404).
+- **`print`** (output:print): bash 5× js (1 939 vs 381), dash 160×.
+
+These are exactly the rows where the js `sh2[a b c]` call-site tally is
+nonzero (sh2[1–4]) — the runtime does the work. Where the lowering is
+NATIVE (sh2[0 0 0] — cmp, count:posix, func, null, subshell:no
+subshell/brace), js beats bash outright and matches or beats dash.
+
+Two secondary patterns:
+
+- **dash's hyper-optimized parameter-expansion builtins beat the js
+  runtime by 60–780×** on the `builtin` and `here str` string-op rows
+  (`${var:0:1}` 24–39M, `${var#p}` ~388–570k, `${var//p/r}` 33–37M)
+  — the fastest string processing in the field.
+- **dash edges js ~1.4× on plain arithmetic/assignment loops**
+  (assign/count/func/null rows), while js wins on tests, eval,
+  output, and especially **fork/exec-bound workloads** — subshells,
+  command subs, `echo|cut`/`sed` pipes, and `sqrt1337.sh` (js 0.27 s
+  vs bash 14.5 s / dash 13.3 s, ~50×) — because the estree-runner's
+  `sh2.exec` is in-process emulation, not a real fork.
+
+Short answer: **bash/dash beat js only on shell-builtin workloads that
+the js path lowers to `sh2.*` runtime calls** (string substitution,
+`expr`, `print`) — and dash's builtin string ops beat it by orders of
+magnitude. Everywhere the lowering is native, js wins.
 
 ### Notes on individual rows
 - `count:increment` dash 3 197 ops/s — dash is anomalously slow at
