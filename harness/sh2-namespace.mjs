@@ -2868,6 +2868,226 @@ builtins.basename = function (args) {
   return true;
 };
 
+// uname — system identification, native (no spawn). GNU field mapping:
+// -s sysname (Linux), -n nodename (os.hostname), -r release
+// (os.release — identical to `uname -r` on Linux), -v version
+// (os.version — the kernel build string, identical to `uname -v` on
+// Linux), -m machine (os.arch with GNU names: x64→x86_64,
+// arm64→aarch64), -p processor / -i hardware-platform (same as
+// machine), -o os (GNU/Linux on Linux), -a all fields in GNU order.
+// ASSUMPTION (documented next to the option): the corpus runs on a
+// GNU/Linux box where these mappings are exact; a non-Linux host could
+// diverge from GNU (SH2_ASSUME_UNAME=0 restores the spawn).
+builtins.uname = function (args) {
+  if (process.env.SH2_ASSUME_UNAME === '0') { this.lastExit = 127; return false; }
+  const sys = os.platform() === 'linux' ? 'Linux' : os.platform() === 'darwin' ? 'Darwin' : os.platform();
+  const machine = ({ x64: 'x86_64', arm64: 'aarch64', ia32: 'i686' })[os.arch()] ?? os.arch();
+  const fields = {
+    s: sys,
+    n: os.hostname(),
+    r: os.release(),
+    v: os.version(),
+    m: machine,
+    p: machine,
+    i: machine,
+    o: os.platform() === 'linux' ? 'GNU/Linux' : os.platform() === 'darwin' ? 'Darwin' : os.platform(),
+  };
+  const out = [];
+  let all = false;
+  for (const a of args) {
+    if (a === '-a') { all = true; continue; }
+    if (typeof a === 'string' && a.startsWith('-') && a !== '-') {
+      for (const c of a.slice(1)) {
+        if (!(c in fields)) {
+          process.stderr.write(`uname: invalid option -- '${c}'\n`);
+          this.lastExit = 1;
+          return false;
+        }
+        out.push(fields[c]);
+      }
+      continue;
+    }
+    process.stderr.write(`uname: extra operand '${a}'\n`);
+    this.lastExit = 1;
+    return false;
+  }
+  if (all) {
+    emit(this, [sys, os.hostname(), os.release(), os.version(), machine, machine, machine,
+      os.platform() === 'linux' ? 'GNU/Linux' : os.platform()].join(' ') + '\n');
+  } else if (out.length > 0) {
+    emit(this, out.join(' ') + '\n');
+  } else {
+    emit(this, sys + '\n'); // plain `uname` ≡ `uname -s` (GNU)
+  }
+  this.lastExit = 0;
+  return true;
+};
+
+// date — native formatting (no spawn). Supported: the corpus formats
+// (+%Y, +%Y%m, '+%Y-%m-%d') plus the common GNU directives (Y m d H M S
+// s j u w a b e T D R F z Z, %%), and bare `date` (GNU default layout
+// with English day/month names and a TZ abbreviation from a small
+// UTC-offset table — an approximation for exotic zones).
+// ASSUMPTION (documented next to the option): the corpus formats map
+// exactly to the local clock; the test's bash and js runs happen within
+// the same minute, so time-dependent values agree (SH2_ASSUME_DATE=0
+// restores the spawn).
+builtins.date = function (args) {
+  if (process.env.SH2_ASSUME_DATE === '0') { this.lastExit = 127; return false; }
+  let fmt = null;
+  let utc = false;
+  for (const a of args) {
+    if (a === '-u') { utc = true; continue; }
+    if (typeof a === 'string' && a.startsWith('+') && fmt === null) { fmt = a.slice(1); continue; }
+    // unsupported invocation (a parsed date operand or unknown flag): GNU
+    // would print a parsed time — report and exit 1 rather than guess.
+    process.stderr.write(`date: unsupported invocation: ${args.join(' ')}\n`);
+    this.lastExit = 1;
+    return false;
+  }
+  const d = new Date();
+  const t = utc ? new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(),
+    d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds())) : d;
+  // GNU default layout: "Thu Aug  6 23:47:03 AWST 2026"
+  emit(this, formatDate(t, fmt ?? '%a %b %e %H:%M:%S %Z %Y', utc) + '\n');
+  this.lastExit = 0;
+  return true;
+};
+
+// readlink — native (no spawn). GNU semantics: plain → the raw link
+// target (one level); -f → canonicalize (all but the last component must
+// exist); -e → canonicalize (everything must exist); -m → canonicalize
+// (nothing need exist). Failure (non-symlink / missing component) is
+// silent with exit 1, exactly like GNU on this box. -n suppresses the
+// trailing newline. Uses fs.realpathSync.native for the existing prefix
+// and a lexical walk for the missing tail.
+builtins.readlink = function (args) {
+  let mode = null;   // null = plain, 'f', 'e', 'm'
+  let noNewline = false;
+  const paths = [];
+  for (const a of args) {
+    if (a === '--') continue;
+    if (typeof a === 'string' && a.startsWith('-') && a !== '-') {
+      for (const c of a.slice(1)) {
+        if (c === 'f' || c === 'e' || c === 'm') mode = c;
+        else if (c === 'n') noNewline = true;
+        else if (c === 'q') { /* quiet: GNU suppresses per-path errors */ }
+        else {
+          process.stderr.write(`readlink: invalid option -- '${c}'\n`);
+          this.lastExit = 1;
+          return false;
+        }
+      }
+      continue;
+    }
+    paths.push(String(a));
+  }
+  if (paths.length === 0) { this.lastExit = 1; return false; }
+  const real = (p) => { try { return fs.realpathSync.native(p); } catch { return null; } };
+  const canonM = (p) => {
+    const r = real(p);
+    if (r !== null) return r;
+    let cur = p;
+    const rest = [];
+    for (;;) {
+      const parent = path.dirname(cur);
+      if (parent === cur) return null;
+      rest.push(path.basename(cur));
+      cur = parent;
+      const rr = real(cur);
+      if (rr !== null) {
+        const tail = rest.reverse().join('/');
+        return rr === '/' ? '/' + tail : rr + '/' + tail;
+      }
+    }
+  };
+  let out = '';
+  let failed = false;
+  for (const p of paths) {
+    let v = null;
+    if (mode === null) {
+      try { v = fs.readlinkSync(p); } catch { v = null; }
+    } else if (mode === 'f') {
+      const r = real(p);
+      if (r !== null) v = r;
+      else {
+        // all-but-last must exist: resolve the dirname, append the base
+        const dir = path.dirname(p);
+        const base = path.basename(p);
+        const d = real(dir);
+        if (d !== null) v = d === '/' ? '/' + base : d + '/' + base;
+      }
+    } else if (mode === 'e') {
+      v = real(p);
+    } else { // 'm'
+      v = canonM(p);
+    }
+    if (v === null) { failed = true; continue; }
+    out += v + (noNewline ? '' : '\n');
+  }
+  if (out) emit(this, out);
+  this.lastExit = failed ? 1 : 0;
+  return !failed;
+};
+
+// Shared %-directive formatter for builtins.date (module-level, also
+// reachable from the -u path).
+function formatDate(d, fmt, utc) {
+  const pad = (n, w = 2) => String(n).padStart(w, '0');
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const daysAb = days.map(x => x.slice(0, 3));
+  const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+    'August', 'September', 'October', 'November', 'December'];
+  const monthsAb = months.map(x => x.slice(0, 3));
+  const offMin = -d.getTimezoneOffset();
+  const tzAb = ({
+    0: 'UTC', 1: 'CET', 2: 'EET', 3: 'MSK', 4: 'GST', 5: 'PKT', 6: 'BST',
+    7: 'WIB', 8: 'AWST', 9: 'JST', 10: 'AEST', 11: 'SBT', 12: 'NZST',
+    '-1': 'AZOT', '-2': 'GST', '-3': 'BRT', '-4': 'AST', '-5': 'EST',
+    '-6': 'CST', '-7': 'MST', '-8': 'PST', '-9': 'AKST', '-10': 'HST',
+    '-11': 'NUT', '-12': 'BIT',
+  })[offMin / 60] ?? `UTC${offMin >= 0 ? '+' : ''}${offMin / 60}`;
+  const get = (i) => utc ? [d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(),
+    d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds(), d.getUTCDay()] :
+    [d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(),
+      d.getSeconds(), d.getDay()];
+  const [Y, M, D, H, Mi, S, W] = get();
+  let out = '';
+  for (let i = 0; i < fmt.length; i++) {
+    if (fmt[i] !== '%') { out += fmt[i]; continue; }
+    const c = fmt[++i] ?? '';
+    switch (c) {
+      case 'Y': out += pad(Y, 4); break;
+      case 'y': out += pad(Y % 100); break;
+      case 'm': out += pad(M + 1); break;
+      case 'd': out += pad(D); break;
+      case 'e': out += ' ' + D; break;
+      case 'H': out += pad(H); break;
+      case 'I': out += pad(((H + 11) % 12) + 1); break;
+      case 'M': out += pad(Mi); break;
+      case 'S': out += pad(S); break;
+      case 's': out += Math.floor(d.getTime() / 1000); break;
+      case 'j': out += pad(Math.floor((d - new Date(Y, 0, 0)) / 86400000), 3); break;
+      case 'u': out += W === 0 ? 7 : W; break;
+      case 'w': out += W; break;
+      case 'a': out += daysAb[W]; break;
+      case 'A': out += days[W]; break;
+      case 'b': case 'h': out += monthsAb[M]; break;
+      case 'B': out += months[M]; break;
+      case 'T': out += `${pad(H)}:${pad(Mi)}:${pad(S)}`; break;
+      case 'D': out += `${pad(M + 1)}/${pad(D)}/${pad(Y % 100)}`; break;
+      case 'R': out += `${pad(H)}:${pad(Mi)}`; break;
+      case 'F': out += `${pad(Y, 4)}-${pad(M + 1)}-${pad(D)}`; break;
+      case 'z': { const s = offMin >= 0 ? '+' : '-'; const a = Math.abs(offMin);
+        out += `${s}${pad(Math.floor(a / 60))}${pad(a % 60)}`; break; }
+      case 'Z': out += tzAb; break;
+      case '%': out += '%'; break;
+      default: out += '%' + c; // unknown directive: GNU prints it literally
+    }
+  }
+  return out;
+}
+
 // touch — create empty files / update timestamps (native fs; never spawns).
 builtins.touch = function (args) {
   let noCreate = false, accessOnly = false, modOnly = false;

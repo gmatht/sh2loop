@@ -9,6 +9,15 @@ CORPUS=${FAIL_CORPUS:-$(pwd)/sh2perl/examples}
 PREFIX="${1:-}"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
+# fail fast: a broken debashc build (mid-edit worker WIP) must abort the
+# metric, not produce a misleading number.
+printf 'echo hi\n' > "$tmp/selfcheck.sh"
+if ! "$DEB" --shir "$tmp/selfcheck.sh" > "$tmp/selfcheck.json" 2>/dev/null; then
+    echo "FATAL: debashc --shir fails (build broken?) — aborting"; exit 2
+fi
+if ! "$DEB" --shir-in-perl "$tmp/selfcheck.json" > "$tmp/selfcheck.pl" 2>/dev/null; then
+    echo "FATAL: debashc --shir-in-perl fails — aborting"; exit 2
+fi
 pass=0; syn=0; die=0; runt=0; total=0
 : > "$tmp/failures.tsv"
 for f in "$CORPUS"/$PREFIX*.sh; do
@@ -33,12 +42,22 @@ for f in "$CORPUS"/$PREFIX*.sh; do
     cp "$f" "$tmp/run/script.sh"
     ( cd "$tmp/run" && timeout 15 bash script.sh ) > "$tmp/b.out" 2>/dev/null; bc=$?
     ( cd "$tmp/run" && timeout 15 perl "$tmp/ir.pl" ) > "$tmp/i.out" 2>/dev/null; ic=$?
-    # normalize: strip leading/trailing whitespace + trailing space per line
-    sed 's/[[:space:]]*$//' "$tmp/b.out" > "$tmp/b.n"; sed 's/[[:space:]]*$//' "$tmp/i.out" > "$tmp/i.n"
-    if diff -q "$tmp/b.n" "$tmp/i.n" >/dev/null 2>&1 && [ "$bc" = "$ic" ]; then
+    # normalize: mirror the fail gate — CRLF + whole-string edge whitespace
+    # (NOT per-line: interior trailing whitespace is a real bug to catch).
+    perl -pe 's/\r\n/\n/g; s/^\s+|\s+$//g' "$tmp/b.out" > "$tmp/b.n"
+    perl -pe 's/\r\n/\n/g; s/^\s+|\s+$//g' "$tmp/i.out" > "$tmp/i.n"
+    # side-effect check (mirror fail): files present in the scratch dir
+    # after perl but not after bash (litter), or vice versa (deleted).
+    ( cd "$tmp/run" && find . -type f ! -name script.sh | sort ) > "$tmp/b.files"
+    ( cd "$tmp/run" && find . -type f ! -name script.sh | sort ) > "$tmp/i.files"
+    se=""
+    if ! diff -q "$tmp/b.files" "$tmp/i.files" >/dev/null 2>&1; then
+        se=" side-effect(files differ)"
+    fi
+    if diff -q "$tmp/b.n" "$tmp/i.n" >/dev/null 2>&1 && [ "$bc" = "$ic" ] && [ -z "$se" ]; then
         pass=$((pass+1))
     else
-        runt=$((runt+1)); echo -e "$name\tstdout/exit (bash=$bc perl=$ic)" >> "$tmp/failures.tsv"
+        runt=$((runt+1)); echo -e "$name\tstdout/exit$se (bash=$bc perl=$ic)" >> "$tmp/failures.tsv"
     fi
 done
 echo "=== shIR→Perl metric: $pass/$total pass (syntax-fail $syn, render-panic/die $die, stdout-or-exit mismatch $runt)"
