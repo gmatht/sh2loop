@@ -280,6 +280,12 @@ STRATEGY
 - If a fix belongs in the runtime instead of the emitter, fix the runtime.
 - The PERL backend is 100% the perl workers' problem (rust loop / backends/perl). IGNORE perl verdicts entirely: never touch perl code, never act on perl failures. Your scope: the ESTree backend + the shared core's estree-facing parts + pending core-requests.
 - If you cannot fix something, move on — do not regress what works.
+- When REPRODUCING any failing test or RUNNING the transpiled output,
+  ALWAYS wrap the command in 'timeout 15' (e.g.
+  'timeout 15 node harness/estree-runner.mjs <estree.json> --source <f>').
+  Some transpiled programs (double-paren-subshell.sh) never terminate —
+  the harness's 20s timeout protects the corpus, but a direct pi
+  reproduction bypasses it and wedges this loop on the unclosed pipe.
 PROMPT
     return $prompt;
 }
