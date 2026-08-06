@@ -1134,8 +1134,12 @@ export const sh2 = {
   // (zero iterations / zero args). The emitter lowers split(x) to the
   // native `String(x).split(/\s+/).filter(w => w.length > 0)` (no
   // dispatch); this helper is the fallback for the (currently unreachable)
-  // awaited-arg case, mirroring captureWords' split exactly.
+  // awaited-arg case, mirroring captureWords' split exactly. In zsh mode
+  // unquoted expansions NEVER field-split (SH_WORD_SPLIT is off by
+  // default): the whole value is one field — even when empty (zsh
+  // iterates once with the empty string; bash iterates zero times).
   split(s) {
+    if (this.lang === 'zsh') return [String(s ?? '')];
     return String(s ?? '').split(/\s+/).filter(w => w.length > 0);
   },
 
