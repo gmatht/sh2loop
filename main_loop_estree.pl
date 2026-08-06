@@ -983,13 +983,15 @@ sub finalize_core_requests {
     @core_pending = @untouched;
 }
 
-# A request is addressed iff pi appended an "## OUTCOME" section.
-sub request_has_outcome {
+# A request's verdict: 'implemented' | 'rejected' | '' (untouched/pending).
+sub request_outcome {
     my ($r) = @_;
-    return 0 unless -f $r;
-    open my $fh, '<', $r or return 0;
+    return '' unless -f $r;
+    open my $fh, '<', $r or return '';
     local $/; my $txt = <$fh>; close $fh;
-    return $txt =~ /^## OUTCOME:\s*(implemented|rejected)/m ? 1 : 0;
+    if ($txt =~ /^## OUTCOME:\s*implemented/m) { return 'implemented'; }
+    if ($txt =~ /^## OUTCOME:\s*rejected/m)    { return 'rejected'; }
+    return '';
 }
 
 my $iteration = 0;
