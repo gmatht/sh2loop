@@ -36,7 +36,7 @@ FT="$ROOT/frontends"
 WORKSPACE="$ROOT"
 
 DEFAULT_BACKEND_LANGS="perl js c python zig go rust sh java"
-DEFAULT_FRONTEND_LANGS="py-sh-go go-sh posix-sh-go perl-sh-go fish-sh-go zsh-sh-go"
+DEFAULT_FRONTEND_LANGS="py-sh-go go-sh posix-sh-go perl-sh-go fish-sh-go zsh-sh-go c-sh-go"
 
 # Active backends whose workers already run from the main checkout
 # (main_loop_rust.pl / main_loop_estree.pl); the per-worktree worker
@@ -326,7 +326,7 @@ do_build () {
   for lang in "${langs[@]}"; do
     # decide kind
     local kind="backend"
-    case "$lang" in py-sh|go-sh|posix-sh|busybox-ash|fish|zsh|perl-sh|cpp-sh|rust-sh) kind="frontend" ;; esac
+    case "$lang" in py-sh|go-sh|posix-sh|busybox-ash|fish|zsh|perl-sh|cpp-sh|rust-sh|c-sh-go) kind="frontend" ;; esac
     local cmd; cmd=$(build_cmd "$kind" "$lang")
     echo "  [$kind:$lang] build: $cmd"
     (
