@@ -63,6 +63,7 @@ my @problems;
 # names are the direct calls (`sh2.callDirect(f, ...)`); collecting the
 # declared names keeps the gate strict about everything else.
 my %native_fn_bindings;
+my %promise_params;
 for my $s (@{ $data->{body} // [] }) {
     next unless ref $s eq 'HASH' && ($s->{type} // '') eq 'VariableDeclaration';
     for my $d (@{ $s->{declarations} // [] }) {
@@ -119,6 +120,15 @@ sub walk {
                 && (($callee->{name} // '') eq 'Number' || ($callee->{name} // '') eq 'String'
                     || ($callee->{name} // '') eq 'parseInt' || ($callee->{name} // '') eq 'parseFloat'
                     || ($callee->{name} // '') eq 'Promise'
+                    # the native sleep lowering (`sleep 1` →
+                    # `await new Promise(r => setTimeout(() => r(true), 1000))`,
+                    # src/shir.rs try_native_sleep): setTimeout is the timer
+                    # builtin; the resolver param `r` (collected from the
+                    # NewExpression executor below) is called with `true` so
+                    # the awaited statement's value is truthy for the
+                    # errexit guard.
+                    || ($callee->{name} // '') eq 'setTimeout'
+                    || $promise_params{ $callee->{name} // '' }
                     # the native-direct function bindings (src/shir.rs
                     # NATIVE_DIRECT_FNS): module-level `let f = (...args)
                     # => ...` declarations called directly from
@@ -169,7 +179,7 @@ sub walk {
                     || ($obj->{type} // '') eq 'BinaryExpression' || ($obj->{type} // '') eq 'Literal'
                     || ($obj->{type} // '') eq 'Identifier')
                 && ref $prop eq 'HASH'
-                && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase|toUpperCase|charAt|slice|split|join|flat|sort|then|catch|trim|replace|replaceAll|lastIndexOf|concat|filter|map|indexOf|test|exec)$/;
+                && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase|toUpperCase|charAt|slice|split|join|flat|sort|then|catch|trim|replace|replaceAll|lastIndexOf|concat|filter|map|indexOf|test|exec|repeat)$/;
             # Buffer.byteLength(text, 'utf8') — the native wc -c byte-count
             # lowering (the runtime wc's exact formula; node global)
             my $is_buffer = ref $obj eq 'HASH'
@@ -246,6 +256,22 @@ sub walk {
                     && ref $val eq 'HASH'
                     && ($val->{value} // '') eq 'unsupported') {
                     push @problems, "redirect spec mode=unsupported";
+                }
+            }
+        }
+        if ($type eq 'NewExpression') {
+            # `new Promise(r => …)` — the native sleep lowering: collect
+            # the executor arrow's params into the promise-param set so
+            # the resolver calls (`r(true)`) pass the callee check. The
+            # set is program-global (a same-named stray call can only be
+            # accepted in a program that already contains the executor).
+            my $callee = $n->{callee} // {};
+            if (($callee->{type} // '') eq 'Identifier' && ($callee->{name} // '') eq 'Promise') {
+                my $exec = $n->{arguments}[0] // {};
+                if (($exec->{type} // '') eq 'ArrowFunctionExpression') {
+                    for my $p (@{ $exec->{params} // [] }) {
+                        $promise_params{ $p->{name} // '' } = 1 if ref $p eq 'HASH';
+                    }
                 }
             }
         }
