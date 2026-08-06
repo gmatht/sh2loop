@@ -22,6 +22,7 @@ tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 case "$lang" in
   py)   ext=.py;   native=(python3) ;;
   go)   ext=.go;   native=() ;;          # wrapper below
+  c)    ext=.c;    native=(cc) ;;        # compile+run wrapper below
   sh)   ext=.sh;   native=(bash) ;;
   pl)   ext=.pl;   native=(perl) ;;
   fish) ext=.fish; native=(fish) ;;
@@ -39,7 +40,10 @@ native_limits_fish="t43_heredoc.fish|line1\nline2"
 
 run_native() {  # <file> -> stdout on stdout
   local f=$1
-  if [ "$lang" = go ]; then
+  if [ "$lang" = c ]; then
+    cp "$f" "$tmp/main.c"
+    (cd "$tmp" && timeout 20 cc main.c -o main 2>/dev/null && timeout 20 ./main) < /dev/null 2>/dev/null
+  elif [ "$lang" = go ]; then
     if grep -q 'func main()' "$f"; then
       # already a full program (its own package main/import/func main) —
       # wrapping it again would nest a package decl inside func main

@@ -18,6 +18,7 @@
 #   ./translate_one_application.sh dump-templates --lang L
 #
 # Language: detected from the app extension (sh|zsh|fish|py|pl|go) or --lang.
+#   c   -> cc + frontends/c-sh-go        (C subset)
 #   sh  -> bash + frontends/posix-sh-go  (byte-equality oracle)
 #   zsh -> zsh  + frontends/zsh-sh-go    (byte-eq with the subscript waiver)
 #   fish-> fish + frontends/fish-sh-go
@@ -52,6 +53,7 @@ LANG_FISH="fish|fish|fish|$ROOT/frontends/fish-sh-go/fish-sh-go|0"
 LANG_PY="py|py|python3|$ROOT/frontends/py-sh-go/py-sh-go|0"
 LANG_PL="pl|pl|perl|$ROOT/frontends/perl-sh-go/perl-sh-go|0"
 LANG_GO="go|go|go|$ROOT/frontends/go-sh/go-sh|0"
+LANG_C="c|c|cc|$ROOT/frontends/c-sh-go/c-sh-go|0"
 
 usage() { sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
@@ -78,6 +80,9 @@ run_native() { # file -> stdout
     fish) timeout "$TIMEOUT" fish "$1" </dev/null 2>/dev/null ;;
     py)   timeout "$TIMEOUT" python3 "$1" </dev/null 2>/dev/null ;;
     pl)   timeout "$TIMEOUT" perl "$1" </dev/null 2>/dev/null ;;
+    c)    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+      cp "$1" "$tmp/main.c"
+      (cd "$tmp" && timeout "$TIMEOUT" cc main.c -o main 2>/dev/null && timeout "$TIMEOUT" ./main) </dev/null 2>/dev/null ;;
     go)   # the frontend-stdout.sh wrapper: import detection + func main
       tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
       imports=""
