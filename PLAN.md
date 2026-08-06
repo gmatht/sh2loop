@@ -670,6 +670,30 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
   namespace is the cut-down boundary, not a per-backend shIR subset.
   No existing code path changes — the ESTree and Perl backends still
   consume the existing shir.rs analyses.
+- **2026-08-06 — `seq_range_for` transform: `for i in $(seq A B)` →
+  native range loop (PLAN §9.1's `seq 1 N → native range` exemplar).**
+  New worker-style transform (`sh2perl/src/transforms/seq_range_for.rs`,
+  gated by `DEBASHC_TRANSFORMS` like the rest of the registry): rewrites
+  the `$(seq …)` capture iterable (`Array([captureWords(exec("seq"))])`)
+  to `Array([Range { A, B }])` in the shared IR, and the ESTree emitter
+  lowers a Range-iterable For to a native JS `for (let i = A; i <= B;
+  i++)` — no runtime call, no item list, no per-iteration coercion. The
+  loop var then numeric-lifts through the EXISTING analysis
+  (`iter_numeric(Range)`), so `$((i*i))` is native `i * i` and the
+  emitted sqrt1337.sh loop is byte-identical in form to the hand-written
+  one (`for (let i = 1; i <= 10000; i++)`), with ZERO sh2.* call sites
+  (was: captureWords + builtin + per-iteration Number() coercions).
+  New `Stmt::ForStatement` ESTree node + `harness/estree-gen.mjs`
+  printer. Conservative: integer args only (no floats/flags/leading
+  zeros — octal), |v| ≤ 2^53, span ≤ 1M (bounds the materialized-
+  array fallback), body never WRITES the loop var (counter `i++` would
+  read a body-written value); store-sync elimination keeps post-loop
+  `$i` = last value. Tests: 3 estree.rs emission tests + 9 transform
+  unit tests; `./fail-estree` 526/531 estree PASS (baseline 525/531,
+  no regressions; Perl byte-identical — the AST generator never
+  consumes this IR). Submodule main tip: `a85f46c` (seq_range_for via
+  `6b31498` + the C worker's const/var analysis commits); the clean
+  standalone commit is preserved on branch `seq-range-for` (`fae1ed1`).
 
 ---
 
