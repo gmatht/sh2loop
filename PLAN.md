@@ -12,6 +12,22 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v9: **Loop fixpoints in the length + range analyses** (`bf3d6b2`). The
+>   range-analysis spike killed every loop-carried variable (loops → Any);
+>   now a `while [ $i -lt 100 ]; do i=$((i+1)); done` counter lands in
+>   [lo, 100] via a widened fixed-point (outward bounds → ±i64, bash's
+>   wrap) pulled back by the cond's entry invariant (`until` flips, `let`
+>   arith conds) and by trip counts for the other counters
+>   (i ≤ pre_lo + trip·step); for-loops bound the loop var by the integer
+>   items / Range. The length analysis tracks per-assignment max executions
+>   (the product of enclosing loop trips): a single-execution
+>   `s="$s$x"` is bounded by |x| (the flat fixpoint grew it to None), a
+>   bounded loop gets v0 + trip·Δ, unbounded stays None; numeric
+>   accumulators cap at the fixed number/capture width; the runtime
+>   `assign` calls (`v+=k`) participate in both analyses. Corpus:
+>   range_proven 40 → 51, files_with_narrow 20 → 26; length bounds
+>   byte-identical (correctness tightening — the corpus has no
+>   single-execution self-accumulations); Perl gate 436/95 unchanged.
 > - v8: **lifetime analysis pass (`VarLifetimes`).** New
 >   `shir_passes/lifetime.rs`: per-variable live spans `(first, last)`
 >   in a pre-order statement walk + a conservative escape set
