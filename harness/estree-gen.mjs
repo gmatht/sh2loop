@@ -68,8 +68,22 @@ function exprUnwrapped(node) {
       }
       return out + '`';
     }
-    case 'CallExpression':
+    case 'CallExpression': {
+      // The A1 `split` marker (unquoted expansions — exec args, for-iters)
+      // is emitted by the core as a NATIVE inline `String(x).split(/\s+/)
+      // .filter(w => w.length > 0)`. Dispatch it through `sh2.split`
+      // instead: identical for bash semantics (sh2.split implements the
+      // same split), but lets the runtime resolve SOURCE-LANGUAGE
+      // differences at the execution boundary — zsh never field-splits
+      // unquoted expansions (SH_WORD_SPLIT off by default), so in zsh
+      // mode sh2.split returns the whole value as a single field (the
+      // _setLang mechanism, same as 1-based arrays).
+      const inner = splitInlineArg(node);
+      if (inner !== null) {
+        return `sh2.split(${parenSeq(inner, expr(inner))})`;
+      }
       return `${expr(node.callee, PREC.CallExpression)}(${node.arguments.map(a => parenSeq(a, expr(a))).join(', ')})`;
+    }
     case 'MemberExpression': {
       const obj = expr(node.object, PREC.MemberExpression);
       if (node.computed) return `${obj}[${parenSeq(node.property, expr(node.property))}]`;
@@ -132,6 +146,45 @@ function parenIfCompound(n) {
   return ['BinaryExpression', 'LogicalExpression', 'ConditionalExpression', 'ArrowFunctionExpression', 'SequenceExpression'].includes(n.type)
     ? `(${expr(n)})`
     : expr(n);
+}
+
+// splitInlineArg — recognize the emitter's native inline field-split shape
+// `String(x).split(/\s+/).filter((w) => w.length > 0)` (the A1 `split`
+// marker lowered to ESTree by src/shir.rs) and return the inner `x`
+// expression; null for anything else (the printer stays strict).
+function splitInlineArg(n) {
+  if (n.type !== 'CallExpression') return null;
+  const callee = n.callee;
+  if (
+    callee?.type !== 'MemberExpression' || callee.computed ||
+    callee.property?.type !== 'Identifier' || callee.property.name !== 'filter' ||
+    n.arguments.length !== 1 || n.arguments[0].type !== 'ArrowFunctionExpression'
+  ) return null;
+  const arrow = n.arguments[0];
+  if (
+    arrow.params.length !== 1 || arrow.params[0].type !== 'Identifier' ||
+    arrow.body?.type !== 'BinaryExpression' || arrow.body.operator !== '>' ||
+    arrow.body.right?.type !== 'Literal' || arrow.body.right.value !== 0 ||
+    arrow.body.left?.type !== 'MemberExpression' ||
+    arrow.body.left.object?.type !== 'Identifier' ||
+    arrow.body.left.object.name !== arrow.params[0].name ||
+    arrow.body.left.property?.type !== 'Identifier' ||
+    arrow.body.left.property.name !== 'length'
+  ) return null;
+  const splitCall = callee.object;
+  if (
+    splitCall?.type !== 'CallExpression' || splitCall.arguments.length !== 1 ||
+    splitCall.arguments[0]?.type !== 'Literal' ||
+    splitCall.arguments[0].regex?.pattern !== '\\s+' ||
+    splitCall.callee?.type !== 'MemberExpression' || splitCall.callee.computed ||
+    splitCall.callee.property?.type !== 'Identifier' || splitCall.callee.property.name !== 'split'
+  ) return null;
+  const strCall = splitCall.callee.object;
+  if (
+    strCall?.type !== 'CallExpression' || strCall.arguments.length !== 1 ||
+    strCall.callee?.type !== 'Identifier' || strCall.callee.name !== 'String'
+  ) return null;
+  return strCall.arguments[0];
 }
 
 function prop(p) {
