@@ -12,6 +12,26 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v14: **shir_to_perl renderer work continues — 283/531 vs bash
+>   (stdout-only, matching the fail gate); bash-free for 20 commands**
+>   (workspace, submodule 224→283: 9 commits). The Generator's per-command
+>   in-Perl emulations are REUSED on the IR path for a verified whitelist
+>   (seq/ls/wc/cat/tail/grep/tr/mkdir/rm/touch/basename/dirname/pwd/date/
+>   hostname/paste/tee/which/yes): reconstruct shell text from IR words,
+>   re-parse into a SimpleCommand, run the Generator's dispatcher — no bash
+>   dependency for those; `DEBASHC_IR_NO_EMUL=1` A/B toggle (parity both
+>   ways; cp/mv excluded — their emulations croak where bash errors).
+>   Renderer additions: flat `[[ ]]` tests (glob/=~/extglob → Perl regex,
+>   test tokenizer splits bare `=`/`!=`, `$arr[idx]` operands), param
+>   basename/dirname/%.-strip/case-mods/substr/slice with raw patterns,
+>   for-loop var aliasing (bash keeps the last value; Perl's for restores),
+>   herestring/heredoc in captures, Case if/elsif braces, pseudo-multidim
+>   `matrix[0,0]` → hash keys, `$@` defaults, subshells render in place,
+>   test-chain if/else (`(t && c1) || c2`), `~` expansion, and the `$`
+>   escaping fix in bash -c shell-outs (q{} doesn't interpolate — bash must
+>   see `$var` unescaped). Corpus gate: no regressions from this work (the
+>   3 new failures are the estree worker's uncommitted shir.rs WIP, verified
+>   by stash).
 > - v13: **shir_to_perl renders the modern IR — the ShIR→Perl path works
 >   end-to-end** (workspace, commits 09029ae/8eb49a6/cf1d76d/7bc474b/
 >   60e4165). `ir_to_perl` renamed `shir_to_perl` (sibling of
