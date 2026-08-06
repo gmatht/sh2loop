@@ -154,6 +154,10 @@ export function printStatement(node) {
       return `switch (${expr(node.discriminant)}) { ${node.cases.map(switchCase).join(' ')} }`;
     case 'WhileStatement':
       return `while (${expr(node.test)}) ${printStatement(node.body)}`;
+    case 'ForStatement':
+      // init is a VariableDeclaration (`let i = lo`); test `i <= hi`;
+      // update `i++` — the native numeric-range loop (seq_range_for).
+      return `for (${printStatement(node.init).replace(/;$/, '')}; ${expr(node.test)}; ${expr(node.update)}) ${printStatement(node.body)}`;
     case 'ForOfStatement':
       return `for (${printStatement(node.left).replace(/;$/, '')} of ${expr(node.right)}) ${printStatement(node.body)}`;
     case 'VariableDeclaration': {
