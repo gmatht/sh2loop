@@ -179,15 +179,9 @@ sub run_one_test {
         local $/; $bash_stderr = <$fh>; close $fh;
     }
 
-    # Step 4: Normalize and compare
-    my $normalize = sub {
-        my $s = shift;
-        $s =~ s/\r\n/\n/g;
-        $s =~ s/^\s+|\s+$//g;
-        return $s;
-    };
-
-    my $stdout_match = &$normalize($perl_stdout) eq &$normalize($bash_stdout);
+    # Step 4: Compare stdout BYTE-FOR-BYTE (both sides run on Linux; no
+    # whitespace normalization — differences are real renderer bugs).
+    my $stdout_match = $perl_stdout eq $bash_stdout;
 
     # Step 5: Side-effect check (before/after snapshot)
     my $se_msg = '';
