@@ -4811,28 +4811,71 @@ builtins.diff = function (args) {
   return !res.differ;
 };
 
-// The GNU normal-format diff core (see the builtins.diff comment for the
-// source map). Returns { out, differ }.
+// The GNU normal-format diff core — the FULL diffutils 3.10 pipeline,
+// transcribed from io.c (normalization + byte-level prefix/suffix trims
+// with the horizon adjustment), analyze.c (discard_confusing_lines +
+// shift_boundaries), lib/diffseq.h (compareseq/diag middle-snake) and
+// util.c/normal.c (build_script + hunk printing) — fuzz-verified
+// byte-identical vs GNU diff. Returns { out, differ }.
 function gnuDiff(aText, bText) {
-  const MARK = '\u0000'; // no-newline sentinel (see below)
-  const noNlA = aText.length > 0 && !aText.endsWith('\n');
-  const noNlB = bText.length > 0 && !bText.endsWith('\n');
+  const HORIZON = 100;
+  const MARK = '\u0000'; // incomplete-line sentinel (see below)
+  // io.c prepare_text: a missing trailing newline is APPENDED before
+  // hashing (the file still prints the `\ No newline` marker); the
+  // incomplete line's equivalence class is kept separate (bucket[-1] —
+  // it can match only the other file's incomplete line).
+  const missingA = aText.length > 0 && !aText.endsWith('\n');
+  const missingB = bText.length > 0 && !bText.endsWith('\n');
+  const bufA = aText + (missingA ? '\n' : '');
+  const bufB = bText + (missingB ? '\n' : '');
+  const nA = bufA.length, nB = bufB.length;
+  // ── byte-level common prefix (io.c read_files) ──
+  let p0 = 0;
+  const minLen = Math.min(nA, nB);
+  while (p0 < minLen && bufA[p0] === bufB[p0]) p0++;
+  // don't count a missing newline as part of the prefix
+  if (((nA - (missingA ? 1 : 0)) < p0) !== ((nB - (missingB ? 1 : 0)) < p0)) p0--;
+  // horizon: back up to the last line beginning within HORIZON lines
+  let i = HORIZON;
+  while (p0 > 0 && (bufA[p0 - 1] !== '\n' || i-- > 0)) p0--;
+  // ── byte-level common suffix (skipped when the missing-newline status
+  // differs — the appended newlines would confuse the comparison) ──
+  let q0 = nA, q1 = nB;
+  if (missingA === missingB) {
+    const end0 = q0;
+    let beg0 = p0 + (nA < nB ? 0 : nA - nB);
+    while (q0 !== beg0) {
+      q0--; q1--;
+      if (bufA[q0] !== bufB[q1]) { q0++; q1++; beg0 = q0; break; }
+    }
+    const atLine = (p0 === 0 || bufA[p0 - 1] === '\n') && (p0 === 0 || bufB[p0 - 1] === '\n');
+    i = HORIZON + (atLine ? 0 : 1);
+    while (i-- > 0 && q0 !== end0) {
+      while (q0 < end0 && bufA[q0] !== '\n') q0++;
+      if (q0 < end0) q0++;
+    }
+    q1 += q0 - beg0;
+  }
+  const prefixLines = (bufA.slice(0, p0).match(/\n/g) || []).length;
+  // the hashed lines (equiv classes are computed over these ONLY — a
+  // line trimmed from A's prefix is absent from A's counts, so its B
+  // counterpart is "unique" and gets discarded — GNU-faithful)
   const split = (t) => {
-    const lines = t.split('\n');
-    if (lines.length && lines[lines.length - 1] === '') lines.pop();
-    return lines;
+    const l = t.split('\n');
+    if (l.length && l[l.length - 1] === '') l.pop();
+    return l;
   };
-  const la = split(aText), lb = split(bText);
-  // A final line without a trailing newline is a DIFFERENT element from
-  // the same text with one (GNU buckets it separately: it can match only
-  // the other file's incomplete line). The sentinel makes the LCS treat
-  // it so; it is stripped on print.
-  if (noNlA && la.length) la[la.length - 1] += MARK;
-  if (noNlB && lb.length) lb[lb.length - 1] += MARK;
+  const la = split(bufA.slice(p0, q0));
+  const lb = split(bufB.slice(p0, q1));
+  // The incomplete (no-newline) line is a distinct equivalence class
+  // (io.c bucket[-1]) ONLY when it is the last hashed line — i.e. the
+  // suffix did not trim past it (the suffix scan runs when both files
+  // share the missing-newline status and can consume the common tail).
+  if (missingA && q0 === nA && la.length) la[la.length - 1] += MARK;
+  if (missingB && q1 === nB && lb.length) lb[lb.length - 1] += MARK;
   const na = la.length, nb = lb.length;
 
-  // ── equivalence classes (io.c find_and_hash_each_line): first-seen
-  // order across file0 then file1; class ids from 1.
+  // ── equivalence classes (io.c find_and_hash_each_line) ──
   const clsA = new Int32Array(na), clsB = new Int32Array(nb);
   const clsOf = new Map();
   const cntA = new Map(), cntB = new Map();
@@ -4848,10 +4891,7 @@ function gnuDiff(aText, bText) {
     clsB[i] = c; cntB.set(c, (cntB.get(c) || 0) + 1);
   }
 
-  // ── discard_confusing_lines (analyze.c): lines with no counterpart in
-  // the other file are marked changed and excluded from the main
-  // comparison; lines appearing > MANY times are "provisionally"
-  // discardable (cancelled unless embedded in a run of discards).
+  // ── discard_confusing_lines (analyze.c) ──
   const discA = new Int8Array(na), discB = new Int8Array(nb);
   for (const [disc, cls, otherCnt] of [[discA, clsA, cntB], [discB, clsB, cntA]]) {
     let many = 5;
@@ -4916,18 +4956,9 @@ function gnuDiff(aText, bText) {
     if (discB[i] === 0) { undB.push(clsB[i]); realB.push(i); } else changedB[i] = 1;
   }
 
-  // ── compareseq + diag (lib/diffseq.h): the Myers middle-snake with
-  // GNU's exact tie-breaks — forward d descending, `tlo < thi → thi`
-  // (else tlo+1); backward `tlo < thi → tlo` (else thi-1); the overlap
-  // return `bd[d] <= fd[d]` on the odd (forward-pass) / even
-  // (backward-pass) diagonal; the shifted fd/bd arrays with the -1 /
-  // OFFSET_MAX boundary sentinels; common prefix/suffix trimming per
-  // recursion step; the smaller-half-first subproblem order.
+  // ── compareseq + diag (lib/diffseq.h) ──
   const na2 = undA.length, nb2 = undB.length;
-  if (na2 === 0 || nb2 === 0) {
-    for (let i = 0; i < na2; i++) changedA[realA[i]] = 1;
-    for (let i = 0; i < nb2; i++) changedB[realB[i]] = 1;
-  } else {
+  if (na2 > 0 && nb2 > 0) {
     const fd = new Int32Array(2 * (na2 + nb2 + 3));
     const bd = new Int32Array(2 * (na2 + nb2 + 3));
     const off = nb2 + 1;
@@ -4946,7 +4977,6 @@ function gnuDiff(aText, bText) {
       fd[off + fmid] = xoff;
       bd[off + bmid] = xlim;
       for (let c = 1; ; c++) {
-        // extend the top-down search by one edit step
         if (fmin > dmin) fd[off + (--fmin - 1)] = -1; else ++fmin;
         if (fmax < dmax) fd[off + (++fmax + 1)] = -1; else --fmax;
         for (let d = fmax; d >= fmin; d -= 2) {
@@ -4960,7 +4990,6 @@ function gnuDiff(aText, bText) {
             return;
           }
         }
-        // extend the bottom-up search
         if (bmin > dmin) bd[off + (--bmin - 1)] = MAXV; else ++bmin;
         if (bmax < dmax) bd[off + (++bmax + 1)] = MAXV; else --bmax;
         for (let d = bmax; d >= bmin; d -= 2) {
@@ -4975,9 +5004,6 @@ function gnuDiff(aText, bText) {
           }
         }
         if (c >= tooExpensive) {
-          // give up: report halfway between the best forward/backward
-          // frontiers (valid, possibly non-minimal — unreachable for
-          // corpus-sized inputs)
           let fxybest = -1, fxbest = 0;
           for (let d = fmax; d >= fmin; d -= 2) {
             let x = Math.min(fd[off + d], xlim);
@@ -5030,9 +5056,7 @@ function gnuDiff(aText, bText) {
     compareseq(0, na2, 0, nb2);
   }
 
-  // ── shift_boundaries (analyze.c): move change-region boundaries onto
-  // following identical lines so the change blocks "merge as much as
-  // possible" (GNU's prettiness pass — byte-exact output needs it).
+  // ── shift_boundaries (analyze.c) ──
   for (const [changed, otherChanged, cls, len] of [[changedA, changedB, clsA, na], [changedB, changedA, clsB, nb]]) {
     let i = 0, j = 0;
     while (true) {
@@ -5086,26 +5110,26 @@ function gnuDiff(aText, bText) {
   for (const ch of changes.reverse()) {
     const first0 = ch.line0, first1 = ch.line1;
     const last0 = ch.line0 + ch.deleted - 1, last1 = ch.line1 + ch.inserted - 1;
-    const nr = (first, last) => (last > first ? `${first + 1},${last + 1}` : `${last + 1}`);
+    // line numbers: hashed index + prefix lines + 1
+    const nr = (first, last) => (last > first ? `${first + 1 + prefixLines},${last + 1 + prefixLines}` : `${last + 1 + prefixLines}`);
     const letter = ch.deleted && ch.inserted ? 'c' : ch.deleted ? 'd' : 'a';
     out += nr(first0, last0) + letter + nr(first1, last1) + '\n';
     if (ch.deleted) {
       for (let k = first0; k <= last0; k++) {
         out += '< ' + la[k].replace(/\u0000$/, '') + '\n';
-        if (noNlA && k === na - 1) out += '\\ No newline at end of file\n';
+        if (missingA && k === na - 1) out += '\\ No newline at end of file\n';
       }
     }
     if (ch.deleted && ch.inserted) out += '---\n';
     if (ch.inserted) {
       for (let k = first1; k <= last1; k++) {
         out += '> ' + lb[k].replace(/\u0000$/, '') + '\n';
-        if (noNlB && k === nb - 1) out += '\\ No newline at end of file\n';
+        if (missingB && k === nb - 1) out += '\\ No newline at end of file\n';
       }
     }
   }
   return { out, differ: changes.length > 0 };
 }
-
 
 // find: the corpus's `find OPTS...` subset with GNU semantics — raw
 // readdir order (opendirSync/readSync, NOT fs.readdirSync's sort — the
