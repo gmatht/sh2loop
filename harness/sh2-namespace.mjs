@@ -4760,13 +4760,15 @@ builtins.paste = function (args) {
   return true;
 };
 
-// diff: the two-file normal-format line diff (GNU), computed with the
-// classic Myers shortest-edit-script greedy + GNU's tie-breaking
-// (deletion on equal reach: `V[k-1] >= V[k+1]` → down), fuzz-verified
-// byte-identical vs GNU diff on the corpus shapes. Exit 0 identical /
-// 1 differences / 2 error (missing operand, unreadable file, unknown
-// flag) — GNU's statuses. `\ No newline at end of file` markers on the
-// last line of a file without a trailing newline.
+// diff: the two-file normal-format line diff, GNU-faithful end-to-end —
+// transcribed from diffutils 3.10 (analyze.c discard_confusing_lines +
+// shift_boundaries, lib/diffseq.h compareseq/diag, util.c build_script/
+// print_number_range, normal.c hunk printing) and fuzz-verified
+// byte-identical vs GNU diff. Exit 0 identical / 1 differences / 2 error
+// (missing operand, unreadable file, unknown flag) — GNU's statuses.
+// `\ No newline at end of file` markers on the last line of a file
+// without a trailing newline (such a line is a distinct equivalence
+// class — it can only match the other file's incomplete last line).
 builtins.diff = function (args) {
   const files = [];
   for (let i = 0; i < args.length; i++) {
@@ -4803,100 +4805,307 @@ builtins.diff = function (args) {
   if (!r1.ok || !r2.ok) { this.lastExit = 2; return false; }
   const a = r1.text, b = r2.text;
   if (a === b) { this.lastExit = 0; return true; }
-  const noNlA = a.length > 0 && !a.endsWith('\n');
-  const noNlB = b.length > 0 && !b.endsWith('\n');
-  const al = a.split('\n'), bl = b.split('\n');
-  if (al[al.length - 1] === '') al.pop();
-  if (bl[bl.length - 1] === '') bl.pop();
-  // A file without a trailing newline is DIFFERENT from the same text
-  // with one (GNU reports `1c1` + the marker): mark its final line so the
-  // LCS never matches it against the newline-terminated twin. The marker
-  // is stripped on print (a NUL can never collide in the corpus).
-  const MARK = '\u0000';
-  if (noNlA && al.length) al[al.length - 1] += MARK;
-  if (noNlB && bl.length) bl[bl.length - 1] += MARK;
-  const n = al.length, m = bl.length;
-  // Myers greedy: V[k] = furthest x on diagonal k after d edits.
-  const max = n + m;
-  const V = new Int32Array(2 * max + 3);
-  const off = max + 1;
-  const trace = [];
-  let D = -1;
-  outer:
-  for (let d = 0; d <= max; d++) {
-    const vPrev = d > 0 ? trace[d - 1] : null;
-    const v = new Int32Array(V);
-    for (let k = -d; k <= d; k += 2) {
-      let x, y;
-      if (k === -d || (k !== d && vPrev !== null && vPrev[off + k - 1] < vPrev[off + k + 1])) {
-        // insertion: come from diagonal k+1
-        x = vPrev !== null ? vPrev[off + k + 1] : 0;
-        y = x - k;
-      } else {
-        // deletion: come from diagonal k-1
-        x = (vPrev !== null ? vPrev[off + k - 1] : 0) + 1;
-        y = x - k;
-      }
-      while (x < n && y < m && al[x] === bl[y]) { x++; y++; }
-      v[off + k] = x;
-      if (x >= n && y >= m) { D = d; trace.push(v); break outer; }
-    }
-    trace.push(v);
-  }
-  // backtrack to the edit script (ops in reverse order)
-  const ops = [];
-  let x = n, y = m;
-  for (let d = D; d > 0; d--) {
-    const v = trace[d - 1];
-    const k = x - y;
-    if (k === -d || (k !== d && v[off + k - 1] < v[off + k + 1])) {
-      const px = v[off + k + 1];
-      const py = px - (k + 1);
-      while (x > px && y > py) { ops.push('m'); x--; y--; }
-      ops.push('i'); y--;
-    } else {
-      const px = v[off + k - 1];
-      const py = px - (k - 1);
-      while (x > px && y > py) { ops.push('m'); x--; y--; }
-      ops.push('d'); x--;
-    }
-  }
-  while (x > 0 && y > 0) { ops.push('m'); x--; y--; }
-  ops.reverse();
-  // group into normal-format hunks: `a[,a]c|d|a b[,b]`, `< del`, `---`,
-  // `> add` with the no-newline markers.
-  let out = '';
-  let apos = 0, bpos = 0;
-  let i = 0;
-  while (i < ops.length) {
-    if (ops[i] === 'm') { apos++; bpos++; i++; continue; }
-    let dels = 0, adds = 0;
-    while (i < ops.length && ops[i] !== 'm') {
-      if (ops[i] === 'd') dels++; else adds++;
-      i++;
-    }
-    const aStart = apos + 1, bStart = bpos + 1;
-    const aEnd = apos + dels, bEnd = bpos + adds;
-    const ar = dels === 1 ? `${aStart}` : `${aStart},${aEnd}`;
-    const br = adds === 1 ? `${bStart}` : `${bStart},${bEnd}`;
-    if (dels && adds) out += `${ar}c${br}\n`;
-    else if (dels) out += `${ar}d${bpos}\n`;
-    else out += `${apos}a${br}\n`;
-    for (let k = 0; k < dels; k++) {
-      out += '< ' + al[apos + k].replace(/\u0000$/, '') + '\n';
-      if (noNlA && apos + k === n - 1) out += '\\ No newline at end of file\n';
-    }
-    if (dels && adds) out += '---\n';
-    for (let k = 0; k < adds; k++) {
-      out += '> ' + bl[bpos + k].replace(/\u0000$/, '') + '\n';
-      if (noNlB && bpos + k === m - 1) out += '\\ No newline at end of file\n';
-    }
-    apos += dels; bpos += adds;
-  }
-  emit(this, out);
-  this.lastExit = 1;
-  return false;
+  const res = gnuDiff(a, b);
+  emit(this, res.out);
+  this.lastExit = res.differ ? 1 : 0;
+  return !res.differ;
 };
+
+// The GNU normal-format diff core (see the builtins.diff comment for the
+// source map). Returns { out, differ }.
+function gnuDiff(aText, bText) {
+  const MARK = '\u0000'; // no-newline sentinel (see below)
+  const noNlA = aText.length > 0 && !aText.endsWith('\n');
+  const noNlB = bText.length > 0 && !bText.endsWith('\n');
+  const split = (t) => {
+    const lines = t.split('\n');
+    if (lines.length && lines[lines.length - 1] === '') lines.pop();
+    return lines;
+  };
+  const la = split(aText), lb = split(bText);
+  // A final line without a trailing newline is a DIFFERENT element from
+  // the same text with one (GNU buckets it separately: it can match only
+  // the other file's incomplete line). The sentinel makes the LCS treat
+  // it so; it is stripped on print.
+  if (noNlA && la.length) la[la.length - 1] += MARK;
+  if (noNlB && lb.length) lb[lb.length - 1] += MARK;
+  const na = la.length, nb = lb.length;
+
+  // ── equivalence classes (io.c find_and_hash_each_line): first-seen
+  // order across file0 then file1; class ids from 1.
+  const clsA = new Int32Array(na), clsB = new Int32Array(nb);
+  const clsOf = new Map();
+  const cntA = new Map(), cntB = new Map();
+  let nextCls = 1;
+  for (let i = 0; i < na; i++) {
+    let c = clsOf.get(la[i]);
+    if (c === undefined) { c = nextCls++; clsOf.set(la[i], c); }
+    clsA[i] = c; cntA.set(c, (cntA.get(c) || 0) + 1);
+  }
+  for (let i = 0; i < nb; i++) {
+    let c = clsOf.get(lb[i]);
+    if (c === undefined) { c = nextCls++; clsOf.set(lb[i], c); }
+    clsB[i] = c; cntB.set(c, (cntB.get(c) || 0) + 1);
+  }
+
+  // ── discard_confusing_lines (analyze.c): lines with no counterpart in
+  // the other file are marked changed and excluded from the main
+  // comparison; lines appearing > MANY times are "provisionally"
+  // discardable (cancelled unless embedded in a run of discards).
+  const discA = new Int8Array(na), discB = new Int8Array(nb);
+  for (const [disc, cls, otherCnt] of [[discA, clsA, cntB], [discB, clsB, cntA]]) {
+    let many = 5;
+    let tem = (disc.length / 64) | 0;
+    while ((tem = tem >> 2) > 0) many *= 2;
+    for (let i = 0; i < disc.length; i++) {
+      const nmatch = otherCnt.get(cls[i]) || 0;
+      if (nmatch === 0) disc[i] = 1;
+      else if (nmatch > many) disc[i] = 2;
+    }
+  }
+  for (const disc of [discA, discB]) {
+    const end = disc.length;
+    for (let i = 0; i < end; i++) {
+      if (disc[i] === 2) disc[i] = 0;
+      else if (disc[i] !== 0) {
+        let j = i;
+        let provisional = 0;
+        for (; j < end; j++) {
+          if (disc[j] === 0) break;
+          if (disc[j] === 2) provisional++;
+        }
+        while (j > i && disc[j - 1] === 2) { disc[--j] = 0; provisional--; }
+        const length = j - i;
+        if (provisional * 4 > length) {
+          while (j > i) if (disc[--j] === 2) disc[j] = 0;
+        } else {
+          let minimum = 1;
+          let tem = length >> 2;
+          while (0 < (tem >>= 2)) minimum <<= 1;
+          minimum++;
+          for (let jj = 0, consec = 0; jj < length; jj++) {
+            if (disc[i + jj] !== 2) consec = 0;
+            else if (minimum === ++consec) jj -= consec;
+            else if (minimum < consec) disc[i + jj] = 0;
+          }
+          for (let jj = 0, consec = 0; jj < length; jj++) {
+            if (jj >= 8 && disc[i + jj] === 1) break;
+            if (disc[i + jj] === 2) { consec = 0; disc[i + jj] = 0; }
+            else if (disc[i + jj] === 0) consec = 0;
+            else consec++;
+            if (consec === 3) break;
+          }
+          i += length - 1;
+          for (let jj = 0, consec = 0; jj < length; jj++) {
+            if (jj >= 8 && disc[i - jj] === 1) break;
+            if (disc[i - jj] === 2) { consec = 0; disc[i - jj] = 0; }
+            else if (disc[i - jj] === 0) consec = 0;
+            else consec++;
+            if (consec === 3) break;
+          }
+        }
+      }
+    }
+  }
+  const changedA = new Int8Array(na), changedB = new Int8Array(nb);
+  const undA = [], realA = [], undB = [], realB = [];
+  for (let i = 0; i < na; i++) {
+    if (discA[i] === 0) { undA.push(clsA[i]); realA.push(i); } else changedA[i] = 1;
+  }
+  for (let i = 0; i < nb; i++) {
+    if (discB[i] === 0) { undB.push(clsB[i]); realB.push(i); } else changedB[i] = 1;
+  }
+
+  // ── compareseq + diag (lib/diffseq.h): the Myers middle-snake with
+  // GNU's exact tie-breaks — forward d descending, `tlo < thi → thi`
+  // (else tlo+1); backward `tlo < thi → tlo` (else thi-1); the overlap
+  // return `bd[d] <= fd[d]` on the odd (forward-pass) / even
+  // (backward-pass) diagonal; the shifted fd/bd arrays with the -1 /
+  // OFFSET_MAX boundary sentinels; common prefix/suffix trimming per
+  // recursion step; the smaller-half-first subproblem order.
+  const na2 = undA.length, nb2 = undB.length;
+  if (na2 === 0 || nb2 === 0) {
+    for (let i = 0; i < na2; i++) changedA[realA[i]] = 1;
+    for (let i = 0; i < nb2; i++) changedB[realB[i]] = 1;
+  } else {
+    const fd = new Int32Array(2 * (na2 + nb2 + 3));
+    const bd = new Int32Array(2 * (na2 + nb2 + 3));
+    const off = nb2 + 1;
+    const MAXV = 0x7fffffff;
+    let diags = na2 + nb2 + 3;
+    let tooExpensive = 1;
+    for (; diags !== 0; diags >>= 2) tooExpensive <<= 1;
+    tooExpensive = Math.max(4096, tooExpensive);
+    const eq = (x, y) => undA[x] === undB[y];
+    const diag = (xoff, xlim, yoff, ylim, part) => {
+      const dmin = xoff - ylim, dmax = xlim - yoff;
+      const fmid = xoff - yoff, bmid = xlim - ylim;
+      let fmin = fmid, fmax = fmid;
+      let bmin = bmid, bmax = bmid;
+      const odd = (fmid - bmid) & 1;
+      fd[off + fmid] = xoff;
+      bd[off + bmid] = xlim;
+      for (let c = 1; ; c++) {
+        // extend the top-down search by one edit step
+        if (fmin > dmin) fd[off + (--fmin - 1)] = -1; else ++fmin;
+        if (fmax < dmax) fd[off + (++fmax + 1)] = -1; else --fmax;
+        for (let d = fmax; d >= fmin; d -= 2) {
+          const tlo = fd[off + d - 1], thi = fd[off + d + 1];
+          let x = tlo < thi ? thi : tlo + 1;
+          let y = x - d;
+          while (x < xlim && y < ylim && eq(x, y)) { x++; y++; }
+          fd[off + d] = x;
+          if (odd && bmin <= d && d <= bmax && bd[off + d] <= x) {
+            part.xmid = x; part.ymid = y;
+            return;
+          }
+        }
+        // extend the bottom-up search
+        if (bmin > dmin) bd[off + (--bmin - 1)] = MAXV; else ++bmin;
+        if (bmax < dmax) bd[off + (++bmax + 1)] = MAXV; else --bmax;
+        for (let d = bmax; d >= bmin; d -= 2) {
+          const tlo = bd[off + d - 1], thi = bd[off + d + 1];
+          let x = tlo < thi ? tlo : thi - 1;
+          let y = x - d;
+          while (xoff < x && yoff < y && eq(x - 1, y - 1)) { x--; y--; }
+          bd[off + d] = x;
+          if (!odd && fmin <= d && d <= fmax && x <= fd[off + d]) {
+            part.xmid = x; part.ymid = y;
+            return;
+          }
+        }
+        if (c >= tooExpensive) {
+          // give up: report halfway between the best forward/backward
+          // frontiers (valid, possibly non-minimal — unreachable for
+          // corpus-sized inputs)
+          let fxybest = -1, fxbest = 0;
+          for (let d = fmax; d >= fmin; d -= 2) {
+            let x = Math.min(fd[off + d], xlim);
+            let y = x - d;
+            if (ylim < y) { x = ylim + d; y = ylim; }
+            if (fxybest < x + y) { fxybest = x + y; fxbest = x; }
+          }
+          let bxybest = MAXV, bxbest = 0;
+          for (let d = bmax; d >= bmin; d -= 2) {
+            let x = Math.max(xoff, bd[off + d]);
+            let y = x - d;
+            if (y < yoff) { x = yoff + d; y = yoff; }
+            if (x + y < bxybest) { bxybest = x + y; bxbest = x; }
+          }
+          if ((xlim + ylim) - bxybest < fxybest - (xoff + yoff)) {
+            part.xmid = fxbest; part.ymid = fxybest - fxbest;
+          } else {
+            part.xmid = bxbest; part.ymid = bxybest - bxbest;
+          }
+          return;
+        }
+      }
+    };
+    const compareseq = (xoff, xlim, yoff, ylim) => {
+      while (true) {
+        while (xoff < xlim && yoff < ylim && eq(xoff, yoff)) { xoff++; yoff++; }
+        while (xoff < xlim && yoff < ylim && eq(xlim - 1, ylim - 1)) { xlim--; ylim--; }
+        if (xoff === xlim) {
+          while (yoff < ylim) { changedB[realB[yoff]] = 1; yoff++; }
+          return;
+        }
+        if (yoff === ylim) {
+          while (xoff < xlim) { changedA[realA[xoff]] = 1; xoff++; }
+          return;
+        }
+        const part = {};
+        diag(xoff, xlim, yoff, ylim, part);
+        let xoff1, xlim1, yoff1, ylim1, xoff2, xlim2, yoff2, ylim2;
+        if ((xlim + ylim) - (part.xmid + part.ymid) < (part.xmid + part.ymid) - (xoff + yoff)) {
+          xoff1 = part.xmid; xlim1 = xlim; yoff1 = part.ymid; ylim1 = ylim;
+          xoff2 = xoff; xlim2 = part.xmid; yoff2 = yoff; ylim2 = part.ymid;
+        } else {
+          xoff1 = xoff; xlim1 = part.xmid; yoff1 = yoff; ylim1 = part.ymid;
+          xoff2 = part.xmid; xlim2 = xlim; yoff2 = part.ymid; ylim2 = ylim;
+        }
+        compareseq(xoff1, xlim1, yoff1, ylim1);
+        xoff = xoff2; xlim = xlim2; yoff = yoff2; ylim = ylim2;
+      }
+    };
+    compareseq(0, na2, 0, nb2);
+  }
+
+  // ── shift_boundaries (analyze.c): move change-region boundaries onto
+  // following identical lines so the change blocks "merge as much as
+  // possible" (GNU's prettiness pass — byte-exact output needs it).
+  for (const [changed, otherChanged, cls, len] of [[changedA, changedB, clsA, na], [changedB, changedA, clsB, nb]]) {
+    let i = 0, j = 0;
+    while (true) {
+      while (i < len && !changed[i]) {
+        while (otherChanged[j++]) { /* skip */ }
+        i++;
+      }
+      if (i === len) break;
+      let start = i;
+      while (changed[++i]) { /* skip */ }
+      while (otherChanged[j]) j++;
+      let runlength;
+      let corresponding;
+      do {
+        runlength = i - start;
+        while (start && cls[start - 1] === cls[i - 1]) {
+          changed[--start] = 1;
+          changed[--i] = 0;
+          while (changed[start - 1]) start--;
+          while (otherChanged[--j]) { /* skip */ }
+        }
+        corresponding = otherChanged[j - 1] ? i : len;
+        while (i !== len && cls[start] === cls[i]) {
+          changed[start++] = 0;
+          changed[i++] = 1;
+          while (changed[i]) i++;
+          while (otherChanged[++j]) corresponding = i;
+        }
+      } while (runlength !== i - start);
+      while (corresponding < i) {
+        changed[--start] = 1;
+        changed[--i] = 0;
+        while (otherChanged[--j]) { /* skip */ }
+      }
+    }
+  }
+
+  // ── build_script + normal-format hunks (util.c / normal.c) ──
+  let out = '';
+  let i0 = na, i1 = nb;
+  const changes = [];
+  while (i0 >= 0 || i1 >= 0) {
+    if ((changedA[i0 - 1] || 0) | (changedB[i1 - 1] || 0)) {
+      const line0 = i0, line1 = i1;
+      while (changedA[i0 - 1]) i0--;
+      while (changedB[i1 - 1]) i1--;
+      changes.push({ line0: i0, line1: i1, deleted: line0 - i0, inserted: line1 - i1 });
+    }
+    i0--; i1--;
+  }
+  for (const ch of changes.reverse()) {
+    const first0 = ch.line0, first1 = ch.line1;
+    const last0 = ch.line0 + ch.deleted - 1, last1 = ch.line1 + ch.inserted - 1;
+    const nr = (first, last) => (last > first ? `${first + 1},${last + 1}` : `${last + 1}`);
+    const letter = ch.deleted && ch.inserted ? 'c' : ch.deleted ? 'd' : 'a';
+    out += nr(first0, last0) + letter + nr(first1, last1) + '\n';
+    if (ch.deleted) {
+      for (let k = first0; k <= last0; k++) {
+        out += '< ' + la[k].replace(/\u0000$/, '') + '\n';
+        if (noNlA && k === na - 1) out += '\\ No newline at end of file\n';
+      }
+    }
+    if (ch.deleted && ch.inserted) out += '---\n';
+    if (ch.inserted) {
+      for (let k = first1; k <= last1; k++) {
+        out += '> ' + lb[k].replace(/\u0000$/, '') + '\n';
+        if (noNlB && k === nb - 1) out += '\\ No newline at end of file\n';
+      }
+    }
+  }
+  return { out, differ: changes.length > 0 };
+}
+
 
 // find: the corpus's `find OPTS...` subset with GNU semantics — raw
 // readdir order (opendirSync/readSync, NOT fs.readdirSync's sort — the
