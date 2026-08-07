@@ -53,6 +53,52 @@ var targets = map[string]string{
 	".shir": "",
 }
 
+// ── frontend build on first use ─────────────────────────────────
+// The source frontends are all plain Go programs (one cmd, stdlib-only
+// module deps), so a missing binary is a `go build` away — no git
+// worktree, no core build. Each recipe mirrors the frontend's own
+// Makefile `build` target (GO env var honored, else `go` from PATH).
+// `ensureFrontend` is the on-first-use seam: a fresh checkout of the
+// workspace builds each frontend the first time it is dispatched to.
+var frontendBuilds = map[string][]string{
+	"frontends/py-sh-go/py-sh-go":     {"build", "-o", "py-sh-go", "./cmd/py-sh-go"},
+	"frontends/c-sh-go/c-sh-go":       {"build", "-o", "c-sh-go", "./cmd/c-sh-go"},
+	"frontends/perl-sh-go/perl-sh-go": {"build", "-o", "perl-sh-go", "./cmd/perl-sh-go"},
+	"frontends/zsh-sh-go/zsh-sh-go":   {"build", "-o", "zsh-sh-go", "./cmd/zsh-sh-go"},
+	"frontends/fish-sh-go/fish-sh-go": {"build", "-o", "fish-sh-go", "./cmd/fish-sh-go"},
+	"frontends/go-sh/go-sh":           {"build", "-o", "go-sh", "./cmd/go-sh"},
+}
+
+// ensureFrontend — the frontend binary exists, building it on first use.
+func ensureFrontend(root, fe string) error {
+	bin := filepath.Join(root, fe)
+	if _, err := os.Stat(bin); err == nil {
+		return nil
+	}
+	args, ok := frontendBuilds[fe]
+	if !ok {
+		return fmt.Errorf("no on-first-use build recipe for %s (build it manually)", fe)
+	}
+	// A stale/corrupt leftover (an interrupted build) makes `go build -o`
+	// refuse to overwrite it — drop it first (mirrors the Makefiles).
+	os.Remove(bin)
+	goTool := os.Getenv("GO")
+	if goTool == "" {
+		goTool = "go"
+	}
+	cmd := exec.Command(goTool, args...)
+	cmd.Dir = filepath.Dir(bin)
+	cmd.Stdout = os.Stderr // keep the A1 contract on stdout clean
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("building %s on first use: %w", fe, err)
+	}
+	if _, err := os.Stat(bin); err != nil {
+		return fmt.Errorf("building %s on first use: %s not produced", fe, bin)
+	}
+	return nil
+}
+
 func workspaceRoot() string {
 	exe, err := os.Executable()
 	if err != nil {
@@ -241,6 +287,9 @@ func emitA1(root, input, srcLang string) ([]byte, error) {
 	}
 	cmd := exec.Command(exe, "--shir", input, "--raw")
 	if fe != "" {
+		if err := ensureFrontend(root, fe); err != nil {
+			return nil, fmt.Errorf("frontend %s: %w", srcLang, err)
+		}
 		cmd = exec.Command(filepath.Join(root, fe), "--shir", input, "--raw")
 	}
 	cmd.Dir = root
