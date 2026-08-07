@@ -275,7 +275,13 @@ if [ "$diff" -ge "$len" ]; then
     if [ "$limit" -eq -1 ]; then
         _eof_line=$(tail -c +$((skip1 + 1)) "$_path1" 2>/dev/null | head -c "$len" 2>/dev/null | tr -cd '\n' | wc -c | tr -d ' ')
         _eof_line=$((_eof_line + 1))
-        [ -n "$sflag" ] || echo "cmp: EOF on $short_file after byte $len, in line $_eof_line" >&2
+        if [ -z "$sflag" ]; then
+            if [ -n "$lflag" ]; then
+                echo "cmp: EOF on $short_file after byte $len" >&2
+            else
+                echo "cmp: EOF on $short_file after byte $len, in line $_eof_line" >&2
+            fi
+        fi
         exit 1
     fi
     # With -n: the differ is at the first byte past the overlap
@@ -311,13 +317,25 @@ if [ -z "$b1" ] && [ -z "$b2" ]; then exit 0; fi
 if [ -z "$b1" ]; then
     _eof_line=$(tail -c +$((skip2 + 1)) "$_path2" 2>/dev/null | head -c "$diff" 2>/dev/null | tr -cd '\n' | wc -c | tr -d ' ')
     _eof_line=$((_eof_line + 1))
-    [ -n "$sflag" ] || echo "cmp: EOF on $file1 after byte $((diff + 1)), in line $_eof_line" >&2
+    if [ -z "$sflag" ]; then
+        if [ -n "$lflag" ]; then
+            echo "cmp: EOF on $file1 after byte $len" >&2
+        else
+            echo "cmp: EOF on $file1 after byte $len, in line $_eof_line" >&2
+        fi
+    fi
     exit 1
 fi
 if [ -z "$b2" ]; then
     _eof_line=$(tail -c +$((skip1 + 1)) "$_path1" 2>/dev/null | head -c "$diff" 2>/dev/null | tr -cd '\n' | wc -c | tr -d ' ')
     _eof_line=$((_eof_line + 1))
-    [ -n "$sflag" ] || echo "cmp: EOF on $file2 after byte $((diff + 1)), in line $_eof_line" >&2
+    if [ -z "$sflag" ]; then
+        if [ -n "$lflag" ]; then
+            echo "cmp: EOF on $file2 after byte $len" >&2
+        else
+            echo "cmp: EOF on $file2 after byte $len, in line $_eof_line" >&2
+        fi
+    fi
     exit 1
 fi
 
