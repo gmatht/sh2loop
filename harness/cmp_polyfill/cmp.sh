@@ -367,18 +367,23 @@ if [ -n "$lflag" ]; then
         h2=$(tail -c +$((skip2 + off + 1)) "$_path2" 2>/dev/null \
              | head -c "$cur" 2>/dev/null | cksum | awk '{print $1}')
         if [ "$h1" != "$h2" ]; then
-            # differ: hex-dump the block (one byte per line) and compare
-            tail -c +$((skip1 + off + 1)) "$_path1" 2>/dev/null \
-                | head -c "$cur" 2>/dev/null \
-                | od -An -to1 -v | tr -s ' ' '\n' | sed '/^$/d' > /tmp/.cmp_h1_$$ &
-            tail -c +$((skip2 + off + 1)) "$_path2" 2>/dev/null \
-                | head -c "$cur" 2>/dev/null \
-                | od -An -to1 -v | tr -s ' ' '\n' | sed '/^$/d' > /tmp/.cmp_h2_$$ &
-            wait
-            paste /tmp/.cmp_h1_$$ /tmp/.cmp_h2_$$ | \
-                awk -v base="$((off + 1))" -v maxb="$len" \
-                    '$1 != $2 { w = length(sprintf("%d", maxb)); printf "%*d %3s %3s\n", w, base+NR-1, $1+0, $2+0 }'
-            rm -f /tmp/.cmp_h1_$$ /tmp/.cmp_h2_$$
+            # differ: stream both octal dumps into ONE awk pipeline,
+            # tagged by stream id + sequence number (no temp files).
+            {
+                tail -c +$((skip1 + off + 1)) "$_path1" 2>/dev/null \
+                    | head -c "$cur" 2>/dev/null \
+                    | od -An -to1 -v | tr -s ' ' '\n' | sed '/^$/d' \
+                    | awk '{printf "1 %d %s\n", NR, $1}'
+                printf '0 0 0\n'
+                tail -c +$((skip2 + off + 1)) "$_path2" 2>/dev/null \
+                    | head -c "$cur" 2>/dev/null \
+                    | od -An -to1 -v | tr -s ' ' '\n' | sed '/^$/d' \
+                    | awk '{printf "2 %d %s\n", NR, $1}'
+            } | awk -v base="$((off + 1))" -v maxb="$len" '
+                $1 == 1 { a[$2] = $3; next }
+                $1 == 2 { if (($2 in a) && a[$2] != $3) {
+                              w = length(sprintf("%d", maxb))
+                              printf "%*d %3s %3s\n", w, base + $2 - 1, a[$2]+0, $3+0 } }'
         fi
         off=$((off + cur))
     done
