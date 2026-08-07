@@ -1397,6 +1397,29 @@ export const sh2 = {
         if (!check && !fs.existsSync(t)) {
           try { fs.closeSync(fs.openSync(t, 'w')); } catch { /* unwritable target: bash reports, we ignore */ }
         }
+        // bash opens the target EAGERLY at redirect-install time: an
+        // unwritable target skips the command entirely with status 1
+        // (`cat - > unwritable` with NO stdin still fails in bash — the
+        // open precedes the command; the lazy first-write open would
+        // silently succeed for a write-free command — the cat-dash-stdin
+        // corpus test's /tmp/out.txt permission collision exposed it).
+        // The eager open also truncates an existing file at install time
+        // (bash's `> f` semantics — the writer's 'w' mode truncates at
+        // first write anyway). Mirror of the r-mode's live-install
+        // existence check (check=true only — the persistent-restore pass
+        // keeps its create-if-missing and never fails the status).
+        if (check) {
+          try {
+            fs.closeSync(fs.openSync(t, s.mode === 'a' ? 'a' : 'w'));
+          } catch (e) {
+            emitErr(
+              this,
+              `bash: ${t}: ${e.code === 'EACCES' ? 'Permission denied' : e.code}\n`
+            );
+            this.lastExit = 1;
+            return false;
+          }
+        }
         this.fdTargets[fd] = { kind: 'file', target: t, mode: s.mode };
       } else {
         throw new Error(`redirect: unknown mode ${s.mode}`);
