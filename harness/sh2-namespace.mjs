@@ -4709,6 +4709,264 @@ builtins.comm = function (args) {
   return true;
 };
 
+// ── paste / diff / find — the remaining text-tool spawn families ────
+// paste: concatenate files column-wise (GNU). Each row joins line i of
+// every file with the delimiter (default TAB, `-d` chars cycle per
+// column gap); a file with fewer lines contributes an empty field; rows
+// continue to the LONGEST file. No file operands (or `-`) read the
+// current fd-0 (heredoc/herestring/file redirect). All files are opened
+// BEFORE any output (GNU: an unopenable file aborts the whole paste
+// with no stdout, exit 1).
+builtins.paste = function (args) {
+  let delim = '\t';
+  const files = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '-d') delim = args[++i] ?? '\t';
+    else if (a.startsWith('-d') && a.length > 2) delim = a.slice(2);
+    else if (a === '--') { files.push(...args.slice(i + 1)); break; }
+    else files.push(a);
+  }
+  const srcs = files.length ? files : ['-'];
+  const cols = [];
+  for (const f of srcs) {
+    let text;
+    if (f === '-') text = readFd0(this);
+    else {
+      try { text = fs.readFileSync(f, 'utf8'); }
+      catch {
+        let msg = 'No such file or directory';
+        try { if (fs.statSync(f).isDirectory()) msg = 'Is a directory'; } catch {}
+        emitErr(this, `paste: ${f}: ${msg}\n`);
+        this.lastExit = 1;
+        return false;
+      }
+    }
+    const lines = text.split('\n');
+    if (lines.length && lines[lines.length - 1] === '') lines.pop();
+    cols.push(lines);
+  }
+  const n = Math.max(0, ...cols.map(c => c.length));
+  let out = '';
+  for (let i = 0; i < n; i++) {
+    let row = cols[0][i] ?? '';
+    for (let k = 1; k < cols.length; k++) {
+      row += (delim.length ? delim[(k - 1) % delim.length] : '') + (cols[k][i] ?? '');
+    }
+    out += row + '\n';
+  }
+  emit(this, out);
+  this.lastExit = 0;
+  return true;
+};
+
+// diff: the two-file normal-format line diff (GNU), computed with the
+// classic Myers shortest-edit-script greedy + GNU's tie-breaking
+// (deletion on equal reach: `V[k-1] >= V[k+1]` → down), fuzz-verified
+// byte-identical vs GNU diff on the corpus shapes. Exit 0 identical /
+// 1 differences / 2 error (missing operand, unreadable file, unknown
+// flag) — GNU's statuses. `\ No newline at end of file` markers on the
+// last line of a file without a trailing newline.
+builtins.diff = function (args) {
+  const files = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--') { files.push(...args.slice(i + 1)); break; }
+    else if (a === '-') files.push(a);
+    else if (a.startsWith('-') && a.length > 1) {
+      // No flags are corpus-reachable (the corpus uses the bare two-file
+      // form); GNU errors on a truly-invalid option, so error loudly on
+      // ANY flag rather than silently emitting normal format for a -u/
+      // -c request (SH2_ASSUME_DIFF documents the subset).
+      emitErr(this, `diff: invalid option -- '${a.slice(1, 2)}'\n`);
+      this.lastExit = 2;
+      return false;
+    }
+    else files.push(a);
+  }
+  if (files.length < 2) {
+    emitErr(this, `diff: missing operand after '${files[0] ?? ''}'\n`);
+    this.lastExit = 2;
+    return false;
+  }
+  const read = (f) => {
+    if (f === '-') return { text: readFd0(this), ok: true };
+    try { return { text: fs.readFileSync(f, 'utf8'), ok: true }; }
+    catch {
+      let msg = 'No such file or directory';
+      try { if (fs.statSync(f).isDirectory()) msg = 'Is a directory'; } catch {}
+      emitErr(this, `diff: ${f}: ${msg}\n`);
+      return { ok: false };
+    }
+  };
+  const r1 = read(files[0]), r2 = read(files[1]);
+  if (!r1.ok || !r2.ok) { this.lastExit = 2; return false; }
+  const a = r1.text, b = r2.text;
+  if (a === b) { this.lastExit = 0; return true; }
+  const noNlA = a.length > 0 && !a.endsWith('\n');
+  const noNlB = b.length > 0 && !b.endsWith('\n');
+  const al = a.split('\n'), bl = b.split('\n');
+  if (al[al.length - 1] === '') al.pop();
+  if (bl[bl.length - 1] === '') bl.pop();
+  // A file without a trailing newline is DIFFERENT from the same text
+  // with one (GNU reports `1c1` + the marker): mark its final line so the
+  // LCS never matches it against the newline-terminated twin. The marker
+  // is stripped on print (a NUL can never collide in the corpus).
+  const MARK = '\u0000';
+  if (noNlA && al.length) al[al.length - 1] += MARK;
+  if (noNlB && bl.length) bl[bl.length - 1] += MARK;
+  const n = al.length, m = bl.length;
+  // Myers greedy: V[k] = furthest x on diagonal k after d edits.
+  const max = n + m;
+  const V = new Int32Array(2 * max + 3);
+  const off = max + 1;
+  const trace = [];
+  let D = -1;
+  outer:
+  for (let d = 0; d <= max; d++) {
+    const vPrev = d > 0 ? trace[d - 1] : null;
+    const v = new Int32Array(V);
+    for (let k = -d; k <= d; k += 2) {
+      let x, y;
+      if (k === -d || (k !== d && vPrev !== null && vPrev[off + k - 1] < vPrev[off + k + 1])) {
+        // insertion: come from diagonal k+1
+        x = vPrev !== null ? vPrev[off + k + 1] : 0;
+        y = x - k;
+      } else {
+        // deletion: come from diagonal k-1
+        x = (vPrev !== null ? vPrev[off + k - 1] : 0) + 1;
+        y = x - k;
+      }
+      while (x < n && y < m && al[x] === bl[y]) { x++; y++; }
+      v[off + k] = x;
+      if (x >= n && y >= m) { D = d; trace.push(v); break outer; }
+    }
+    trace.push(v);
+  }
+  // backtrack to the edit script (ops in reverse order)
+  const ops = [];
+  let x = n, y = m;
+  for (let d = D; d > 0; d--) {
+    const v = trace[d - 1];
+    const k = x - y;
+    if (k === -d || (k !== d && v[off + k - 1] < v[off + k + 1])) {
+      const px = v[off + k + 1];
+      const py = px - (k + 1);
+      while (x > px && y > py) { ops.push('m'); x--; y--; }
+      ops.push('i'); y--;
+    } else {
+      const px = v[off + k - 1];
+      const py = px - (k - 1);
+      while (x > px && y > py) { ops.push('m'); x--; y--; }
+      ops.push('d'); x--;
+    }
+  }
+  while (x > 0 && y > 0) { ops.push('m'); x--; y--; }
+  ops.reverse();
+  // group into normal-format hunks: `a[,a]c|d|a b[,b]`, `< del`, `---`,
+  // `> add` with the no-newline markers.
+  let out = '';
+  let apos = 0, bpos = 0;
+  let i = 0;
+  while (i < ops.length) {
+    if (ops[i] === 'm') { apos++; bpos++; i++; continue; }
+    let dels = 0, adds = 0;
+    while (i < ops.length && ops[i] !== 'm') {
+      if (ops[i] === 'd') dels++; else adds++;
+      i++;
+    }
+    const aStart = apos + 1, bStart = bpos + 1;
+    const aEnd = apos + dels, bEnd = bpos + adds;
+    const ar = dels === 1 ? `${aStart}` : `${aStart},${aEnd}`;
+    const br = adds === 1 ? `${bStart}` : `${bStart},${bEnd}`;
+    if (dels && adds) out += `${ar}c${br}\n`;
+    else if (dels) out += `${ar}d${bpos}\n`;
+    else out += `${apos}a${br}\n`;
+    for (let k = 0; k < dels; k++) {
+      out += '< ' + al[apos + k].replace(/\u0000$/, '') + '\n';
+      if (noNlA && apos + k === n - 1) out += '\\ No newline at end of file\n';
+    }
+    if (dels && adds) out += '---\n';
+    for (let k = 0; k < adds; k++) {
+      out += '> ' + bl[bpos + k].replace(/\u0000$/, '') + '\n';
+      if (noNlB && bpos + k === m - 1) out += '\\ No newline at end of file\n';
+    }
+    apos += dels; bpos += adds;
+  }
+  emit(this, out);
+  this.lastExit = 1;
+  return false;
+};
+
+// find: the corpus's `find OPTS...` subset with GNU semantics — raw
+// readdir order (opendirSync/readSync, NOT fs.readdirSync's sort — the
+// grep -r pattern: GNU find walks getdents order), depth-first pre-order,
+// no symlink following, starting operands at depth 0 (a matching
+// starting point IS printed: `find . -maxdepth 1 -type d` prints `.`).
+// -name (fnmatch on the basename — `*` DOES match leading dots, unlike
+// shell expansion), -type f/d, -maxdepth/-mindepth, default operand `.`.
+builtins.find = function (args) {
+  const operands = [];
+  let namePat = null, type = null, maxdepth = Infinity, mindepth = 0;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '-name') namePat = args[++i];
+    else if (a.startsWith('-name') && a.length > 5) namePat = a.slice(5);
+    else if (a === '-type') type = args[++i];
+    else if (a === '-maxdepth') maxdepth = parseInt(args[++i], 10);
+    else if (a.startsWith('-maxdepth') && a.length > 9) maxdepth = parseInt(a.slice(9), 10);
+    else if (a === '-mindepth') mindepth = parseInt(args[++i], 10);
+    else if (a === '-print' || a === '--') { /* the default action */ }
+    else if (a.startsWith('-') && a.length > 1) {
+      emitErr(this, `find: unknown predicate '${a}'\n`);
+      this.lastExit = 1;
+      return false;
+    }
+    else operands.push(a);
+  }
+  if (type !== null && type !== 'f' && type !== 'd') {
+    emitErr(this, `find: invalid argument '${type}' to '-type'\n`);
+    this.lastExit = 1;
+    return false;
+  }
+  const starts = operands.length ? operands : ['.'];
+  let failed = false;
+  // dir/file flags come from lstat semantics: the starting operand is
+  // stat'ed, children carry their raw dirent types (a symlink is neither
+  // f nor d and is never descended — GNU without -L).
+  const walk = (dir, depth, isDir, isFile) => {
+    const bn = path.basename(dir);
+    const nameOk = namePat === null || globMatch(namePat, bn);
+    const typeOk = type === null || (type === 'f' ? isFile : isDir);
+    if (nameOk && typeOk && depth >= mindepth && depth <= maxdepth) {
+      emit(this, dir + '\n');
+    }
+    if (!isDir || depth >= maxdepth) return;
+    let dh;
+    try { dh = fs.opendirSync(dir); } catch { failed = true; return; }
+    try {
+      let e;
+      while ((e = dh.readSync()) !== null) {
+        walk(dir + '/' + e.name, depth + 1, e.isDirectory(), e.isFile());
+      }
+    } finally {
+      dh.closeSync();
+    }
+  };
+  for (const s of starts) {
+    const base = s.replace(/\/+$/, '') || '/';
+    let st = null;
+    try { st = fs.lstatSync(base); } catch {
+      failed = true;
+      emitErr(this, `find: '${base}': No such file or directory\n`);
+      continue;
+    }
+    walk(base, 0, st.isDirectory(), st.isFile());
+  }
+  this.lastExit = failed ? 1 : 0;
+  return !failed;
+};
+
 // `command` — explicit escape hatch: run the given command (possibly dynamic)
 // with the exec allowlist bypassed. The source author opted into dynamic
 // execution by writing `command $something`, which cannot be pre-audited.
