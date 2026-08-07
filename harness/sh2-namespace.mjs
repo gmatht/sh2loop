@@ -2454,6 +2454,23 @@ export const sh2 = {
     }
   },
 
+  // Float arithmetic (frontend c-sh-go): C `double` expressions are
+  // outside the integer Arith AST, so the frontend lowers float
+  // arithmetic to a STRING expression evaluated here with JS doubles
+  // (binary64 — the same IEEE-754 format as C doubles). The grammar is
+  // the frontend's own (exprToArithString): fully-parenthesized
+  // `(l op r)` trees over decimal literals and `$name` store reads
+  // (unary minus is emitted as `0 - e`, so no unary arm is needed).
+  // Like bash `$((...))`, a syntax error aborts with the magic marker
+  // (the assignment is skipped — bash's `x=$((bad))` behavior).
+  fparith(src) {
+    try {
+      return String(evalFloatArith(String(src), this));
+    } catch {
+      return ARITH_BAD_MAGIC;
+    }
+  },
+
   // Native `$((...))` boundary: bash aborts the whole expansion on an
   // arithmetic error (division by zero), yielding the EMPTY string. The
   // generated code passes a closure containing the native expression; the
@@ -7010,6 +7027,69 @@ function arithExpand(sh, s) {
   // `$(( $(wc -l < f) + 1 ))`)
   out = out.replace(/\$\(([^()]*)\)/g, (_, c) => String(shellCapture(c)).trim());
   return out;
+}
+
+// Float arithmetic evaluator — C-double semantics for the c-sh-go
+// frontend's lowered float expressions (`sh2.fparith`). The frontend
+// emits fully-parenthesized trees (`(l op r)`) over decimal literals
+// and `$name` store reads, so precedence is explicit; unary minus is
+// emitted as `0 - e` by the frontend and needs no arm here. Unset/empty
+// store reads count as 0 (the numeric-zero rule). A parse failure
+// throws — the fparith caller maps it to the bash `$((...))` abort
+// marker, skipping the assignment exactly like bash.
+export function evalFloatArith(src, sh) {
+  const s = arithExpand(sh, String(src));
+  let pos = 0;
+  function ws() { while (/\s/.test(s[pos] ?? '')) pos++; }
+  function num() {
+    ws();
+    let start = pos;
+    if (s[pos] === '-') pos++;
+    while (/[0-9.]/.test(s[pos] ?? '')) pos++;
+    const raw = s.slice(start, pos);
+    if (raw === '' || raw === '-' || raw === '.') throw new Error(`fparith: expected number near '${s.slice(pos)}'`);
+    const v = Number(raw);
+    if (!Number.isFinite(v)) throw new Error(`fparith: expected number near '${raw}'`);
+    return v;
+  }
+  function primary() {
+    ws();
+    if (s[pos] === '(') { pos++; const v = addsub(); ws(); if (s[pos] !== ')') throw new Error('fparith: missing )'); pos++; return v; }
+    const dm = s.slice(pos).match(/^\$([A-Za-z_][A-Za-z0-9_]*)/);
+    if (dm) {
+      pos += dm[0].length;
+      const v = sh.getVar(dm[1]);
+      return v === '' || v === undefined ? 0 : Number(v);
+    }
+    return num();
+  }
+  function muldiv() {
+    let v = primary();
+    for (;;) {
+      ws();
+      const op = s[pos];
+      if (op !== '*' && op !== '/') return v;
+      pos++;
+      const r = primary();
+      v = op === '*' ? v * r : v / r;
+    }
+  }
+  function addsub() {
+    let v = muldiv();
+    for (;;) {
+      ws();
+      const op = s[pos];
+      if (op !== '+' && op !== '-') return v;
+      pos++;
+      const r = muldiv();
+      v = op === '+' ? v + r : v - r;
+    }
+  }
+  ws();
+  const v = addsub();
+  ws();
+  if (pos !== s.length) throw new Error(`fparith: trailing input near '${s.slice(pos)}'`);
+  return v;
 }
 
 export function evalArith(src, sh) {
