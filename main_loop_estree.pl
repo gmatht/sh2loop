@@ -1013,6 +1013,27 @@ sub request_outcome {
     return '';
 }
 
+# ── dedicated core-request mediation prompt ─────────────────────────
+# Anti-starvation: when sibling workers have pending core-requests, a full
+# pi round is given to the requests ALONE — the estree worker's own tiny
+# improvement work (the sh2.* call-site grind) waits until the queue is
+# empty. The corpus gate (green this iteration) still governs commits.
+sub build_core_request_prompt {
+    my ($summary) = @_;
+    my $p = "You are the SINGLE OWNER of the shared sh2perl core.\n";
+    $p .= "THIS ROUND IS DEDICATED TO MEDIATING PENDING CORE-REQUESTS from sibling workers\n";
+    $p .= "(the sh/c/go/python/... frontends and backends are blocked on them; trapped\n";
+    $p .= "workers sleep until their request lands). Do NOT do your own improvement work\n";
+    $p .= "— tiny estree lowerings (sh2.* call-site reductions) can wait until the\n";
+    $p .= "core-request queue is empty.\n\n";
+    $p .= "Current corpus verdict (informational): estree " . ($summary->{estree_passed} // '?') . "/" . ($summary->{total} // '?') . " pass.\n\n";
+    $p .= "For EVERY request below: implement it, or APPEND a line '## OUTCOME: rejected: <one-line reason>' to the request file. Do NOT leave requests silently pending — the queue is the other workers' progress signal, and this round is dedicated to it.\n";
+    $p .= "Regression rules (unchanged): ./fail-estree must stay green at the trusted baseline; determinism (cargo test --lib) and the structural gate must stay green; PERL pass count must not drop. If implementing would regress, leave the request pending WITH a note (it gets another dedicated round).\n";
+    $p .= "If two requests conflict, implement the one maximizing corpus coverage and reject the other with the reason.\n";
+    $p .= "Scope: shared core (src/shir.rs, src/ir.rs, src/estree.rs, src/parser/, shir_json.rs, shir_json_in.rs), src/transforms/ compile-ins (core-requests/transforms/), harness/*. Commit scoped changes when green.\n";
+    return $p;
+}
+
 my $iteration = 0;
 while (1) {
     $iteration++;
@@ -1163,6 +1184,29 @@ while (1) {
         # core-requests: once green, commit + wake any sleeping workers whose
         # requests the (single) pi call implemented.
         finalize_core_requests();
+        # Anti-starvation policy: requests STILL pending after the previous
+        # round's outcomes are finalized get a DEDICATED mediation round —
+        # sibling workers (sh/c/go/python frontends + backends, trapped
+        # sleepers) are blocked on them, so the estree worker's own tiny
+        # improvements (the sh2.* call-site grind) wait until the queue is
+        # empty. Regression protection is unchanged: the corpus gate (green
+        # above) governs commits; a red corpus next iteration goes to fix
+        # mode. report_only (prefix runs) never mutates: no invocation.
+        collect_core_requests();
+        if (!$report_only && @core_pending) {
+            print "\nImprovement mode deferred: " . scalar(@core_pending) . " pending core-requests — dedicated mediation round (tiny estree improvements wait for the queue).\n";
+            my $req_prompt = build_core_request_prompt($summary);
+            if ($dry_run) {
+                print "\n----- DRY RUN: core-request mediation prompt below, no pi invocation -----\n";
+                print $req_prompt . $core_block;
+                print "\n----- end dry run -----\n";
+                release_lock();
+                exit 0;
+            }
+            invoke_pi($req_prompt . $core_block);
+            sleep 3;
+            next;
+        }
         my $metric = read_metric($metric_file);
         if (!$report_only && defined $metric) {
             my $prev_total = read_metric_total($metric_prev);
