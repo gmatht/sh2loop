@@ -731,7 +731,7 @@ case "${1:-}" in
                           python) timeout 15 python3 /tmp/eq_$$.py > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
                           rust) rustc /tmp/eq_$$.rs -o /tmp/eq_$$_bin 2>/dev/null && timeout 15 /tmp/eq_$$_bin > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
                           zig)  timeout 30 "$eq_tool" run /tmp/eq_$$.zig > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
-                          sh)   timeout 15 sh /tmp/eq_$$.sh > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
+                          sh)   timeout 15 sh -c '. /dev/fd/3' "$f" 3< /tmp/eq_$$.sh > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
                           java) javac -d /tmp /tmp/Sh2Program.java 2>/dev/null && timeout 15 java -cp /tmp Sh2Program > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
                         esac
                         if [ "$eq_exit" = 0 ] \
@@ -752,6 +752,20 @@ case "${1:-}" in
                     fi
                   done
                   echo "  [$g_lang] backend gate: $pass/$((pass+skip+fail)) corpus render OK, $fail fail ($stub_files stubs, $eq_fail equiv), $skip skip — $stub_total stubs emitted${eq_gate:+; equiv: $eq_pass pass vs bash}"
+                  # CHIMERA gate (sh only): the bash-free WSL sandbox (BSD
+                  # shell + busybox toolchain, no bash/perl/GNU coreutils). A
+                  # test PASSES only if it passes under BOTH Ubuntu (dash,
+                  # above) AND Chimera — so chimera failures union into the
+                  # worker's work list. Skipped gracefully where the sh-gate
+                  # deployment (the sudo rule + harness script) is absent.
+                  if [ "$g_lang" = "sh" ] && command -v sh-gate >/dev/null 2>&1 && [ -x "$WORKSPACE/harness/chimera-gate.sh" ]; then
+                    if bash "$WORKSPACE/harness/chimera-gate.sh" "$g_wt/target/debug/debashc" "$WORKSPACE"; then
+                      echo "  [sh] backend gate: chimera green (passes under Ubuntu AND Chimera)"
+                    else
+                      fail=$((fail+1))
+                      echo "  [sh] backend gate: CHIMERA RED — a test fails if it fails under Ubuntu OR Chimera (lists above)"
+                    fi
+                  fi
                   if [ "$fail" -gt 0 ]; then echo "  fails: $fails" | head -c 200; echo; exit 1; fi
                   # valgrind memory gate (the C worker): the generated C
                   # must run without memory errors — a bounded sample (the
