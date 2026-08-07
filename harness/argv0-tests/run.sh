@@ -177,6 +177,53 @@ for src in "${TESTS[@]}"; do
 done
 
 echo "──────────────────────────────────────────────"
+# ── SOURCE-NAME mode (`--argv0-source`) ────────────────────────────────
+# With the bake, the translated program identifies as the ORIGINAL bash
+# file: output must be the SAME for every argv0 scenario (the bake wins),
+# and equal to bash running with argv0 = the baked name. Perl bakes
+# `$0 = …`; estree bakes `sh2.argv0 = …`. (The sh backend can't assign $0
+# in POSIX — source-mode there means the gate supplies argv0 at run time.)
+echo "source-mode legs: --argv0-source renamed.sh must beat all 3 argv0s"
+for src in "$HERE"/tests/*.sh; do
+  base="$(basename "$src" .sh)"
+  for kind in abs base ren; do
+    case "$kind" in
+      abs)  D2="$WORK/$base/deep/nested"; FN="script.sh" ;;
+      base) D2="$WORK/$base/base";        FN="script.sh" ;;
+      ren)  D2="$WORK/$base/renamed";     FN="renamed.sh" ;;
+    esac
+    mkdir -p "$D2"
+    cp "$src" "$D2/renamed.sh"
+    # reference: bash with argv0 = renamed.sh FROM THIS SAME cwd (dirname "."
+    # resolves pwd relative to the cwd, so the bake's output is cwd-dependent).
+    ref="$(cd "$D2" && bash renamed.sh)"
+    if echo "$BACKENDS" | grep -qw estree; then
+      if json_out="$("$CORE" --argv0-source renamed.sh file --estree "$src" 2>/dev/null)" && [ -n "$json_out" ]; then
+        jf="$WORK/$base.src.json"; printf '%s' "$json_out" > "$jf"
+        got="$(cd "$D2" && timeout 20 node "$RUNNER" "$jf" --source "$src" --name "$(scenario_cmd "$D2" "$kind" "$FN")" 2>/dev/null)"
+        check "estree(source)" "$base" "$kind" "$got" "$ref"
+      else
+        SKIP=$((SKIP+1)); echo "  SKIP estree(source) [$kind] $base"
+      fi
+    fi
+    if echo "$BACKENDS" | grep -qw perl; then
+      if gen="$("$CORE" --argv0-source renamed.sh "$src" 2>/dev/null)" && [ -n "$gen" ]; then
+        pf="$WORK/$base.src.pl"
+        printf '%s' "$gen" | sed -n '/^Generated Perl code:/,/^--- Running/p' | sed '1d;$d' > "$pf"
+        if [ -s "$pf" ]; then
+          got="$(cd "$D2" && perl -M5.010 -e '$0 = shift @ARGV; my $__f = shift @ARGV; do $__f' "$(scenario_cmd "$D2" "$kind" "$FN")" "$pf" 2>/dev/null)"
+          check "perl(source)" "$base" "$kind" "$got" "$ref"
+        else
+          SKIP=$((SKIP+1)); echo "  SKIP perl(source) [$kind] $base (no code)"
+        fi
+      else
+        SKIP=$((SKIP+1)); echo "  SKIP perl(source) [$kind] $base (debashc failed)"
+      fi
+    fi
+  done
+done
+
+echo "──────────────────────────────────────────────"
 echo "argv0 suite: $PASS pass, $FAIL fail, $SKIP skip"
 if [ "$FAIL" -gt 0 ]; then
   printf '  %s\n' "${FAILURES[@]}"
