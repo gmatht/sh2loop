@@ -42,6 +42,26 @@ run() {
     fi
 }
 
+# Run a test that feeds stdin to cmp via a pipe. Same comparison as
+# run(). Args: description, stdin_pipe (e.g. "printf 'x'"),
+# our_args, gnu_args.
+run_stdin() {
+    desc=$1; shift
+    stdin_cmd=$1; shift
+    our_cmd=$1; shift
+    gnu_cmd=$1; shift
+    our_out=$(eval "$stdin_cmd | $CMP $our_cmd" 2>&1; echo "rc=$?")
+    gnu_out=$(eval "$stdin_cmd | $GNU_CMP $gnu_cmd" 2>&1; echo "rc=$?")
+    our_norm=$(echo "$our_out" | normalize)
+    gnu_norm=$(echo "$gnu_out" | normalize)
+    if [ "$our_norm" = "$gnu_norm" ]; then
+        pass=$((pass+1))
+    else
+        fail=$((fail+1))
+        fail_log="$fail_log\nFAIL: $desc\n  GNU: [$gnu_out]\n  OUR: [$our_out]"
+    fi
+}
+
 # Create a test file with printf %b content
 mkfile() {
     printf '%b' "$2" > "$TD/$1"
@@ -175,6 +195,22 @@ run "070_i3" "-i 3 '$TD/a' '$TD/d'" "-i 3 '$TD/a' '$TD/d'"
 run "070_i06" "-i 0:6 '$TD/a' '$TD/d'" "-i 0:6 '$TD/a' '$TD/d'"
 run "070_i50" "-i 5:0 '$TD/a' '$TD/d2'" "-i 5:0 '$TD/a' '$TD/d2'"
 run "070_empty" "'$TD/a' '$TD/e'" "'$TD/a' '$TD/e'"
+
+# Stdin (one-arg form: compare FILE with stdin; `-` means stdin)
+cp /etc/hostname "$TD/hostname"
+run_stdin "stdin_one_arg_eq"      "printf 'hello'" "-" "-"
+run_stdin "stdin_two_dash"        "printf 'hello'" "- -" "- -"
+run_stdin "stdin_short"           "printf 'abc'"   "- '$TD/hostname'" "- '$TD/hostname'"
+run_stdin "stdin_long"            "printf 'abc'"   "'$TD/hostname' -" "'$TD/hostname' -"
+run_stdin "stdin_vs_empty"        "printf 'hello'" "- '$TD/e'" "- '$TD/e'"
+run_stdin "stdin_eq_b"            "printf 'hello'" "-b - -" "-b - -"
+run_stdin "stdin_n"               "printf 'hello'" "-n 2 -" "-n 2 -"
+run_stdin "stdin_i"               "printf 'hello'" "-i 1 -" "-i 1 -"
+run_stdin "stdin_b"               "printf 'abc'"   "-b - '$TD/hostname'" "-b - '$TD/hostname'"
+run_stdin "stdin_l"               "printf 'abcdefghij'" "-l - '$TD/hostname'" "-l - '$TD/hostname'"
+run_stdin "stdin_l_highbit"       "printf '\xff\xfe\x7f'" "-l - '$TD/hostname'" "-l - '$TD/hostname'"
+run_stdin "stdin_empty"           "printf ''"      "- -" "- -"
+run_stdin "stdin_n0"              "printf 'hello'" "-n 0 -" "-n 0 -"
 
 # Summary
 echo "=========================================="
