@@ -11,9 +11,14 @@
 # Classification of chimera failures:
 #   cannot-translate  — core --shir empty (parse error) or render refused;
 #                       NOT in the corpus (like the dev gate's skip)
-#   no-Perl           — rc=127/126: the sandbox cannot execute the render
-#                       (missing runtime/tool: perl, bash, busybox-absent);
-#                       known env limitation, reported not silently dropped
+#   no-pcre           — the SANDBOX cannot execute the render: the rendered
+#                       file calls a tool the minimal chimera lacks
+#                       (perl / pgrep / pcregrep / pcre2grep / grep -P — the
+#                       PCRE family), or rc=127/126 (not found / not
+#                       executable). Fixed by ADDING perl + PCRE tooling to
+#                       the sandbox (pcregrep is the grep -P fallback —
+#                       busybox grep can never gain -P). NOT a renderer bug;
+#                       not a worker work item.
 #   bad-translation   — runs in chimera but output != bash (or rc!=0 where
 #                       bash itself exits 0): the worker's work items
 #   original-rc!=0    — the SOURCE script exits nonzero under bash: the
@@ -96,27 +101,42 @@ summary=$(cat /tmp/chimera_summary.$$ 2>/dev/null)
 grep '^FAIL' /tmp/chimera_fails.$$ > "$GATE/chimera_fails.txt" 2>/dev/null || true
 rm -f /tmp/chimera_summary.$$ /tmp/chimera_fails.$$
 
-# 4. classify the failures
-no_perl=0; bad=0
-: > "$GATE/no_perl.txt"; : > "$GATE/bad_translation.txt"
+# 4. classify the failures: no-pcre (the sandbox lacks the runtime/tool —
+#    fixed by adding perl + PCRE tooling to the chimera distro, e.g. pcregrep
+#    as the grep -P fallback; NOT the worker's renderer) vs bad-translation
+#    (runs but != bash — the worker's work items). PRIMARY signal: the
+#    rendered file calls a no-pcre-family tool; FALLBACK: rc 127/126.
+NO_PCRE_TOOLS='perl pgrep pcregrep pcre2grep'
+no_pcre=0; bad=0
+: > "$GATE/no_pcre.txt"; : > "$GATE/bad_translation.txt"
 while IFS= read -r line; do
   case "$line" in
-    FAIL*rc=127*|FAIL*rc=126*)
-      no_perl=$((no_perl+1)); echo "$line" >> "$GATE/no_perl.txt" ;;
     FAIL*)
-      bad=$((bad+1)); echo "$line" >> "$GATE/bad_translation.txt" ;;
+      name=$(echo "$line" | sed -E 's/^FAIL ([^ ]+).*/\1/')
+      tool=""
+      for t in $NO_PCRE_TOOLS; do
+        if grep -qEw "$t" "$GATE/corpus/$name.sh" 2>/dev/null; then tool="$t"; break; fi
+      done
+      if [ -z "$tool" ] && grep -qE 'grep[^&|;]*(-P|--perl-regexp)' "$GATE/corpus/$name.sh" 2>/dev/null; then
+        tool="grep -P"
+      fi
+      if [ -n "$tool" ] || echo "$line" | grep -qE 'rc=12[67]'; then
+        no_pcre=$((no_pcre+1)); echo "$line  [no-pcre: missing $tool]" >> "$GATE/no_pcre.txt"
+      else
+        bad=$((bad+1)); echo "$line" >> "$GATE/bad_translation.txt"
+      fi ;;
   esac
 done < "$GATE/chimera_fails.txt"
 
 echo "  [sh] chimera gate: $summary  [corpus $n: rendered $rendered, core-skip $core_skip, render-refused $refused, original-rc!=0 excluded $rc_own]"
-echo "  [sh] chimera classification: bad-translation $bad (runs but != bash — the work items), no-Perl $no_perl (sandbox can't execute: rc 127/126)"
+echo "  [sh] chimera classification: bad-translation $bad (runs but != bash — the work items), no-pcre $no_pcre (sandbox lacks the PCRE-family tool: fixed by adding perl/pcregrep, not the renderer)"
 if [ "$bad" -gt 0 ]; then
   echo "  [sh] chimera bad-translation fails:"
   head -25 "$GATE/bad_translation.txt" | sed 's/^/    /'
   [ "$bad" -gt 25 ] && echo "    ... and $((bad-25)) more (full list: $GATE/bad_translation.txt)"
 fi
-if [ "$no_perl" -gt 0 ]; then
-  echo "  [sh] chimera no-Perl fails (sandbox lacks the runtime — env limitation):"
-  head -10 "$GATE/no_perl.txt" | sed 's/^/    /'
+if [ "$no_pcre" -gt 0 ]; then
+  echo "  [sh] chimera no-pcre fails (env limitation — add perl + PCRE tooling to the sandbox):"
+  head -10 "$GATE/no_pcre.txt" | sed 's/^/    /'
 fi
 [ "$gate_rc" -eq 0 ]
