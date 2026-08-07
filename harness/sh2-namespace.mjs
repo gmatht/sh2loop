@@ -6127,8 +6127,15 @@ function runShellFile(file, args) {
 // nothing matches (caller keeps the literal pattern — nullglob is off).
 function globExpand(pattern) {
   const parts = pattern.split('/');
+  // An ABSOLUTE pattern (`/dev/pts/*`) splits to ['', 'dev', 'pts', '*']:
+  // the empty first part is the root, not the cwd — seed the walk at '/'
+  // and skip it (tty-cmdsub.sh's `for dev in /dev/pts/*` fallback loop
+  // silently matched NOTHING before this fix, while bash globbed the
+  // readable pts).
   let dirs = [''];
-  for (let i = 0; i < parts.length; i++) {
+  let i = 0;
+  if (parts[0] === '') { dirs = ['/']; i = 1; }
+  for (; i < parts.length; i++) {
     const part = parts[i];
     const last = i === parts.length - 1;
     const next = [];
@@ -6140,7 +6147,7 @@ function globExpand(pattern) {
         const name = ent.name;
         if (name.startsWith('.') && !part.startsWith('.')) continue; // dotglob off
         if (!globMatch(part, name)) continue;
-        const p = d === '' ? name : d + '/' + name;
+        const p = d === '/' ? '/' + name : (d === '' ? name : d + '/' + name);
         if (last) next.push(p);
         else if (ent.isDirectory()) next.push(p);
       }
