@@ -1128,6 +1128,31 @@ export const sh2 = {
     }
   },
 
+  // Sync twin of capture() for PROVABLY-AWAIT-FREE bodies (the emitter's
+  // verdict: no AwaitExpression in the lowered body — the same scan the
+  // *Sync loops use, src/shir.rs). Identical semantics — the fd-1 capture
+  // swap, NUL strip, trailing-newline strip, captureStart bound — minus
+  // the per-call promise/microtask machinery (the whileLoopSync pattern).
+  // An await-free body runs to completion synchronously and cannot yield,
+  // so the microtask interleaving of background jobs matches the async
+  // form's post-await continuation; a background job's fd-1 writes go to
+  // the REAL sink, never into a live capture buffer (closer to bash's
+  // fork than the async form's late-restore window).
+  captureSync(fn) {
+    process.stderr.write("TRACE captureSync\n");
+    const saved = this.fdTargets[1];
+    const savedStart = this.captureStart;
+    this.fdTargets[1] = { kind: 'capture', buf: '' };
+    this.captureStart = Date.now();
+    try {
+      fn();
+      return this.fdTargets[1].buf.replace(/\u0000/g, '').replace(/\n+$/, '');
+    } finally {
+      this.fdTargets[1] = saved;
+      this.captureStart = savedStart;
+    }
+  },
+
   // The capture post-processing (NUL strip + trailing-newline strip) for
   // the emitter's native capture lifts (`$(echo X | tr a-z A-Z)` →
   // `sh2.trimCapture(String(X).toUpperCase())`): a pure string transform
@@ -1267,6 +1292,14 @@ export const sh2 = {
     return out.split(/\s+/).filter(w => w.length > 0);
   },
 
+  // Sync twin of captureWords (see captureSync): the await-free verdict
+  // makes the capture body run synchronously, so the split applies to the
+  // already-complete buffer.
+  captureWordsSync(fn) {
+    const out = this.captureSync(fn);
+    return out.split(/\s+/).filter(w => w.length > 0);
+  },
+
   // The `split` marker on UNQUOTED expansions (for-iters `for w in $y`,
   // exec args `set -- $y`): bash field-splits on default-IFS whitespace
   // and drops empty fields — an empty/unset variable yields ZERO fields
@@ -1295,65 +1328,90 @@ export const sh2 = {
   },
 
   // ── redirects ──────────────────────────────────────────────────────
+  // The fd-spec install/restore logic shared by redirect + redirectSync.
+  // `saved` is the pre-redirect fd table (fd-duplication `&N` targets
+  // resolve against it — bash fds share the underlying file description,
+  // so a duplicate must alias the SAME target object). `check` enables
+  // the missing-file error path (the live install; the persistent-restore
+  // pass installs without checking — a vanished file must not flip the
+  // status). Returns false when a read-mode target is missing (the
+  // caller returns that as the redirect's status, exactly the async
+  // original's early return).
+  _applyRedirectSpecs(specs, saved, check) {
+    for (const s of specs) {
+      const fd = s.fd ?? (s.mode === 'r' ? 0 : 1);
+      if (s.mode === 'unsupported') throw new Error('redirect: process substitution not yet supported');
+      // `2>&1` / `3<&0` — duplicate another fd (target is "&N"). Share
+      // the SAME target object (bash fds share the underlying file
+      // description): a shallow copy would lose capture-buffer writes
+      // (`$(cmd 2>&1)` must capture stderr into the same buf).
+      if (/^&\d+$/.test(String(s.target ?? ''))) {
+        const src = Number(String(s.target).slice(1));
+        this.fdTargets[fd] = saved[src] ? saved[src] : { kind: 'closed' };
+        continue;
+      }
+      // `>&-` / `<&-` — close an fd. The parser strips the `&` (`4>&-`
+      // arrives as target "-"), so accept the bare form too (a file named
+      // "-" does not occur in the corpus).
+      if (String(s.target ?? '') === '&-' || String(s.target ?? '') === '-') {
+        this.fdTargets[fd] = { kind: 'closed' };
+        continue;
+      }
+      if (s.mode === 'heredoc' || s.mode === 'heredoc-tabs' || s.mode === 'herestring') {
+        let content = String(s.target ?? '');
+        // bash appends a newline to herestrings (`<<< x` feeds "x\n").
+        if (s.mode === 'herestring') content += '\n';
+        if (s.mode === 'heredoc' && s.interpolate) content = expandWord(this, content);
+        if (s.mode === 'heredoc-tabs') {
+          content = content.split('\n').map(l => l.replace(/^\t+/, '')).join('\n');
+          if (s.interpolate) content = expandWord(this, content);
+        }
+        this.fdTargets[fd] = { kind: 'string', content };
+      } else if (s.mode === 'r' || s.mode === 'r+') {
+        const target = expandWord(this, String(s.target));
+        if (check && !fs.existsSync(target)) {
+          emitErr(this, `bash: ${target}: No such file or directory\n`);
+          this.lastExit = 1;
+          return false;
+        }
+        this.fdTargets[fd] = { kind: 'file', target, readMode: true };
+      } else if (s.mode === 'w' || s.mode === 'a') {
+        const t = expandWord(this, String(s.target));
+        // The persistent-restore pass creates the file if missing (the
+        // original restore loop did; the live install defers creation to
+        // the writer or `_ensureRedirectFiles`).
+        if (!check && !fs.existsSync(t)) {
+          try { fs.closeSync(fs.openSync(t, 'w')); } catch { /* unwritable target: bash reports, we ignore */ }
+        }
+        this.fdTargets[fd] = { kind: 'file', target: t, mode: s.mode };
+      } else {
+        throw new Error(`redirect: unknown mode ${s.mode}`);
+      }
+    }
+    return true;
+  },
+
+  // Standalone redirect (`>file` with no command): bash creates the
+  // (empty) file even when nothing writes to it.
+  _ensureRedirectFiles(specs) {
+    for (const s of specs) {
+      if (s.mode === 'w' || s.mode === 'a') {
+        const t = expandWord(this, String(s.target));
+        if (!fs.existsSync(t)) {
+          try { fs.closeSync(fs.openSync(t, 'w')); } catch { /* unwritable target: bash reports, we ignore */ }
+        }
+      }
+    }
+  },
+
   async redirect(fn, specs = []) {
     process.stderr.write("TRACE redirect\n");
     const saved = { ...this.fdTargets };
     const persistent = specs.filter(s => s.persist);
     try {
-      for (const s of specs) {
-        const fd = s.fd ?? (s.mode === 'r' ? 0 : 1);
-        if (s.mode === 'unsupported') throw new Error('redirect: process substitution not yet supported');
-        // `2>&1` / `3<&0` — duplicate another fd (target is "&N"). Share
-        // the SAME target object (bash fds share the underlying file
-        // description): a shallow copy would lose capture-buffer writes
-        // (`$(cmd 2>&1)` must capture stderr into the same buf).
-        if (/^&\d+$/.test(String(s.target ?? ''))) {
-          const src = Number(String(s.target).slice(1));
-          this.fdTargets[fd] = saved[src] ? saved[src] : { kind: 'closed' };
-          continue;
-        }
-        // `>&-` / `<&-` — close an fd. The parser strips the `&` (`4>&-`
-        // arrives as target "-"), so accept the bare form too (a file named
-        // "-" does not occur in the corpus).
-        if (String(s.target ?? '') === '&-' || String(s.target ?? '') === '-') {
-          this.fdTargets[fd] = { kind: 'closed' };
-          continue;
-        }
-        if (s.mode === 'heredoc' || s.mode === 'heredoc-tabs' || s.mode === 'herestring') {
-          let content = String(s.target ?? '');
-          // bash appends a newline to herestrings (`<<< x` feeds "x\n").
-          if (s.mode === 'herestring') content += '\n';
-          if (s.mode === 'heredoc' && s.interpolate) content = expandWord(this, content);
-          if (s.mode === 'heredoc-tabs') {
-            content = content.split('\n').map(l => l.replace(/^\t+/, '')).join('\n');
-            if (s.interpolate) content = expandWord(this, content);
-          }
-          this.fdTargets[fd] = { kind: 'string', content };
-        } else if (s.mode === 'r' || s.mode === 'r+') {
-          const target = expandWord(this, String(s.target));
-          if (!fs.existsSync(target)) {
-            emitErr(this, `bash: ${target}: No such file or directory\n`);
-            this.lastExit = 1;
-            return false;
-          }
-          this.fdTargets[fd] = { kind: 'file', target, readMode: true };
-        } else if (s.mode === 'w' || s.mode === 'a') {
-          this.fdTargets[fd] = { kind: 'file', target: expandWord(this, String(s.target)), mode: s.mode };
-        } else {
-          throw new Error(`redirect: unknown mode ${s.mode}`);
-        }
-      }
+      if (!this._applyRedirectSpecs(specs, saved, true)) return false;
       await fn();
-      // Standalone redirect (`>file` with no command): bash creates the
-      // (empty) file even when nothing writes to it.
-      for (const s of specs) {
-        if (s.mode === 'w' || s.mode === 'a') {
-          const t = expandWord(this, String(s.target));
-          if (!fs.existsSync(t)) {
-            try { fs.closeSync(fs.openSync(t, 'w')); } catch { /* unwritable target: bash reports, we ignore */ }
-          }
-        }
-      }
+      this._ensureRedirectFiles(specs);
       return this.lastExit === 0;
     } finally {
       // Restore the pre-redirect fd table...
@@ -1361,32 +1419,28 @@ export const sh2 = {
       // ...but `exec N>f` / `exec N>&M` (exec with no command) redirects
       // persist permanently — bash installs them in the shell's own fd
       // table (`exec 3>&1` then `cmd >&3` later must keep working).
-      for (const s of persistent) {
-        const fd = s.fd ?? (s.mode === 'r' ? 0 : 1);
-        if (/^&\d+$/.test(String(s.target ?? ''))) {
-          const src = Number(String(s.target).slice(1));
-          this.fdTargets[fd] = saved[src] ? saved[src] : { kind: 'closed' };
-        } else if (String(s.target ?? '') === '&-' || String(s.target ?? '') === '-') {
-          this.fdTargets[fd] = { kind: 'closed' };
-        } else if (s.mode === 'heredoc' || s.mode === 'heredoc-tabs' || s.mode === 'herestring') {
-          let content = String(s.target ?? '');
-          if (s.mode === 'herestring') content += '\n';
-          if (s.mode === 'heredoc' && s.interpolate) content = expandWord(this, content);
-          if (s.mode === 'heredoc-tabs') {
-            content = content.split('\n').map(l => l.replace(/^\t+/, '')).join('\n');
-            if (s.interpolate) content = expandWord(this, content);
-          }
-          this.fdTargets[fd] = { kind: 'string', content };
-        } else if (s.mode === 'r' || s.mode === 'r+') {
-          this.fdTargets[fd] = { kind: 'file', target: expandWord(this, String(s.target)), readMode: true };
-        } else if (s.mode === 'w' || s.mode === 'a') {
-          const t = expandWord(this, String(s.target));
-          if (!fs.existsSync(t)) {
-            try { fs.closeSync(fs.openSync(t, 'w')); } catch { /* unwritable target: bash reports, we ignore */ }
-          }
-          this.fdTargets[fd] = { kind: 'file', target: t, mode: s.mode };
-        }
-      }
+      this._applyRedirectSpecs(persistent, saved, false);
+    }
+  },
+
+  // Sync twin of redirect for PROVABLY-AWAIT-FREE bodies (see
+  // captureSync): the exact same spec install, body run, standalone-file
+  // creation, restore + persist logic — minus the await. An await-free
+  // body runs to completion synchronously, so no background microtask can
+  // observe the mid-redirect fd table (bash: the redirect is installed
+  // before the command forks, so background jobs never see it either).
+  redirectSync(fn, specs = []) {
+    process.stderr.write("TRACE redirectSync\n");
+    const saved = { ...this.fdTargets };
+    const persistent = specs.filter(s => s.persist);
+    try {
+      if (!this._applyRedirectSpecs(specs, saved, true)) return false;
+      fn();
+      this._ensureRedirectFiles(specs);
+      return this.lastExit === 0;
+    } finally {
+      this.fdTargets = saved;
+      this._applyRedirectSpecs(persistent, saved, false);
     }
   },
 
@@ -1414,6 +1468,36 @@ export const sh2 = {
         if (i < stages.length - 1) this.fdTargets[1] = { kind: 'capture', buf: '' };
         else this.fdTargets[1] = saved[1];
         await stages[i]();
+        const cap = this.fdTargets[1];
+        prev = cap && cap.kind === 'capture' ? cap.buf : null;
+      }
+      return this.lastExit === 0;
+    } finally {
+      this.fdTargets = saved;
+    }
+  },
+
+  // Sync twin of pipeline for PROVABLY-AWAIT-FREE stages (same verdict
+  // and semantics as captureSync above): identical fd0/fd1 swaps, string
+  // stages, lastExit protocol — minus the per-stage await. The stages run
+  // to completion synchronously; an await-free stage cannot yield, so no
+  // background job can interleave mid-pipeline (the async form's awaits
+  // allowed exactly that — this is closer to bash's sequential pipes).
+  pipelineSync(stages) {
+    process.stderr.write("TRACE pipelineSync\n");
+    const saved = { ...this.fdTargets };
+    let prev = null;
+    try {
+      for (let i = 0; i < stages.length; i++) {
+        if (typeof stages[i] !== 'function') {
+          prev = String(stages[i] ?? '');
+          continue;
+        }
+        if (i > 0 && prev !== null) this.fdTargets[0] = { kind: 'string', content: prev };
+        else if (i === 0) this.fdTargets[0] = saved[0];
+        if (i < stages.length - 1) this.fdTargets[1] = { kind: 'capture', buf: '' };
+        else this.fdTargets[1] = saved[1];
+        stages[i]();
         const cap = this.fdTargets[1];
         prev = cap && cap.kind === 'capture' ? cap.buf : null;
       }
@@ -1728,6 +1812,38 @@ export const sh2 = {
     }
   },
 
+  // Sync twin of subshell for PROVABLY-AWAIT-FREE bodies (see
+  // captureSync): the same full state copy/restore (vars/exported/
+  // positional/fdTargets/traps/shoptState/cwd) and lastExit protocol,
+  // minus the await — the body runs to completion synchronously, so no
+  // background microtask can observe the mid-subshell state (the async
+  // form's await at the end of fn() allowed exactly that).
+  subshellSync(fn) {
+    process.stderr.write("TRACE subshellSync\n");
+    const saved = {
+      vars: this.vars, exported: this.exported, positional: this.positional,
+      fdTargets: this.fdTargets, traps: this.traps, shoptState: this.shoptState,
+      cwd: this.cwd,
+    };
+    this.vars = new Map(this.vars);
+    this.exported = new Set(this.exported);
+    this.fdTargets = { ...this.fdTargets };
+    this.shoptState = new Map(this.shoptState);
+    try {
+      fn();
+      return this.lastExit === 0;
+    } finally {
+      this.vars = saved.vars;
+      this.exported = saved.exported;
+      this.positional = saved.positional;
+      this.fdTargets = saved.fdTargets;
+      this.traps = saved.traps;
+      this.shoptState = saved.shoptState;
+      this.cwd = saved.cwd;
+      try { process.chdir(saved.cwd); } catch { /* ignore */ }
+    }
+  },
+
   background(fn) {
     this.bgCount += 1;
     this.lastBg = this.bgCount;
@@ -1743,6 +1859,13 @@ export const sh2 = {
 
   async block(fn) {
     await fn();
+    return this.lastExit === 0;
+  },
+
+  // Sync twin of block for provably-await-free bodies (the *Sync family):
+  // identical lastExit protocol minus the per-call promise.
+  blockSync(fn) {
+    fn();
     return this.lastExit === 0;
   },
 

@@ -19,6 +19,7 @@ use JSON::PP;
 my %whitelist = map { $_ => 1 } qw(
     exec getVar setVar test pipeline capture captureWords redirect caseMatch param arith brace setArray setArrayAppend assign arrayItems arrayLen arrayIndex join setLastExit arithEval idiv imod guard not contains builtin grepText cutText bcSqrt fnCall callDirect callUndefined
     define subshell background block whileLoop whileLoopSync whileLoopBatch cstyleFor cstyleForSync forLoop forLoopSync forLoopBatch listVar and or
+    subshellSync blockSync captureSync captureWordsSync pipelineSync redirectSync
     shopt return break continue unsupported
     trimCapture dirname basename uname date readlink hostname whoami mktempValue split readFile writeFile appendFile lstat access unlink rm mkdir mkdtemp addrOf memLoad memStore
     memAlloc memFree
@@ -239,12 +240,15 @@ sub walk {
             my $prop = $n->{property} // {};
             my $pname = ref $prop eq 'HASH' ? ($prop->{name} // '') : '';
             if ($pname =~ /Sync$/) {
-                # whileLoopSync / forLoopSync / cstyleForSync are the ONLY
-                # permitted *Sync calls: pure-CPU loops with no I/O (the
-                # emitter only emits them when cond/iterable/body contain no
-                # AwaitExpression — see src/shir.rs), so they can't block a
-                # browser event loop the way fs.readFileSync & friends would.
-                push @problems, "*Sync callee: $pname" unless $pname =~ /^(whileLoopSync|forLoopSync|cstyleForSync)$/;
+                # The *Sync family: pure-CPU wrappers with no I/O — the
+                # emitter only emits them when every lowered arg contains no
+                # AwaitExpression (capture/pipeline/subshell/redirect/block
+                # bodies, loop cond/body — see src/shir.rs SYNC_TWIN_CALLS),
+                # so they can't block a browser event loop the way
+                # fs.readFileSync & friends would. Same rule as the *Sync
+                # loops (whileLoopSync / forLoopSync / cstyleForSync).
+                push @problems, "*Sync callee: $pname"
+                    unless $pname =~ /^(whileLoopSync|forLoopSync|cstyleForSync|captureSync|captureWordsSync|pipelineSync|subshellSync|redirectSync|blockSync)$/;
             }
         }
         if ($type eq 'ObjectExpression') {
