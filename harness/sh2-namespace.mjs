@@ -4818,7 +4818,6 @@ builtins.diff = function (args) {
 // util.c/normal.c (build_script + hunk printing) — fuzz-verified
 // byte-identical vs GNU diff. Returns { out, differ }.
 function gnuDiff(aText, bText) {
-  const HORIZON = 100;
   const MARK = '\u0000'; // incomplete-line sentinel (see below)
   // io.c prepare_text: a missing trailing newline is APPENDED before
   // hashing (the file still prints the `\ No newline` marker); the
@@ -4835,8 +4834,9 @@ function gnuDiff(aText, bText) {
   while (p0 < minLen && bufA[p0] === bufB[p0]) p0++;
   // don't count a missing newline as part of the prefix
   if (((nA - (missingA ? 1 : 0)) < p0) !== ((nB - (missingB ? 1 : 0)) < p0)) p0--;
-  // horizon: back up to the last line beginning within HORIZON lines
-  let i = HORIZON;
+  // horizon: back up to the last line beginning (horizon_lines defaults
+  // to 0 — the `i--` guard only ever stops the walk at a line boundary)
+  let i = 0;
   while (p0 > 0 && (bufA[p0 - 1] !== '\n' || i-- > 0)) p0--;
   // ── byte-level common suffix (skipped when the missing-newline status
   // differs — the appended newlines would confuse the comparison) ──
@@ -4849,7 +4849,9 @@ function gnuDiff(aText, bText) {
       if (bufA[q0] !== bufB[q1]) { q0++; q1++; beg0 = q0; break; }
     }
     const atLine = (p0 === 0 || bufA[p0 - 1] === '\n') && (p0 === 0 || bufB[p0 - 1] === '\n');
-    i = HORIZON + (atLine ? 0 : 1);
+    // consume one extra line to a line boundary (shift_boundaries may
+    // need it) — horizon_lines defaults to 0
+    i = atLine ? 0 : 1;
     while (i-- > 0 && q0 !== end0) {
       while (q0 < end0 && bufA[q0] !== '\n') q0++;
       if (q0 < end0) q0++;
