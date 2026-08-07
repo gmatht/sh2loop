@@ -200,6 +200,11 @@ run "070_i3" "-i 3 '$TD/a' '$TD/d'" "-i 3 '$TD/a' '$TD/d'"
 run "070_i06" "-i 0:6 '$TD/a' '$TD/d'" "-i 0:6 '$TD/a' '$TD/d'"
 run "070_i50" "-i 5:0 '$TD/a' '$TD/d2'" "-i 5:0 '$TD/a' '$TD/d2'"
 run "070_empty" "'$TD/a' '$TD/e'" "'$TD/a' '$TD/e'"
+printf 'abcdefghij\n' > "$TD/a2"; printf 'abc' > "$TD/pfx"
+run "n_prefix_eof" "-n 10 '$TD/a2' '$TD/pfx'" "-n 10 '$TD/a2' '$TD/pfx'"
+run "l_prefix_eof" "-l '$TD/a2' '$TD/pfx'" "-l '$TD/a2' '$TD/pfx'"
+run "l_n_prefix_eof" "-l -n 10 '$TD/a2' '$TD/pfx'" "-l -n 10 '$TD/a2' '$TD/pfx'"
+run "l_n_cap_eof" "-l -n 2 '$TD/a2' '$TD/pfx'" "-l -n 2 '$TD/a2' '$TD/pfx'"
 
 # Stdin (one-arg form: compare FILE with stdin; `-` means stdin)
 cp /etc/hostname "$TD/hostname"
@@ -219,6 +224,8 @@ run_stdin "stdin_n0"              "printf 'hello'" "-n 0 -" "-n 0 -"
 head -c 130000 /dev/zero | tr '\0' 'f' > "$TD/big2"
 printf 'Y' | dd of="$TD/big2" bs=1 seek=129999 count=1 conv=notrunc 2>/dev/null
 run_stdin "stdin_gt64k"           "head -c 130000 /dev/zero | tr '\0' 'f'" "'$TD/big2' -" "'$TD/big2' -"
+run_stdin "stdin_n_prefix"        "printf 'abc'" "-n 10 - '$TD/a2'" "-n 10 - '$TD/a2'"
+run_stdin "stdin_l_prefix"        "printf 'abc'" "-l - '$TD/a2'" "-l - '$TD/a2'"
 
 # Summary
 echo "=========================================="
