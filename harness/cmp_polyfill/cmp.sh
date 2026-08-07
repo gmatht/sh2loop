@@ -97,10 +97,23 @@ for f in "$file1" "$file2"; do
 done
 
 # ---------------------------------------------------------------------------
+# Path resolver: `-` means stdin. Returns /dev/stdin for `-`, the
+# path itself otherwise. Used everywhere we open a file for reading.
+# ---------------------------------------------------------------------------
+_fpath() {
+    case "$1" in
+        -) echo /dev/stdin ;;
+        *) echo "$1" ;;
+    esac
+}
+_path1=$(_fpath "$file1")
+_path2=$(_fpath "$file2")
+
+# ---------------------------------------------------------------------------
 # File sizes (used to cap the comparison range and detect EOF)
 # ---------------------------------------------------------------------------
-sz1=$(wc -c < "$file1" | tr -d ' ')
-sz2=$(wc -c < "$file2" | tr -d ' ')
+sz1=$(wc -c < "$_path1" | tr -d ' ')
+sz2=$(wc -c < "$_path2" | tr -d ' ')
 
 # Adjust file sizes for the skipped prefix (bytes skipped are not
 # part of the comparison)
@@ -159,8 +172,8 @@ find_first_diff() {
         # the differ is at lo (return lo).
         if [ $((_ffd_hi - _ffd_lo)) -eq 1 ]; then
             # cksum [0,hi)
-            _hH1=$(tail -c +$((skip1 + 1)) "$file1" 2>/dev/null | dd bs="$_ffd_hi" count=1 2>/dev/null | cksum | awk '{print $1}')
-            _hH2=$(tail -c +$((skip2 + 1)) "$file2" 2>/dev/null | dd bs="$_ffd_hi" count=1 2>/dev/null | cksum | awk '{print $1}')
+            _hH1=$(tail -c +$((skip1 + 1)) "$_path1" 2>/dev/null | dd bs="$_ffd_hi" count=1 2>/dev/null | cksum | awk '{print $1}')
+            _hH2=$(tail -c +$((skip2 + 1)) "$_path2" 2>/dev/null | dd bs="$_ffd_hi" count=1 2>/dev/null | cksum | awk '{print $1}')
             if [ "$_hH1" = "$_hH2" ]; then
                 echo "$_ffd_hi"
             else
@@ -170,8 +183,8 @@ find_first_diff() {
         fi
         _mid=$((_ffd_lo + (_ffd_hi - _ffd_lo) / 2))
         # cksum of the first _mid bytes (after the skip)
-        _h1=$(tail -c +$((skip1 + 1)) "$file1" 2>/dev/null | dd bs="$_mid" count=1 2>/dev/null | cksum | awk '{print $1}')
-        _h2=$(tail -c +$((skip2 + 1)) "$file2" 2>/dev/null | dd bs="$_mid" count=1 2>/dev/null | cksum | awk '{print $1}')
+        _h1=$(tail -c +$((skip1 + 1)) "$_path1" 2>/dev/null | dd bs="$_mid" count=1 2>/dev/null | cksum | awk '{print $1}')
+        _h2=$(tail -c +$((skip2 + 1)) "$_path2" 2>/dev/null | dd bs="$_mid" count=1 2>/dev/null | cksum | awk '{print $1}')
         if [ "$_h1" = "$_h2" ]; then
             _ffd_lo=$_mid
         else
@@ -244,7 +257,7 @@ if [ "$diff" -ge "$len" ]; then
     # end: this is an EOF, not a differ. Report "after byte N" where
     # N is the 0-based comparison-relative offset of the EOF (= len).
     if [ "$limit" -eq -1 ]; then
-        _eof_line=$(tail -c +$((skip1 + 1)) "$file1" 2>/dev/null | dd bs="$len" count=1 2>/dev/null | tr -cd '\n' | wc -c | tr -d ' ')
+        _eof_line=$(tail -c +$((skip1 + 1)) "$_path1" 2>/dev/null | dd bs="$len" count=1 2>/dev/null | tr -cd '\n' | wc -c | tr -d ' ')
         _eof_line=$((_eof_line + 1))
         [ -n "$sflag" ] || echo "cmp: EOF on $short_file after byte $len, in line $_eof_line" >&2
         exit 1
@@ -254,11 +267,11 @@ if [ "$diff" -ge "$len" ]; then
     diff=$len
     # Read the byte from the file that HAS the byte (the other is EOF).
     if [ "$sz1" -gt "$sz2" ]; then
-        b1=$(tail -c +$((skip1 + diff + 1)) "$file1" 2>/dev/null | dd bs=1 count=1 2>/dev/null | od -An -to1 | tr -d ' \n')
+        b1=$(tail -c +$((skip1 + diff + 1)) "$_path1" 2>/dev/null | dd bs=1 count=1 2>/dev/null | od -An -to1 | tr -d ' \n')
         b2=""
     else
         b1=""
-        b2=$(tail -c +$((skip2 + diff + 1)) "$file2" 2>/dev/null | dd bs=1 count=1 2>/dev/null | od -An -to1 | tr -d ' \n')
+        b2=$(tail -c +$((skip2 + diff + 1)) "$_path2" 2>/dev/null | dd bs=1 count=1 2>/dev/null | od -An -to1 | tr -d ' \n')
     fi
     _b1_set=1
     # Fall through to the reporting section below (b1 XOR b2 is non-empty).
@@ -270,9 +283,9 @@ fi
 # the other to the actual byte).
 # ---------------------------------------------------------------------------
 if [ "$_b1_set" != 1 ]; then
-    b1=$(tail -c +$((skip1 + diff + 1)) "$file1" 2>/dev/null \
+    b1=$(tail -c +$((skip1 + diff + 1)) "$_path1" 2>/dev/null \
          | dd bs=1 count=1 2>/dev/null | od -An -to1 | tr -d ' \n')
-    b2=$(tail -c +$((skip2 + diff + 1)) "$file2" 2>/dev/null \
+    b2=$(tail -c +$((skip2 + diff + 1)) "$_path2" 2>/dev/null \
          | dd bs=1 count=1 2>/dev/null | od -An -to1 | tr -d ' \n')
 fi
 
@@ -280,13 +293,13 @@ fi
 # but be safe)
 if [ -z "$b1" ] && [ -z "$b2" ]; then exit 0; fi
 if [ -z "$b1" ]; then
-    _eof_line=$(tail -c +$((skip2 + 1)) "$file2" 2>/dev/null | dd bs="$diff" count=1 2>/dev/null | tr -cd '\n' | wc -c | tr -d ' ')
+    _eof_line=$(tail -c +$((skip2 + 1)) "$_path2" 2>/dev/null | dd bs="$diff" count=1 2>/dev/null | tr -cd '\n' | wc -c | tr -d ' ')
     _eof_line=$((_eof_line + 1))
     [ -n "$sflag" ] || echo "cmp: EOF on $file1 after byte $((diff + 1)), in line $_eof_line" >&2
     exit 1
 fi
 if [ -z "$b2" ]; then
-    _eof_line=$(tail -c +$((skip1 + 1)) "$file1" 2>/dev/null | dd bs="$diff" count=1 2>/dev/null | tr -cd '\n' | wc -c | tr -d ' ')
+    _eof_line=$(tail -c +$((skip1 + 1)) "$_path1" 2>/dev/null | dd bs="$diff" count=1 2>/dev/null | tr -cd '\n' | wc -c | tr -d ' ')
     _eof_line=$((_eof_line + 1))
     [ -n "$sflag" ] || echo "cmp: EOF on $file2 after byte $((diff + 1)), in line $_eof_line" >&2
     exit 1
@@ -315,16 +328,16 @@ if [ -n "$lflag" ]; then
         cur=$((len - off))
         [ "$cur" -gt "$BLOCK" ] && cur=$BLOCK
         # cksum-compare this block
-        h1=$(tail -c +$((skip1 + off + 1)) "$file1" 2>/dev/null \
+        h1=$(tail -c +$((skip1 + off + 1)) "$_path1" 2>/dev/null \
              | dd bs="$cur" count=1 2>/dev/null | cksum | awk '{print $1}')
-        h2=$(tail -c +$((skip2 + off + 1)) "$file2" 2>/dev/null \
+        h2=$(tail -c +$((skip2 + off + 1)) "$_path2" 2>/dev/null \
              | dd bs="$cur" count=1 2>/dev/null | cksum | awk '{print $1}')
         if [ "$h1" != "$h2" ]; then
             # differ: hex-dump the block (one byte per line) and compare
-            tail -c +$((skip1 + off + 1)) "$file1" 2>/dev/null \
+            tail -c +$((skip1 + off + 1)) "$_path1" 2>/dev/null \
                 | dd bs="$cur" count=1 2>/dev/null \
                 | od -An -to1 -v | tr -s ' ' '\n' | sed '/^$/d' > /tmp/.cmp_h1_$$ &
-            tail -c +$((skip2 + off + 1)) "$file2" 2>/dev/null \
+            tail -c +$((skip2 + off + 1)) "$_path2" 2>/dev/null \
                 | dd bs="$cur" count=1 2>/dev/null \
                 | od -An -to1 -v | tr -s ' ' '\n' | sed '/^$/d' > /tmp/.cmp_h2_$$ &
             wait
@@ -344,7 +357,7 @@ fi
 # of file 1 in a single pipeline (no shell loop).
 # ---------------------------------------------------------------------------
 if [ "$diff" -gt 0 ]; then
-    line=$(tail -c +$((skip1 + 1)) "$file1" 2>/dev/null \
+    line=$(tail -c +$((skip1 + 1)) "$_path1" 2>/dev/null \
            | dd bs="$diff" count=1 2>/dev/null \
            | tr -cd '\n' | wc -c | tr -d ' ')
     # add 1 for the current line (lines are 1-indexed)
