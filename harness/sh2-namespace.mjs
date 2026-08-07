@@ -5221,6 +5221,27 @@ builtins.find = function (args) {
 // env/redirect contexts) plus the sync-twin dispatch for async contexts.
 // stderr text is approximated (the corpus gate compares stdout + status
 // only); STATUSES mirror GNU exactly (verified against the real binaries).
+//
+// ASSUMPTION (option-gated, default ON — SH2_ASSUME_NATIVE_TOOLS=0 makes
+// the runtime REFUSE these builtins with status 127 instead of emulating
+// them, the established uname/ls gate pattern): the corpus shapes are
+// GNU-faithful on stdout + exit status with these per-command bounds:
+//   rm/cp/mv/rmdir/mkdir — the GNU flag subsets each builtin parses
+//     (unknown options error + exit 1 like GNU); no -i/-v interactive
+//     modes; cp/mv multi-source forms only to a directory target;
+//   sha256sum/sha512sum — node:crypto digests, byte-identical hex;
+//   tee — -a append; a failed file write fails the status like GNU;
+//   xargs — -0/-n/-r/--no-run-if-empty, GNU quote/backslash word
+//     splitting, one giant batch (GNU's ARG_MAX-based batching is not
+//     modeled — the corpus trees fit one batch; output is order-
+//     preserving either way); no -I/-P/-d custom modes;
+//   gzip/gunzip — node:zlib decompression (byte-identical output for
+//     valid gzip streams); gzip COMPRESSION (no -d, corpus-unreachable)
+//     uses zlib's header (mtime 0), which differs from GNU's bytes;
+//     a corrupt stream fails exit 2 (GNU).
+function nativeToolsEnabled() {
+  return process.env.SH2_ASSUME_NATIVE_TOOLS !== '0';
+}
 
 // rm — GNU status semantics: every operand is attempted; a failure
 // (missing file without -f, directory without -r) sets the final status 1
@@ -5228,6 +5249,7 @@ builtins.find = function (args) {
 // --recursive removes trees (fs.rmSync recursive); combined shorts
 // (-rf/-fr/-rR...) parse like GNU's single-letter option cluster.
 builtins.rm = function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
   let force = false, recursive = false;
   const files = [];
   for (let i = 0; i < args.length; i++) {
@@ -5277,6 +5299,7 @@ builtins.rm = function (args) {
 // default. A missing source / unreadable path fails the status 1 (GNU:
 // `cp: cannot stat ...` on fd2 — stdout is unaffected either way).
 builtins.cp = function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
   const operands = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -5324,6 +5347,7 @@ builtins.cp = function (args) {
 // single-letter flags (-f -i -n -v -t -u -T) are accepted (no corpus-
 // visible effect for the shapes used).
 builtins.mv = function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
   const operands = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -5371,6 +5395,7 @@ builtins.mv = function (args) {
 // rmdir — remove an EMPTY directory (fs.rmdirSync, non-recursive); any
 // failure (missing, not empty) reports and exits 1 like GNU.
 builtins.rmdir = function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
   let failed = false;
   for (const d of args) {
     if (d.startsWith('-') && d.length > 1 && d !== '-') {
@@ -5396,6 +5421,7 @@ builtins.rmdir = function (args) {
 // redirects, async contexts). -p/--parents → recursive (existing dirs
 // fine); EEXIST without -p fails like bash.
 builtins.mkdir = function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
   let parents = false;
   const dirs = [];
   for (let i = 0; i < args.length; i++) {
@@ -5428,6 +5454,7 @@ builtins.mkdir = function (args) {
 // whoami — print the effective user name (os.userInfo().username — the
 // same utmp/uid lookup GNU whoami performs; node reads getpwuid).
 builtins.whoami = function () {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
   let name = '';
   try { name = os.userInfo().username; } catch { /* fall through: exit 1 */ }
   if (!name) { emitErr(this, 'whoami: cannot find name for user ID\n'); this.lastExit = 1; return false; }
@@ -5442,6 +5469,7 @@ builtins.whoami = function () {
 // identical hex.
 function checksumBuiltin(algo) {
   return function (args) {
+    if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
     const files = [];
     for (let i = 0; i < args.length; i++) {
       const a = args[i];
@@ -5478,6 +5506,7 @@ builtins.sha512sum = checksumBuiltin('sha512');
 // heredocs, herestrings and file redirects (the corpus's `echo X | tee f`
 // and `< f` shapes).
 builtins.tee = function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
   let append = false;
   const files = [];
   for (let i = 0; i < args.length; i++) {
@@ -5551,6 +5580,7 @@ function xargsSplitWords(input) {
   return words;
 }
 builtins.xargs = async function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
   let nullDelim = false, noRunIfEmpty = false, maxArgs = 0; // 0 = one giant batch
   let cmd = null;
   const cmdArgs = [];
@@ -5627,6 +5657,7 @@ function gzipDecompressOperands(sh, files, prog) {
   return failed;
 }
 builtins.gzip = function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
   let toStdout = false, decompress = false, quiet = false, force = false;
   const files = [];
   for (let i = 0; i < args.length; i++) {
@@ -5668,6 +5699,7 @@ builtins.gzip = function (args) {
   return !failed;
 };
 builtins.gunzip = function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
   const files = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
