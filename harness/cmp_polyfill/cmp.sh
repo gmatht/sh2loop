@@ -170,7 +170,8 @@ _oct_to_char() {
 # Each iteration: read len/2 bytes from each file at the current offset,
 # compare via cksum. If equal, the differ (if any) is in the second
 # half; otherwise it's in the first half (or the first byte of the
-# second half). Uses tail -c +N (instant lseek) + dd bs=N count=1.
+# second half). Uses tail -c +N (instant lseek) + head -c N (exact
+# for any length; dd bs=N count=1 truncates at the pipe's ~64 KB cap).
 # Time complexity: O(log N) iterations of O(1) cksum syscalls.
 # ---------------------------------------------------------------------------
 # Binary search for the first differing offset (0-indexed) in [0, $1).
@@ -187,8 +188,8 @@ find_first_diff() {
         # the differ is at lo (return lo).
         if [ $((_ffd_hi - _ffd_lo)) -eq 1 ]; then
             # cksum [0,hi)
-            _hH1=$(tail -c +$((skip1 + 1)) "$_path1" 2>/dev/null | dd bs="$_ffd_hi" count=1 2>/dev/null | cksum | awk '{print $1}')
-            _hH2=$(tail -c +$((skip2 + 1)) "$_path2" 2>/dev/null | dd bs="$_ffd_hi" count=1 2>/dev/null | cksum | awk '{print $1}')
+            _hH1=$(tail -c +$((skip1 + 1)) "$_path1" 2>/dev/null | head -c "$_ffd_hi" 2>/dev/null | cksum | awk '{print $1}')
+            _hH2=$(tail -c +$((skip2 + 1)) "$_path2" 2>/dev/null | head -c "$_ffd_hi" 2>/dev/null | cksum | awk '{print $1}')
             if [ "$_hH1" = "$_hH2" ]; then
                 echo "$_ffd_hi"
             else
@@ -198,8 +199,8 @@ find_first_diff() {
         fi
         _mid=$((_ffd_lo + (_ffd_hi - _ffd_lo) / 2))
         # cksum of the first _mid bytes (after the skip)
-        _h1=$(tail -c +$((skip1 + 1)) "$_path1" 2>/dev/null | dd bs="$_mid" count=1 2>/dev/null | cksum | awk '{print $1}')
-        _h2=$(tail -c +$((skip2 + 1)) "$_path2" 2>/dev/null | dd bs="$_mid" count=1 2>/dev/null | cksum | awk '{print $1}')
+        _h1=$(tail -c +$((skip1 + 1)) "$_path1" 2>/dev/null | head -c "$_mid" 2>/dev/null | cksum | awk '{print $1}')
+        _h2=$(tail -c +$((skip2 + 1)) "$_path2" 2>/dev/null | head -c "$_mid" 2>/dev/null | cksum | awk '{print $1}')
         if [ "$_h1" = "$_h2" ]; then
             _ffd_lo=$_mid
         else
@@ -272,7 +273,7 @@ if [ "$diff" -ge "$len" ]; then
     # end: this is an EOF, not a differ. Report "after byte N" where
     # N is the 0-based comparison-relative offset of the EOF (= len).
     if [ "$limit" -eq -1 ]; then
-        _eof_line=$(tail -c +$((skip1 + 1)) "$_path1" 2>/dev/null | dd bs="$len" count=1 2>/dev/null | tr -cd '\n' | wc -c | tr -d ' ')
+        _eof_line=$(tail -c +$((skip1 + 1)) "$_path1" 2>/dev/null | head -c "$len" 2>/dev/null | tr -cd '\n' | wc -c | tr -d ' ')
         _eof_line=$((_eof_line + 1))
         [ -n "$sflag" ] || echo "cmp: EOF on $short_file after byte $len, in line $_eof_line" >&2
         exit 1
@@ -308,13 +309,13 @@ fi
 # but be safe)
 if [ -z "$b1" ] && [ -z "$b2" ]; then exit 0; fi
 if [ -z "$b1" ]; then
-    _eof_line=$(tail -c +$((skip2 + 1)) "$_path2" 2>/dev/null | dd bs="$diff" count=1 2>/dev/null | tr -cd '\n' | wc -c | tr -d ' ')
+    _eof_line=$(tail -c +$((skip2 + 1)) "$_path2" 2>/dev/null | head -c "$diff" 2>/dev/null | tr -cd '\n' | wc -c | tr -d ' ')
     _eof_line=$((_eof_line + 1))
     [ -n "$sflag" ] || echo "cmp: EOF on $file1 after byte $((diff + 1)), in line $_eof_line" >&2
     exit 1
 fi
 if [ -z "$b2" ]; then
-    _eof_line=$(tail -c +$((skip1 + 1)) "$_path1" 2>/dev/null | dd bs="$diff" count=1 2>/dev/null | tr -cd '\n' | wc -c | tr -d ' ')
+    _eof_line=$(tail -c +$((skip1 + 1)) "$_path1" 2>/dev/null | head -c "$diff" 2>/dev/null | tr -cd '\n' | wc -c | tr -d ' ')
     _eof_line=$((_eof_line + 1))
     [ -n "$sflag" ] || echo "cmp: EOF on $file2 after byte $((diff + 1)), in line $_eof_line" >&2
     exit 1
@@ -344,16 +345,16 @@ if [ -n "$lflag" ]; then
         [ "$cur" -gt "$BLOCK" ] && cur=$BLOCK
         # cksum-compare this block
         h1=$(tail -c +$((skip1 + off + 1)) "$_path1" 2>/dev/null \
-             | dd bs="$cur" count=1 2>/dev/null | cksum | awk '{print $1}')
+             | head -c "$cur" 2>/dev/null | cksum | awk '{print $1}')
         h2=$(tail -c +$((skip2 + off + 1)) "$_path2" 2>/dev/null \
-             | dd bs="$cur" count=1 2>/dev/null | cksum | awk '{print $1}')
+             | head -c "$cur" 2>/dev/null | cksum | awk '{print $1}')
         if [ "$h1" != "$h2" ]; then
             # differ: hex-dump the block (one byte per line) and compare
             tail -c +$((skip1 + off + 1)) "$_path1" 2>/dev/null \
-                | dd bs="$cur" count=1 2>/dev/null \
+                | head -c "$cur" 2>/dev/null \
                 | od -An -to1 -v | tr -s ' ' '\n' | sed '/^$/d' > /tmp/.cmp_h1_$$ &
             tail -c +$((skip2 + off + 1)) "$_path2" 2>/dev/null \
-                | dd bs="$cur" count=1 2>/dev/null \
+                | head -c "$cur" 2>/dev/null \
                 | od -An -to1 -v | tr -s ' ' '\n' | sed '/^$/d' > /tmp/.cmp_h2_$$ &
             wait
             paste /tmp/.cmp_h1_$$ /tmp/.cmp_h2_$$ | \
@@ -373,7 +374,7 @@ fi
 # ---------------------------------------------------------------------------
 if [ "$diff" -gt 0 ]; then
     line=$(tail -c +$((skip1 + 1)) "$_path1" 2>/dev/null \
-           | dd bs="$diff" count=1 2>/dev/null \
+           | head -c "$diff" 2>/dev/null \
            | tr -cd '\n' | wc -c | tr -d ' ')
     # add 1 for the current line (lines are 1-indexed)
     line=$((line + 1))
