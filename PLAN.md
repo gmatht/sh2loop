@@ -12,6 +12,28 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v16: **`$0` = argv0 pass-through — the corpus stays stdout-pure; new
+>   argv0 conformance suite** (workspace + submodule). Decision: a translated
+>   script's `$0` is its own invocation path (like bash's), not a constant;
+>   the stdout-match corpus can only bless ONE invocation, so `$0` semantics
+>   are pinned by `harness/argv0-tests/` — every $0 script × 3 argv0s (full
+>   path / basename-only / renamed) × {bash ref, sh, estree, perl} must
+>   agree (72/72 green). Five incidental-`$0` examples (lexer/param-`##`
+>   tests where `$0` was just a convenient variable) rewritten to
+>   deterministic vars and stay in the corpus; the `$0`-centric ones
+>   (057_case usage line, qx-var-builtin-cd self-location) stay in the
+>   corpus AND are referenced from the suite. Perl: dropped the
+>   `set_original_script_name` bake (`$0 = 'basename'` was an oracle-tuned
+>   constant that broke `dirname "$0"` and ignored runtime argv0); `./fail`
+>   + `./fail-estree` now run the generated Perl through a `do` wrapper that
+>   sets argv0 = the source path (what `bash '$test_file'` sees) and empties
+>   @ARGV. Old-generator echo fix: bare `$0`/`$1`/… in echo rendered as
+>   `$ENV{0}`/`$ENV{1}` (never set) in four echo renderers — now `$0`/`$ARGV`.
+>   sh gate: the render now runs with argv0 = the source path
+>   (`sh -c '. /dev/fd/3' "$f" 3< render`) so $0-examples stop failing (and
+>   stop being flaky — the temp name varied per run). Corpus: PERL 401→414
+>   (the $0-centric examples flip from FAIL to PASS), ESTREE unchanged
+>   (the 1 tty-cmdsub flake is pre-existing environment drift).
 > - v15: **renderer v3 — 304/531, env-export for shell-outs, var-export
 >   correctness bug, function/case/param/subshell semantics** (workspace,
 >   submodule 283→304: 12 commits). The `bash -c` shell-outs embedded Perl
