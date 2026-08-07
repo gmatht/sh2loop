@@ -52,6 +52,13 @@ shift $((OPTIND - 1))
 # `--` ends options
 [ "${1:-}" = "--" ] && shift
 
+# -l and -s are mutually exclusive (GNU behavior)
+if [ -n "$lflag" ] && [ -n "$sflag" ]; then
+    echo "$0: options -l and -s are incompatible" >&2
+    echo "Try '$0 --help' for more information." >&2
+    exit 2
+fi
+
 if [ $# -ne 2 ]; then
     echo "Usage: cmp [-b|-l|-s] [-n N] [-i N[:M]] [--] file1 file2" >&2
     exit 2
@@ -62,17 +69,19 @@ file2=$2
 # ---------------------------------------------------------------------------
 # File validation
 # ---------------------------------------------------------------------------
+# Use $0 (full invocation path) as the program name in error messages,
+# matching GNU's behavior (e.g., "/usr/bin/cmp: FILE: No such file...").
 for f in "$file1" "$file2"; do
     if [ ! -e "$f" ]; then
-        echo "cmp: $f: No such file or directory" >&2
+        echo "$0: $f: No such file or directory" >&2
         exit 2
     fi
     if [ -d "$f" ]; then
-        echo "cmp: $f: Is a directory" >&2
+        echo "$0: $f: Is a directory" >&2
         exit 2
     fi
     if [ ! -r "$f" ]; then
-        echo "cmp: $f: Permission denied" >&2
+        echo "$0: $f: Permission denied" >&2
         exit 2
     fi
 done
@@ -103,12 +112,19 @@ len=$sz1
 # differing characters are all printable ('f' and 'Z').
 # ---------------------------------------------------------------------------
 _oct_to_char() {
-    _dec=$((0$1))
-    if [ "$_dec" -ge 32 ] && [ "$_dec" -le 126 ]; then
-        printf "\\$(printf '%03o' "$_dec")"
-    else
-        printf ' '
-    fi
+    # Print the byte value (from octal string $1) in cat -v style:
+    # printable (32-126) as the char, control (0-31) as ^X, DEL (127) as
+    # ^?, high-bit (128-255) as M-X. Uses awk because POSIX sh's
+    # printf "%c" with a numeric arg is unreliable (dash prints the
+    # first char of the string representation, not the char with that code).
+    awk -v d="$((0$1))" 'BEGIN {
+        if (d >= 32 && d <= 126) printf "%c", d
+        else if (d < 32) printf "^%c", d + 64
+        else if (d == 127) printf "^?"
+        else { d2 = d - 128
+               if (d2 < 32) printf "M-^%c", d2 + 64
+               else printf "M-%c", d2 }
+    }'
 }
 
 # ---------------------------------------------------------------------------
@@ -162,6 +178,11 @@ find_first_diff() {
 # EOF (one file shorter) or identical (both empty).
 # ---------------------------------------------------------------------------
 if [ "$len" -eq 0 ]; then
+    # If -n was used (limit!=-1) and the limit is 0, the compare range
+    # is empty by design -> identical within the limit (GNU rc=0).
+    if [ "$limit" -ne -1 ]; then
+        exit 0
+    fi
     # compare ranges both empty
     if [ "$sz1" -eq 0 ] && [ "$sz2" -eq 0 ]; then
         exit 0
@@ -342,7 +363,7 @@ if [ -n "$bflag" ]; then
     o2=$(printf '%o' "$((0$b2))")
     c1=$(_oct_to_char "$b1")
     c2=$(_oct_to_char "$b2")
-    printf '%s %s differ: byte %d, line %d is %s %s %s %s\n' \
+    printf '%s %s differ: byte %d, line %d is %3s %s %3s %s\n' \
         "$file1" "$file2" "$byte" "$line" "$o1" "$c1" "$o2" "$c2"
 else
     printf '%s %s differ: byte %d, line %d\n' \
