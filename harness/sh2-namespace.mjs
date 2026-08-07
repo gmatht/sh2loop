@@ -5595,6 +5595,16 @@ builtins.xargs = async function (args) {
 // the status); data that is not a gzip stream fails status 2 (GNU). The
 // corpus shapes are decompress-only (the parse-test gzip families never
 // see a real .gz file — the operands are unset vars/missing files).
+// BINARY-safe fd-0 read: the gzip stream must reach zlib as raw bytes
+// (readFd0 is UTF-8 text — it would mangle a .gz's high bytes).
+function readFd0Buffer(sh) {
+  const fd0 = sh.fdTargets[0];
+  if (fd0.kind === 'file' && fd0.readMode) {
+    try { return fs.readFileSync(fd0.target); } catch { return Buffer.alloc(0); }
+  }
+  if (fd0.kind === 'string') return Buffer.from(fd0.content, 'utf8');
+  return Buffer.from(readFd0(sh), 'utf8');
+}
 function gzipDecompressOperands(sh, files, prog) {
   let failed = false;
   for (const f of files) {
@@ -5640,16 +5650,16 @@ builtins.gzip = function (args) {
     else files.push(a);
   }
   if (files.length === 0) {
-    // stdin form: gzip -cd < file — read fd0
-    let data = readFd0(this);
+    // stdin form: gzip -cd < file — read fd0 as raw bytes
+    const data = readFd0Buffer(this);
     if (decompress) {
-      try { emit(this, zlib.gunzipSync(Buffer.from(data, 'utf8')).toString('utf8')); this.lastExit = 0; return true; }
+      try { emit(this, zlib.gunzipSync(data).toString('utf8')); this.lastExit = 0; return true; }
       catch { emitErr(this, 'gzip: (stdin): not in gzip format\n'); this.lastExit = 2; return false; }
     }
     // compression of stdin (no -d): corpus-unreachable — approximate
     // with zlib (content round-trips; the .gz header bytes differ from
     // GNU — documented assumption SH2_ASSUME_GZIP).
-    emit(this, zlib.gzipSync(Buffer.from(data, 'utf8')).toString('latin1'));
+    emit(this, zlib.gzipSync(data).toString('latin1'));
     this.lastExit = 0;
     return true;
   }
@@ -5667,9 +5677,9 @@ builtins.gunzip = function (args) {
   }
   if (files.length === 0) {
     // stdin form: `gunzip < f.gz` — the corpus's gunzip_example shape
-    let data = readFd0(this);
+    // (binary-safe fd-0 read — see readFd0Buffer)
     let out;
-    try { out = zlib.gunzipSync(Buffer.from(data, 'utf8')); }
+    try { out = zlib.gunzipSync(readFd0Buffer(this)); }
     catch { emitErr(this, 'gunzip: (stdin): not in gzip format\n'); this.lastExit = 1; return false; }
     emit(this, out.toString('utf8'));
     this.lastExit = 0;
