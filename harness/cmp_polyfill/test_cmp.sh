@@ -151,6 +151,11 @@ printf 'X' | dd of="$TD/big2" bs=1 seek=99 count=1 conv=notrunc 2>/dev/null
 printf 'Y' | dd of="$TD/big2" bs=1 seek=4999 count=1 conv=notrunc 2>/dev/null
 printf 'Z' | dd of="$TD/big2" bs=1 seek=11999 count=1 conv=notrunc 2>/dev/null
 run "large_l_multi" "-l '$TD/big1' '$TD/big2'" "-l '$TD/big1' '$TD/big2'"
+head -c 200000 /dev/zero | tr '\0' 'c' > "$TD/big1"
+head -c 200000 /dev/zero | tr '\0' 'c' > "$TD/big2"
+printf 'X' | dd of="$TD/big2" bs=1 seek=130000 count=1 conv=notrunc 2>/dev/null
+run "large_gt64k_diff" "'$TD/big1' '$TD/big2'" "'$TD/big1' '$TD/big2'"
+run "large_gt64k_l" "-l '$TD/big1' '$TD/big2'" "-l '$TD/big1' '$TD/big2'"
 
 # Error conditions (rc only — message format differs)
 mkfile f1 'a'
@@ -211,6 +216,9 @@ run_stdin "stdin_l"               "printf 'abcdefghij'" "-l - '$TD/hostname'" "-
 run_stdin "stdin_l_highbit"       "printf '\xff\xfe\x7f'" "-l - '$TD/hostname'" "-l - '$TD/hostname'"
 run_stdin "stdin_empty"           "printf ''"      "- -" "- -"
 run_stdin "stdin_n0"              "printf 'hello'" "-n 0 -" "-n 0 -"
+head -c 130000 /dev/zero | tr '\0' 'f' > "$TD/big2"
+printf 'Y' | dd of="$TD/big2" bs=1 seek=129999 count=1 conv=notrunc 2>/dev/null
+run_stdin "stdin_gt64k"           "head -c 130000 /dev/zero | tr '\0' 'f'" "'$TD/big2' -" "'$TD/big2' -"
 
 # Summary
 echo "=========================================="
