@@ -59,19 +59,29 @@ if [ -n "$lflag" ] && [ -n "$sflag" ]; then
     exit 2
 fi
 
-if [ $# -ne 2 ]; then
-    echo "Usage: cmp [-b|-l|-s] [-n N] [-i N[:M]] [--] file1 file2" >&2
+# Argument count: GNU accepts 1 or 2 files (a `-` argument means stdin).
+# 0 args -> error "missing operand". 1 arg -> compare FILE with stdin.
+if [ $# -eq 0 ]; then
+    echo "$0: missing operand after '$0'" >&2
+    echo "Try '$0 --help' for more information." >&2
     exit 2
+elif [ $# -eq 1 ]; then
+    file1=$1
+    file2=-
+else
+    file1=$1
+    file2=$2
 fi
-file1=$1
-file2=$2
 
 # ---------------------------------------------------------------------------
 # File validation
 # ---------------------------------------------------------------------------
 # Use $0 (full invocation path) as the program name in error messages,
 # matching GNU's behavior (e.g., "/usr/bin/cmp: FILE: No such file...").
+# `-` means stdin (skip existence/dir/readability checks; we use
+# /dev/stdin for the actual reads below).
 for f in "$file1" "$file2"; do
+    [ "$f" = "-" ] && continue
     if [ ! -e "$f" ]; then
         echo "$0: $f: No such file or directory" >&2
         exit 2
