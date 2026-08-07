@@ -1072,10 +1072,12 @@ sub parse_pi_decisions {
 # a contract violation if none). This is the per-round accountability
 # the dedicated prompt demands.
 sub print_mediation_table {
-    my ($decisions, \@names) = @_;
-    my $n = scalar @names;
+    # Note: avoid `my (..., \@name) = @_` — that's the experimental
+    # `declared_refs` feature in Perl 5.36+ and fatally aborts the
+    # loop on startup. Take the array ref plainly.
+    my ($decisions, $names) = @_;
     my $v = 0;  # violations
-    for my $name (sort @names) {
+    for my $name (sort @$names) {
         my $bn = $name; $bn =~ s{.*/}{};
         my $d = $decisions->{$bn} || $decisions->{$name};
         if ($d) {
