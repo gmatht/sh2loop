@@ -1397,6 +1397,18 @@ export const sh2 = {
     let prev = null;
     try {
       for (let i = 0; i < stages.length; i++) {
+        if (typeof stages[i] !== 'function') {
+          // String stage — the emitter's `echo ARGS | ...` collapse (see
+          // src/shir.rs try_echo_stage_text): the stage expression is a
+          // sequence `(sh2.lastExit = 0, text)` holding the EXACT bytes
+          // the echo builtin would write into the pipe (join + trailing
+          // newline unless -n). The produced text IS the stage's output;
+          // no fd juggling, no builtin dispatch. Only non-last stages
+          // collapse (the last stage must write through the current
+          // fd-1 sink — emit — which only the arrow form does).
+          prev = String(stages[i] ?? '');
+          continue;
+        }
         if (i > 0 && prev !== null) this.fdTargets[0] = { kind: 'string', content: prev };
         else if (i === 0) this.fdTargets[0] = saved[0];
         if (i < stages.length - 1) this.fdTargets[1] = { kind: 'capture', buf: '' };
@@ -5989,7 +6001,27 @@ export function expandWord(sh, s) {
     const next = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)([^{}]*)\}/g, (m, n, body) => {
       const v = sh.getVar(n);
       if (body === '') return v;
-      if (body.startsWith('#')) return String(v.length);
+      if (body === '#') return String(v.length); // ${#name} — length ONLY
+      // glob-strip / case / substitute ops — the sh.param switch's set
+      // (`#pat`, `##pat`, `%pat`, `%%pat`, `^^`, `,,`, `^`, `/p/r`,
+      // `//p/r`): `${p##*/}` inside a quoted test word arrives here (the
+      // tokenizer's own `${...}` branch only sees UNQUOTED positions). The
+      // old `body.startsWith('#')` length check mis-handled `##` (the
+      // prefix-strip op) as `${#name}` length.
+      const om2 = /^(##?|%%?|\^\^?|,,|\/\/?)(.*)$/s.exec(body);
+      if (om2) {
+        const op = om2[1];
+        const rest = om2[2] ?? '';
+        if (op === '#' || op === '##' || op === '%' || op === '%%') {
+          return sh.param(op, n, rest, '', v);
+        }
+        if (op === '/' || op === '//') {
+          const slash = rest.indexOf('/');
+          if (slash < 0) return m; // unterminated substitution — leave literal
+          return sh.param(op, n, rest.slice(0, slash), rest.slice(slash + 1), v);
+        }
+        return sh.param(op, n, '', '', v); // ^^ ,, ^
+      }
       if (body.startsWith('[') && body.endsWith(']')) {
         // ${name[key]} / ${name[@]} / ${name[*]} — array element / join
         const k = body.slice(1, -1);
