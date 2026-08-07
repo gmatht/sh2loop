@@ -1,4 +1,4 @@
-# sh renderer: (1) the new IR shapes from arith_forms + grep_to_case, AND (2) the recursive `bash -c` → POSIX lowering (static-link default; dynamic `sh -c` opt-in)
+# sh renderer: (1) the new IR shapes from arith_forms + grep_to_case, AND (2) the recursive `bash -c` → POSIX lowering (static-link default with subshell wrap; `--no-subshell` and `--posix-sh-c` opt-outs)
 
 ## NEED
 The shared core shipped two new transforms/lifts (the estree worker's
@@ -44,15 +44,14 @@ renderer work this request covers.
 
 ### A. `IrStmt::Assign` with `IrExpr::Arith(ArithAst::Assign{compound})`
 
-Today the sh renderer renders `let x+=1` (the OLD pre-transform shape)
-as the broken `$(($( _num "x" )+=1)) -ne 0` (side-effect-free command
-substitution, so x never gets assigned). With arith_forms, the IR is
-now `Assign { targets: [x], expr: Arith(Assign{var:x, op:"+=",
-rhs:Var(x)+1}) }`. The renderer must recognise
-`IrExpr::Arith(ArithAst::Assign{var,op,rhs})` and emit `x=$((x + 1))`
-(or `((x+=1))` — both POSIX-portable; pick the form the renderer's
-existing test matrix prefers, with byte-identical output as the
-gate's acceptance bar).
+Today the sh renderer renders `let x+=1` (the OLD pre-transform shape) as
+the broken `$(($( _num "x" )+=1)) -ne 0` (side-effect-free command
+substitution, so x never gets assigned). With arith_forms, the IR is now
+`Assign { targets: [x], expr: Arith(Assign{var:x, op:"+=", rhs:Var(x)+1}) }`.
+The renderer must recognise `IrExpr::Arith(ArithAst::Assign{var,op,rhs})`
+and emit `x=$((x + 1))` (or `((x+=1))` for the sh — both are
+POSIX-portable; pick the form the renderer's existing test matrix
+prefers, with byte-identical output as the gate's acceptance bar).
 
   * `ArithAst::Assign{op:"=", rhs}` → `x=$((rhs))`
   * `ArithAst::Assign{op:"+=", rhs}` → `x=$((x + rhs))` (or `((x+=rhs))`)
@@ -60,8 +59,8 @@ gate's acceptance bar).
   * `ArithAst::IncDec{prefix,delta}` → `((x++))` / `((++x))` /
     `((x--))` / `((--x))` (POSIX `$((..))` supports these)
 
-The Perl backend already does this (its `ArithAst::Assign` rendering
-at `ir.rs::arith_ast_to_perl`); the sh renderer's corresponding
+The Perl backend already does this (its `ArithAst::Assign` rendering at
+`ir.rs::arith_ast_to_perl`); the sh renderer's corresponding
 `sh_backend.rs` arm needs the equivalent.
 
 ### B. `IrStmt::Case` from grep_to_case
@@ -84,61 +83,67 @@ core-request's REGEX-POLICY NOTE — `?` is refused). `*` and `[abc]`
 pass through; these are already valid case globs. No new rendering
 work — just verify.
 
-### C. Recursive `bash -c` → POSIX lowering (static-link default; dynamic `sh -c` opt-in)
+### C. Recursive `bash -c` → POSIX lowering (static-link default with subshell wrap; `--no-subshell` and `--posix-sh-c` opt-outs)
 
 This is the **bigger** renderer change and the one the chimera sandbox
 needs most. The sh backend currently emits `bash -c '<snippet>'` for
 constructs it can't lower to POSIX. In a bash-free environment that
-fallback dies. The recursion: parse the snippet back into IR via
-the core's `ast_to_ir_raw`, render the sub-IR with the sh backend
-itself (in-process — both the parser and the renderer live in the
-sh backend binary, which links `debashl`), get a POSIX string. Then
-emit one of two forms:
+fallback dies. The fix: **the sh backend recursively renders its own bash
+one-liner** before shelling out. `bash -c '<snippet>'` becomes
+either (a) an *inline* sh function whose body is the recursively-
+lowered POSIX snippet (the default — pure sh, no `sh -c`, no
+runtime fork), OR (b) a portable `sh -c '<posix>'` (opt-in — dynamic,
+subshell-isolated, runtime shell-out). Both are "POSIX native" in
+the sense that the inner script is POSIX (not bash); they differ in
+static-link vs dynamic-`sh -c`. This is the **third** piece of
+renderer work this request covers.
 
-  **C-1. Static link (default, `--shir-in-sh --posix-native`):**
-  inline the lowered POSIX snippet as a function definition in the
-  emitted sh program, and call it at the original call site. Pure
-  sh — no `sh -c`, no runtime fork, variables in scope (sh is
-  dynamically scoped, so the function sees the caller's `$x`,
-  `$IFS`, etc.). A unique function name (`__sh_sub_<hash>`) avoids
-  collisions; the hash is over the snippet so identical snippets
-  dedupe to one definition. This is the recommended default for
-  the chimera sandbox AND the dev-box `sh` gate (both have no bash).
+**The scoping question (why this matters):** `bash -c '<snippet>'`
+runs the snippet in a *new shell invocation* — a subshell with
+only the parent's EXPORTED environment. Non-exported parent
+variables are INVISIBLE in the child (`x=hello; bash -c 'echo $x'`
+prints a blank line — `x` is not exported). The snippet's
+ASSIGNMENTS are local to the child (subshell isolation: `x=99`
+inside doesn't leak to the outer `x`). This is the same behavior
+as `sh -c` and as wrapping the snippet in `( ... )` in the same
+shell (a subshell). The recursion must preserve this scoping, or
+the lowered POSIX snippet will silently see MORE variables than
+the original bash snippet did (or its writes will leak) and the
+gate's output compare will diverge.
 
-  Example. For `if [[ -f $x ]]; then A; else B; fi`, the recursion
-  produces the POSIX snippet `[ -f "$x" ]`. The renderer emits:
+  **Scoping matrix for the four emit forms:**
 
-  ```sh
-  __sh_sub_a1b2c3d4() { [ -f "$x" ]; }
-  if __sh_sub_a1b2c3d4; then A; else B; fi
-  ```
+  | form | subshell? | reads outer | writes leak? | matches `bash -c`? |
+  |---|---|---|---|---|
+  | legacy `bash -c '<raw>'` | yes | exported-only | no | yes (it's bash -c) |
+  | dynamic `sh -c '<posix>'` (`--posix-sh-c`) | yes | exported-only | no | yes |
+  | inlined function, no wrap (`--posix-native --no-subshell`) | **no** | **all** (dynamic scope) | **yes** | **no** |
+  | inlined function, subshell wrap `(\n  __sh_sub_h\n)` (`--posix-native`, the default) | yes | exported-only | no | yes |
 
-  The function body is pure sh; the emitted program is pure sh; the
-  gate is satisfied. The function name is `__sh_sub_<8 hex>` over
-  the snippet bytes.
+  The **default `--posix-native` MUST wrap the function call in
+  `( ... )`** — without the wrap, the inlined form has the WRONG
+  scoping (dynamic scope reads everything; writes persist), which
+  silently diverges from `bash -c`'s semantics and can fail the
+  gate on a corpus file that depends on the subshell isolation.
+  With the wrap, the inlined form is identical to `sh -c` in
+  scoping — the recursion is semantics-preserving.
 
-  **C-2. Dynamic portable `sh -c` (opt-in, `--shir-in-sh --posix-sh-c`):**
-  emit `sh -c '<lowered posix>'` at the call site. The inner
-  snippet is still POSIX (the recursion lowered it), but it's run
-  in a new shell invocation (subshell-isolated: variables assigned
-  in the snippet do NOT leak to the outer program). This is the
-  right form when the snippet mutates outer-scope state and the
-  caller wants isolation, OR when the caller prefers the
-  self-contained "string of POSIX" form. Trade-off: a runtime
-  fork+exec (slower), shell-escape the snippet (single-quote the
-  whole string, escape internal `'` as `'\''`). The gate's output
-  compare is the oracle — it tells you when the subshell isolation
-  was load-bearing (a `($x=99; echo $x)` snippet: static-link
-  mutates the outer `$x` to `99` and a later `echo $x` would
-  differ; dynamic `sh -c` keeps the outer `$x` unchanged).
+  The `--no-subshell` opt-out exists for snippets the caller
+  KNOWS are pure (no outer-scope writes; reads only of vars the
+  caller is happy to expose) and where the no-fork speed matters
+  more than the `bash -c` scoping fidelity. The gate's output
+  compare is the oracle: a corpus file that fails under
+  `--no-subshell` but passes under the default wrap is a file
+  that relies on subshell isolation → keep the wrap (the default).
 
-  Example. Same input, dynamic form:
-
-  ```sh
-  sh -c '[ -f "$x" ]'
-  ```
-
-  (the snippet is `[ -f "$x" ]` — POSIX, lowercased, no bash left).
+  **The "transform to make sure variables don't overlap"** the
+  renderer needs is, at its simplest, **the subshell wrap** —
+  `( __sh_sub_h ) || return $?` at the call site. That single
+  change gives the inlined form the same scoping as `bash -c` and
+  `sh -c`. No scan, no export, no pollution of the global env.
+  The `|| return $?` preserves the snippet's exit status (a
+  subshell call's exit is the last command's exit; the `|| return
+  $?` surfaces it to the caller's `$?`).
 
   **The recursion — in-process, in the sh backend binary:**
 
@@ -169,15 +174,27 @@ emit one of two forms:
       .map_err(|_| /* refuse loudly — bash -c is not an option
                        in a bash-free env, and the snippet refused
                        to lower */)?;
+  let name = format!("__sh_sub_{:x}", hash(&posix));
   if posix_native_mode {
-      // static link: define a function + call it
-      let name = format!("__sh_sub_{:x}", hash(&posix));
+      // static link: define a function + call it. The call site
+      // is wrapped in `( ... )` so the snippet runs in a SUBSHELL
+      // — matches bash -c's scoping (exported-only reads, writes
+      // isolated). `|| return $?` surfaces the snippet's exit
+      // status to the caller's `$?`.
       out.push_str(&format!("{}() {{\n  {}\n}}\n", name, indent(&posix)));
-      // call site (subshell-isolated if the snippet assigns to
-      // outer-scope names — the gate's output compare is the oracle)
-      out.push_str(&format!("(\n  {}\n) || return $?\n", name));
+      out.push_str(&format!(
+          "(\n  {}\n) || return $?\n",
+          name
+      ));
+  } else if posix_native_no_subshell_mode {
+      // The --no-subshell opt-out: drop the parens for snippets
+      // known to be pure. Dynamic-scope reads, writes persist.
+      // Diverges from bash -c's scoping; gate output is the oracle.
+      out.push_str(&format!("{}() {{\n  {}\n}}\n", name, indent(&posix)));
+      out.push_str(&format!("{}\n", name));
   } else if posix_sh_c_mode {
-      // dynamic portable sh -c: shell-escape + emit
+      // dynamic portable sh -c: shell-escape + emit. The sh -c
+      // invocation IS the subshell (no explicit wrap needed).
       let escaped = shell_escape_single_quotes(&posix);
       out.push_str(&format!("sh -c '{}'\n", escaped));
   } else {
@@ -201,22 +218,35 @@ emit one of two forms:
   common case (depth=1) covers everything the shared-core
   transforms (arith_forms, grep_to_case, process_subst) enable.
 
-### D. The CLI (sh backend binary, all three modes)
+### D. The CLI (sh backend binary, all four modes)
 
 ```
 # legacy: bash -c '<snippet>' (the dev-box-with-bash back-compat
 # path). The chimera sandbox dies on this. Default for back-compat.
 debashc --shir-in-sh -    < shir.json > program.sh
 
-# DEFAULT for chimera + the dev sh-gate: static link. The
-# recursion + inline (no sh -c). Pure sh, top to bottom.
+# DEFAULT for chimera + the dev sh-gate: static link WITH subshell
+# wrap. The recursion + inline (no sh -c) + the `( ... )` wrap
+# around the call → scoping matches bash -c (subshell, exported-
+# only reads, writes isolated). Pure sh, top to bottom.
 debashc --shir-in-sh --posix-native -    < shir.json > program.sh
 
+# opt-in: static link WITHOUT the subshell wrap. The recursion +
+# inline, but the function call is direct (no parens). Dynamic
+# scope: the function sees ALL outer variables (not just
+# exported) and the snippet's assignments persist in the outer
+# scope. Diverges from bash -c's scoping — use only for snippets
+# known to be pure and where the no-fork speed matters more than
+# scoping fidelity. The gate's output compare is the oracle.
+debashc --shir-in-sh --posix-native --no-subshell -    < shir.json > program.sh
+
 # opt-in: dynamic portable sh -c. The recursion + sh -c '<posix>'.
-# Use when subshell isolation is wanted (the snippet mutates outer
-# state and the caller needs the isolation) or when the caller
-# prefers the "string of POSIX" form. A runtime fork; a shell
-# escape on the snippet.
+# The sh -c invocation IS the subshell (exported-only reads,
+# writes isolated) — matches bash -c's scoping. A runtime fork;
+# a shell escape on the snippet. Use when the caller prefers the
+# self-contained "string of POSIX" form (e.g., for embedding in
+# a config or a heredoc) or when subshell isolation via sh -c
+# is preferred to the function-wrap form.
 debashc --shir-in-sh --posix-sh-c -    < shir.json > program.sh
 
 # the primitive — renders the sh BODY of a ShIR JSON (no
@@ -229,7 +259,10 @@ debashc --shir-in-sh-fragment -    < shir.json > body.sh
 The `--posix-native` is the recommended default for the chimera
 sandbox AND the dev-box `sh` gate. The legacy `--shir-in-sh` stays
 for back-compat (bodies that genuinely have `bash` available and
-prefer the smaller emitted script).
+prefer the smaller emitted script). The `--no-subshell` and
+`--posix-sh-c` are the two scoping-deviation knobs — the default
+wrap matches `bash -c`; these opt into the dynamic-scope or
+runtime-shell-out forms respectively.
 
 ## MINIMAL-CHANGE STRATEGY
 - The sh worker is mid-corpus-grind (its own renderer improvements).
@@ -244,6 +277,11 @@ prefer the smaller emitted script).
 - The recursion (C) is in-process: the sh backend binary links
   `debashl` and calls `parse_commands_from_text` + `ast_to_ir_raw`
   + its own `render_program`. No subprocess overhead.
+- The scoping question (C's subshell wrap) is the key correctness
+  detail — without the wrap, the inlined form has the WRONG scoping
+  and the gate will fail on corpus files that depend on subshell
+  isolation. The default wrap matches `bash -c` exactly; the
+  `--no-subshell` opt-out exists for callers who know better.
 - Verify with the existing test surfaces: the 12-example + 4-example
   set (the chimera gate's `bad_translation.txt` shows the exact
   files) plus the dev-box `sh` quick-gate.
@@ -259,11 +297,15 @@ prefer the smaller emitted script).
   pattern is the lowered `*hello*`).
 - `if [[ -f $x ]]; then A; else B; fi` (the bash-`[[` test) under
   `--posix-native` → the recursion produces `[ -f "$x" ]`; the
-  emitted program has `__sh_sub_<h>() { [ -f "$x" ]; }` + a call;
-  the gate is satisfied. Under `--posix-sh-c` → the emitted
-  program has `sh -c '[ -f "$x" ]'` and the gate is satisfied.
-  Under the legacy `--shir-in-sh` → `bash -c '[[ -f $x ]]'`; the
-  chimera sandbox dies (no bash). The three modes differentiate.
+  emitted program has `__sh_sub_<h>() { [ -f "$x" ]; }` + a
+  parenthesised call; the gate is satisfied. Under
+  `--posix-native --no-subshell` → no parens, dynamic scope: the
+  snippet sees ALL outer vars (and a corpus file that relies on
+  subshell isolation will FAIL this case, exposing the scoping
+  divergence). Under `--posix-sh-c` → `sh -c '[ -f "$x" ]'`,
+  subshell-isolated, gate satisfied. Under the legacy `--shir-in-sh`
+  → `bash -c '[[ -f $x ]]'`; the chimera sandbox dies (no bash).
+  The four modes differentiate cleanly.
 
 ## SCOPE / OWNERSHIP
 Out of scope for the estree loop (renderer, not shared core). The sh

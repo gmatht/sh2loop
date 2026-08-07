@@ -1377,6 +1377,20 @@ export const sh2 = {
         this.fdTargets[fd] = { kind: 'file', target, readMode: true };
       } else if (s.mode === 'w' || s.mode === 'a') {
         const t = expandWord(this, String(s.target));
+        // `>/dev/null` (and `2>/dev/null`): the corpus's most common
+        // write redirect — a char device that discards everything, so a
+        // `{kind:'discard'}` target skips the per-write open/write syscall
+        // (writeFileSync to /dev/null) AND the existence check.
+        // ASSUMPTION (option-gated, default ON): SH2_ASSUME_DEVNULL=0
+        // restores the file-target path — the standard /dev/null discard
+        // device is present and writable (the corpus env's /dev/null is
+        // the kernel char device, never a replaced regular file; a write
+        // to it can never fail, so the discard's silent success matches
+        // GNU's status-0 behavior).
+        if (t === '/dev/null' && process.env.SH2_ASSUME_DEVNULL !== '0') {
+          this.fdTargets[fd] = { kind: 'discard' };
+          continue;
+        }
         // The persistent-restore pass creates the file if missing (the
         // original restore loop did; the live install defers creation to
         // the writer or `_ensureRedirectFiles`).
@@ -5921,6 +5935,7 @@ function decodeRawBytes(text) {
 function emit(sh, text) {
   const t = sh.fdTargets[1];
   if (t.kind === 'capture') t.buf += text;
+  else if (t.kind === 'discard') { /* >/dev/null — nothing to write */ }
   else if (t.kind === 'file') writeFileSync(t.target, decodeRawBytes(text) ?? Buffer.from(text, 'utf8'), t.mode);
   else if (t.kind === 'stderr') process.stderr.write(decodeRawBytes(text) ?? text);
   else if (t.kind === 'closed') { /* fd closed: bash errors (exit 1) and the output is lost */ sh.lastExit = 1; }
@@ -5930,6 +5945,7 @@ function emit(sh, text) {
 function emitErr(sh, text) {
   const t = sh.fdTargets[2];
   if (t.kind === 'capture') t.buf += text;
+  else if (t.kind === 'discard') { /* 2>/dev/null — nothing to write */ }
   else if (t.kind === 'file') writeFileSync(t.target, decodeRawBytes(text) ?? Buffer.from(text, 'utf8'), t.mode);
   else if (t.kind === 'stdout') process.stdout.write(decodeRawBytes(text) ?? text);
   else if (t.kind === 'closed') { /* fd closed */ sh.lastExit = 1; }
