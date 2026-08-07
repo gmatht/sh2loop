@@ -642,7 +642,10 @@ sub invoke_pi {
     }
     close $pi_fh;
     print "\n(pi finished)\n";
-    return 1;
+    # Return the accumulated full text so callers (the dedicated
+    # core-request round) can parse per-request DECISION lines. Truthy
+    # for the existing boolean callers (non-empty on success).
+    return $full;
 }
 
 # ── scoped git operations (never add -A) ─────────────────────────────
@@ -1027,11 +1030,67 @@ sub build_core_request_prompt {
     $p .= "— tiny estree lowerings (sh2.* call-site reductions) can wait until the\n";
     $p .= "core-request queue is empty.\n\n";
     $p .= "Current corpus verdict (informational): estree " . ($summary->{estree_passed} // '?') . "/" . ($summary->{total} // '?') . " pass.\n\n";
-    $p .= "For EVERY request below: implement it, or APPEND a line '## OUTCOME: rejected: <one-line reason>' to the request file. Do NOT leave requests silently pending — the queue is the other workers' progress signal, and this round is dedicated to it.\n";
-    $p .= "Regression rules (unchanged): ./fail-estree must stay green at the trusted baseline; determinism (cargo test --lib) and the structural gate must stay green; PERL pass count must not drop. If implementing would regress, leave the request pending WITH a note (it gets another dedicated round).\n";
-    $p .= "If two requests conflict, implement the one maximizing corpus coverage and reject the other with the reason.\n";
+    $p .= "MANDATORY PER-REQUEST ACCOUNTABILITY (the queue is no longer silently stalling):\n";
+    $p .= "For EVERY request below you MUST emit, in your final reply to this prompt, a single line of the form:\n";
+    $p .= "  [core-request <filename.md>] DECISION: implemented | rejected | untouched — <one-line reason>\n";
+    $p .= "The DECISION line is REQUIRED for every request — an in-file '## OUTCOME:' marker alone is NOT sufficient and is treated as a contract violation. The 'reason' is MANDATORY for 'untouched' (state what you need to make progress — e.g. 'waiting on an upstream core change', 'too large for one round, see partial work in <file>', 'conflicts with <other-request>, proposing reject'). The loop scans your reply for these lines and prints a per-request table; missing lines surface as warnings so the situation is visible (and the stall cap is still the safety net).\n\n";
+    $p .= "In-file outcomes (the existing contract) still apply where you DO land work: APPEND '## OUTCOME: implemented' to the request file on implementation, or '## OUTCOME: rejected: <reason>' on rejection. The DECISION line is the per-round log signal; the in-file marker is the finalize signal.\n";
+    $p .= "Regression rules (unchanged): ./fail-estree must stay green at the trusted baseline; determinism (cargo test --lib) and the structural gate must stay green; PERL pass count must not drop. If implementing would regress, the right call is 'untouched' WITH a reason (e.g. 'would regress tXX; needs a shir_passes fix first'), not a silent leave.\n";
+    $p .= "If two requests conflict, implement the one maximizing corpus coverage and reject the other — the DECISION line carries the reason.\n";
     $p .= "Scope: shared core (src/shir.rs, src/ir.rs, src/estree.rs, src/parser/, shir_json.rs, shir_json_in.rs), src/transforms/ compile-ins (core-requests/transforms/), harness/*. Commit scoped changes when green.\n";
     return $p;
+}
+
+# ── parse per-request DECISION lines from pi's reply ─────────────────
+# The dedicated mediation round requires pi to emit, for every request,
+# `[core-request <name>] DECISION: implemented|rejected|untouched — <reason>`.
+# Scan the pi transcript and build a { name => { state, reason } } map;
+# report requests with no DECISION line as contract violations (so the
+# situation is visible — "Deepseek trouble" / silent stall — without
+# waiting for the cycle-3 auto-stall cap).
+sub parse_pi_decisions {
+    my ($text) = @_;
+    my %d;
+    return \%d unless defined $text && length $text;
+    # Match the line; tolerate leading/trailing whitespace, em- or
+    # en-dash separators (pi occasionally emits those), and the
+    # <filename>.md may include hyphens.
+    while ($text =~ m{
+        \[\s*core-request\s+([\w.-]+\.md)\s*\]\s*
+        DECISION\s*:\s*
+        (implemented|rejected|untouched)\s*
+        [-–—]\s*
+        ( [^\n\r]* )
+    }gix) {
+        $d{$1} = { state => lc($2), reason => $3 };
+    }
+    return \%d;
+}
+
+# ── print the per-request mediation table for a round ─────────────────
+# For each request in @names, report the DECISION pi emitted (or flag
+# a contract violation if none). This is the per-round accountability
+# the dedicated prompt demands.
+sub print_mediation_table {
+    my ($decisions, \@names) = @_;
+    my $n = scalar @names;
+    my $v = 0;  # violations
+    for my $name (sort @names) {
+        my $bn = $name; $bn =~ s{.*/}{};
+        my $d = $decisions->{$bn} || $decisions->{$name};
+        if ($d) {
+            my $r = $d->{reason}; $r //= ''; $r =~ s/^\s+|\s+$//g;
+            print "    [core-request $bn] DECISION=" . $d->{state}
+                . ($r ne '' ? "  — $r" : '') . "\n";
+        } else {
+            print STDERR "    [core-request $bn] *** CONTRACT VIOLATION: no per-round DECISION line emitted (in-file OUTCOME marker alone is insufficient; the situation is now visible — stall cap is the safety net)\n";
+            $v++;
+        }
+    }
+    if ($v) {
+        print STDERR "  core-request mediation: $v contract violation(s) this round (missing DECISION lines).\n";
+    }
+    return $v;
 }
 
 my $iteration = 0;
@@ -1203,7 +1262,17 @@ while (1) {
                 release_lock();
                 exit 0;
             }
-            invoke_pi($req_prompt . $core_block);
+            my $pi_text = invoke_pi($req_prompt . $core_block);
+            # Per-round accountability: scan pi's reply for the
+            # mandatory per-request DECISION lines and print a table.
+            # Without this the "silently leave pending" failure mode (pi
+            # in trouble) was invisible until the cycle-3 stall cap
+            # kicked in. Now the situation surfaces immediately.
+            my $decisions = parse_pi_decisions($pi_text);
+            my $violations = print_mediation_table($decisions, [map { my $p=$_; $p =~ s{.*/}{}; $p } @core_pending]);
+            if ($violations) {
+                log_decision('core-request-violation', $violations, scalar(@core_pending), 'missing-decision');
+            }
             sleep 3;
             next;
         }
