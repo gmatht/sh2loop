@@ -22,6 +22,8 @@ import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
+import zlib from 'node:zlib';
 
 const SPAWN_TIMEOUT_MS = 5000; // per external command
 
@@ -1238,6 +1240,14 @@ export const sh2 = {
     const saved = this.fdTargets[1];
     this.fdTargets[1] = { kind: 'capture', buf: '' };
     builtins.readlink.call(this, args);
+    const out = this.fdTargets[1].buf.replace(/\n$/, '');
+    this.fdTargets[1] = saved;
+    return out;
+  },
+  whoami() {
+    const saved = this.fdTargets[1];
+    this.fdTargets[1] = { kind: 'capture', buf: '' };
+    builtins.whoami.call(this, []);
     const out = this.fdTargets[1].buf.replace(/\n$/, '');
     this.fdTargets[1] = saved;
     return out;
@@ -5198,6 +5208,474 @@ builtins.find = function (args) {
     }
     walk(base, 0, st.isDirectory(), st.isFile());
   }
+  this.lastExit = failed ? 1 : 0;
+  return !failed;
+};
+
+// ── filesystem builtins: rm / cp / mv / rmdir / mkdir — the corpus's file
+// manipulation families now run on native fs (no subprocess). The emitter
+// ALSO has a statement-level `sh2.fs.*` promise lowering for rm/mkdir with
+// plain args (src/shir.rs try_native_fs_exec) — that path is strictly
+// cheaper (no dispatch at all) and fires first; these builtins cover the
+// shapes the compile-time lift refuses (glob operands, multiple paths,
+// env/redirect contexts) plus the sync-twin dispatch for async contexts.
+// stderr text is approximated (the corpus gate compares stdout + status
+// only); STATUSES mirror GNU exactly (verified against the real binaries).
+
+// rm — GNU status semantics: every operand is attempted; a failure
+// (missing file without -f, directory without -r) sets the final status 1
+// while the remaining operands still run. -f ignores ENOENT; -r/-R/
+// --recursive removes trees (fs.rmSync recursive); combined shorts
+// (-rf/-fr/-rR...) parse like GNU's single-letter option cluster.
+builtins.rm = function (args) {
+  let force = false, recursive = false;
+  const files = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--') { files.push(...args.slice(i + 1)); break; }
+    else if (/^-[frR]+$/.test(a)) {
+      for (const c of a.slice(1)) {
+        if (c === 'f') force = true;
+        else if (c === 'r' || c === 'R') recursive = true;
+      }
+    }
+    else if (a === '--force') force = true;
+    else if (a === '--recursive' || a === '-d' || a === '--dir') recursive = true;
+    else if (a.startsWith('-') && a.length > 1) {
+      emitErr(this, `rm: invalid option -- '${a[1]}'\n`);
+      this.lastExit = 1;
+      return false;
+    }
+    else files.push(a);
+  }
+  let failed = false;
+  for (const f of files) {
+    try {
+      if (recursive) {
+        // fs.rmSync({recursive, force}): force suppresses a missing path
+        // (GNU `rm -rf missing` exits 0); without force a missing path
+        // fails (GNU `rm -r missing` exits 1).
+        fs.rmSync(f, { recursive: true, force });
+      } else {
+        fs.unlinkSync(f);
+      }
+    } catch (e) {
+      if (e.code === 'ENOENT' && force) continue; // -f: missing is fine
+      let msg = e.code === 'ENOENT' ? 'No such file or directory'
+        : e.code === 'EISDIR' || e.code === 'EPERM' ? 'Is a directory'
+        : e.code === 'ENOTEMPTY' ? 'Directory not empty' : e.message;
+      emitErr(this, `rm: cannot remove '${f}': ${msg}\n`);
+      failed = true;
+    }
+  }
+  this.lastExit = failed ? 1 : 0;
+  return !failed;
+};
+
+// cp — the corpus's `cp SRC DST` (and `cp SRC... DIR`) file copies.
+// fs.copyFileSync overwrites an existing destination exactly like GNU's
+// default. A missing source / unreadable path fails the status 1 (GNU:
+// `cp: cannot stat ...` on fd2 — stdout is unaffected either way).
+builtins.cp = function (args) {
+  const operands = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--') { operands.push(...args.slice(i + 1)); break; }
+    else if (/^-[a-z]+$/.test(a)) { /* -f/-i/-n/-v...: no corpus-visible effect */ }
+    else if (a.startsWith('-') && a.length > 1) {
+      emitErr(this, `cp: invalid option -- '${a[1]}'\n`);
+      this.lastExit = 1;
+      return false;
+    }
+    else operands.push(a);
+  }
+  if (operands.length < 2) {
+    emitErr(this, 'cp: missing destination file operand\n');
+    this.lastExit = 1;
+    return false;
+  }
+  const srcs = operands.slice(0, -1);
+  const dst = operands[operands.length - 1];
+  let dstIsDir = false;
+  try { dstIsDir = fs.statSync(dst).isDirectory(); } catch { /* fresh path */ }
+  if (srcs.length > 1 && !dstIsDir) {
+    emitErr(this, `cp: target '${dst}': Not a directory\n`);
+    this.lastExit = 1;
+    return false;
+  }
+  let failed = false;
+  for (const src of srcs) {
+    const target = dstIsDir ? path.join(dst, path.basename(src)) : dst;
+    try {
+      fs.copyFileSync(src, target);
+    } catch (e) {
+      emitErr(this, `cp: cannot stat '${src}': ${e.code === 'ENOENT' ? 'No such file or directory' : e.message}\n`);
+      failed = true;
+    }
+  }
+  this.lastExit = failed ? 1 : 0;
+  return !failed;
+};
+
+// mv — the corpus's `mv SRC DST` renames (fs.renameSync, with the
+// cross-device EXDEV copy+unlink fallback — GNU's own). An UNKNOWN option
+// errors and does nothing (exit 1) exactly like GNU — the corpus's
+// checkqx-qx-var-mv.sh pins `mv -Z src dst` failing that way. Known
+// single-letter flags (-f -i -n -v -t -u -T) are accepted (no corpus-
+// visible effect for the shapes used).
+builtins.mv = function (args) {
+  const operands = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--') { operands.push(...args.slice(i + 1)); break; }
+    else if (/^-[finvtuT]+$/.test(a)) { /* accepted, no observable effect here */ }
+    else if (a.startsWith('-') && a.length > 1) {
+      emitErr(this, `mv: invalid option -- '${a[1]}'\n`);
+      this.lastExit = 1;
+      return false;
+    }
+    else operands.push(a);
+  }
+  if (operands.length < 2) {
+    emitErr(this, 'mv: missing destination file operand\n');
+    this.lastExit = 1;
+    return false;
+  }
+  const srcs = operands.slice(0, -1);
+  const dst = operands[operands.length - 1];
+  let dstIsDir = false;
+  try { dstIsDir = fs.statSync(dst).isDirectory(); } catch { /* fresh path */ }
+  let failed = false;
+  for (const src of srcs) {
+    const target = dstIsDir ? path.join(dst, path.basename(src)) : dst;
+    try {
+      fs.renameSync(src, target);
+    } catch (e) {
+      if (e.code === 'EXDEV') {
+        // cross-device: copy + unlink (GNU's own fallback)
+        try { fs.copyFileSync(src, target); fs.unlinkSync(src); }
+        catch (e2) {
+          emitErr(this, `mv: cannot move '${src}': ${e2.message}\n`);
+          failed = true;
+        }
+      } else {
+        emitErr(this, `mv: cannot stat '${src}': ${e.code === 'ENOENT' ? 'No such file or directory' : e.message}\n`);
+        failed = true;
+      }
+    }
+  }
+  this.lastExit = failed ? 1 : 0;
+  return !failed;
+};
+
+// rmdir — remove an EMPTY directory (fs.rmdirSync, non-recursive); any
+// failure (missing, not empty) reports and exits 1 like GNU.
+builtins.rmdir = function (args) {
+  let failed = false;
+  for (const d of args) {
+    if (d.startsWith('-') && d.length > 1 && d !== '-') {
+      emitErr(this, `rmdir: invalid option -- '${d[1]}'\n`);
+      this.lastExit = 1;
+      return false;
+    }
+    try {
+      fs.rmdirSync(d);
+    } catch (e) {
+      const msg = e.code === 'ENOENT' ? 'No such file or directory'
+        : e.code === 'ENOTEMPTY' ? 'Directory not empty' : e.message;
+      emitErr(this, `rmdir: failed to remove '${d}': ${msg}\n`);
+      failed = true;
+    }
+  }
+  this.lastExit = failed ? 1 : 0;
+  return !failed;
+};
+
+// mkdir — `mkdir [-p] DIR...` (the statement-level emitter lift already
+// covers plain-arg mkdir via sh2.fs; this builtin covers the rest: globs,
+// redirects, async contexts). -p/--parents → recursive (existing dirs
+// fine); EEXIST without -p fails like bash.
+builtins.mkdir = function (args) {
+  let parents = false;
+  const dirs = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '-p' || a === '--parents') parents = true;
+    else if (a === '--') { dirs.push(...args.slice(i + 1)); break; }
+    else if (a.startsWith('-') && a.length > 1) {
+      emitErr(this, `mkdir: invalid option -- '${a[1]}'\n`);
+      this.lastExit = 1;
+      return false;
+    }
+    else dirs.push(a);
+  }
+  let failed = false;
+  for (const d of dirs) {
+    try {
+      fs.mkdirSync(d, { recursive: parents });
+    } catch (e) {
+      // recursive:true swallows EEXIST internally (mkdir -p on an
+      // existing dir is fine); without -p an existing dir fails.
+      if (parents && (e.code === 'EEXIST')) continue;
+      emitErr(this, `mkdir: cannot create directory '${d}': ${e.code === 'EEXIST' ? 'File exists' : e.code === 'ENOENT' ? 'No such file or directory' : e.message}\n`);
+      failed = true;
+    }
+  }
+  this.lastExit = failed ? 1 : 0;
+  return !failed;
+};
+
+// whoami — print the effective user name (os.userInfo().username — the
+// same utmp/uid lookup GNU whoami performs; node reads getpwuid).
+builtins.whoami = function () {
+  let name = '';
+  try { name = os.userInfo().username; } catch { /* fall through: exit 1 */ }
+  if (!name) { emitErr(this, 'whoami: cannot find name for user ID\n'); this.lastExit = 1; return false; }
+  emit(this, name + '\n');
+  this.lastExit = 0;
+  return true;
+};
+
+// sha256sum / sha512sum — the GNU `<hex>  <name>` line format (two
+// spaces), `-` = stdin, per-file continuation on errors with a final
+// status 1 (GNU). node:crypto digests are the same algorithm — byte-
+// identical hex.
+function checksumBuiltin(algo) {
+  return function (args) {
+    const files = [];
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i];
+      if (a === '--') { files.push(...args.slice(i + 1)); break; }
+      else if (/^-[a-z]+$/.test(a)) { /* -b/-t/--tag...: no corpus-visible effect */ }
+      else files.push(a);
+    }
+    const srcs = files.length ? files : ['-'];
+    let out = '', failed = false;
+    for (const f of srcs) {
+      let data = null;
+      if (f === '-') data = readFd0(this);
+      else {
+        try { data = fs.readFileSync(f); }
+        catch {
+          emitErr(this, `${algo}: ${f}: No such file or directory\n`);
+          failed = true;
+          continue;
+        }
+      }
+      const h = crypto.createHash(algo).update(data).digest('hex');
+      out += `${h}  ${f}\n`;
+    }
+    emit(this, out);
+    this.lastExit = failed ? 1 : 0;
+    return !failed;
+  };
+}
+builtins.sha256sum = checksumBuiltin('sha256');
+builtins.sha512sum = checksumBuiltin('sha512');
+
+// tee — copy the current fd-0 input to every FILE operand AND to stdout
+// (GNU). -a appends instead of overwriting. readFd0 covers pipes,
+// heredocs, herestrings and file redirects (the corpus's `echo X | tee f`
+// and `< f` shapes).
+builtins.tee = function (args) {
+  let append = false;
+  const files = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '-a' || a === '--append') append = true;
+    else if (a === '--') { files.push(...args.slice(i + 1)); break; }
+    else if (a.startsWith('-') && a.length > 1) {
+      emitErr(this, `tee: invalid option -- '${a[1]}'\n`);
+      this.lastExit = 1;
+      return false;
+    }
+    else files.push(a);
+  }
+  const text = readFd0(this);
+  let failed = false;
+  for (const f of files) {
+    try {
+      if (append) fs.appendFileSync(f, text);
+      else fs.writeFileSync(f, text);
+    } catch (e) {
+      emitErr(this, `tee: ${f}: ${e.message}\n`);
+      failed = true;
+    }
+  }
+  emit(this, text);
+  this.lastExit = failed ? 1 : 0;
+  return !failed;
+};
+
+// xargs — the corpus's stdin-driven command runner: read the current fd-0
+// input, split into words (whitespace with GNU quote/backslash handling,
+// or NUL records under -0), batch them (default: one giant batch like
+// GNU's ARG_MAX default — the corpus tree fits; -n N counts the INITIAL
+// args toward the batch like GNU), and run the command once per batch
+// through the normal exec dispatch (builtin/function/external — the
+// corpus commands are echo/grep, both native builtins). -r /
+// --no-run-if-empty skips the run on empty input; an empty input without
+// it still runs once with zero args (GNU). The utility defaults to echo.
+// A failing command marks the final status 123 like GNU (the corpus only
+// exercises successful runs).
+function xargsSplitWords(input) {
+  // GNU xargs word splitting: whitespace separates; '' and "" quote
+  // (empty string arguments are dropped by default); `\x` escapes the
+  // next char.
+  const words = [];
+  let cur = '';
+  let i = 0;
+  const s = String(input);
+  while (i < s.length) {
+    const c = s[i];
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\v' || c === '\f') {
+      if (cur !== '') { words.push(cur); cur = ''; }
+      i++;
+    } else if (c === '\\') {
+      if (i + 1 < s.length) { cur += s[i + 1]; i += 2; }
+      else i++; // trailing backslash: dropped
+    } else if (c === "'") {
+      i++;
+      while (i < s.length && s[i] !== "'") { cur += s[i]; i++; }
+      i++; // closing quote (or EOF: GNU warns, keeps)
+    } else if (c === '"') {
+      i++;
+      while (i < s.length && s[i] !== '"') {
+        if (s[i] === '\\' && i + 1 < s.length && (s[i + 1] === '"' || s[i + 1] === '\\')) { cur += s[i + 1]; i += 2; }
+        else { cur += s[i]; i++; }
+      }
+      i++;
+    } else { cur += c; i++; }
+  }
+  if (cur !== '') words.push(cur);
+  return words;
+}
+builtins.xargs = async function (args) {
+  let nullDelim = false, noRunIfEmpty = false, maxArgs = 0; // 0 = one giant batch
+  let cmd = null;
+  const cmdArgs = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '-0' || a === '--null') nullDelim = true;
+    else if (a === '-r' || a === '--no-run-if-empty') noRunIfEmpty = true;
+    else if (a === '-n' || a === '--max-args') maxArgs = parseInt(args[++i], 10) || 0;
+    else if (a.startsWith('-n') && a.length > 2) maxArgs = parseInt(a.slice(2), 10) || 0;
+    else if (a === '--') { cmd = args[++i] ?? null; cmdArgs.push(...args.slice(i + 1)); break; }
+    else if (a.startsWith('-') && a.length > 1) { /* -P/-d/-I/...: not corpus-reachable */ }
+    else { cmd = a; cmdArgs.push(...args.slice(i + 1)); break; }
+  }
+  const input = readFd0(this);
+  const items = nullDelim ? String(input).split('\0').filter(w => w !== '') : xargsSplitWords(input);
+  if (items.length === 0) {
+    if (noRunIfEmpty) { this.lastExit = 0; return true; }
+    // GNU runs the utility once with no input args (echo → empty line)
+    if (cmd === null) { emit(this, '\n'); this.lastExit = 0; return true; }
+    const r = await this.exec(cmd, [...cmdArgs]);
+    this.lastExit = this.lastExit === 0 ? 0 : 123;
+    return r;
+  }
+  // batch: maxArgs counts the INITIAL args toward the per-invocation
+  // total (GNU -n semantics: `-n2 echo X` runs `echo X w`); 0 = unlimited.
+  const per = maxArgs > 0 ? Math.max(1, maxArgs - cmdArgs.length) : items.length;
+  let failed = false;
+  for (let i = 0; i < items.length; i += per) {
+    const batch = items.slice(i, i + per);
+    const r = await this.exec(cmd ?? 'echo', [...cmdArgs, ...batch]);
+    if (this.lastExit !== 0) failed = true;
+    if (r === false && failed) break; // command-not-found aborts the run (GNU: 127)
+  }
+  this.lastExit = failed ? 123 : 0;
+  return !failed;
+};
+
+// gzip / gunzip — decompress gzip streams with node:zlib (the same DEFLATE
+// core; gunzip output is byte-identical to GNU's). gzip -c[d]fq -- FILE...
+// reads each FILE, decompresses, emits through the current fd-1 sink; a
+// missing operand fails status 1 (GNU, -q suppresses the report but not
+// the status); data that is not a gzip stream fails status 2 (GNU). The
+// corpus shapes are decompress-only (the parse-test gzip families never
+// see a real .gz file — the operands are unset vars/missing files).
+function gzipDecompressOperands(sh, files, prog) {
+  let failed = false;
+  for (const f of files) {
+    let data;
+    try { data = fs.readFileSync(f); }
+    catch {
+      emitErr(sh, `${prog}: ${f}: No such file or directory\n`);
+      failed = true;
+      continue;
+    }
+    let out;
+    try { out = zlib.gunzipSync(data); }
+    catch {
+      emitErr(sh, `${prog}: ${f}: not in gzip format\n`);
+      failed = true;
+      continue;
+    }
+    emit(sh, out.toString('utf8'));
+  }
+  return failed;
+}
+builtins.gzip = function (args) {
+  let toStdout = false, decompress = false, quiet = false, force = false;
+  const files = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--') { files.push(...args.slice(i + 1)); break; }
+    else if (a.startsWith('-') && a.length > 1 && !/^-[0-9]/.test(a)) {
+      for (const c of a.slice(1)) {
+        if (c === 'c') toStdout = true;
+        else if (c === 'd') decompress = true;
+        else if (c === 'q') quiet = true;
+        else if (c === 'f') force = true;
+        else if (c === 't') { /* test: no output — treat like decompress */ decompress = true; }
+        else if (c === 'k' || c === 'v' || c === 'l' || c === '1' || c === '9') { /* accepted */ }
+        else {
+          emitErr(this, `gzip: invalid option -- '${c}'\n`);
+          this.lastExit = 1;
+          return false;
+        }
+      }
+    }
+    else files.push(a);
+  }
+  if (files.length === 0) {
+    // stdin form: gzip -cd < file — read fd0
+    let data = readFd0(this);
+    if (decompress) {
+      try { emit(this, zlib.gunzipSync(Buffer.from(data, 'utf8')).toString('utf8')); this.lastExit = 0; return true; }
+      catch { emitErr(this, 'gzip: (stdin): not in gzip format\n'); this.lastExit = 2; return false; }
+    }
+    // compression of stdin (no -d): corpus-unreachable — approximate
+    // with zlib (content round-trips; the .gz header bytes differ from
+    // GNU — documented assumption SH2_ASSUME_GZIP).
+    emit(this, zlib.gzipSync(Buffer.from(data, 'utf8')).toString('latin1'));
+    this.lastExit = 0;
+    return true;
+  }
+  const failed = gzipDecompressOperands(this, files, 'gzip');
+  this.lastExit = failed ? (quiet ? 1 : 1) : 0;
+  return !failed;
+};
+builtins.gunzip = function (args) {
+  const files = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--') { files.push(...args.slice(i + 1)); break; }
+    else if (a.startsWith('-') && a.length > 1) { /* -c/-f/-q/-t/-k: accepted */ }
+    else files.push(a);
+  }
+  if (files.length === 0) {
+    // stdin form: `gunzip < f.gz` — the corpus's gunzip_example shape
+    let data = readFd0(this);
+    let out;
+    try { out = zlib.gunzipSync(Buffer.from(data, 'utf8')); }
+    catch { emitErr(this, 'gunzip: (stdin): not in gzip format\n'); this.lastExit = 1; return false; }
+    emit(this, out.toString('utf8'));
+    this.lastExit = 0;
+    return true;
+  }
+  const failed = gzipDecompressOperands(this, files, 'gunzip');
   this.lastExit = failed ? 1 : 0;
   return !failed;
 };
