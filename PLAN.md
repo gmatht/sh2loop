@@ -29,6 +29,13 @@ Covers three related work items:
 >   sets argv0 = the source path (what `bash '$test_file'` sees) and empties
 >   @ARGV. Old-generator echo fix: bare `$0`/`$1`/… in echo rendered as
 >   `$ENV{0}`/`$ENV{1}` (never set) in four echo renderers — now `$0`/`$ARGV`.
+>   Both semantics are now SELECTABLE: `debashc --argv0-source <name>` bakes
+>   the source name into the output (Perl `$0 = '<name>'`; estree emits a
+>   leading `sh2.argv0 = '<name>'` assignment) — the translation-product
+>   semantic (the JS shell executing foo.sh should say "foo.sh", not the
+>   temp JS file name) — while the default stays argv0 pass-through (the
+>   harness supplies argv0 at run time). The argv0 suite tests BOTH:
+>   108/108 (72 pass-through + 36 source-mode).
 >   sh gate: the render now runs with argv0 = the source path
 >   (`sh -c '. /dev/fd/3' "$f" 3< render`) so $0-examples stop failing (and
 >   stop being flaky — the temp name varied per run). Corpus: PERL 401→414

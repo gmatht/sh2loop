@@ -49,13 +49,34 @@ the corpus for single-invocation coverage.
 ## Run
 
 ```sh
-harness/argv0-tests/run.sh            # all backends
+harness/argv0-tests/run.sh            # all backends, both semantics
 harness/argv0-tests/run.sh --only=sh,estree
 harness/argv0-tests/run.sh --verbose
 ```
 
-Exit 0 = the `$0` pass-through contract holds for every backend on every
-argv0. Exit 1 lists the mismatches.
+Exit 0 = the `$0` contract holds for every backend on every argv0, in BOTH
+semantics (pass-through + source-name).
+
+## The two selectable semantics
+
+`$0` has two defensible meanings depending on the product context — they are
+selected with `debashc --argv0-source <name>`:
+
+1. **argv0 pass-through (default, no flag).** The translated script reports
+   its OWN invocation path, exactly like the original. The harness supplies
+   argv0 at run time (estree-runner `--name`/`--source`, the `do` wrapper,
+   the sh gate's argv0 alignment). This is what a faithful POSIX port wants.
+2. **source-name (`--argv0-source <name>`).** The translated program
+   identifies as the ORIGINAL bash file `<name>`, whatever the executor's
+   temp/artifact file is called. Perl bakes `$0 = '<name>'`; `--estree` emits
+   a leading `sh2.argv0 = '<name>'` assignment. This is what a translation
+   PRODUCT wants — the JS shell executing foo.sh should say "foo.sh", not
+   the temporary JS file name.
+
+The suite's `source` legs verify the bake beats all three argv0s (the
+program reports `<name>` no matter how it is invoked). The sh backend
+cannot assign `$0` in POSIX, so source-mode there is runtime-only: the gate
+supplies argv0 = the source path when running the render.
 
 ## Guardrails
 
