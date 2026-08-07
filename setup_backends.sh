@@ -634,9 +634,14 @@ case "${1:-}" in
                       g_bin="$g_wt/target/debug/debashc"
                       # probe: feed an invalid shIR JSON — the deserializer's
                       # "ShIR JSON ingress" marker proves --shir-in-<lang> is
-                      # wired into the worktree's CLI
-                      printf '%s' '{"contract_version":1,"imports":[],"requires":[],"stmts":[],"subs":[],"var_types":[],"stmt_lines":[]}' \
-                        | "$g_bin" "--shir-in-$g_lang" - >/dev/null 2>/tmp/gate_probe_$$
+                      # wired into the worktree's CLI. The probe exits 1 by
+                      # design (ingress error), so it MUST stay inside an `if`
+                      # condition — set -e + pipefail would otherwise kill the
+                      # whole gate before the corpus runs.
+                      if printf '%s' '{"contract_version":1,"imports":[],"requires":[],"stmts":[],"subs":[],"var_types":[],"stmt_lines":[]}' \
+                        | "$g_bin" "--shir-in-$g_lang" - >/dev/null 2>/tmp/gate_probe_$$; then
+                        : # probe rc=0 — fall through to the marker check
+                      fi
                       if grep -q "ShIR JSON ingress" /tmp/gate_probe_$$; then
                         g_flag="--shir-in-$g_lang"
                       elif [ -x "$g_wt/target/debug/${g_lang}_backend" ]; then
