@@ -12,6 +12,33 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v17: **c-sh-go fleet unblock — 26/31 → 30/31, t23 float arith filed**
+>   (workspace). Killed the c-sh-go worker, made the non-estree-core
+>   changes, restarted it. c-sh-go (Go) gate at 30/31: t23 float is the
+>   one remaining failure (core-side float-arith path needed — see
+>   `core-requests/c-sh-go-float-arith-20260807.md`). New
+>   `frontends/c-sh-go/main.go` work in this session: float-literal
+>   lexing (`1.5` → single num token), `double`/`float` type-keyword
+>   handling, `testExpr` top-level-id `-ne 0` (C numeric truth vs bash
+>   string-non-empty), `wrapForContinues` for `for`/`continue`
+>   interaction (the trailing-update bug — the for-lowering puts the
+>   update at the END of the body so a shell `continue` would skip the
+>   update, infinite-looping the test; fix: wrap each top-level continue
+>   in the for-body with `{update; continue}`), `Label`/`Goto`
+>   parser emission (with flat list-return flattening in
+>   `stmts()`/`stmtOrBlock()` so labels stay at the same level as the
+>   surrounding stmts — `RestructureGoto` scans top-level labels only).
+>   Shared-core fix in `sh2perl/src/shir_passes/restructure.rs`:
+>   `RestructureGoto::handle_nested` was adding `if (flag) break` to the
+>   parent at EVERY loop step including non-loop parents (Block-wrapped
+>   for-bodies, like c-sh-go emits) — a `break` that escapes every
+>   enclosing `whileLoopSync` and aborts the program. Added
+>   `is_loop_stmt_at` to guard only real loops (While/For/DoWhile) and
+>   added a regression test. ESTree corpus: **531/531 (100%)** (was
+>   525/531) — the t30 nested-goto test in the ESTree corpus was
+>   silently failing for the same reason; my fix improves the shared
+>   library. shir_passes test count 55→56 (new
+>   `nested_goto_through_block_wrapper_does_not_escape`).
 > - v16: **`$0` = argv0 pass-through — the corpus stays stdout-pure; new
 >   argv0 conformance suite** (workspace + submodule). Decision: a translated
 >   script's `$0` is its own invocation path (like bash's), not a constant;
