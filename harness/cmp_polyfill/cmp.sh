@@ -161,6 +161,7 @@ _oct_to_char() {
         else if (d == 127) printf "^?"
         else { d2 = d - 128
                if (d2 < 32) printf "M-^%c", d2 + 64
+               else if (d2 == 127) printf "M-^?"
                else printf "M-%c", d2 }
     }'
 }
