@@ -358,7 +358,7 @@ if [ -n "$lflag" ]; then
             wait
             paste /tmp/.cmp_h1_$$ /tmp/.cmp_h2_$$ | \
                 awk -v base="$((off + 1))" -v maxb="$len" \
-                    '$1 != $2 { w = length(sprintf("%d", maxb)); printf "%*d %3s %3s\n", w, base+NR-1, $1, $2 }'
+                    '$1 != $2 { w = length(sprintf("%d", maxb)); printf "%*d %3s %3s\n", w, base+NR-1, $1+0, $2+0 }'
             rm -f /tmp/.cmp_h1_$$ /tmp/.cmp_h2_$$
         fi
         off=$((off + cur))
