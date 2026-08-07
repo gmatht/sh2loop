@@ -97,12 +97,27 @@ for f in "$file1" "$file2"; do
 done
 
 # ---------------------------------------------------------------------------
-# Path resolver: `-` means stdin. Returns /dev/stdin for `-`, the
-# path itself otherwise. Used everywhere we open a file for reading.
+# Stdin buffering
+# ---------------------------------------------------------------------------
+# `-` means stdin. /dev/stdin is a one-shot stream: every `tail -c +N`
+# read advances the pipe position, so byte N cannot be re-read. Buffer
+# stdin into a temp file on first use and point every `-` operand at it
+# (GNU cmp: `cmp - -` compares stdin with itself -> identical, rc=0).
+_stdin_tmp=
+if [ "$file1" = "-" ] || [ "$file2" = "-" ]; then
+    _stdin_tmp=$(mktemp "${TMPDIR:-/tmp}/cmp.stdin.XXXXXX")
+    cat > "$_stdin_tmp"
+    trap 'rm -f "$_stdin_tmp"' 0
+fi
+
+# ---------------------------------------------------------------------------
+# Path resolver: `-` means stdin. Returns the buffered temp file for `-`
+# (falling back to /dev/stdin if unset), the path itself otherwise. Used
+# everywhere we open a file for reading.
 # ---------------------------------------------------------------------------
 _fpath() {
     case "$1" in
-        -) echo /dev/stdin ;;
+        -) if [ -n "$_stdin_tmp" ]; then echo "$_stdin_tmp"; else echo /dev/stdin; fi ;;
         *) echo "$1" ;;
     esac
 }
