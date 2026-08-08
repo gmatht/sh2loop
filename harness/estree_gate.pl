@@ -104,9 +104,11 @@ sub walk {
             # sh2.fs.<name> — the runtime's node:fs/promises surface for
             # the pure-capture lowerings (`$(cat f)` → sh2.fs.readFile),
             # the native echo-to-file redirect lowering (`echo x > f` →
-            # await sh2.fs.writeFile / appendFile), and the `-r`/`-w`/`-x`
-            # file-test permission chain (`[[ -r f ]]` →
-            # await sh2.fs.access(f, 4).then(...)). Async-only codegen.
+            # await sh2.fs.writeFile / appendFile). File TESTS
+            # (`[ -f x ]`) now lower to the sync `sh2.fileTest(flag,
+            # path)` runtime helper (the async lstat/access chains were
+            # the last await in otherwise-sync loop bodies).
+            # Async-only codegen.
             my $is_sh2_fs = ref $obj eq 'HASH'
                 && ($obj->{type} // '') eq 'MemberExpression'
                 && ref $obj->{object} eq 'HASH'
