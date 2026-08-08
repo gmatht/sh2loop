@@ -3113,6 +3113,39 @@ builtins.shift = function (args) {
 
 builtins.true = function () { this.lastExit = 0; return true; };
 
+// `env` with NO operands — the corpus surface (`env | grep '^myexport='`
+// in typeset-cmdsub.sh): print every environment variable as
+// `NAME=value`, one per line, in environment order — the exact bytes the
+// spawned env(1) would emit for the same process.env (the runtime
+// mirrors script exports into process.env, and the spawned child
+// inherits it, so both dumps agree). The ONE byte-level divergence is
+// the `_` entry: GNU env overwrites `_` with its own argv[0]
+// (`/usr/bin/env`), while node's process.env carries the node launcher's
+// `_`. ASSUMPTION (option-gated, default ON): SH2_ASSUME_ENV=0 restores
+// the spawn. The single corpus site pipes the dump through
+// `grep '^myexport='` — the `_` line never matches, so the divergence is
+// corpus-unobservable; the gate documents it for maximal fidelity.
+// Flag/carrying forms (`env -i`, `env NAME=V cmd`) keep the spawn — the
+// emitter only lowers the bare form (try_native_env_stmt); any arg that
+// reaches the builtin is an emitter bug.
+builtins.env = function (args) {
+  if (process.env.SH2_ASSUME_ENV === '0') { this.lastExit = 127; return false; }
+  if (args.length > 0) {
+    throw new Error(`sh2.builtin: env with args is not a sync builtin form (${args[0]})`);
+  }
+  const e = process.env;
+  const lines = [];
+  let underscore = false;
+  for (const k of Object.keys(e)) {
+    if (k === '_') { lines.push('_=/usr/bin/env'); underscore = true; continue; } // GNU env overwrites `_` with its own path, in place
+    lines.push(`${k}=${e[k]}`);
+  }
+  if (!underscore) lines.push('_=/usr/bin/env');
+  emit(this, lines.join('\n') + '\n');
+  this.lastExit = 0;
+  return true;
+};
+
 // `test` command (bash builtin): operands arrive ALREADY WORD-SPLIT, so
 // each arg is exactly one test token — unlike `[ ... ]`, whose raw
 // expression the runtime tokenizes by whitespace. A malformed expression
@@ -3956,6 +3989,14 @@ builtins.cat = function (args) {
 // files). Filename prefixes follow GNU: >1 source, a -r directory
 // expansion, or -H; suppressed by -h. -l/-L print the matching/empty
 // source names (-Z: NUL-terminated, GNU).
+// `egrep` — GNU's deprecated alias for `grep -E`: same flags, ERE
+// patterns (the grep builtin's -E flag is the identical regex path).
+// The corpus surface is `$(egrep PAT FILE)`; any other shape routes
+// through the same builtin and the shared parser.
+builtins.egrep = function (args) {
+  return builtins.grep.call(this, ['-E', ...args]);
+};
+
 builtins.grep = function (args) {
   let parsed;
   try {
