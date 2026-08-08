@@ -663,6 +663,15 @@ case "${1:-}" in
                   # no longer passes. Only for scaffolds with a toolchain
                   # (js/perl have their own correctness gates — fail-estree /
                   # ir_to_perl).
+                  # STDERR IS IGNORED ON BOTH SIDES: the reference runs
+                  # `bash file 2>/dev/null` and the translation runs with its
+                  # stderr discarded too — only stdout is ever compared, so a
+                  # translation is never forced to reproduce (or suppress)
+                  # tool diagnostics, command-not-found messages, or
+                  # `echo >&2` behavior. (This was previously asymmetric —
+                  # the translation side used `2>&1`, merging its stderr into
+                  # the diff, which forced renderers to inject a global
+                  # stderr-silencer to pass.)
                   # MULTITASKING: SERIAL by design. The gate is a correctness
                   # signal, not a benchmark — 7 scaffold workers × parallel
                   # gcc/go/rustc compiles would spike the shared 8-core box
@@ -726,13 +735,13 @@ case "${1:-}" in
                         fi
                         eq_exit=1
                         case "$g_lang" in
-                          c)    cc /tmp/eq_$$.c -o /tmp/eq_$$_bin 2>/dev/null && timeout 15 /tmp/eq_$$_bin > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
-                          go)   timeout 30 "$eq_tool" run /tmp/eq_$$.go > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
-                          python) timeout 15 python3 /tmp/eq_$$.py > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
-                          rust) rustc /tmp/eq_$$.rs -o /tmp/eq_$$_bin 2>/dev/null && timeout 15 /tmp/eq_$$_bin > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
-                          zig)  timeout 30 "$eq_tool" run /tmp/eq_$$.zig > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
-                          sh)   timeout 15 sh -c '. /dev/fd/3' "$f" 3< /tmp/eq_$$.sh > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
-                          java) javac -d /tmp /tmp/Sh2Program.java 2>/dev/null && timeout 15 java -cp /tmp Sh2Program > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
+                          c)    cc /tmp/eq_$$.c -o /tmp/eq_$$_bin 2>/dev/null && timeout 15 /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
+                          go)   timeout 30 "$eq_tool" run /tmp/eq_$$.go > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
+                          python) timeout 15 python3 /tmp/eq_$$.py > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
+                          rust) rustc /tmp/eq_$$.rs -o /tmp/eq_$$_bin 2>/dev/null && timeout 15 /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
+                          zig)  timeout 30 "$eq_tool" run /tmp/eq_$$.zig > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
+                          sh)   timeout 15 sh -c '. /dev/fd/3' "$f" 3< /tmp/eq_$$.sh > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
+                          java) javac -d /tmp /tmp/Sh2Program.java 2>/dev/null && timeout 15 java -cp /tmp Sh2Program > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                         esac
                         if [ "$eq_exit" = 0 ] \
                            && timeout 15 bash "$f" > /tmp/eq_$$_ref 2>/dev/null \
