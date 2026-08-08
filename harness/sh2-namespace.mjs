@@ -3121,13 +3121,17 @@ builtins.true = function () { this.lastExit = 0; return true; };
 // inherits it, so both dumps agree). The ONE byte-level divergence is
 // the `_` entry: GNU env overwrites `_` with its own argv[0]
 // (`/usr/bin/env`), while node's process.env carries the node launcher's
-// `_`. ASSUMPTION (option-gated, default ON): SH2_ASSUME_ENV=0 restores
-// the spawn. The single corpus site pipes the dump through
-// `grep '^myexport='` — the `_` line never matches, so the divergence is
-// corpus-unobservable; the gate documents it for maximal fidelity.
-// Flag/carrying forms (`env -i`, `env NAME=V cmd`) keep the spawn — the
-// emitter only lowers the bare form (try_native_env_stmt); any arg that
-// reaches the builtin is an emitter bug.
+// `_`. ASSUMPTION (option-gated, default ON): SH2_ASSUME_ENV=0 makes
+// the builtin REFUSE with status 127 (the established uname/ls gate
+// pattern — the emitter-side twin of the gate restores the exec
+// dispatch for the option-off emission, but the runtime exec path
+// dispatches this builtin too, so the refusal is the honest option-off
+// behavior). The single corpus site pipes the dump through
+// `grep '^myexport='` — the `_` line never matches, so the divergence
+// is corpus-unobservable; the gate documents it for maximal fidelity.
+// Flag/carrying forms (`env -i`, `env NAME=V cmd`) must keep the spawn:
+// the emitter only lowers the bare form (try_native_env_stmt), so any
+// arg that reaches the builtin is an emitter bug.
 builtins.env = function (args) {
   if (process.env.SH2_ASSUME_ENV === '0') { this.lastExit = 127; return false; }
   if (args.length > 0) {
