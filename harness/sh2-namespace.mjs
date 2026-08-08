@@ -417,6 +417,7 @@ export const sh2 = {
   exported: new Set(),
   functions: new Map(),
   lastExit: 0,
+  pipeStatuses: [], // exit status per stage of the last pipeline (PIPESTATUS)
   positional: [],
   argv0: 'sh',
   cwd: process.cwd(),
@@ -499,6 +500,18 @@ export const sh2 = {
   getVar(name) {
     const m = /^([A-Za-z_][A-Za-z0-9_]*)\[([^\]]+)\]$/.exec(name);
     if (m) {
+      // PIPESTATUS — the exit statuses of the last pipeline (recorded by
+      // pipeline/pipelineSync). `PIPESTATUS[i]` reads stage i; `[@]`/
+      // `[*]` join all statuses.
+      if (m[1] === 'PIPESTATUS') {
+        if (m[2] === '@' || m[2] === '*') {
+          const join = m[2] === '*' ? ((this.vars.get('IFS') || ' ')[0] || ' ') : ' ';
+          return this.pipeStatuses.map(String).join(join);
+        }
+        let idx;
+        try { idx = evalArith(m[2], this); } catch { return ''; }
+        return idx >= 0 && idx < this.pipeStatuses.length ? String(this.pipeStatuses[idx]) : '';
+      }
       if (m[2] === '@' || m[2] === '*') {
         // ${x[@]} joins with spaces; ${x[*]} joins with IFS[0] — bash uses
         // IFS for `*` even when the expansion is quoted.
@@ -1503,6 +1516,7 @@ export const sh2 = {
     process.stderr.write("TRACE pipeline\n");
     const saved = { ...this.fdTargets };
     let prev = null;
+    const statuses = [];
     try {
       for (let i = 0; i < stages.length; i++) {
         if (typeof stages[i] !== 'function') {
@@ -1515,6 +1529,7 @@ export const sh2 = {
           // collapse (the last stage must write through the current
           // fd-1 sink — emit — which only the arrow form does).
           prev = String(stages[i] ?? '');
+          statuses.push(this.lastExit);
           continue;
         }
         if (i > 0 && prev !== null) this.fdTargets[0] = { kind: 'string', content: prev };
@@ -1522,9 +1537,11 @@ export const sh2 = {
         if (i < stages.length - 1) this.fdTargets[1] = { kind: 'capture', buf: '' };
         else this.fdTargets[1] = saved[1];
         await stages[i]();
+        statuses.push(this.lastExit);
         const cap = this.fdTargets[1];
         prev = cap && cap.kind === 'capture' ? cap.buf : null;
       }
+      this.pipeStatuses = statuses;
       return this.lastExit === 0;
     } finally {
       this.fdTargets = saved;
@@ -1541,10 +1558,12 @@ export const sh2 = {
     process.stderr.write("TRACE pipelineSync\n");
     const saved = { ...this.fdTargets };
     let prev = null;
+    const statuses = [];
     try {
       for (let i = 0; i < stages.length; i++) {
         if (typeof stages[i] !== 'function') {
           prev = String(stages[i] ?? '');
+          statuses.push(this.lastExit);
           continue;
         }
         if (i > 0 && prev !== null) this.fdTargets[0] = { kind: 'string', content: prev };
@@ -1552,9 +1571,11 @@ export const sh2 = {
         if (i < stages.length - 1) this.fdTargets[1] = { kind: 'capture', buf: '' };
         else this.fdTargets[1] = saved[1];
         stages[i]();
+        statuses.push(this.lastExit);
         const cap = this.fdTargets[1];
         prev = cap && cap.kind === 'capture' ? cap.buf : null;
       }
+      this.pipeStatuses = statuses;
       return this.lastExit === 0;
     } finally {
       this.fdTargets = saved;
@@ -2211,6 +2232,7 @@ export const sh2 = {
     return [...(this.arrays.get(nm) ?? []).keys()].map(String);
   },
   arrayLen(name) {
+    if (name === 'PIPESTATUS') return String(this.pipeStatuses.length);
     if (this.assocNames.has(name)) return String(this.assocKeys(name).length);
     const arr = this.arrays.get(String(name));
     if (arr) {
@@ -2339,6 +2361,7 @@ export const sh2 = {
       case '%': return stripGlobSuffix(v, a, false);
       case '%%': return stripGlobSuffix(v, a, true);
       case '//': return substGlob(this, v, a, b);
+      case '/': return substGlobFirst(this, v, a, b);
       case ':-': return v !== '' ? v : expandWord(this, a ?? '');
       case ':=':
         if (v === '') { const d = expandWord(this, a ?? ''); this.setVar(name, d); return d; }
@@ -2634,10 +2657,22 @@ builtins.echo = function (args) {
 };
 
 builtins.printf = function (args) {
-  const format = args[0] ?? '';
-  const rest = args.slice(1);
-  let out = printfFormat(format, rest);
+  // `printf -v VAR FMT ARGS...` — assign the formatted output to VAR
+  // instead of writing stdout (bash semantics: -v takes a variable name,
+  // possibly an array subscript `-v arr[0]`).
+  let rest = args;
+  let target = null;
+  if (args[0] === '-v' && args.length >= 2) {
+    target = String(args[1]);
+    rest = args.slice(2);
+  }
+  const format = rest[0] ?? '';
+  let out = printfFormat(format, rest.slice(1));
   this.lastExit = 0;
+  if (target !== null) {
+    this.setVar(target, out);
+    return true;
+  }
   emit(this, out);
   return true;
 };
@@ -7374,6 +7409,29 @@ function substGlob(sh, v, pattern, replacement) {
     if (!matched) { out += v[i]; i++; }
   }
   return out;
+}
+
+// ${var/pat/rep} — substitute the FIRST match only. Literal pattern:
+// indexOf + splice (bash replaces the leftmost occurrence). Glob
+// pattern: walk left-to-right, replace the first (longest) match.
+function substGlobFirst(sh, v, pattern, replacement) {
+  const rep = expandWord(sh, replacement ?? '');
+  if (v === '') return v;
+  if (!/[*?[]/.test(pattern)) {
+    const i = v.indexOf(pattern);
+    if (i < 0) return v;
+    return v.slice(0, i) + rep + v.slice(i + pattern.length);
+  }
+  let i = 0;
+  while (i < v.length) {
+    for (let len = v.length - i; len >= 1; len--) {
+      if (globMatch(pattern, v.slice(i, i + len))) {
+        return v.slice(0, i) + rep + v.slice(i + len);
+      }
+    }
+    i++;
+  }
+  return v;
 }
 
 // ── brace-expansion helpers ──────────────────────────────────────────
