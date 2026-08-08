@@ -1111,6 +1111,23 @@ export const sh2 = {
     }
   },
 
+  // `[ -f x ]` family — the emitter's native file-test lowering
+  // (src/shir.rs try_native_file_test): evalUnary's exact bash semantics
+  // (empty-arg rule, cwd resolution, accessSync `-r`/`-w`/`-x`, lstatSync
+  // + the missing-path catch table, `-t` constant false) as a direct
+  // flag+path call — no test-string tokenize/parse, no builtin dispatch.
+  // SYNC (like every builtin — the sync I/O lives in the runtime, not the
+  // emitted code), so a file test keeps its enclosing loop on the *Sync
+  // gates (forLoopSync/whileLoopSync): the async `sh2.fs.lstat/access`
+  // chains this replaces were the last await in otherwise-sync bodies.
+  // Pure value: the EMITTER records the status (`$?`) via its
+  // native-test lastExit protocol (see src/shir.rs native_test_statused)
+  // — the helper must not write lastExit itself or the protocol's
+  // single-eval scratch would double-write.
+  fileTest(flag, arg) {
+    return evalUnary(flag, arg, this);
+  },
+
   // ── command substitution ───────────────────────────────────────────
   async capture(fn) {
     process.stderr.write("TRACE capture\n");
