@@ -221,6 +221,18 @@ sub walk {
                 && ($obj->{property}{name} // '') eq 'stdout'
                 && ref $prop eq 'HASH'
                 && ($prop->{name} // '') eq 'write';
+            # process.stderr.write — the native ${x:?msg} param-error
+            # lowering (mirrors the runtime's param `:?` direct stderr
+            # write byte-for-byte)
+            my $is_stderr_write = ref $obj eq 'HASH'
+                && ($obj->{type} // '') eq 'MemberExpression'
+                && ref $obj->{object} eq 'HASH'
+                && ($obj->{object}{type} // '') eq 'Identifier'
+                && ($obj->{object}{name} // '') eq 'process'
+                && ref $obj->{property} eq 'HASH'
+                && ($obj->{property}{name} // '') eq 'stderr'
+                && ref $prop eq 'HASH'
+                && ($prop->{name} // '') eq 'write';
             # process.getuid() / process.getgid() / process.chdir() /
             # process.exit() — the native -O/-G file-test lowering (the
             # runtime's evalUnary reads the same process ids), the native
@@ -230,7 +242,7 @@ sub walk {
                 && ($obj->{name} // '') eq 'process'
                 && ref $prop eq 'HASH'
                 && ($prop->{name} // '') =~ /^(getuid|getgid|chdir|exit)$/;
-            if (!$is_sh2 && !$is_sh2_fs && !$is_native && !$is_math && !$is_number_member && !$is_array_member && !$is_promise_member && !$is_string_method && !$is_sh2_state && !$is_stdout_write && !$is_buffer && !$is_process_member) {
+            if (!$is_sh2 && !$is_sh2_fs && !$is_native && !$is_math && !$is_number_member && !$is_array_member && !$is_promise_member && !$is_string_method && !$is_sh2_state && !$is_stdout_write && !$is_stderr_write && !$is_buffer && !$is_process_member) {
                 push @problems, "non-sh2 callee: " . ($cname || $type);
             } elsif (($is_sh2 || $is_sh2_fs) && !$whitelist{$cname}) {
                 push @problems, "callee not in sh2.* whitelist: $cname";
