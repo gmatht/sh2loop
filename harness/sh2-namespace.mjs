@@ -114,7 +114,7 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // contract — grepText only ever sees echoed text). Returns
 // { opts, patterns, files }.
 // opts: invert(v) count(c) lineNo(n) only(o) quiet(q) whole(x) ci(i)
-//   max(-m N) after(-A N) before(-B N) flavor(bre|ere|fixed)
+//   max(-m N) after(-A N) before(-B N) flavor(bre|ere|fixed|pcre)
 //   filesOnly(l) filesWithout(L) noName(h) forceName(H) nul(Z)
 //   byteOffset(b) wholeWord(w) color(--color=always) recursive(r)
 function parseGrepArgs(args, allowFiles) {
@@ -128,7 +128,7 @@ function parseGrepArgs(args, allowFiles) {
   const files = [];
   let patternSeen = false;
   let afterDD = false;
-  const shortFlags = 'vincoqxwlLhHZbr';
+  const shortFlags = 'vincoqxwlLhHZbrP';
   for (let i = 0; i < args.length; i++) {
     const a = String(args[i]);
     if (!afterDD && a === '--') { afterDD = true; continue; }
@@ -196,6 +196,7 @@ function parseGrepArgs(args, allowFiles) {
         if (body.includes('H')) { opts.forceName = true; opts.noName = false; }
         if (body.includes('Z')) opts.nul = true;
         if (body.includes('r')) opts.recursive = true;
+        if (body.includes('P')) opts.flavor = 'pcre'; // GNU PCRE (JS regex ≈ PCRE)
         continue;
       }
       throw new Error(`grep: unsupported flag ${a}`);
@@ -214,7 +215,9 @@ function parseGrepArgs(args, allowFiles) {
 function grepRegexes(opts, patterns) {
   const srcs = patterns.map(p =>
     opts.flavor === 'fixed' ? escapeRe(p)
-      : opts.flavor === 'ere' ? ereToJs(p) : breToJs(p));
+      : opts.flavor === 'ere' ? ereToJs(p)
+      : opts.flavor === 'pcre' ? p   // JS regexes are PCRE-flavored (\d, +, (?=…))
+      : breToJs(p));
   const src = srcs.map(s2 => `(?:${s2})`).join('|');
   const ci = opts.ci ? 'i' : '';
   const core = opts.wholeWord
@@ -4337,24 +4340,26 @@ builtins.cut = function (args) {
 };
 
 builtins.wc = function (args) {
-  let countLines = false, countWords = false, countChars = false;
+  let countLines = false, countWords = false, countChars = false, countLongest = false;
   const files = [];
   for (const a of args) {
     if (a === '-l') countLines = true;
     else if (a === '-w') countWords = true;
     else if (a === '-c') countChars = true;
+    else if (a === '-L') countLongest = true;
     else if (a.startsWith('-') && a.length > 1) { /* other flags ignored */ }
     else files.push(a);
   }
-  if (!countLines && !countWords && !countChars) { countLines = countWords = countChars = true; }
+  if (!countLines && !countWords && !countChars && !countLongest) { countLines = countWords = countChars = true; }
   const sources = files.length ? files : [null];
   let out = '';
-  const totals = [0, 0, 0];
-  const fmt = (l, w, ch) => {
+  const totals = [0, 0, 0, 0];
+  const fmt = (l, w, ch, longest) => {
     const cols = [];
     if (countLines) cols.push(String(l));
     if (countWords) cols.push(String(w));
     if (countChars) cols.push(String(ch));
+    if (countLongest) cols.push(String(longest));
     return cols.join(' ');
   };
   for (const f of sources) {
@@ -4362,14 +4367,24 @@ builtins.wc = function (args) {
     const lines = countLines ? ((text.match(/\n/g) || []).length) : 0;
     const words = countWords ? (text.trim() ? text.trim().split(/\s+/).length : 0) : 0;
     const chars = countChars ? Buffer.byteLength(text, 'utf8') : 0;
+    // -L: length of the longest line (GNU: bytes; the terminal newline is
+    // not counted — a line is the text between newlines)
+    let longest = 0;
+    if (countLongest) {
+      for (const ln of text.split('\n')) {
+        const bl = Buffer.byteLength(ln, 'utf8');
+        if (bl > longest) longest = bl;
+      }
+    }
     if (countLines) totals[0] += lines;
     if (countWords) totals[1] += words;
     if (countChars) totals[2] += chars;
-    if (f === null) out += fmt(lines, words, chars) + '\n';
-    else out += fmt(lines, words, chars) + ' ' + f + '\n';
+    if (countLongest) totals[3] = Math.max(totals[3], longest);
+    if (f === null) out += fmt(lines, words, chars, longest) + '\n';
+    else out += fmt(lines, words, chars, longest) + ' ' + f + '\n';
   }
   if (files.length > 1) {
-    out += fmt(totals[0], totals[1], totals[2]) + ' total\n';
+    out += fmt(totals[0], totals[1], totals[2], totals[3]) + ' total\n';
   }
   emit(this, out);
   this.lastExit = 0;
@@ -4711,11 +4726,13 @@ function sedReplJs(repl) {
 
 builtins.sed = function (args) {
   let quiet = false;
+  let ere = false; // -r: ERE flavors (BRE is the default)
   const scripts = [];
   const positionals = [];
   for (let i = 0; i < args.length; i++) {
     const a = String(args[i]);
     if (a === '-n') { quiet = true; continue; }
+    if (a === '-r' || a === '-E') { ere = true; continue; }
     if (a === '-e') { scripts.push(String(args[++i] ?? '')); continue; }
     if (a.startsWith('-e') && a.length > 2) { scripts.push(a.slice(2)); continue; }
     if (a === '--') { positionals.push(...args.slice(i + 1).map(String)); break; }
@@ -4753,7 +4770,7 @@ builtins.sed = function (args) {
     const addrHit = (ad, li, last, line) => {
       if (ad.type === 'num') return li + 1 === ad.n;
       if (ad.type === 'last') return last;
-      return new RegExp(breToJs(ad.src)).test(line);
+      return new RegExp(ere ? ereToJs(ad.src) : breToJs(ad.src)).test(line);
     };
     const runList = (list, line, li, last) => {
       let deleted = false;
@@ -4779,7 +4796,7 @@ builtins.sed = function (args) {
         }
         if (!hit) continue;
         if (cmd.type === 's') {
-          const src = breToJs(cmd.pat);
+          const src = ere ? ereToJs(cmd.pat) : breToJs(cmd.pat);
           const rep = sedReplJs(cmd.repl);
           const ciFlag = cmd.ci ? 'i' : '';
           if (cmd.global) {
@@ -4884,12 +4901,13 @@ builtins.cmp = function (args) {
   return !differ;
 };
 builtins.sort = function (args) {
-  let numeric = false, reverse = false, unique = false, fold = false;
+  let numeric = false, reverse = false, unique = false, fold = false, human = false;
   let sep = null, key = null, outFile = null;
   const files = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '-n') numeric = true;
+    else if (a === '-h') human = true;
     else if (a === '-r') reverse = true;
     else if (a === '-u') unique = true;
     else if (a === '-f') fold = true;
@@ -4905,6 +4923,16 @@ builtins.sort = function (args) {
   const text = files.length ? files.map(f => readFileSafe(f)).join('') : readFd0(this);
   const lines = text.split('\n');
   if (lines.length && lines[lines.length - 1] === '') lines.pop();
+  // -h human-numeric value: `500` / `10K` / `2M` / `1.5G` → bytes
+  // (powers of 1024; GNU accepts a bare number and K/M/G/T/P/E/Z/Y in
+  // either case; a trailing decimal is allowed).
+  const humanVal = (s) => {
+    const m = /^\s*([0-9]+(?:\.[0-9]*)?)([kKmMgGtTpPeEzZyY]?)/.exec(String(s));
+    if (!m) return NaN;
+    const mult = { k: 1024, m: 1024 ** 2, g: 1024 ** 3, t: 1024 ** 4,
+      p: 1024 ** 5, e: 1024 ** 6, z: 1024 ** 7, y: 1024 ** 8 }[m[2].toLowerCase()] ?? 1;
+    return parseFloat(m[1]) * mult;
+  };
   const keyFn = (line) => {
     let v = line;
     if (key) {
@@ -4920,7 +4948,8 @@ builtins.sort = function (args) {
   lines.sort((a, b) => {
     const ka = keyFn(a), kb = keyFn(b);
     let c;
-    if (numeric) { const na = parseFloat(ka) || 0, nb = parseFloat(kb) || 0; c = na < nb ? -1 : na > nb ? 1 : 0; }
+    if (human) { const na = humanVal(ka), nb = humanVal(kb); c = na < nb ? -1 : na > nb ? 1 : 0; }
+    else if (numeric) { const na = parseFloat(ka) || 0, nb = parseFloat(kb) || 0; c = na < nb ? -1 : na > nb ? 1 : 0; }
     else c = ka < kb ? -1 : ka > kb ? 1 : 0;
     return reverse ? -c : c;
   });
