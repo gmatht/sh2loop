@@ -413,7 +413,7 @@ export const sh2 = {
   },
 
   // ── state ──────────────────────────────────────────────────────────
-  vars: new Map(),
+  vars: Object.create(null), // name -> value (null-prototype object: the emitter's native store reads/writes are direct property access; no prototype pollution)
   arrays: new Map(),   // name -> array of strings (declare -a / arr=(...) / arr[i]=)
   assocNames: new Set(), // names declared `declare -A` (string-keyed)
   assocStore: new Map(), // assoc name -> Map(key, value)
