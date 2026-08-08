@@ -11,7 +11,7 @@ const root = '/home/llm/sh2loop';
 const debashc = `${root}/sh2perl/target/debug/debashc`;
 const namesArg = process.argv.indexOf('--names');
 const want = namesArg >= 0 ? new Set(process.argv[namesArg + 1].split(',')) : null;
-const prefixes = process.argv.slice(2).filter(a => !a.startsWith('--'));
+const prefixes = process.argv.slice(2).filter(a => !a.startsWith('--') && !(namesArg >= 0 && a === process.argv[namesArg + 1]));
 const tests = globSync(`${root}/sh2perl/examples/*.sh`).sort();
 
 // pretty-print a compact JS-ish snippet
