@@ -508,7 +508,7 @@ export const sh2 = {
       // `[*]` join all statuses.
       if (m[1] === 'PIPESTATUS') {
         if (m[2] === '@' || m[2] === '*') {
-          const join = m[2] === '*' ? ((this.vars.get('IFS') || ' ')[0] || ' ') : ' ';
+          const join = m[2] === '*' ? ((this.vars.IFS || ' ')[0] || ' ') : ' ';
           return this.pipeStatuses.map(String).join(join);
         }
         let idx;
@@ -518,7 +518,7 @@ export const sh2 = {
       if (m[2] === '@' || m[2] === '*') {
         // ${x[@]} joins with spaces; ${x[*]} joins with IFS[0] — bash uses
         // IFS for `*` even when the expansion is quoted.
-        const join = m[2] === '*' ? ((this.vars.get('IFS') || ' ')[0] || ' ') : ' ';
+        const join = m[2] === '*' ? ((this.vars.IFS || ' ')[0] || ' ') : ' ';
         if (this.assocNames.has(m[1])) return this.assocValues(m[1]).join(join);
         const arr = this.arrays.get(m[1]);
         return arr ? arr.join(join) : '';
@@ -561,7 +561,7 @@ export const sh2 = {
           const i = Number(name) - 1;
           return i < this.positional.length ? this.positional[i] : '';
         }
-        if (this.vars.has(name)) return this.vars.get(name);
+        if (name in this.vars) return this.vars[name];
     // nameref: `typeset -n ref=original` — reads through to the target
     if (this.refVars.has(name)) return this.getVar(this.refVars.get(name));
         // Bash: a bare array name in a scalar context yields element 0
@@ -648,7 +648,7 @@ export const sh2 = {
     if (this.lcVars.has(name)) v = v.toLowerCase();
     else if (this.ucVars.has(name)) v = v.toUpperCase();
     if (this.exported.has(name) || name === 'PATH') process.env[name] = v;
-    this.vars.set(name, v);
+    this.vars[name] = v;
     return true;
   },
 
@@ -1352,7 +1352,7 @@ export const sh2 = {
     // field semantics — same rule as the read builtin below). The
     // default / whitespace-only IFS keeps the historic whitespace
     // collapse (byte-identical corpus behavior).
-    const ifs = this.vars.get('IFS');
+    const ifs = this.vars.IFS;
     if (ifs === undefined || ifs === null || /^[ \t\n]+$/.test(String(ifs))) {
       return text.split(/\s+/).filter(w => w.length > 0);
     }
@@ -1871,7 +1871,7 @@ export const sh2 = {
       fdTargets: this.fdTargets, traps: this.traps, shoptState: this.shoptState,
       cwd: this.cwd,
     };
-    this.vars = new Map(this.vars);
+    this.vars = { ...this.vars };
     this.exported = new Set(this.exported);
     this.fdTargets = { ...this.fdTargets };
     this.shoptState = new Map(this.shoptState);
@@ -1903,7 +1903,7 @@ export const sh2 = {
       fdTargets: this.fdTargets, traps: this.traps, shoptState: this.shoptState,
       cwd: this.cwd,
     };
-    this.vars = new Map(this.vars);
+    this.vars = { ...this.vars };
     this.exported = new Set(this.exported);
     this.fdTargets = { ...this.fdTargets };
     this.shoptState = new Map(this.shoptState);
@@ -2374,7 +2374,7 @@ export const sh2 = {
         // on empty). bash prints the message to stderr and EXITS the
         // shell with status 1; the gate compares exit codes, so exit 1
         // (a 0 would read as an exit-code mismatch).
-        if (!this.vars.has(name)) {
+        if (!(name in this.vars)) {
           const m = expandWord(this, a !== '' ? a : `${name}: parameter null or not set`);
           process.stderr.write(`bash: ${name}: ${m}\n`);
           process.exit(1);
@@ -2721,18 +2721,18 @@ function mergeAssignArgs(args) {
 
 builtins.export = function (args) {
   if (args.length === 0) {
-    for (const k of this.vars.keys()) emit(this, `declare -x ${k}="${this.vars.get(k)}"\n`);
+    for (const k of Object.keys(this.vars)) emit(this, `declare -x ${k}="${this.vars[k]}"\n`);
   } else {
     for (const a of args) {
       const eq = a.indexOf('=');
       if (eq >= 0) {
         const k = a.slice(0, eq), v = a.slice(eq + 1);
-        this.vars.set(k, v);
+        this.vars[k] = v;
         process.env[k] = v;
         this.exported.add(k);
       } else {
         this.exported.add(a);
-        if (this.vars.has(a)) process.env[a] = this.vars.get(a);
+        if (a in this.vars) process.env[a] = this.vars[a];
       }
     }
   }
@@ -2742,7 +2742,7 @@ builtins.export = function (args) {
 
 builtins.unset = function (args) {
   for (const a of args) {
-    this.vars.delete(a);
+    delete this.vars[a];
     this.exported.delete(a);
     this.refVars.delete(a);
     this.intVars.delete(a);
@@ -2770,7 +2770,7 @@ builtins.read = function (args, env) {
   // (frontends-ifs: the runtime's read honors the current IFS value).
   const ifs = env && env.IFS !== undefined
     ? String(env.IFS)
-    : (this.vars.get('IFS') !== undefined ? String(this.vars.get('IFS')) : ' \t\n');
+    : (this.vars.IFS !== undefined ? String(this.vars.IFS) : ' \t\n');
   const src = this.fdTargets[0];
   const key = src.kind === 'string' ? ('s:' + src.content) : src.kind === 'file' ? ('f:' + src.target) : 'stdin';
   if (!this.readBufs.has(key)) {
@@ -2844,7 +2844,7 @@ builtins.exit = function (args) {
 builtins.set = function (args) {
   if (args[0] === '--') this.positional = args.slice(1);
   else if (args.length === 0) {
-    for (const k of this.vars.keys()) emit(this, `${k}=${this.vars.get(k)}\n`);
+    for (const k of Object.keys(this.vars)) emit(this, `${k}=${this.vars[k]}\n`);
   } else if (!args[0].startsWith('-') && !args[0].startsWith('+')) {
     this.positional = [...args];
   } else {
@@ -2951,17 +2951,17 @@ builtins.declare = function (args) {
   // `typeset -p [names]` — print variable declarations with attributes
   // (`declare -ir printtest="99"`), bash-style: `--` when no attributes.
   if (isPrint) {
-    const names = rest.length > 0 ? rest : [...this.vars.keys()];
+    const names = rest.length > 0 ? rest : Object.keys(this.vars);
     let out = '';
     for (const k of names) {
-      if (!this.vars.has(k)) continue;
+      if (!(k in this.vars)) continue;
       let attrs = '';
       if (this.intVars.has(k)) attrs += 'i';
       if (this.roVars.has(k)) attrs += 'r';
       if (this.lcVars.has(k)) attrs += 'l';
       if (this.ucVars.has(k)) attrs += 'u';
       if (this.exported.has(k)) attrs += 'x';
-      out += `declare ${attrs ? '-' + attrs : '--'} ${k}="${this.vars.get(k)}"\n`;
+      out += `declare ${attrs ? '-' + attrs : '--'} ${k}="${this.vars[k]}"\n`;
     }
     if (out) emit(this, out);
     this.lastExit = 0;
@@ -3009,7 +3009,7 @@ builtins.declare = function (args) {
       if (isLower) this.lcVars.add(a);
       if (isUpper) this.ucVars.add(a);
       if (isReadonly) this.roVars.add(a);
-      if (isExport) { this.exported.add(a); if (this.vars.has(a)) process.env[a] = this.vars.get(a); }
+      if (isExport) { this.exported.add(a); if (a in this.vars) process.env[a] = this.vars[a]; }
     }
   }
   this.lastExit = 0;
@@ -3216,7 +3216,7 @@ builtins.exec = async function (args) {
     // `exec` as the exec builtin, leaving an `=value`-shaped arg. Bash
     // treats it as a plain assignment.
     if (String(args[0]).startsWith('=')) {
-      this.vars.set('exec', String(args[0]).slice(1));
+      this.vars.exec = String(args[0]).slice(1);
       this.lastExit = 0;
       return true;
     }
@@ -3251,13 +3251,13 @@ builtins.local = function (args) {
       const v = expandWord(this, a.slice(eq + 1));
       if (isAssoc) { this.assocNames.add(k); this.assocSet(k, v); }
       else if (isArray) { const arr = this.arrays.get(k) ?? []; arr.push(v); this.arrays.set(k, arr); }
-      else this.vars.set(k, v);
+      else this.vars[k] = v;
     } else if (isAssoc) {
       this.assocNames.add(a);
     } else if (isArray) {
       if (!this.arrays.has(a)) this.arrays.set(a, []);
     } else {
-      this.vars.set(a, '');
+      this.vars[a] = '';
     }
   }
   this.lastExit = 0;
