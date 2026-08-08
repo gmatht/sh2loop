@@ -144,7 +144,9 @@ sub walk {
                 && ref $prop eq 'HASH'
                 # sqrt — the native bc capture lowering (`$(echo "sqrt($n)" |
                 # bc)` → String(Math.floor(Math.sqrt(Number(n)))), Plan 8)
-                && ($prop->{name} // '') =~ /^(trunc|floor|ceil|sqrt)$/;
+                # max — the native `${x##*[/\\]}` class-core strip (max of
+                # per-char lastIndexOf, src/shir.rs glob_class_chars)
+                && ($prop->{name} // '') =~ /^(trunc|floor|ceil|sqrt|max)$/;
             # Number.isNaN — the NaN-guarded numeric test lowering (bash's
             # "integer expression expected" error → the whole test is false)
             my $is_number_member = ref $obj eq 'HASH'
