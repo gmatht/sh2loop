@@ -1114,6 +1114,29 @@ export const sh2 = {
     return String(v ?? '').split(/\s+/).filter(w => w.length > 0);
   },
 
+  // `$(mktemp [flags] TPL)` — native temp file/dir creation (the shIR
+  // lift, no spawn): the template's trailing X's become a random
+  // alphanumeric suffix; the file is created 0600 (dir 0700 with -d) and
+  // the path is the capture value — exactly the GNU builtin's stdout.
+  mktemp(isDir, tpl) {
+    const t = String(tpl ?? '/tmp/tmp.XXXXXX');
+    const m = /X+$/.exec(t);
+    if (!m) throw new Error(`mktemp: template "${t}" must end in X`);
+    const prefix = t.slice(0, t.length - m[0].length);
+    const rand = (n) => {
+      let s = '';
+      while (s.length < n) {
+        s += Math.random().toString(36).slice(2).replace(/[^a-z0-9]/g, 'a');
+      }
+      return s.slice(0, n);
+    };
+    let p;
+    do { p = prefix + rand(m[0].length); } while (fs.existsSync(p));
+    if (isDir) fs.mkdirSync(p, { mode: 0o700 });
+    else fs.closeSync(fs.openSync(p, 'w', 0o600));
+    return p;
+  },
+
   // ── redirects ──────────────────────────────────────────────────────
   async redirect(fn, specs = []) {
     const saved = { ...this.fdTargets };
