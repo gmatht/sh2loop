@@ -783,7 +783,7 @@ export const sh2 = {
         });
       } catch (e) {
         if (stdinFd !== null) { try { fs.closeSync(stdinFd); } catch {} }
-        if (e && e.code === 'ENOENT') this._reportCommandNotFound(cmd);
+        if (e && (e.code === 'ENOENT' || e.code === 'EACCES')) this._reportCommandNotFound(cmd);
         this.lastExit = 127;
         resolve(false);
         return;
@@ -856,7 +856,7 @@ export const sh2 = {
       }, SPAWN_TIMEOUT_MS);
       child.on('error', (e) => {
         clearTimeout(timer);
-        if (e && e.code === 'ENOENT') this._reportCommandNotFound(cmd);
+        if (e && (e.code === 'ENOENT' || e.code === 'EACCES')) this._reportCommandNotFound(cmd);
         this.lastExit = 127;
         resolve(false);
       });
@@ -2163,8 +2163,25 @@ builtins.read = function (args, env) {
     this.lastExit = 1;
     return false;
   }
-  const re = new RegExp('[' + ifs.replace(/[\]^$.*+?()[{}|\\]/g, '\\$&') + ']+');
-  const fields = line.split(re).filter(s => s !== '');
+  const customIfs = ifs !== ' \t\n';
+  // bash: a WHITESPACE IFS collapses runs and drops boundary empties;
+  // a non-whitespace IFS (IFS=:) preserves INTERIOR empty fields
+  // (`toolchain:x:1005:1005::/home/toolchain:/bin/bash` — the empty
+  // gecos field must land in its variable, not shift the rest). Split on
+  // single separators (no `+` — that would collapse `::` into one
+  // separator and lose the empty field), then drop only the boundary
+  // empties.
+  const re = new RegExp(
+    '[' + ifs.replace(/[\]^$.*+?()[{}|\\]/g, '\\$&') + ']' + (customIfs ? '' : '+')
+  );
+  let fields;
+  if (customIfs) {
+    fields = line.split(re);
+    while (fields.length && fields[0] === '') fields.shift();
+    while (fields.length && fields[fields.length - 1] === '') fields.pop();
+  } else {
+    fields = line.split(re).filter(s => s !== '');
+  }
   if (names.length === 0) names.push('REPLY');
   for (let i = 0; i < names.length; i++) {
     if (i === names.length - 1) this.setVar(names[i], fields.slice(i).join(' '));
@@ -2430,7 +2447,17 @@ builtins.eval = function (args) {
   // run as a command (not found, stderr suppressed) and NEVER appear on
   // stdout, so the split below would fall through to the whole `set`
   // env and leak it to the program's output.
-  const r = spawnSync('bash', ['-c', `${code}\necho __SH2_EVAL_END__\nset\ndeclare -F`], { encoding: 'utf8' });
+  // stdin: feed the current fd0 target (a pipeline stage's capture buffer,
+  // a heredoc/herestring, or a file) — a `-` operand (`eval cmp /dev/fd/5 -`
+  // inside a pipeline) reads stdin, and an unwritten open pipe would block
+  // the child forever.
+  const fd0 = this.fdTargets[0];
+  const evalIn = fd0 && fd0.kind === 'string' ? fd0.content : null;
+  const r = spawnSync('bash', ['-c', `${code}\necho __SH2_EVAL_END__\nset\ndeclare -F`], {
+    encoding: 'utf8',
+    stdio: [evalIn !== null ? 'pipe' : 'inherit', 'pipe', 'pipe'],
+    input: evalIn,
+  });
   if (!r.error && r.stdout) {
     const [out, ...rest] = String(r.stdout).split('__SH2_EVAL_END__\n');
     if (out) emit(this, out);  // the code's real output — via the fd-aware emit (handles redirects/captures)
@@ -3673,8 +3700,22 @@ builtins.cmp = function (args) {
   }
   const f1 = files[0], f2 = files[1];
   if (!f1 || !f2) { this.lastExit = 2; return false; }
-  const b1 = Buffer.from(readFileSafe(f1), 'utf8');
-  const b2 = Buffer.from(readFileSafe(f2), 'utf8');
+  // `-` reads the current fd-0 target (the runtime's stdin model —
+  // heredoc/herestring/pipeline buffer); `/dev/fd/N` refers to an fd the
+  // runtime does not model (the shell's own table), and reading it could
+  // BLOCK on an open-but-unwritten pipe (the sandbox keeps stray fds
+  // open) — treat it as empty instead of hanging. Only regular files are
+  // read.
+  const readOperand = (p) => {
+    if (p === '-') return readFd0(this);
+    try {
+      const st = fs.fstatSync(fs.openSync(p, 'r'));
+      if (!st.isFile()) return '';
+      return fs.readFileSync(p, 'utf8');
+    } catch { return ''; }
+  };
+  const b1 = Buffer.from(readOperand(f1), 'utf8');
+  const b2 = Buffer.from(readOperand(f2), 'utf8');
   const n = Math.min(b1.length - ignore1, b2.length - ignore2);
   const max = limit !== null ? Math.min(ignore1 + limit, b1.length, b2.length - (ignore2 - ignore1)) : ignore1 + n;
   let firstDiff = -1;
@@ -3934,26 +3975,21 @@ function writeFileSync(target, data, mode = 'w') {
 // TTY stdout passes through unbuffered (bash line-buffers interactively;
 // the corpus never uses a TTY). The corpus compares final stdout only, so
 // the only observable difference is WHEN bytes hit the pipe.
+// One ORDERED chunk queue: strings (rope-merged for the echo/printf hot
+// path) and Buffers (raw-byte decodes, binary spawn output) keep their
+// interleave — flushing strings before binaries would reorder mixed
+// output (utf8-non-utf8-content.sh: a byte-marker echo followed by a
+// plain string echo must come out in emission order).
 let _realStdoutWrite = null;
-let _stdoutStr = null;      // string chunks — the echo/printf hot path (rope append, no per-call alloc)
-let _stdoutBin = null;      // Buffer chunks (rare: binary spawn output) — flushed after the string acc
+let _stdoutChunks = null;   // ordered [string | Buffer] — last element is rope-merged while a string
 let _stdoutLen = 0;
 const STDOUT_BUF_LIMIT = 4096;
 
 function _flushStdout() {
-  if (!_stdoutStr && (!_stdoutBin || _stdoutBin.length === 0)) return;
-  if (_stdoutBin && _stdoutBin.length > 0) {
-    // binary chunks queued: flush the string accumulator FIRST (write order
-    // is observable), then the buffers
-    if (_stdoutStr) { _realStdoutWrite(_stdoutStr); _stdoutStr = null; }
-    const bins = _stdoutBin;
-    _stdoutBin = null;
-    _realStdoutWrite(bins.length === 1 ? bins[0] : Buffer.concat(bins));
-  } else {
-    const s = _stdoutStr;
-    _stdoutStr = null;
-    _realStdoutWrite(s);
-  }
+  if (!_stdoutChunks || _stdoutChunks.length === 0) return;
+  const chunks = _stdoutChunks;
+  _stdoutChunks = null;
+  for (const c of chunks) _realStdoutWrite(c);
   _stdoutLen = 0;
 }
 
@@ -3962,21 +3998,22 @@ function _installStdoutBuffer() {
   const out = process.stdout;
   _realStdoutWrite = out.write.bind(out);
   if (!out.isTTY) {
-    _stdoutStr = '';
+    _stdoutChunks = [];
     out.write = function (chunk, encoding, cb) {
       if (typeof chunk === 'string' && (!encoding || encoding === 'utf8')) {
-        // hot path: rope append — no per-call Buffer.from allocation (the
-        // output:echo/printf bench bottleneck: 2.5M/s vs 27M/s measured).
-        // _flushStdout nulls the accumulator; a later append must not turn
-        // into the literal "null" prefix (`null + x`).
-        if (_stdoutStr === null) _stdoutStr = '';
-        _stdoutStr += chunk;
+        // hot path: rope append into the tail chunk — no per-call
+        // Buffer.from allocation (the output:echo/printf bench bottleneck:
+        // 2.5M/s vs 27M/s measured). _flushStdout nulls the queue; a later
+        // append must not turn into the literal "null" prefix (`null + x`).
+        if (!_stdoutChunks) _stdoutChunks = [];
+        const last = _stdoutChunks[_stdoutChunks.length - 1];
+        if (typeof last === 'string') _stdoutChunks[_stdoutChunks.length - 1] = last + chunk;
+        else _stdoutChunks.push(chunk);
         _stdoutLen += chunk.length;
       } else {
-        if (_stdoutStr) { _realStdoutWrite(_stdoutStr); _stdoutStr = null; }
-        if (!_stdoutBin) _stdoutBin = [];
-        _stdoutBin.push(typeof chunk === 'string' ? Buffer.from(chunk, encoding || 'utf8') : chunk);
-        _stdoutLen += _stdoutBin[_stdoutBin.length - 1].length;
+        if (!_stdoutChunks) _stdoutChunks = [];
+        _stdoutChunks.push(typeof chunk === 'string' ? Buffer.from(chunk, encoding || 'utf8') : chunk);
+        _stdoutLen += _stdoutChunks[_stdoutChunks.length - 1].length;
       }
       if (_stdoutLen >= STDOUT_BUF_LIMIT) _flushStdout();
       return true;
