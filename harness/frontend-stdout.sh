@@ -27,6 +27,8 @@ case "$lang" in
   pl)   ext=.pl;   native=(perl) ;;
   fish) ext=.fish; native=(fish) ;;
   zsh)  ext=.zsh;  native=(zsh) ;;
+  bat)  ext=.bat;  native=() ;;      # cmd.exe is Windows-only — native side
+                                    # is the RECORDED expectations below
   *) echo "unknown lang: $lang"; exit 2 ;;
 esac
 
@@ -51,6 +53,16 @@ fi
 # native run, so the transpiler path keeps real coverage. Format:
 #   "name.ext|expected-stdout-with-\\n-escapes" (one entry per line)
 native_limits_fish="t43_heredoc.fish|line1\nline2"
+native_limits_bat="t01_echo.bat|hello world\n\n\n
+t02_set.bat|hello world\n
+t03_arith.bat|x=14\n
+t04_if.bat|eq\nno\nright\n
+t05_if_not.bat|not-eq\nnot-eq2\n
+t06_goto.bat|before\nafter\n
+t07_for.bat|item alpha\nitem beta\nitem gamma\n
+t08_block.bat|in-block\nsecond-line\nafter\n
+t09_args.bat|arg1= arg2= all=\n
+t10_mixed.bat|total is 5\niter 1\niter 2\nend\n"
 
 run_native() {  # <file> -> stdout on stdout
   local f=$1
@@ -87,7 +99,7 @@ total=0; fails=0; skips=0
 for f in "$dir"/*"$ext"; do
   [ -f "$f" ] || continue
   bn=$(basename "$f"); total=$((total+1))
-  if [ "$lang" != go ] && ! command -v "${native[0]}" >/dev/null 2>&1; then
+  if [ "$lang" != go ] && [ "$lang" != bat ] && ! command -v "${native[0]}" >/dev/null 2>&1; then
     echo "SKIP $bn (native interpreter '${native[0]}' not installed)"
     skips=$((skips+1)); continue
   fi
@@ -98,15 +110,21 @@ for f in "$dir"/*"$ext"; do
   limits=""
   case "$lang" in
     fish) limits=$native_limits_fish ;;
+    bat)  limits=$native_limits_bat ;;
   esac
   native_out=""
   if [ -n "$limits" ]; then
-    for entry in $limits; do
+    # line-based (the recorded expectations contain spaces — a
+    # word-split `for entry in $limits` would shred them)
+    while IFS= read -r entry; do
+      [ -z "$entry" ] && continue
       if [ "${entry%%|*}" = "$bn" ]; then
         native_out=$(printf '%b' "${entry#*|}")
         break
       fi
-    done
+    done <<EOF
+$limits
+EOF
   fi
   if [ -z "$native_out" ]; then
     native_out=$(run_native "$f") || true

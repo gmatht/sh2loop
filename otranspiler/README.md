@@ -6,7 +6,7 @@ first-class format in both directions, shell as the default source.
 
 ```
 otranspiler <input> [<output>] [flags]
-  input  file.{py,c,pl,sh,zsh,fish,go,shir}   (no ext = sh; - = A1 from stdin)
+  input  file.{py,c,pl,sh,zsh,fish,go,bat,shir}   (no ext = sh; - = A1 from stdin)
   output {-,file}.{c,js,pl,shir}              (no ext = js; - = stdout)
   --run        JS target: execute via the estree runner
   --shir       output the raw A1 contract

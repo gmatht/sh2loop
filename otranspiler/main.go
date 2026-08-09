@@ -35,6 +35,7 @@ var sources = map[string]string{
 	".zsh":  "frontends/zsh-sh-go/zsh-sh-go",
 	".fish": "frontends/fish-sh-go/fish-sh-go",
 	".go":   "frontends/go-sh/go-sh",
+	".bat":  "frontends/bat-sh-go/bat-sh-go",
 	// .sh and no-ext: the core itself (debashc --shir)
 }
 // target extension → the backend invocation: "flag:<lang>" = the main
@@ -67,6 +68,7 @@ var frontendBuilds = map[string][]string{
 	"frontends/zsh-sh-go/zsh-sh-go":   {"build", "-o", "zsh-sh-go", "./cmd/zsh-sh-go"},
 	"frontends/fish-sh-go/fish-sh-go": {"build", "-o", "fish-sh-go", "./cmd/fish-sh-go"},
 	"frontends/go-sh/go-sh":           {"build", "-o", "go-sh", "./cmd/go-sh"},
+	"frontends/bat-sh-go/bat-sh-go":   {"build", "-o", "bat-sh-go", "./cmd/bat-sh-go"},
 }
 
 // ensureFrontend — the frontend binary exists, building it on first use.
@@ -263,7 +265,7 @@ func langOf(path string) string {
 		return "shir" // stdin is treated as the A1 contract
 	}
 	switch filepath.Ext(path) {
-	case ".py", ".c", ".pl", ".zsh", ".fish", ".go",
+	case ".py", ".c", ".pl", ".zsh", ".fish", ".go", ".bat",
 		".js", ".rs", ".zig", ".java": // source + target extensions
 		return strings.TrimPrefix(filepath.Ext(path), ".")
 	case ".shir":
