@@ -67,7 +67,8 @@ t09_args.bat|arg1= arg2= all=\n
 t10_mixed.bat|total is 5\niter 1\niter 2\nend\n
 t11_commands.bat|one\none\na.txt\nc.txt\none\n
 t12_forf.bat|word alpha\nword gamma\nitem one\nitem three\npair x-y\ngot from\n
-t13_v11.bat|defined\nnot-defined-2\npasswd-exists\nok\nnum 1\nnum 2\nnum 3\none two\n"
+t13_v11.bat|defined\nnot-defined-2\npasswd-exists\nok\nnum 1\nnum 2\nnum 3\none two\n
+t14_call.bat|start\nhello World\nhello Batch\ndone\n"
 
 run_native() {  # <file> -> stdout on stdout
   local f=$1
