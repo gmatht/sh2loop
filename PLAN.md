@@ -45,6 +45,35 @@ Covers three related work items:
 >   bitwise inside ARITHMETIC or test operands (lower to a temp),
 >   dynamic pointer advance, multi-out-param functions, switch
 >   fallthrough, multi-char literals.
+> - v19: **Perl corpus 459 → 472/532 — redirect order, set -e, native cmp,
+>   echo|tr lift, process-sub fixes** (workspace, submodule 98df802/d11da89).
+>   Follow-up to the v18 survey: (3) redirects now apply in SOURCE order —
+>   a `2>&1` before `>file` dups the ORIGINAL stdout (the ESTree backend
+>   already passed because it lowers redirects to an ordered spec list; the
+>   Perl generator hardcoded stdout-then-stderr), and stderr dups use
+>   explicit fd save/restore (`local *STDERR` rebinds the Perl handle
+>   without dup-ing OS fd 2, so bash children ignored it); (7) `set -e`
+>   top-level errexit (`exit $CHILD_ERROR if $__set_e && $CHILD_ERROR != 0`
+>   after Simple/Test/Pipeline/Redirect statements, condition contexts
+>   exempt); (9) native GNU-format `cmp` emulation (-s/-l/-b/-n/-i, octal
+>   bytes, process-sub operands) — check_qx forbids system(cmp); (4)
+>   `echo X | tr` in command substitution is now native Perl, so function
+>   positional args map naturally (the function-body `$1`→`$_[0]` rewrite
+>   is quote-aware, skipping shell-out literals); (1) process-sub shell-outs
+>   now resolve the temp-file vars (exported to the child env, unescaped in
+>   the reconstruction) — fixes the whole diff/comm-vs-`<(...)` class
+>   (012/042/083/064_01/063_14/process-substitution); subshell env snapshots
+>   use the @ sigil for indexed arrays (064_hard_to_generate compiles and
+>   runs, matching bash except the documented $HOSTNAME line); (8) debashc
+>   reads scripts lossily-with-PUA-markers and string literals re-emit
+>   non-UTF-8 bytes as `\xNN` byte escapes (utf8-non-utf8-content passes —
+>   bash treats scripts as byte streams); also `ls -A` shows dotfiles minus
+>   . and .., `readlink -m/-f` canonicalizes missing paths.  Created
+>   BASH_ENV_FAILURES.md documenting the deliberately-deferred bash-runtime
+>   introspection class ($-, $BASH_VERSION, HOSTNAME, tty); `bash -n`
+>   confirmed to reject all five parse-fallback files (they are genuinely
+>   invalid bash — the harness FAIL is the parser-gap gate, not a
+>   translation bug).
 > - v18: **Perl corpus 420 → 459/532 (39 fixes, zero regressions)** (workspace,
 >   submodule 2108602). One session of Perl-generator translation fixes:
 >   parser — test-expression `\${var#pat}` no longer drops the closing `}` when
