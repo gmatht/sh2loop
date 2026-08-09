@@ -1630,6 +1630,37 @@ export const sh2 = {
   // exit status: 0 iff any line was selected, even under `-c` with a zero
   // count). With captureMode true the output text is returned instead of
   // emitted (the emitter wraps it in sh2.trimCapture for `$(...)`).
+  // grepMatches(text, pattern, flags) — the `grep -o` lift (the A1
+  // generic op): the array of matched substrings, one per line (grep
+  // -o's output). flags: "E" (ERE as-is), "F" (fixed string), "i"
+  // (case-insensitive); the default is BRE (translated). lastExit = 0
+  // iff any match; the matches are emitted to the current fd-1 sink
+  // (statement context) and returned (value/capture contexts).
+  grepMatches(text, pattern, flags) {
+    const s = String(text ?? '');
+    const fl = String(flags ?? '');
+    let body = String(pattern ?? '');
+    try {
+      if (fl.includes('F')) {
+        body = body.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      } else if (!fl.includes('E')) {
+        body = body
+          .replace(/\\+/g, '+').replace(/\\?/g, '?').replace(/\\\(/g, '(')
+          .replace(/\\\)/g, ')').replace(/\\\|/g, '|')
+          .replace(/\\\{/g, '{').replace(/\\\}/g, '}');
+      }
+      const re = new RegExp(body, fl.includes('i') ? 'gi' : 'g');
+      const matches = s.match(re) || [];
+      this.lastExit = matches.length > 0 ? 0 : 1;
+      const out = matches.join('\n');
+      if (out.length > 0) emit(this, out + '\n');
+      return matches;
+    } catch {
+      this.lastExit = 2;
+      return [];
+    }
+  },
+
   grepText(text, args, captureMode) {
     const s = String(text ?? '');
     const { opts, patterns } = parseGrepArgs(args, false);
