@@ -12,6 +12,29 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v18: **Perl corpus 420 → 459/532 (39 fixes, zero regressions)** (workspace,
+>   submodule 2108602). One session of Perl-generator translation fixes:
+>   parser — test-expression `\${var#pat}` no longer drops the closing `}` when
+>   the `#` lexes as a Comment, and `--x="\${VAR}"` keeps the value as a real
+>   interpolation; test-expression renderer — `\${var#pat}/\${var%pat}/...`
+>   render to real Perl, numeric compares reproduce bash's empty-unquoted
+>   expansion collapse (`[ -gt ]` single-arg → TRUE) for single-bracket tests,
+>   `==`/`=~`/`!=` operands convert vars + strip pattern quotes, `\${var:?err}`
+>   prints to stderr and exits 1 (plain `die` was swallowed by the harness's
+>   `do`-wrapper); heredoc bodies — Perl single-quote escaping doubles
+>   backslashes first (fixes `'\''` sequences), `\${#s}` → `length()`,
+>   `\${s//p/r}` substitution + shortest-suffix reverse trick in the words
+>   path; statements — top-level `[ ]` sets `$CHILD_ERROR`, `&&`/`||` chains
+>   propagate status to `exit ($main_exit_code || $CHILD_ERROR)`, `exec cmd`
+>   runs then exits, `true`/`false` set `$CHILD_ERROR`; pipelines — shell-outs
+>   export referenced vars to the bash child, empty pipeline output prints
+>   nothing, grep -c capture returns the result, grep -L exits per GNU
+>   semantics, bare globs stay unquoted for bash expansion; `printf %q`
+>   emulation; `-w` uses lookarounds not ``. Also synced SYNC_BUILTINS with
+>   data/sh2-builtins.json (`.`, `source`) so the a4 sync test passes. The
+>   commit also carries the pre-existing in-flight worker WIP (c-frontend Go
+>   shir path, cfront.rs removal, var_nospace) already in the working tree.
+>   ESTree backend unchanged (521/532, no regression).
 > - v17: **c-sh-go fleet unblock — 26/31 → 30/31, t23 float arith filed**
 >   (workspace). Killed the c-sh-go worker, made the non-estree-core
 >   changes, restarted it. c-sh-go (Go) gate at 30/31: t23 float is the
