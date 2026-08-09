@@ -61,6 +61,8 @@ t05_if_not.bat|not-eq\nnot-eq2\n
 t06_goto.bat|before\nafter\n
 t07_for.bat|item alpha\nitem beta\nitem gamma\n
 t08_block.bat|in-block\nsecond-line\nafter\n
+t08_exit.bat|before\n
+
 t09_args.bat|arg1= arg2= all=\n
 t10_mixed.bat|total is 5\niter 1\niter 2\nend\n"
 
