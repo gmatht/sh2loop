@@ -1056,6 +1056,79 @@ export const sh2 = {
     return this.lastExit === 0;
   },
 
+  // ── VALUE-returning function dispatch (the C frontend) ──────────
+  // A1 Call("fnValue", [name, [args...]]) — emitted by c-sh-go for a
+  // user function call in a VALUE position (printf arg, assign RHS).
+  // sh2.fnCall is the SHELL function call: its value channel is the
+  // STATUS (boolean). A C `return e` carries a VALUE, so the C frontend
+  // dispatches through fnValue instead: same positional save/restore
+  // and RETURN-signal handling as fnCall, but the define-arrow's return
+  // value (the C `return e` stays a native JS return inside the arrow —
+  // see estree.rs fix_stmt) comes back to the caller. Caller-side
+  // consumers (printf %d, the store assign) coerce it.
+  fnValue(name, args = []) {
+    const flat = [];
+    for (const a of args) {
+      if (Array.isArray(a)) flat.push(...a.map(String));
+      else flat.push(String(a));
+    }
+    for (let i = 0; i < flat.length; i++) {
+      if (flat[i] === ARRAY_LIT_MAGIC) {
+        flat.splice(i, 1);
+        i--;
+        continue;
+      }
+      if (flat[i] === BADSUB_MAGIC || flat[i] === ARITH_BAD_MAGIC) {
+        this.lastExit = 1;
+        return '0';
+      }
+      if (typeof flat[i] === 'string' && flat[i].startsWith(PS_MAGIC)) {
+        flat[i] = materializePath(flat[i].slice(PS_MAGIC.length));
+      } else if (typeof flat[i] === 'string' && flat[i].startsWith(GLOB_MAGIC)) {
+        const pat = flat[i].slice(GLOB_MAGIC.length);
+        const hits = globExpand(pat);
+        if (hits.length > 0) flat.splice(i, 1, ...hits);
+        else flat[i] = pat; // no match: bash keeps the pattern (nullglob off)
+      }
+    }
+    const fn = this.functions.get(name);
+    if (typeof fn !== 'function') {
+      // undefined target: replicate fnCall's fallback chain (builtin,
+      // then command-not-found 127) and yield the C-ish '0' (the
+      // store is string-typed; the caller coerces).
+      if (typeof builtins[name] === 'function') {
+        return builtins[name].call(this, flat);
+      }
+      this._reportCommandNotFound(name);
+      this.lastExit = 127;
+      return '0';
+    }
+    const saved = this.positional;
+    this.positional = flat;
+    let r;
+    try {
+      r = fn();
+    } catch (e) {
+      // `return N` inside a loop body is a sh2.return Signal; the loop
+      // rethrows it and the function call turns it into the value.
+      if (isSignal(e, 'RETURN')) r = undefined;
+      else throw e;
+    } finally {
+      this.positional = saved;
+    }
+    return r;
+  },
+
+  // `ternary(cond, a, b)` — the C frontend's `cond ? a : b` lowering:
+  // the cond is the frontend's test-string evaluated with the SAME
+  // native-first policy as the A1 `test` call (the core's "ternary" arm
+  // lowers it via try_native_test, falling back to sh2.test), the
+  // branches are the already-lowered A1 values — pure, so eager
+  // evaluation is sound for the pure-expression subset.
+  ternary(cond, a, b) {
+    return cond ? a : b;
+  },
+
   // ── direct native function calls ─────────────────────────────────
   // The emitter lowers provably-positional-free sync-function calls to
   // direct JS calls on module-level `let f` bindings (src/shir.rs
@@ -1105,6 +1178,19 @@ export const sh2 = {
     this._reportCommandNotFound(name);
     this.lastExit = 127;
     return false;
+  },
+
+  // `testArith(s)` — a C condition that needs ARITHMETIC (bitwise /
+  // shift / mod inside a test — the bash `test` grammar is
+  // comparison-only; the c-sh-go frontend routes such conditions here,
+  // see condCall). The string is a bash-arith expression
+  // (`$(( ))` semantics — evalArith evaluates + - * / % ** << >> & | ^
+  // comparisons && || ! ~); its numeric truth is the condition.
+  testArith(s) {
+    let v;
+    try { v = evalArith(String(s), this); } catch { v = 0; }
+    this.lastExit = v ? 0 : 1;
+    return v !== 0;
   },
 
   // ── test expressions ───────────────────────────────────────────────
@@ -1645,16 +1731,14 @@ export const sh2 = {
         body = body.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       } else if (!fl.includes('E')) {
         body = body
-          .replace(/\\+/g, '+').replace(/\\?/g, '?').replace(/\\\(/g, '(')
-          .replace(/\\\)/g, ')').replace(/\\\|/g, '|')
-          .replace(/\\\{/g, '{').replace(/\\\}/g, '}');
+          .replace(/\\+/g, '+').replace(/\\\?/g, '?')
+          .replace(/\\\(/g, '(').replace(/\\\)/g, ')')
+          .replace(/\\\|/g, '|').replace(/\\\{/g, '{').replace(/\\\}/g, '}');
       }
       const re = new RegExp(body, fl.includes('i') ? 'gi' : 'g');
       const matches = s.match(re) || [];
       this.lastExit = matches.length > 0 ? 0 : 1;
-      const out = matches.join('\n');
-      if (out.length > 0) emit(this, out + '\n');
-      return matches;
+      return matches.join('\n');   // grep -o: one match per line
     } catch {
       this.lastExit = 2;
       return [];
@@ -2291,6 +2375,23 @@ export const sh2 = {
     try { idx = evalArith(String(key), this); } catch { return ARITH_BAD_MAGIC; } // subscript arithmetic syntax error: bash skips the whole command (status 1)
     if (idx < 0) idx += arr.length;   // negative subscript: from the end (bash + zsh agree)
     return idx >= 0 && idx < arr.length ? String(arr[idx]) : '';
+  },
+
+  // `arrayStore(name, idx, v)` — a C array write with a DYNAMIC index
+  // (the c-sh-go frontend's `a[i] = v` with i a variable). The baked-name
+  // `a[$i]` write target would resolve the subscript via the STORE
+  // (evalArith → getVar), which is stale for natively-lifted index vars;
+  // this call receives the index ALREADY lowered (the core's `arith` arm
+  // converts `$i` → the native binding) and writes the runtime array
+  // store directly — the mirror of arrayIndex. Like the setVar subscript
+  // path, an out-of-range index extends the array (bash sparse arrays).
+  arrayStore(name, idx, v) {
+    const nm = String(name);
+    const arr = this.arrays.get(nm) ?? [];
+    let i;
+    try { i = evalArith(String(idx), this); } catch { return ARITH_BAD_MAGIC; }
+    arr[i] = String(v ?? '');
+    this.arrays.set(nm, arr);
   },
 
   // ── sh2.mem — allocation_id + offset pointer emulation (slice 1) ──────
