@@ -275,7 +275,7 @@ if ($do_metric) {
     print "----------------------------------------\n";
     print "sh2-metric-total: $metric_total  (in-loop: $in_loop_total)\n";
     for my $k (sort { $agg{$b} <=> $agg{$a} } keys %agg) {
-        printf "  %-16s %5d   (in-loop %d)\n", $k, $agg{$k}, $aggin{$k};
+        printf "  %-16s %5d   (in-loop %d)\n", $k, $agg{$k}, $aggin{$k} // 0;
     }
     # Full runs only: prefix runs are partial views and must not clobber the
     # committed-state baseline the loop diffs against.
