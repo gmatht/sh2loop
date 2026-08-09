@@ -144,13 +144,13 @@ fn read_source(src: &str) -> Result<String, String> {
 /// `--shir <file> --raw` takes: `ast_to_ir`, A2 `var_types` included). A
 /// parse failure emits the canonical empty Program — never empty stdout.
 pub fn shell_to_shir(content: &str) -> String {
-    let commands = match debashl::Parser::new(content).parse() {
-        Ok(c) => c,
+    let (commands, lines) = match debashl::Parser::new(content).parse_with_lines() {
+        Ok(p) => p,
         Err(_) => {
             return debashl::shir_json::shir_to_shir_json(&debashl::shir::ast_to_ir(&[]));
         }
     };
-    let prog = debashl::shir::ast_to_ir(&commands);
+    let prog = debashl::shir::ast_to_ir_with_lines(&commands, &lines);
     debashl::shir_json::shir_to_shir_json(&prog)
 }
 
@@ -169,7 +169,12 @@ pub fn render(a1: &str, lang: &str) -> Result<String, String> {
         .ok_or_else(|| {
             format!("target {lang:?} not wired (known: js, pl, c, go, py, sh, java, rs, zig, shir)")
         })?;
-    let prog = debashl::shir_json_in::shir_json_to_ir(a1)?;
+    let mut prog = debashl::shir_json_in::shir_json_to_ir(a1)?;
+    // A1 ingress: restructure Label/Goto into structured flow (the shared
+    // pass — the CLI's --shir-in-estree/--shir-in-perl run the same
+    // restructure_goto_only; without it frontend A1 carrying C `goto`
+    // reaches the renderers' Label/Goto arms instead of DoWhile/While).
+    debashl::shir_passes::restructure_goto_only(&mut prog);
     let target = match kind {
         "estree" => {
             debashl::shir::shir_to_estree_json(&prog).map_err(|e| format!("estree: {e}"))?
