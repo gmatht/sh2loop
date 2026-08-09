@@ -50,3 +50,5 @@ and destructures.
 
 `cargo test --lib`; the out-param transform's multi-write case lands;
 corpus unchanged (single-value returns dominate).
+
+## OUTCOME: RESOLVED 2026-08-10 — implemented directly by the workspace agent. mem-slice-2: the arena was runtime-side; the missing dynamic position model landed (runtime memAdvance/memTest + embedded-offset handles; frontend ptrNeedsDyn + dyn handle vars) — pinned by frontends/c-sh-go/testdata/t69_ptr_walk.c + t70_ptr_walk_store.c (gcc == estree). multi-return: A1 Return-with-values was already deserialized; the out-param transform (harness/outparam_to_returns.py) now handles multiple write-targets (echo-per-value + caller capture/destructure via the runtime `line` helper, rendered natively by the core) — pinned by t71_multi_out.c + t72_multi_out_mix.c. Gate 74/74.

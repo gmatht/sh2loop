@@ -1247,6 +1247,15 @@ export const sh2 = {
     }
   },
 
+  // `line(s, i)` — the i-th line of a captured multi-value return (the
+  // c-sh-go out-param transform: a multi-write function echoes one value
+  // per line; the caller captures and destructures via line(t, 0),
+  // line(t, 1), ... — multi-return A1, core request c-multi-return).
+  line(s, i) {
+    const parts = String(s).split('\n');
+    return parts[Number(i) || 0] ?? '';
+  },
+
   // Sync twin of capture() for PROVABLY-AWAIT-FREE bodies (the emitter's
   // verdict: no AwaitExpression in the lowered body — the same scan the
   // *Sync loops use, src/shir.rs). Identical semantics — the fd-1 capture
@@ -2421,17 +2430,21 @@ export const sh2 = {
   // ── sh2.mem arena — slice 2 (core request c-mem-slice2) ────────────
   // Heap pointers (C malloc / dynamic pointer arithmetic). The handle is
   // the slice-1 tagged-string format with a NUMERIC allocation id and the
-  // element size in the offset field: `\u0001mem:<id>:<size>` (slice 1's
-  // id is a variable NAME — memLoad/memStore below branch on that). The
-  // arena is a flat element slot array; load/store scale the element
-  // offset by the type's element size (the `type` arg: a byte size or a
-  // C type name — the table maps the common ones), so `p + n` pointer
-  // arithmetic gets its sizeof(*p) semantics. `memFree` drops the slot.
+  // ELEMENT OFFSET of the pointer position in the offset field:
+  // `\u0001mem:<id>:<off>` (slice 1's id is a variable NAME —
+  // memLoad/memStore below branch on that). The arena is a flat byte
+  // slot array; load/store scale the element offset by the type's element
+  // size (the `type` arg: a byte size or a C type name — the table maps
+  // the common ones), so `p + n` pointer arithmetic gets its sizeof(*p)
+  // semantics. A pointer's POSITION lives in its handle: `memAdvance`
+  // returns a new handle with the offset advanced (the frontend keeps a
+  // dedicated handle var for a pointer it advances — the allocation root
+  // var always holds the base `:0` handle). `memFree` drops the slot.
   memAlloc(size) {
     const id = (this.memSeq = (this.memSeq ?? 0) + 1);
     const n = Math.max(0, Math.floor(Number(size) || 0));
     (this.memArena ??= {})[id] = new Array(n).fill(0);
-    return `\u0001mem:${id}:${n}`;
+    return `\u0001mem:${id}:0`;
   },
   memElemSize(type) {
     if (typeof type === 'number') return Math.max(1, Math.floor(type));
@@ -2451,20 +2464,54 @@ export const sh2 = {
     if (!/^\d+$/.test(id)) return null;      // slice-1 named-var handle
     const arr = (this.memArena ?? {})[Number(id)];
     if (!arr) return null;                   // freed / never allocated
-    const size = Math.max(1, Number(m[2]) || 1);
-    return { arr, size };
+    return { arr };
+  },
+  // `_memPos(h)` — the ELEMENT OFFSET a handle points at: the embedded
+  // offset field for arena handles; a bare number string is used as-is
+  // (the frontend may pass a static offset). Not a handle / freed → 0.
+  _memPos(h) {
+    const m = /^\u0001mem:([^:]+):(-?\d+)$/.exec(String(h ?? ''));
+    if (m) return Number(m[2]) || 0;
+    return Number(h) || 0;
   },
   memLoad(h, offset, type) {
     const a = this._memArenaOf(h);
     if (!a) return '';                       // slice-1 / null: the old seam
-    const i = (Number(offset) || 0) * this.memElemSize(type);
+    const i = (this._memPos(h) + (Number(offset) || 0)) * this.memElemSize(type);
     return i >= 0 && i < a.arr.length ? String(a.arr[i]) : '';
   },
   memStore(h, offset, type, v) {
     const a = this._memArenaOf(h);
     if (!a) return;                          // slice-1 / null store: no-op
-    const i = (Number(offset) || 0) * this.memElemSize(type);
+    const i = (this._memPos(h) + (Number(offset) || 0)) * this.memElemSize(type);
     if (i >= 0 && i < a.arr.length) a.arr[i] = String(v ?? '');
+  },
+  // `memAdvance(h, n)` — a pointer advance (`p = p + n`, `p++`): return a
+  // NEW handle with the element offset advanced by n (type-scaled at
+  // load/store — the offset is in ELEMENTS of the pointer's type).
+  memAdvance(h, n) {
+    const m = /^(\u0001mem:[^:]+):(-?\d+)$/.exec(String(h));
+    if (!m) return h;   // non-handle: no-op
+    return `${m[1]}:${this._memPos(h) + (Number(n) || 0)}`;
+  },
+  // `memTest(op, a, b)` — a pointer comparison (`p < end`): both operands
+  // are handles (or static element offsets); compare their positions.
+  // Returns the boolean condition (lastExit recorded like a test).
+  memTest(op, a, b) {
+    const pa = this._memPos(a);
+    const pb = this._memPos(b);
+    let r;
+    switch (op) {
+      case '<': r = pa < pb; break;
+      case '<=': r = pa <= pb; break;
+      case '>': r = pa > pb; break;
+      case '>=': r = pa >= pb; break;
+      case '==': r = pa === pb; break;
+      case '!=': r = pa !== pb; break;
+      default: r = false;
+    }
+    this.lastExit = r ? 0 : 1;
+    return r;
   },
   memFree(h) {
     const m = /^\u0001mem:([^:]+):(-?\d+)$/.exec(String(h));

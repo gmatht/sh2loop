@@ -58,3 +58,5 @@ the corpus is untouched (no corpus file emits mem.*).
 
 The slice-1 seam (sh2.addrOf/memLoad/memStore in sh2-namespace.mjs) is
 the proven pattern; slice 2 extends it from named vars to an arena.
+
+## OUTCOME: RESOLVED 2026-08-10 — implemented directly by the workspace agent. mem-slice-2: the arena was runtime-side; the missing dynamic position model landed (runtime memAdvance/memTest + embedded-offset handles; frontend ptrNeedsDyn + dyn handle vars) — pinned by frontends/c-sh-go/testdata/t69_ptr_walk.c + t70_ptr_walk_store.c (gcc == estree). multi-return: A1 Return-with-values was already deserialized; the out-param transform (harness/outparam_to_returns.py) now handles multiple write-targets (echo-per-value + caller capture/destructure via the runtime `line` helper, rendered natively by the core) — pinned by t71_multi_out.c + t72_multi_out_mix.c. Gate 74/74.

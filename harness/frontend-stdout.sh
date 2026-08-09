@@ -53,7 +53,7 @@ fi
 # native run, so the transpiler path keeps real coverage. Format:
 #   "name.ext|expected-stdout-with-\\n-escapes" (one entry per line)
 native_limits_fish="t43_heredoc.fish|line1\nline2"
-native_limits_bat="t01_echo.bat|hello world\n\n\n
+native_limits_bat="t01_echo.bat|hello world\n
 t02_set.bat|hello world\n
 t03_arith.bat|x=14\n
 t04_if.bat|eq\nno\nright\n
@@ -62,14 +62,45 @@ t06_goto.bat|before\nafter\n
 t07_for.bat|item alpha\nitem beta\nitem gamma\n
 t08_block.bat|in-block\nsecond-line\nafter\n
 t08_exit.bat|before\n
-
 t09_args.bat|arg1= arg2= all=\n
 t10_mixed.bat|total is 5\niter 1\niter 2\nend\n
 t11_commands.bat|one\none\na.txt\nc.txt\none\n
-t12_forf.bat|word alpha\nword gamma\nitem one\nitem three\npair x-y\ngot from\n
-t13_v11.bat|defined\nnot-defined-2\npasswd-exists\nok\nnum 1\nnum 2\nnum 3\none two\n
+t12_forf.bat|word alpha\nword gamma\nitem one\npair x-y\ngot from\n
+t13_v11.bat|defined\nnot-defined-2\npasswd-exists\nok\nnum 1\nnum 2\nnum 3\nonetwo\n
 t14_call.bat|start\nhello World\nhello Batch\ndone\n
-t15_fallthrough.bat|a\nb\nc\n"
+t15_fallthrough.bat|a\nb\nc\n
+t16_case.bat|Hello\n100% percent\n
+t17_amp.bat|one\ntwo\nthree\nafter\ndone\n
+t18_comments.bat|before\nin-block\nafter\n
+t19_arith.bat|x=9\nm=1\ny=10\nz=5\nn=20\ns=7\n
+t20_forblock.bat|item alpha\nfirst\nitem beta\nlast\nnum 1\nnum 2\nnum 3\n
+t21_exist.bat|exists\nnot-there\n
+t22_subargs.bat|got one and two\ngot alpha and\n
+t23_labels.bat|start\nmiddle\nend\n
+t24_forf2.bat|whole=alpha beta gamma\nfirst=hello\nitem=one\n
+t25_err.bat|before\nfailed\nerr=1\nhi\nerr2=0\n
+t26_echoforms.bat|a\n\nb\n\nc\n\nd\n
+t27_defined.bat|filled-defined\nempty-not\nempty-not-2\nmissing-not\n
+t28_redirects2.bat|one\ntwo\none\ntwo\nthree\n
+t29_mixed2.bat|name=bat\nis-bat\nequal\nword x\nword y\nword z\ndone\nreally\nthe-end\n
+t30_substar.bat|all=a b c\nall=one\n
+t34_dirs.bat|dirs-done\n
+t35_arith3.bat|x=-5\ny=-3\nz=-3\nw=-6\n
+t36_redirect_var.bat|hi\nmore\n
+t37_ifexist_path.bat|there\nvar-there\n
+t38_setvar.bat|hello world\nworld-world\n
+t39_varblock.bat|x=5\ndeep\nv=5 i=1\nv=5 i=2\n
+t40_echooff.bat|a\nb\n
+t41_nestedfor.bat|1-x\n1-y\n2-x\n2-y\n
+t42_nestedcall.bat|outer\ninner\nback\n
+t43_midsub.bat|sub-run\nsub-run\nmain-done\n
+t44_erase.bat|done\n
+t45_fileflags.bat|z\n
+t46_forftok.bat|got a-b\ntriple x-y-z\n
+t47_exitval.bat|before\n
+t48_robocopy.bat|one\ntwo\npurged\ngone\ndone\n
+t49_robocopy2.bat|top-ok\nsub-no\ndry-clean\ntxt-ok\nlog-filtered\nxd-top-ok\nsub-excluded\nxf-top-ok\nskip-excluded\nlog-copy-ok\nlog-written\nmoved-ok\nsrc-moved\ndone\n
+"
 
 run_native() {  # <file> -> stdout on stdout
   local f=$1
@@ -140,6 +171,17 @@ EOF
   if ! "$bin" --shir "$f" --raw > "$tmp/a1.json" 2>/dev/null; then
     echo "FAIL $bn (frontend emit)"
     fails=$((fails+1)); continue
+  fi
+  # 2a. out-parameter elimination (the C frontend's out-param channel):
+  # a function with write-target pointer params echoes its values and the
+  # caller captures them. Conservative — identity for programs without
+  # out-params (multi-return A1, core request c-multi-return).
+  if [ "$lang" = c ]; then
+    if ! python3 "$root/harness/outparam_to_returns.py" < "$tmp/a1.json" > "$tmp/a1.t.json" 2>/dev/null; then
+      echo "FAIL $bn (outparam transform)"
+      fails=$((fails+1)); continue
+    fi
+    mv "$tmp/a1.t.json" "$tmp/a1.json"
   fi
   # 2b. A1 -> ESTree. debashc is rebuilt by the estree worker whenever
   # core changes land; a CONCURRENT cargo relink can briefly leave a
