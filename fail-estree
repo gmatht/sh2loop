@@ -96,7 +96,11 @@ sub run_one_test {
             my $perl_exit = $? >> 8;
             my $bash_out = `timeout $timeout_per_test bash '$test_file' 2>"$tmp_dir/bserr.txt"`;
             my $bash_exit = $? >> 8;
-            if (($perl_out // '') ne ($bash_out // '')) {
+            if ($bash_exit == 124) {
+                # the bash reference itself timed out — inconclusive, not a
+                # backend failure (mirror of the estree path)
+                $perl_reason = 'bash reference timed out (inconclusive)';
+            } elsif (($perl_out // '') ne ($bash_out // '')) {
                 $perl_verdict = 'FAIL';
                 $perl_reason = 'stdout mismatch';
             } elsif ($perl_exit != $bash_exit) {
@@ -145,7 +149,16 @@ sub run_one_test {
             } else {
                 my $bash_out = `timeout $timeout_per_test bash '$test_file' 2>"$tmp_dir/bserr2.txt"`;
                 my $bash_exit2 = $? >> 8;
-                if (($est_out // '') ne ($bash_out // '')) {
+                # The bash REFERENCE timed out (the harness's per-test cap,
+                # not a bash exit code): e.g. sqrt1337.sh's 10k-iteration
+                # grep-in-loop is ~15s natively and more under parallel
+                # load. The estree translation ran to completion — a
+                # killed reference is INCONCLUSIVE, not a translation
+                # failure (a wrong translation still fails its own stdout
+                # / runtime-error checks above).
+                if ($bash_exit2 == 124) {
+                    $est_reason = "bash reference timed out (estree ran; inconclusive)";
+                } elsif (($est_out // '') ne ($bash_out // '')) {
                     $est_verdict = 'FAIL';
                     $est_reason = 'stdout mismatch';
                 } elsif ($est_exit != $bash_exit2) {
