@@ -22,7 +22,7 @@ my %whitelist = map { $_ => 1 } qw(
     subshellSync blockSync captureSync captureWordsSync pipelineSync redirectSync
     shopt return break continue unsupported
     trimCapture dirname basename uname date readlink hostname whoami mktempValue split readFile writeFile appendFile lstat access unlink rm mkdir mkdtemp addrOf memLoad memStore
-    memAlloc memFree ternary arrayStore
+    memAlloc memFree ternary arrayStore memAdvance memTest line
     assocSet assocGet assocNames assocValues
 );
 

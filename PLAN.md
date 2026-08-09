@@ -12,6 +12,39 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v20: **c-sh-go v3 — mem-slice-2, multi-return, and the next rung, gate 68/68 → 74/74**
+>   (workspace + submodule). Implemented the two core requests directly.
+>   (1) mem-slice-2 (c-mem-slice2): the arena was runtime-side; the missing
+>   piece was the DYNAMIC position model — a pointer that is advanced or
+>   comparison-used carries its position in a dedicated runtime handle var
+>   (ptrNeedsDyn pre-scans at the declaration; the while-header cond is
+>   emitted BEFORE the body's advance, so a compile-time offset could
+>   never advance per-iteration). `p = p + n` / `p++` / `p += n` → runtime
+>   memAdvance (new handle with the embedded element offset); `p < end` →
+>   runtime memTest (position compare); reads/writes go through the
+>   embedded offset; the root var keeps the base `:0` handle (pointer-copy
+>   semantics). t69 walk-sum, t70 store-walk. (2) multi-return
+>   (c-multi-return): the out-param transform handles MULTIPLE
+>   write-targets — each write-param's last store becomes an echo (one
+>   value per line), dropped write-params' bindings are removed with later
+>   read-params renumbered, and the caller captures once and destructures
+>   via the runtime `line` helper (the core renders `line` NATIVELY so the
+>   destructure takes the native store-write path — a lifted destructured
+>   var would desync from a runtime store write; also fixes the vacuous
+>   string-lift of source-less vars). Mixed shapes work (write + read-only
+>   non-pointer params, read-only pointer params). Statement-position user
+>   calls now emit fnCall (they were silently DROPPED). The gate pipeline
+>   runs the transform on every emitted A1 (identity without out-params).
+>   (3) next rung: calls/ternaries inside ARITHMETIC are now hoisted to
+>   temps automatically (printf args, decl inits, plain/compound assigns,
+>   for headers — a compound RHS is an implicit arith operand), and switch
+>   FALLTHROUGH lands (a case body without a trailing break merges the
+>   next case's arm — shared-body `case 1: case 2:` and fallthrough into
+>   default included; mid-arm breaks stay stripped — documented). Still
+>   refused (honest): calls/ternary in test operands, prefix ++/-- in
+>   expression position, multi-char literals, multi-return with read+write
+>   params, switch mid-arm breaks. ESTree corpus unchanged (521/532 — the
+>   pre-existing grepMatches WIP + env drift failures).
 > - v19: **c-sh-go v2 — the fnCall-value fix + the v2 idiom set, gate 57/57 → 68/68**
 >   (workspace + submodule). Fixed the SILENT-0 function-call corruption (a
 >   runtime user call in a value position emitted A1 `fnCall` — the shell
