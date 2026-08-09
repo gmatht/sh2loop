@@ -1107,6 +1107,13 @@ export const sh2 = {
     return out.split(/\s+/).filter(w => w.length > 0);
   },
 
+  // Unquoted $var / ${...} in exec-arg position — bash word-splits the
+  // expanded value on IFS the same way. Array result: the exec/builtin arg
+  // flattener splices one arg per word (mirrors captureWords).
+  fieldSplit(v) {
+    return String(v ?? '').split(/\s+/).filter(w => w.length > 0);
+  },
+
   // ── redirects ──────────────────────────────────────────────────────
   async redirect(fn, specs = []) {
     const saved = { ...this.fdTargets };
