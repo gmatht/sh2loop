@@ -12,6 +12,39 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v19: **c-sh-go v2 — the fnCall-value fix + the v2 idiom set, gate 57/57 → 68/68**
+>   (workspace + submodule). Fixed the SILENT-0 function-call corruption (a
+>   runtime user call in a value position emitted A1 `fnCall` — the shell
+>   STATUS channel — and printf got 0 while gcc got 10): the frontend now
+>   emits `fnValue` for value-position calls, the runtime gains the
+>   value-returning `fnValue` dispatch (same positional/RETURN-signal
+>   handling as fnCall, the define-arrow's native return comes back), and
+>   the perl backend already rendered the same A1 as a direct sub call.
+>   Then landed the v2 idiom set, each pinned by an executed-stdout example
+>   (t58–t68): runtime function calls (multi-param/multi-stmt/nested),
+>   multi-declarator `int a, b;`, compound assignments `*= /= %= <<= >>=
+>   &= |= ^=`, prefix `++i`/`--i` (statements + for headers), char
+>   literals with STRING test semantics (`=`/`!=` — `-eq` would coerce
+>   both sides to 0), bitwise `& | ^ ~ << >>` (native int32 JS ops;
+>   `~x` → `x ^ -1`), bitwise/mod in CONDITIONS via the runtime `testArith`
+>   (bash-arith truth — the test-string grammar is comparison-only),
+>   ternary via the runtime `ternary` call (native-first cond), dynamic
+>   array writes `a[i] = v` in loops via the runtime `arrayStore` call
+>   (the baked `a[$i]` target would read a stale store for lifted index
+>   vars), and dynamic heap indices `p[i]` read+write (mem-arena offsets
+>   as runtime arith calls). Also fixed a per-run state leak in
+>   `frontends/c-sh-go/main.go` (arrayVars/scalarAliases/ptrTargets/
+>   charPtrVars/userFuncs were never reset for in-process parses) and
+>   cleared the queue: the two c-sh-go regression requests
+>   (c-sh-go-20260809-131354/134020) are RESOLVED — their fix landed as
+>   sh2perl 5c717a7 — moved to done/ with OUTCOME markers, and the
+>   sleeping-c-sh-go marker is removed. ESTree corpus gate A/B-verified:
+>   identical 521/532 with and without the core changes (the 11 failures
+>   are the estree worker's uncommitted grepMatches WIP + env drift —
+>   pre-existing, not this work). Refused still (honest): calls/ternary/
+>   bitwise inside ARITHMETIC or test operands (lower to a temp),
+>   dynamic pointer advance, multi-out-param functions, switch
+>   fallthrough, multi-char literals.
 > - v18: **Perl corpus 420 → 459/532 (39 fixes, zero regressions)** (workspace,
 >   submodule 2108602). One session of Perl-generator translation fixes:
 >   parser — test-expression `\${var#pat}` no longer drops the closing `}` when
