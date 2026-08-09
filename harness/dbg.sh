@@ -2,13 +2,13 @@
 # debug one example through the estree path: emits JSON, runs gate + node, diffs vs bash
 # usage: harness/dbg.sh <example.sh>
 set -u
-cd /nvme/ai/sh2loop
+cd /home/llm/sh2loop
 EX=$1
 BASE=$(basename "$EX" .sh)
 TMP=$(mktemp -d /tmp/dbg-XXXX)
-cd sh2perl && ./target/debug/debashc file --estree "../$EX" > "$TMP/prog.estree.json" 2>"$TMP/emit-err.txt"
+cd sh2perl && ./target/release/debashc file --estree "../$EX" > "$TMP/prog.estree.json" 2>"$TMP/emit-err.txt"
 EMIT=$?
-cd /nvme/ai/sh2loop
+cd /home/llm/sh2loop
 if [ $EMIT -ne 0 ] || ! grep -q '"type":"Program"' "$TMP/prog.estree.json"; then
   echo "EMIT FAILED"; cat "$TMP/emit-err.txt" | head -5; exit 1
 fi
