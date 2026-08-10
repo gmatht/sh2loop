@@ -12,6 +12,31 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v21: **c-sh-go v4 — the last refused rung, gate 74/74 → 79/79** (workspace
+>   only — no core changes; frontend main.go + harness/outparam_to_returns.py).
+>   The five documented refusals from v3, each pinned by a stdout example
+>   (t75–t79): (1) runtime VALUE reads in CONDITIONS (deref/index/call/
+>   prefix-inc in if/while/for/switch conds) — hoisted to temps; an if
+>   hoists once, a while/for/do-while gets the refresh-and-guard structure
+>   `while (1) { temps; if (!cond) break; body }` (the cond must
+>   re-evaluate per iteration). t75: array-max loop, `while (*q < 3)` walk,
+>   call in cond. (2) prefix ++/-- in EXPRESSION position (the value is the
+>   NEW value — increment statement + plain read hoisted at the statement
+>   level). t76. (3) multi-char literals (GCC big-endian packing). t77.
+>   (4) READ+WRITE out-params (`*x = *x + 1`) — arithOperand now recurses
+>   into bins (only the read subtree temps), and the transform treats a
+>   read+write write-param as IN-OUT (keeps its input position, caller
+>   passes the current value, the new value returns via the echo channel;
+>   only write-ONLY params shift later positions). t78: bump + addout(&v, 5).
+>   (5) switch MID-ARM breaks — a guarded `if (c) break;` keeps its guard
+>   with an empty then and wraps the remainder of the merged arm in the
+>   guard's ELSE (true guard exits the switch, false falls through); the
+>   Goto/Label route was tried first but the shared RestructureGoto handles
+>   one goto per label and removes it — multiple break-gotos to one label
+>   panic the renderer. t79. Also hardened the Makefile gate against
+>   root-owned stale /tmp files (local .gate-tmp + clean). Still refused
+>   (honest): char ordering comparisons, pointer advance on array-derived
+>   pointers, pointer declarators in multi-declarator lists.
 > - v20: **c-sh-go v3 — mem-slice-2, multi-return, and the next rung, gate 68/68 → 74/74**
 >   (workspace + submodule). Implemented the two core requests directly.
 >   (1) mem-slice-2 (c-mem-slice2): the arena was runtime-side; the missing

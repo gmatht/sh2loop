@@ -130,6 +130,13 @@ def classify(fn):
     def walk_stmt(s):
         if s.get('type') == 'Expr':
             walk_expr(s.get('expr', {}), s)
+        elif s.get('type') == 'Assign':
+            e = s.get('expr', {})
+            # the leading `Assign <param> = getVar(N)` bindings are the
+            # param plumbing (identity copies) — skip; any other Assign
+            # (a read+write temp like `__t = memLoad(N)`) is walked
+            if not (is_call(e, 'getVar') and param_pos(e)):
+                walk_expr(e, s)
         # nested bodies (If/While/Block) — walk them too
         for key in ('then', 'else', 'body', 'elsifs'):
             v = s.get(key)
@@ -187,8 +194,17 @@ def transform(prog):
         # dropping the write-params renumbers the later read-params: a read
         # at pos N shifts down by the count of dropped write-params below it
         def dropped_below(n):
-            return sum(1 for w in wps if int(w) < n)
-        renum = {p: str(int(p) - dropped_below(int(p))) for p in read_poss}
+            # a READ+WRITE write-param is an IN-OUT: it drops from the
+            # RETURN channel but KEEPS its input position (the caller
+            # passes the current value) — only WRITE-ONLY params shift
+            # the later positions down.
+            return sum(1 for w in wps if int(w) < n and w not in rw)
+        # READ+WRITE write-params (`*x = *x + 1`) are ALSO inputs: the
+        # caller passes the current value at the renumbered position, so
+        # their loads renumber like read-pos reads.
+        rw = [w for w in wps if uses[w]['reads']]
+        renum = {p: str(int(p) - dropped_below(int(p)))
+                 for p in read_poss + rw}
         # the leading bindings map param NAMES to their positionals
         name_to_pos = {}
         for b in s.get('body', []):
@@ -266,10 +282,13 @@ def transform(prog):
                   and param_pos(b['expr'].get('args', [{}])[0]) in last_stores):
                 continue                              # earlier stores to any out-param drop
             else:
-                new_body.append(b)
+                # kept statements are renumbered too — a read+write
+                # param's load lives in a temp Assign (`__t = memLoad(N)`)
+                # and must read the caller's passed value at the new pos
+                new_body.append(renum_value(b))
         s['body'] = new_body
         plan[s['name']] = {'write_pos': wps, 'echo_order': echo_order,
-                           'read_poss': read_poss}
+                           'read_poss': read_poss, 'readwrite': rw}
     # rewrite call sites (index loop — a multi-write call site becomes a
     # Block of several statements)
     for idx, s in enumerate(prog.get('stmts', [])):
@@ -292,7 +311,18 @@ def transform(prog):
             if pos in wps:
                 if is_call(a, 'addrOf') and a.get('args'):
                     write_vars[pos] = a['args'][0].get('value')
-                # the out-arg is dropped from the call
+                if pos in p['readwrite']:
+                    # read+write: the caller passes the CURRENT value
+                    # (the function reads it via the renumbered load)
+                    if is_call(a, 'addrOf') and a.get('args'):
+                        v = a['args'][0].get('value')
+                        call_args.append({'func': 'getVar', 'purity': 'Emulable',
+                                          'type': 'Call',
+                                          'args': [{'style': 'DoubleQuoted',
+                                                    'type': 'Str', 'value': v}]})
+                    else:
+                        call_args.append(a)
+                # else: the out-arg is dropped from the call
             else:
                 if is_call(a, 'addrOf') and a.get('args'):
                     v = a['args'][0].get('value')
