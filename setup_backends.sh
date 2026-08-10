@@ -414,6 +414,16 @@ case "${1:-}" in
   --frontends)    MODE=frontends; shift ;;
   --build)        MODE=build; shift; SCOPE="${1:-all}"; shift || true ;;
   --start-workers) MODE=start-workers; shift ;;
+  --start-triage-worker) # the cross-product triage worker (frontend corpus ×
+                  # backend). Rotates frontends, sweeps each through ALL
+                  # backends, escalates NEW failures by class (frontend →
+                  # --pi-fix-frontend; backend → a core-request), and
+                  # regenerates triage/report.json for external consumers.
+                  # Verdicts: triage/verdicts.tsv (see harness/triage.sh).
+                  nohup nice -n 19 bash "$ROOT/run_triage_worker.sh" \
+                    >> "$WORKSPACE/loop-triage-worker.log" 2>&1 &
+                  echo "triage worker started (pid $!) — log: $WORKSPACE/loop-triage-worker.log"
+                  exit 0 ;;
   --run-backend-worker) # internal: run ONE backend worker loop until it
                   # dies (the start-workers supervisor relaunches it up to
                   # 5 times). Usage: setup_backends.sh --run-backend-worker <lang>
