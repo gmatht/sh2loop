@@ -302,7 +302,13 @@ gen_report() {
 case "${1:-}" in
   --sweep) shift; sweep "$@" ;;
   --report) gen_report ;;
-  --clear) rm -f "$VTSV" "$REPORT" "$MDREPORT"; echo "cleared $TRIAGE" ;;
+  --clear) # destructive: wipes the verdict store the worker + GUI read.
+    # Require --yes so a casual test can't destroy real triage data.
+    if [ "${2:-}" != "--yes" ]; then
+      echo "triage: --clear deletes verdicts.tsv + the reports — pass --yes to confirm" >&2
+      exit 2
+    fi
+    rm -f "$VTSV" "$REPORT" "$MDREPORT"; echo "cleared $TRIAGE" ;;
   *)
     [ $# -eq 3 ] || { echo "usage: triage.sh <frontend> <example> <backend> | --sweep [--random N] [fes...] [bes...] | --report | --clear" >&2; exit 2; }
     # a single pair: compute the row inline
