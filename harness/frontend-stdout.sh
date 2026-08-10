@@ -23,6 +23,8 @@ case "$lang" in
   py)   ext=.py;   native=(python3) ;;
   go)   ext=.go;   native=() ;;          # wrapper below
   c)    ext=.c;    native=(cc) ;;        # compile+run wrapper below
+  cpp)  ext=.cc;   native=(c++) ;;       # compile+run wrapper below
+  rust) ext=.rs;   native=(rustc) ;;     # compile+run wrapper below
   sh)   ext=.sh;   native=(bash) ;;
   pl)   ext=.pl;   native=(perl) ;;
   fish) ext=.fish; native=(fish) ;;
@@ -107,6 +109,12 @@ run_native() {  # <file> -> stdout on stdout
   if [ "$lang" = c ]; then
     cp "$f" "$tmp/main.c"
     (cd "$tmp" && timeout 20 cc main.c -o main 2>/dev/null && timeout 20 ./main) < /dev/null 2>/dev/null
+  elif [ "$lang" = cpp ]; then
+    cp "$f" "$tmp/main.cc"
+    (cd "$tmp" && timeout 20 c++ main.cc -o main 2>/dev/null && timeout 20 ./main) < /dev/null 2>/dev/null
+  elif [ "$lang" = rust ]; then
+    cp "$f" "$tmp/main.rs"
+    (cd "$tmp" && timeout 20 rustc main.rs -o main 2>/dev/null && timeout 20 ./main) < /dev/null 2>/dev/null
   elif [ "$lang" = go ]; then
     if grep -q 'func main()' "$f"; then
       # already a full program (its own package main/import/func main) —
@@ -137,6 +145,10 @@ total=0; fails=0; skips=0
 for f in "$dir"/*"$ext"; do
   [ -f "$f" ] || continue
   bn=$(basename "$f"); total=$((total+1))
+  # refusal pins (*_refuse.*) are the frontend's negative tests — the
+  # emit MUST fail, so they are exercised by the frontend's own gate
+  # (make test), never compared here.
+  case "$bn" in *_refuse*) echo "SKIP $bn (refusal pin — asserted failing by the frontend gate)"; skips=$((skips+1)); continue ;; esac
   if [ "$lang" != go ] && [ "$lang" != bat ] && ! command -v "${native[0]}" >/dev/null 2>&1; then
     echo "SKIP $bn (native interpreter '${native[0]}' not installed)"
     skips=$((skips+1)); continue
@@ -168,8 +180,8 @@ EOF
     native_out=$(run_native "$f") || true
   fi
   # 2. frontend emit
-  if ! "$bin" --shir "$f" --raw > "$tmp/a1.json" 2>/dev/null; then
-    echo "FAIL $bn (frontend emit)"
+  if ! "$bin" --shir "$f" --raw > "$tmp/a1.json" 2>"$tmp/emit.err"; then
+    echo "FAIL $bn (frontend emit: $(head -c 200 "$tmp/emit.err" 2>/dev/null | tr '\n' ' '))"
     fails=$((fails+1)); continue
   fi
   # 2a. out-parameter elimination (the C frontend's out-param channel):
