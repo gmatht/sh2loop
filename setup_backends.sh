@@ -36,7 +36,7 @@ FT="$ROOT/frontends"
 WORKSPACE="$ROOT"
 
 DEFAULT_BACKEND_LANGS="perl js c python zig go rust sh java"
-DEFAULT_FRONTEND_LANGS="py-sh-go go-sh posix-sh-go perl-sh-go fish-sh-go zsh-sh-go c-sh-go"
+DEFAULT_FRONTEND_LANGS="py-sh-go go-sh posix-sh-go perl-sh-go fish-sh-go zsh-sh-go c-sh-go cpp-sh-go"
 
 # Active backends whose workers already run from the main checkout
 # (main_loop_rust.pl / main_loop_estree.pl); the per-worktree worker
@@ -161,6 +161,7 @@ build_cmd() {
     backend:go)                     echo "true" ;;  # no Go renderer yet; build = noop
     frontend:py-sh)                 echo "python3 -c 'import ast; ast.parse(open(\"$FT/py-sh/pysh.py\").read())'" ;;
     frontend:go-sh)                 echo "go build -o /tmp/go-sh-build $FT/go-sh/" ;;
+    frontend:cpp-sh-go)             echo "make -C $FT/cpp-sh-go build" ;;
     *) echo "echo 'no build for $kind:$lang' && true" ;;
   esac
 }
@@ -315,8 +316,8 @@ do_build () {
   local -a langs=()
   case "$scope" in
     backends)  langs=(perl js c python zig go rust sh java) ;;
-    frontends) langs=(py-sh go-sh) ;;
-    all|*)     langs=(perl js c python zig go rust sh java py-sh go-sh) ;;
+    frontends) langs=(py-sh-go go-sh c-sh-go cpp-sh-go) ;;
+    all|*)     langs=(perl js c python zig go rust sh java py-sh go-sh c-sh-go cpp-sh-go) ;;
   esac
   echo "=== build: scope=$scope langs=${langs[*]} ==="
   # parallel: run each build in background, wait for all. Bound the
@@ -326,7 +327,7 @@ do_build () {
   for lang in "${langs[@]}"; do
     # decide kind
     local kind="backend"
-    case "$lang" in py-sh|go-sh|posix-sh|busybox-ash|fish|zsh|perl-sh|cpp-sh|rust-sh|c-sh-go) kind="frontend" ;; esac
+    case "$lang" in py-sh|go-sh|posix-sh|busybox-ash|fish|zsh|perl-sh|cpp-sh|rust-sh|c-sh-go|cpp-sh-go) kind="frontend" ;; esac
     local cmd; cmd=$(build_cmd "$kind" "$lang")
     echo "  [$kind:$lang] build: $cmd"
     (
@@ -544,6 +545,11 @@ case "${1:-}" in
                     printf '\nThe shIR (A1) contract is the source of truth (sh2perl/src/shir_json.rs). Parse the %s source language, emit the A1 shIR JSON byte-identical to the core frontend.\n' "$fix_name"
                     printf 'Shared core (DO NOT TOUCH): sh2perl/src/shir.rs, sh2perl/src/ir.rs, sh2perl/src/estree.rs, sh2perl/src/parser/\n'
                     printf 'You may create or edit files inside frontends/%s/ and harness/.\n' "$fix_name"
+                    if [ "$fix_name" = "cpp-sh-go" ]; then
+                      printf 'C++-surface only: you may edit THIS dir. c-sh-go-owned code (frontends/c-sh-go/*) is single-owner — if a fix needs a SHARED-LOWERING change there, APPEND a structured request to c-requests/%s-<timestamp>.md per c-requests/README.md (NEED / WHY / MINIMAL-C-CHANGE / FAILING-CASE / VALIDATION) and exit 0. Do NOT touch c-sh-go-owned files — the c-sh-go worker implements c-requests.\n' "$fix_name"
+                    elif [ "$fix_name" = "c-sh-go" ]; then
+                      printf 'You are the OWNER of the shared C lowering and the c-requests implementer. If c-requests/*.md (not in done/) exist, implement them FIRST; acceptance = make test AND the request VALIDATION target both green; then move them to c-requests/done/.\n'
+                    fi
                     printf 'If a SHARED-CORE change is required (shIR node, deserializer, contract field, parser fix) to fix this, APPEND a structured request to core-requests/%s-<timestamp>.md per core-requests/README.md (NEED / WHY / MINIMAL-CORE-CHANGE / FAILING-CASE) and exit 0. Do NOT touch the core — the estree worker implements core requests.\n' "$fix_name"
                   } > /tmp/pi-fix-prompt-$$
                   # RAM gate (fail-open, up to 10 min): don't start pi while RAM is tight
@@ -551,6 +557,35 @@ case "${1:-}" in
                   pi --mode json --provider opencode-go --model deepseek-v4-flash \
                      --thinking xhigh < /tmp/pi-fix-prompt-$$ >> "$fix_log" 2>&1 || true
                   rm -f /tmp/pi-fix-prompt-$$
+                  exit 0 ;;
+  --pi-fix-c-requests) # internal: the c-sh-go worker implements pending
+                  # c-requests/ (cpp-sh-go -> c-sh-go shared-lowering
+                  # requests, CPP_PLAN §4). Builds a prompt from the pending
+                  # request files and runs pi scoped to frontends/c-sh-go/.
+                  # The worker's own gate (make test) validates; on green it
+                  # moves the requests to c-requests/done/.
+                  c_reqdir="$WORKSPACE/c-requests"
+                  c_pending=$(ls "$c_reqdir"/*.md 2>/dev/null | grep -v '/done/' || true)
+                  if [ -z "$c_pending" ]; then
+                    exit 0
+                  fi
+                  c_log="$WORKSPACE/loop-frontend-c-sh-go.log"
+                  {
+                    printf 'Implement the pending c-requests (cpp-sh-go -> the shared C lowering).\n\n'
+                    for r in $c_pending; do
+                      printf '===== %s =====\n' "$r"
+                      cat "$r"
+                      printf '\n'
+                    done
+                    printf 'You are the OWNER of frontends/c-sh-go/ (the shared C lowering) and the c-requests implementer.\n'
+                    printf 'Acceptance = make test (the C corpus stays green) AND each request VALIDATION target (proves the feature works) — then the worker moves the requests to c-requests/done/.\n'
+                    printf 'Shared core (DO NOT TOUCH): sh2perl/src/shir.rs, sh2perl/src/ir.rs, sh2perl/src/estree.rs, sh2perl/src/parser/\n'
+                    printf 'If a SHARED-CORE change is required to satisfy a request, APPEND a structured request to core-requests/c-sh-go-<timestamp>.md per core-requests/README.md and exit 0.\n'
+                  } > /tmp/pi-fix-c-requests-$$
+                  wait_for_ram 2048 0.5 30 600 || true
+                  pi --mode json --provider opencode-go --model deepseek-v4-flash \
+                     --thinking xhigh < /tmp/pi-fix-c-requests-$$ >> "$c_log" 2>&1 || true
+                  rm -f /tmp/pi-fix-c-requests-$$
                   exit 0 ;;
   --backend-gate) # internal: the backend worker's progress signal. Render the
                   # shared corpus (sh2perl/examples/*.sh + frontend testdata)
