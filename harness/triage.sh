@@ -57,6 +57,7 @@ perl-sh-go|testdata|pl|./perl-sh-go|run:perl
 posix-sh-go|testdata|sh|./posix-sh-go|run:bash
 zsh-sh-go|testdata|zsh|./zsh-sh-go|run:zsh
 fish-sh-go|testdata|fish|./fish-sh-go|run:fish
+go-sh|testdata|sh,go|./go-sh|go-wrap
 "
 # backend: debashc-bin|flag|run("" = render-only)|label
 BACKENDS="
@@ -98,6 +99,18 @@ native_out() {  # frontend example-file -> native stdout ("" = none: bat)
   IFS=':' read -r mode cmd <<<"$native"
   if [ "$mode" = run ]; then
     ( cd "$ROOT/frontends/$fe" && timeout 20 "$cmd" "$f" ) < /dev/null 2>/dev/null || true
+  elif [ "$mode" = go-wrap ]; then
+    # Go-flavored sh: wrap into a runnable program (frontend-stdout's go mode)
+    local tmp; tmp=$(mktemp -d "$TRIAGE/.nat.XXXXXX")
+    if grep -q 'func main()' "$f"; then cp "$f" "$tmp/main.go";
+    else
+      local imports=""
+      grep -q 'fmt\.'  "$f" && imports="$imports\n\t\"fmt\""
+      grep -q 'exec\.' "$f" && imports="$imports\n\t\"os/exec\""
+      { printf 'package main\n\nimport (\n%b\n)\n\nfunc main() {\n' "$imports"; cat "$f"; printf '\n}\n'; } > "$tmp/main.go"
+    fi
+    ( cd "$tmp" && timeout 20 go run main.go ) < /dev/null 2>/dev/null || true
+    rm -rf "$tmp"
   else
     local tmp; tmp=$(mktemp -d "$TRIAGE/.nat.XXXXXX")
     ( cd "$tmp" && cp "$f" main.$ext && timeout 20 "$cmd" main.$ext -o main 2>/dev/null \
@@ -190,7 +203,9 @@ list_backends() { echo "$BACKENDS" | awk -F'|' '$1!="" {print $1}'; }
 list_examples() {
   local info; info=$(frontend_info "$1")
   IFS='|' read -r corpus ext bin native <<<"$info"
-  ls "$ROOT/frontends/$1/$corpus"/*."$ext" 2>/dev/null | xargs -n1 basename
+  local e; for e in ${ext//,/ }; do
+    ls "$ROOT/frontends/$1/$corpus"/*."$e" 2>/dev/null
+  done | xargs -n1 basename
 }
 
 sweep() {
