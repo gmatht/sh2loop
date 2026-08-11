@@ -137,6 +137,24 @@ loaded×loaded muls, i64 params/returns, carry/borrow across 2^32.
   evaluates eagerly).
 - i64 call args/returns, 64-bit division, varargs — loud REFUSEs.
 
+## tcc's own corpus (the right test set)
+
+Yes — tcc ships its own conformance corpus, and it's what the fork should be
+measured against: `tests/tests2/` (150 tests with `.expect` files) plus
+`tests/tcctest.c` (4520 lines) and the preprocessor tests in `tests/pp/`.
+The corpus runner (`tests/wasm-corpus/run-corpus.mjs` in the fork) compiles
+each tests2 test with the wasm32 backend, runs it via Node WASI + the
+sh2runtime's `c-runtime.js` env shim (the `env.$*` imports), and compares
+stdout to `.expect`. Current state (2026-08-11):
+
+**36 PASS / 17 WRONG / 70 REFUSE / 6 COMPILE-OUT / 3 RUN-CRASH /
+10 RUN-ERR / 9 NO-EXPECT** — identical on the pristine fork, so the i64
+fixes introduce zero corpus regressions. The 17 WRONG (silent wrong output
+— the dangerous class: 06_case switch, 16_nesting, 37_sprintf %02d, 91_ptr
+_longlong, 132/133 %g…) and the 4 compiler heap-corruption crashes
+(39_typedef, 89_nocode_wanted, 95_bitfields, 101_cleanup) are the actionable
+backlog.
+
 ## Architectural recommendations
 
 1. **Observation-point enforcement, not per-op wrap.** Signed overflow is UB
