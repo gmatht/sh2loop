@@ -61,9 +61,13 @@ function exprUnwrapped(node) {
     case 'TemplateLiteral': {
       let out = '`';
       for (let i = 0; i < node.quasis.length; i++) {
-        const raw = node.quasis[i].value.raw ?? '';
-        // Escape backticks and ${ sequences inside the raw text.
-        out += raw.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${');
+        // raw is written VERBATIM: the core emitter (shir.rs
+        // escape_template_raw / quasi_element) already escapes `\`, backtick
+        // and `$` for the JS template-literal source — the documented
+        // contract is "the JS emitter writes TemplateElement.value.raw
+        // VERBATIM" (estree.rs). Re-escaping here would double the
+        // backslashes (`printf "a\nb"` → a literal `\n` at runtime).
+        out += node.quasis[i].value.raw ?? '';
         if (i < node.expressions.length) out += '${' + parenSeq(node.expressions[i], expr(node.expressions[i])) + '}';
       }
       return out + '`';
