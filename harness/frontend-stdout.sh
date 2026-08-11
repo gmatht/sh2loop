@@ -53,12 +53,16 @@ if [ "$lang" = go ]; then
 fi
 # Zig: prefer the direct snap binary (snap-confine fails in containers)
 # over the /snap/bin wrapper — same rationale as the go case above.
+# The snap layout puts the binary at /snap/zig/current/zig (some snaps
+# expose a bin/ subdir); both are probed before the PATH fallback.
 zigbin=zig
 if [ "$lang" = zig ]; then
   if [ -n "${ZIG:-}" ] && [ -x "$ZIG" ]; then
     zigbin="$ZIG"
   elif [ -x /snap/zig/current/bin/zig ]; then
     zigbin=/snap/zig/current/bin/zig
+  elif [ -x /snap/zig/current/zig ]; then
+    zigbin=/snap/zig/current/zig
   fi
   native=( "$zigbin" run )
 fi
@@ -125,7 +129,11 @@ run_native() {  # <file> -> stdout on stdout
   if [ "$lang" = zig ]; then
     # Zig's idiomatic std.debug.print writes to STDERR; the transpiled
     # target emits stdout — the observable output (2>&1) is the gate.
-    (cd "$tmp" && timeout 20 "$zigbin" run "$f") < /dev/null 2>&1
+    # `zig run` resolves its file argument against the CWD, and we cd
+    # into the scratch dir first — resolve the (possibly relative) path
+    # up front so the compile cache can hash the source.
+    fabs=$(readlink -f "$f")
+    (cd "$tmp" && timeout 20 "$zigbin" run "$fabs") < /dev/null 2>&1
   elif [ "$lang" = c ]; then
     cp "$f" "$tmp/main.c"
     (cd "$tmp" && timeout 20 cc main.c -o main 2>/dev/null && timeout 20 ./main) < /dev/null 2>/dev/null
