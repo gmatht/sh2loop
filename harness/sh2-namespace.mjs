@@ -3778,6 +3778,7 @@ builtins.readlink = function (args) {
 builtins.ls = function (args) {
   if (process.env.SH2_ASSUME_LS === '0') { this.lastExit = 127; return false; }
   let long = false, all = false, almostAll = false;
+  let dirFlag = false;
   const files = [];
   let afterDashDash = false;
   for (const a of args) {
@@ -3789,6 +3790,7 @@ builtins.ls = function (args) {
         else if (c === 'l') long = true;
         else if (c === 'a') all = true;
         else if (c === 'A') almostAll = true;
+        else if (c === 'd') dirFlag = true; // list the operands themselves
         else {
           process.stderr.write(`ls: invalid option -- '${c}'\n`);
           this.lastExit = 2;
@@ -3889,7 +3891,7 @@ builtins.ls = function (args) {
       failed = true;
       continue;
     }
-    if (st.isDirectory()) { dirs.push([p, st]); dirOwn.push([p, st]); }
+    if (st.isDirectory() && !dirFlag) { dirs.push([p, st]); dirOwn.push([p, st]); }
     else fileEntries.push([p, st]);
   }
   const sortName = (a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
