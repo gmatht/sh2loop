@@ -17,10 +17,13 @@ use warnings;
 use JSON::PP;
 
 my %whitelist = map { $_ => 1 } qw(
-    exec getVar setVar test pipeline capture captureWords redirect caseMatch param arith brace setArray setArrayAppend assign arrayItems arrayLen arrayIndex join setLastExit arithEval idiv imod guard not contains builtin grepText cutText bcSqrt fnCall callDirect callUndefined
+    exec getVar setVar test pipeline capture captureWords redirect caseMatch param arith brace setArray setArrayAppend assign arrayItems arrayLen arrayIndex join setLastExit arithEval idiv imod guard not contains builtin grepText cutText bcSqrt fileTest fnCall fnValue callDirect callUndefined
     define subshell background block whileLoop whileLoopSync whileLoopBatch cstyleFor cstyleForSync forLoop forLoopSync forLoopBatch listVar and or
+    subshellSync blockSync captureSync captureWordsSync pipelineSync redirectSync
     shopt return break continue unsupported
-    trimCapture dirname basename uname date readlink split readFile writeFile appendFile lstat access unlink rm mkdir mkdtemp addrOf memLoad memStore
+    trimCapture dirname basename uname date readlink hostname whoami mktempValue split readFile writeFile appendFile lstat access unlink rm mkdir mkdtemp addrOf memLoad memStore
+    memAlloc memFree ternary arrayStore memAdvance memTest line
+    assocSet assocGet assocNames assocValues
 );
 
 my $file = shift @ARGV or die "usage: estree_gate.pl <program.estree.json>\n";
@@ -30,13 +33,15 @@ close $fh;
 
 # debashc --estree prints NOTHING on stdout when the parse fails (the CLI
 # reports the error on stderr and exits 0), so the gate receives an empty
-# artifact. A parse failure is a faithful EMPTY program — bash rejects the
-# same file (the corpus parse-error tests all have empty bash stdout), so
-# the runner must execute nothing (exit 0, no output) instead of this
-# structural check failing on a file that has nothing structural in it.
-# Materialize the canonical empty Program in place for the runner.
+# artifact. Every corpus file that reaches this path is REJECTED by bash
+# too (syntax error: bash exit 2, no stdout), so the faithful artifact is
+# an exit-2 program — the runner then matches bash's verdict (before this,
+# the empty Program exited 0: "exit code (bash=2 estree=0)" failures).
+# The CLI now emits this fallback itself; this materialization covers
+# other producers of empty artifacts (older binaries, --shir-in-estree
+# ingest of an empty file).
 if ($content =~ /^\s*$/) {
-    $content = '{"type":"Program","sourceType":"module","body":[]}';
+    $content = '{"type":"Program","sourceType":"module","body":[{"type":"ExpressionStatement","expression":{"type":"CallExpression","callee":{"type":"MemberExpression","object":{"type":"Identifier","name":"process"},"property":{"type":"Identifier","name":"exit"},"computed":false,"optional":false},"arguments":[{"type":"Literal","value":2,"raw":"2"}],"optional":false}}]}';
     open my $wfh, '>', $file or die "write $file: $!";
     print $wfh $content;
     close $wfh;
@@ -59,6 +64,7 @@ my @problems;
 # names are the direct calls (`sh2.callDirect(f, ...)`); collecting the
 # declared names keeps the gate strict about everything else.
 my %native_fn_bindings;
+my %promise_params;
 for my $s (@{ $data->{body} // [] }) {
     next unless ref $s eq 'HASH' && ($s->{type} // '') eq 'VariableDeclaration';
     for my $d (@{ $s->{declarations} // [] }) {
@@ -98,9 +104,11 @@ sub walk {
             # sh2.fs.<name> — the runtime's node:fs/promises surface for
             # the pure-capture lowerings (`$(cat f)` → sh2.fs.readFile),
             # the native echo-to-file redirect lowering (`echo x > f` →
-            # await sh2.fs.writeFile / appendFile), and the `-r`/`-w`/`-x`
-            # file-test permission chain (`[[ -r f ]]` →
-            # await sh2.fs.access(f, 4).then(...)). Async-only codegen.
+            # await sh2.fs.writeFile / appendFile). File TESTS
+            # (`[ -f x ]`) now lower to the sync `sh2.fileTest(flag,
+            # path)` runtime helper (the async lstat/access chains were
+            # the last await in otherwise-sync loop bodies).
+            # Async-only codegen.
             my $is_sh2_fs = ref $obj eq 'HASH'
                 && ($obj->{type} // '') eq 'MemberExpression'
                 && ref $obj->{object} eq 'HASH'
@@ -115,6 +123,15 @@ sub walk {
                 && (($callee->{name} // '') eq 'Number' || ($callee->{name} // '') eq 'String'
                     || ($callee->{name} // '') eq 'parseInt' || ($callee->{name} // '') eq 'parseFloat'
                     || ($callee->{name} // '') eq 'Promise'
+                    # the native sleep lowering (`sleep 1` →
+                    # `await new Promise(r => setTimeout(() => r(true), 1000))`,
+                    # src/shir.rs try_native_sleep): setTimeout is the timer
+                    # builtin; the resolver param `r` (collected from the
+                    # NewExpression executor below) is called with `true` so
+                    # the awaited statement's value is truthy for the
+                    # errexit guard.
+                    || ($callee->{name} // '') eq 'setTimeout'
+                    || $promise_params{ $callee->{name} // '' }
                     # the native-direct function bindings (src/shir.rs
                     # NATIVE_DIRECT_FNS): module-level `let f = (...args)
                     # => ...` declarations called directly from
@@ -127,7 +144,9 @@ sub walk {
                 && ref $prop eq 'HASH'
                 # sqrt — the native bc capture lowering (`$(echo "sqrt($n)" |
                 # bc)` → String(Math.floor(Math.sqrt(Number(n)))), Plan 8)
-                && ($prop->{name} // '') =~ /^(trunc|floor|ceil|sqrt)$/;
+                # max — the native `${x##*[/\\]}` class-core strip (max of
+                # per-char lastIndexOf, src/shir.rs glob_class_chars)
+                && ($prop->{name} // '') =~ /^(trunc|floor|ceil|sqrt|max)$/;
             # Number.isNaN — the NaN-guarded numeric test lowering (bash's
             # "integer expression expected" error → the whole test is false)
             my $is_number_member = ref $obj eq 'HASH'
@@ -165,7 +184,7 @@ sub walk {
                     || ($obj->{type} // '') eq 'BinaryExpression' || ($obj->{type} // '') eq 'Literal'
                     || ($obj->{type} // '') eq 'Identifier')
                 && ref $prop eq 'HASH'
-                && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase|toUpperCase|charAt|slice|split|join|flat|sort|then|catch|trim|replace|lastIndexOf|concat|filter|map|indexOf|test|exec)$/;
+                && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase|toUpperCase|charAt|slice|split|join|flat|sort|then|catch|trim|replace|replaceAll|lastIndexOf|concat|filter|map|indexOf|test|exec|repeat)$/;
             # Buffer.byteLength(text, 'utf8') — the native wc -c byte-count
             # lowering (the runtime wc's exact formula; node global)
             my $is_buffer = ref $obj eq 'HASH'
@@ -204,6 +223,18 @@ sub walk {
                 && ($obj->{property}{name} // '') eq 'stdout'
                 && ref $prop eq 'HASH'
                 && ($prop->{name} // '') eq 'write';
+            # process.stderr.write — the native ${x:?msg} param-error
+            # lowering (mirrors the runtime's param `:?` direct stderr
+            # write byte-for-byte)
+            my $is_stderr_write = ref $obj eq 'HASH'
+                && ($obj->{type} // '') eq 'MemberExpression'
+                && ref $obj->{object} eq 'HASH'
+                && ($obj->{object}{type} // '') eq 'Identifier'
+                && ($obj->{object}{name} // '') eq 'process'
+                && ref $obj->{property} eq 'HASH'
+                && ($obj->{property}{name} // '') eq 'stderr'
+                && ref $prop eq 'HASH'
+                && ($prop->{name} // '') eq 'write';
             # process.getuid() / process.getgid() / process.chdir() /
             # process.exit() — the native -O/-G file-test lowering (the
             # runtime's evalUnary reads the same process ids), the native
@@ -213,7 +244,7 @@ sub walk {
                 && ($obj->{name} // '') eq 'process'
                 && ref $prop eq 'HASH'
                 && ($prop->{name} // '') =~ /^(getuid|getgid|chdir|exit)$/;
-            if (!$is_sh2 && !$is_sh2_fs && !$is_native && !$is_math && !$is_number_member && !$is_array_member && !$is_promise_member && !$is_string_method && !$is_sh2_state && !$is_stdout_write && !$is_buffer && !$is_process_member) {
+            if (!$is_sh2 && !$is_sh2_fs && !$is_native && !$is_math && !$is_number_member && !$is_array_member && !$is_promise_member && !$is_string_method && !$is_sh2_state && !$is_stdout_write && !$is_stderr_write && !$is_buffer && !$is_process_member) {
                 push @problems, "non-sh2 callee: " . ($cname || $type);
             } elsif (($is_sh2 || $is_sh2_fs) && !$whitelist{$cname}) {
                 push @problems, "callee not in sh2.* whitelist: $cname";
@@ -225,12 +256,15 @@ sub walk {
             my $prop = $n->{property} // {};
             my $pname = ref $prop eq 'HASH' ? ($prop->{name} // '') : '';
             if ($pname =~ /Sync$/) {
-                # whileLoopSync / forLoopSync / cstyleForSync are the ONLY
-                # permitted *Sync calls: pure-CPU loops with no I/O (the
-                # emitter only emits them when cond/iterable/body contain no
-                # AwaitExpression — see src/shir.rs), so they can't block a
-                # browser event loop the way fs.readFileSync & friends would.
-                push @problems, "*Sync callee: $pname" unless $pname =~ /^(whileLoopSync|forLoopSync|cstyleForSync)$/;
+                # The *Sync family: pure-CPU wrappers with no I/O — the
+                # emitter only emits them when every lowered arg contains no
+                # AwaitExpression (capture/pipeline/subshell/redirect/block
+                # bodies, loop cond/body — see src/shir.rs SYNC_TWIN_CALLS),
+                # so they can't block a browser event loop the way
+                # fs.readFileSync & friends would. Same rule as the *Sync
+                # loops (whileLoopSync / forLoopSync / cstyleForSync).
+                push @problems, "*Sync callee: $pname"
+                    unless $pname =~ /^(whileLoopSync|forLoopSync|cstyleForSync|captureSync|captureWordsSync|pipelineSync|subshellSync|redirectSync|blockSync)$/;
             }
         }
         if ($type eq 'ObjectExpression') {
@@ -242,6 +276,22 @@ sub walk {
                     && ref $val eq 'HASH'
                     && ($val->{value} // '') eq 'unsupported') {
                     push @problems, "redirect spec mode=unsupported";
+                }
+            }
+        }
+        if ($type eq 'NewExpression') {
+            # `new Promise(r => …)` — the native sleep lowering: collect
+            # the executor arrow's params into the promise-param set so
+            # the resolver calls (`r(true)`) pass the callee check. The
+            # set is program-global (a same-named stray call can only be
+            # accepted in a program that already contains the executor).
+            my $callee = $n->{callee} // {};
+            if (($callee->{type} // '') eq 'Identifier' && ($callee->{name} // '') eq 'Promise') {
+                my $exec = $n->{arguments}[0] // {};
+                if (($exec->{type} // '') eq 'ArrowFunctionExpression') {
+                    for my $p (@{ $exec->{params} // [] }) {
+                        $promise_params{ $p->{name} // '' } = 1 if ref $p eq 'HASH';
+                    }
                 }
             }
         }

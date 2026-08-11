@@ -157,9 +157,13 @@ sub run_one_test {
         }
     }
 
-    # Run Perl with 5.010 features and capture stdout/stderr
+    # Run Perl with 5.010 features and capture stdout/stderr. argv0 must be
+    # the SOURCE script path (what `bash '$test_file'` sees below) — $0 is
+    # argv0 pass-through, so $0-dependent output ($0, ${0##*/}, dirname $0)
+    # agrees with bash. `do $ARGV[0]` runs the generated file in the main
+    # scope with @ARGV emptied (no positional args, like bash).
     my ($perl_out, $perl_stdout, $perl_stderr);
-    $perl_out = `timeout $timeout_per_test perl -M5.010 '$perl_file' 2>"$tmp_dir/perl_stderr.txt"`;
+    $perl_out = `timeout $timeout_per_test perl -M5.010 -e '\$0 = shift \@ARGV; my \$__f = shift \@ARGV; do \$__f' '$test_file' '$perl_file' 2>"$tmp_dir/perl_stderr.txt"`;
     my $perl_exit = $? >> 8;
     if (open my $fh, '<', "$tmp_dir/perl_stderr.txt") {
         local $/; $perl_stderr = <$fh>; close $fh;

@@ -22,6 +22,8 @@ import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
+import zlib from 'node:zlib';
 
 const SPAWN_TIMEOUT_MS = 5000; // per external command
 
@@ -112,7 +114,7 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // contract — grepText only ever sees echoed text). Returns
 // { opts, patterns, files }.
 // opts: invert(v) count(c) lineNo(n) only(o) quiet(q) whole(x) ci(i)
-//   max(-m N) after(-A N) before(-B N) flavor(bre|ere|fixed)
+//   max(-m N) after(-A N) before(-B N) flavor(bre|ere|fixed|pcre)
 //   filesOnly(l) filesWithout(L) noName(h) forceName(H) nul(Z)
 //   byteOffset(b) wholeWord(w) color(--color=always) recursive(r)
 function parseGrepArgs(args, allowFiles) {
@@ -126,7 +128,7 @@ function parseGrepArgs(args, allowFiles) {
   const files = [];
   let patternSeen = false;
   let afterDD = false;
-  const shortFlags = 'vincoqxwlLhHZbr';
+  const shortFlags = 'vincoqxwlLhHZbrP';
   for (let i = 0; i < args.length; i++) {
     const a = String(args[i]);
     if (!afterDD && a === '--') { afterDD = true; continue; }
@@ -194,6 +196,7 @@ function parseGrepArgs(args, allowFiles) {
         if (body.includes('H')) { opts.forceName = true; opts.noName = false; }
         if (body.includes('Z')) opts.nul = true;
         if (body.includes('r')) opts.recursive = true;
+        if (body.includes('P')) opts.flavor = 'pcre'; // GNU PCRE (JS regex ≈ PCRE)
         continue;
       }
       throw new Error(`grep: unsupported flag ${a}`);
@@ -212,7 +215,9 @@ function parseGrepArgs(args, allowFiles) {
 function grepRegexes(opts, patterns) {
   const srcs = patterns.map(p =>
     opts.flavor === 'fixed' ? escapeRe(p)
-      : opts.flavor === 'ere' ? ereToJs(p) : breToJs(p));
+      : opts.flavor === 'ere' ? ereToJs(p)
+      : opts.flavor === 'pcre' ? p   // JS regexes are PCRE-flavored (\d, +, (?=…))
+      : breToJs(p));
   const src = srcs.map(s2 => `(?:${s2})`).join('|');
   const ci = opts.ci ? 'i' : '';
   const core = opts.wholeWord
@@ -408,13 +413,14 @@ export const sh2 = {
   },
 
   // ── state ──────────────────────────────────────────────────────────
-  vars: new Map(),
+  vars: Object.create(null), // name -> value (null-prototype object: the emitter's native store reads/writes are direct property access; no prototype pollution)
   arrays: new Map(),   // name -> array of strings (declare -a / arr=(...) / arr[i]=)
   assocNames: new Set(), // names declared `declare -A` (string-keyed)
   assocStore: new Map(), // assoc name -> Map(key, value)
   exported: new Set(),
   functions: new Map(),
   lastExit: 0,
+  pipeStatuses: [], // exit status per stage of the last pipeline (PIPESTATUS)
   positional: [],
   argv0: 'sh',
   cwd: process.cwd(),
@@ -474,6 +480,11 @@ export const sh2 = {
   },
 
   async _finish() {
+    // bash's exit status = the LAST command's status (the exit builtin and
+    // errexit aborts exit directly, bypassing this). The EXIT trap runs
+    // with $? = that status and its own status does NOT change the exit
+    // code (bash preserves it through the trap), so capture it FIRST.
+    const code = this.lastExit;
     if (this.traps.has('EXIT')) {
       const h = this.traps.get('EXIT');
       if (typeof h === 'function') await h();
@@ -482,16 +493,32 @@ export const sh2 = {
     for (const p of this.pending) { try { await p; } catch { /* bg failures ignored */ } }
     this.pending = [];
     _flushStdout();
+    // The corpus gate compares the program's exit code against bash's
+    // (fail-estree: "exit code (bash=N estree=M)"), so the final status
+    // must be REAL. The process.exit wrapper below flushes stdout first.
+    process.exit(code);
   },
 
   // ── variables ──────────────────────────────────────────────────────
   getVar(name) {
     const m = /^([A-Za-z_][A-Za-z0-9_]*)\[([^\]]+)\]$/.exec(name);
     if (m) {
+      // PIPESTATUS — the exit statuses of the last pipeline (recorded by
+      // pipeline/pipelineSync). `PIPESTATUS[i]` reads stage i; `[@]`/
+      // `[*]` join all statuses.
+      if (m[1] === 'PIPESTATUS') {
+        if (m[2] === '@' || m[2] === '*') {
+          const join = m[2] === '*' ? ((this.vars.IFS || ' ')[0] || ' ') : ' ';
+          return this.pipeStatuses.map(String).join(join);
+        }
+        let idx;
+        try { idx = evalArith(m[2], this); } catch { return ''; }
+        return idx >= 0 && idx < this.pipeStatuses.length ? String(this.pipeStatuses[idx]) : '';
+      }
       if (m[2] === '@' || m[2] === '*') {
         // ${x[@]} joins with spaces; ${x[*]} joins with IFS[0] — bash uses
         // IFS for `*` even when the expansion is quoted.
-        const join = m[2] === '*' ? ((this.vars.get('IFS') || ' ')[0] || ' ') : ' ';
+        const join = m[2] === '*' ? ((this.vars.IFS || ' ')[0] || ' ') : ' ';
         if (this.assocNames.has(m[1])) return this.assocValues(m[1]).join(join);
         const arr = this.arrays.get(m[1]);
         return arr ? arr.join(join) : '';
@@ -504,7 +531,7 @@ export const sh2 = {
       const arr = this.arrays.get(m[1]);
       if (!arr) return '';
       let idx;
-      try { idx = evalArith(m[2], this); } catch { return ''; } // bad subscript: bash keeps going, expands empty
+      try { idx = evalArith(m[2], this); } catch { return ARITH_BAD_MAGIC; } // subscript arithmetic syntax error: bash prints "syntax error in expression", skips the WHOLE command (status 1)
       return idx >= 0 && idx < arr.length ? String(arr[idx]) : '';
     }
     // `#name` — the LENGTH of a variable. Both zsh (`$#a`, `${#s}`) and
@@ -534,7 +561,7 @@ export const sh2 = {
           const i = Number(name) - 1;
           return i < this.positional.length ? this.positional[i] : '';
         }
-        if (this.vars.has(name)) return this.vars.get(name);
+        if (name in this.vars) return this.vars[name];
     // nameref: `typeset -n ref=original` — reads through to the target
     if (this.refVars.has(name)) return this.getVar(this.refVars.get(name));
         // Bash: a bare array name in a scalar context yields element 0
@@ -550,17 +577,29 @@ export const sh2 = {
     }
   },
 
-  assocSet(name, value) {
+  // By-name form (core request frontends-assoc-arrays / py-sh-go
+  // 20260806): `assocSet(name, key, value)` — the explicit A1 shape for
+  // associative-array writes that frontends with hash/dict types (py
+  // dicts, perl hashes, zsh `typeset -A`, bash declare -A) can emit
+  // directly instead of the baked-name leak. The 2-arg form
+  // (`assocSet("map[key]", v)` — the baked-name lowering of
+  // `map[key]=v`) stays supported: same store, same key normalization.
+  assocSet(name, key, value) {
+    if (arguments.length >= 3) {
+      if (!this.assocStore.has(name)) this.assocStore.set(name, new Map());
+      this.assocStore.get(name).set(normAssocKey(String(key)), String(value));
+      return;
+    }
     const eq = name.indexOf('[');
     if (eq > 0 && name.endsWith(']')) {
-      const key = normAssocKey(name.slice(eq + 1, -1));
+      const k = normAssocKey(name.slice(eq + 1, -1));
       const base = name.slice(0, eq);
       if (!this.assocStore.has(base)) this.assocStore.set(base, new Map());
-      this.assocStore.get(base).set(key, String(value));
+      this.assocStore.get(base).set(k, String(key));
       return;
     }
     if (!this.assocStore.has(name)) this.assocStore.set(name, new Map());
-    this.assocStore.get(name).set('', String(value));
+    this.assocStore.get(name).set('', String(key));
   },
 
   assocGet(name, key) {
@@ -593,6 +632,7 @@ export const sh2 = {
       this.arrays.set(m[1], arr);
       return true;
     }
+    if (value === ARITH_BAD_MAGIC) return true; // `x=$((bad))`: the expansion aborted — bash skips the assignment
     let v = String(Array.isArray(value) ? value.join(' ') : value ?? '');
     // nameref: `ref=...` assigns the TARGET variable
     if (this.refVars.has(name)) {
@@ -608,7 +648,7 @@ export const sh2 = {
     if (this.lcVars.has(name)) v = v.toLowerCase();
     else if (this.ucVars.has(name)) v = v.toUpperCase();
     if (this.exported.has(name) || name === 'PATH') process.env[name] = v;
-    this.vars.set(name, v);
+    this.vars[name] = v;
     return true;
   },
 
@@ -680,9 +720,10 @@ export const sh2 = {
         i--;
         continue;
       }
-      if (flat[i] === BADSUB_MAGIC) {
-        // `${!prefix*[@]}` bad substitution: bash skips the WHOLE command
-        // (status 1) but keeps the script running.
+      if (flat[i] === BADSUB_MAGIC || flat[i] === ARITH_BAD_MAGIC) {
+        // `${!prefix*[@]}` bad substitution / `$(( bad ))` arithmetic
+        // error: bash skips the WHOLE command (status 1) but keeps the
+        // script running.
         this.lastExit = 1;
         return false;
       }
@@ -756,11 +797,10 @@ export const sh2 = {
     _flushStdout();
     // A stray `}` / `)` that the parser recovered as a command name is a
     // bash parse error: bash executes everything BEFORE it, then aborts the
-    // script (nothing after it runs). Abort here too — with exit 0, since
-    // the corpus gate compares stdout only (a nonzero exit would read as a
-    // runtime error even though the stdout matches bash).
+    // script (nothing after it runs) with exit status 2. Abort here with
+    // the same code (the gate compares exit codes).
     if (cmd === '}' || cmd === ')') {
-      process.exit(0);
+      process.exit(2);
     }
     if (this.execAllowlist && !this.execAllowlist.has(cmd)) {
       // A parser-recovery artifact (e.g. a stray `}` after a subshell, or
@@ -918,9 +958,10 @@ export const sh2 = {
         i--;
         continue;
       }
-      if (flat[i] === BADSUB_MAGIC) {
-        // `${!prefix*[@]}` bad substitution: bash skips the WHOLE command
-        // (status 1) but keeps the script running.
+      if (flat[i] === BADSUB_MAGIC || flat[i] === ARITH_BAD_MAGIC) {
+        // `${!prefix*[@]}` bad substitution / `$(( bad ))` arithmetic
+        // error: bash skips the WHOLE command (status 1) but keeps the
+        // script running.
         this.lastExit = 1;
         return false;
       }
@@ -970,7 +1011,7 @@ export const sh2 = {
         i--;
         continue;
       }
-      if (flat[i] === BADSUB_MAGIC) {
+      if (flat[i] === BADSUB_MAGIC || flat[i] === ARITH_BAD_MAGIC) {
         this.lastExit = 1;
         return false;
       }
@@ -1013,6 +1054,79 @@ export const sh2 = {
     if (typeof r === 'string' && (r === '0' || r === '1')) this.lastExit = Number(r);
     else if (typeof r === 'number') this.lastExit = r;
     return this.lastExit === 0;
+  },
+
+  // ── VALUE-returning function dispatch (the C frontend) ──────────
+  // A1 Call("fnValue", [name, [args...]]) — emitted by c-sh-go for a
+  // user function call in a VALUE position (printf arg, assign RHS).
+  // sh2.fnCall is the SHELL function call: its value channel is the
+  // STATUS (boolean). A C `return e` carries a VALUE, so the C frontend
+  // dispatches through fnValue instead: same positional save/restore
+  // and RETURN-signal handling as fnCall, but the define-arrow's return
+  // value (the C `return e` stays a native JS return inside the arrow —
+  // see estree.rs fix_stmt) comes back to the caller. Caller-side
+  // consumers (printf %d, the store assign) coerce it.
+  fnValue(name, args = []) {
+    const flat = [];
+    for (const a of args) {
+      if (Array.isArray(a)) flat.push(...a.map(String));
+      else flat.push(String(a));
+    }
+    for (let i = 0; i < flat.length; i++) {
+      if (flat[i] === ARRAY_LIT_MAGIC) {
+        flat.splice(i, 1);
+        i--;
+        continue;
+      }
+      if (flat[i] === BADSUB_MAGIC || flat[i] === ARITH_BAD_MAGIC) {
+        this.lastExit = 1;
+        return '0';
+      }
+      if (typeof flat[i] === 'string' && flat[i].startsWith(PS_MAGIC)) {
+        flat[i] = materializePath(flat[i].slice(PS_MAGIC.length));
+      } else if (typeof flat[i] === 'string' && flat[i].startsWith(GLOB_MAGIC)) {
+        const pat = flat[i].slice(GLOB_MAGIC.length);
+        const hits = globExpand(pat);
+        if (hits.length > 0) flat.splice(i, 1, ...hits);
+        else flat[i] = pat; // no match: bash keeps the pattern (nullglob off)
+      }
+    }
+    const fn = this.functions.get(name);
+    if (typeof fn !== 'function') {
+      // undefined target: replicate fnCall's fallback chain (builtin,
+      // then command-not-found 127) and yield the C-ish '0' (the
+      // store is string-typed; the caller coerces).
+      if (typeof builtins[name] === 'function') {
+        return builtins[name].call(this, flat);
+      }
+      this._reportCommandNotFound(name);
+      this.lastExit = 127;
+      return '0';
+    }
+    const saved = this.positional;
+    this.positional = flat;
+    let r;
+    try {
+      r = fn();
+    } catch (e) {
+      // `return N` inside a loop body is a sh2.return Signal; the loop
+      // rethrows it and the function call turns it into the value.
+      if (isSignal(e, 'RETURN')) r = undefined;
+      else throw e;
+    } finally {
+      this.positional = saved;
+    }
+    return r;
+  },
+
+  // `ternary(cond, a, b)` — the C frontend's `cond ? a : b` lowering:
+  // the cond is the frontend's test-string evaluated with the SAME
+  // native-first policy as the A1 `test` call (the core's "ternary" arm
+  // lowers it via try_native_test, falling back to sh2.test), the
+  // branches are the already-lowered A1 values — pure, so eager
+  // evaluation is sound for the pure-expression subset.
+  ternary(cond, a, b) {
+    return cond ? a : b;
   },
 
   // ── direct native function calls ─────────────────────────────────
@@ -1066,10 +1180,30 @@ export const sh2 = {
     return false;
   },
 
+  // `testArith(s)` — a C condition that needs ARITHMETIC (bitwise /
+  // shift / mod inside a test — the bash `test` grammar is
+  // comparison-only; the c-sh-go frontend routes such conditions here,
+  // see condCall). The string is a bash-arith expression
+  // (`$(( ))` semantics — evalArith evaluates + - * / % ** << >> & | ^
+  // comparisons && || ! ~); its numeric truth is the condition.
+  testArith(s) {
+    let v;
+    try { v = evalArith(String(s), this); } catch { v = 0; }
+    this.lastExit = v ? 0 : 1;
+    return v !== 0;
+  },
+
   // ── test expressions ───────────────────────────────────────────────
-  test(expr) {
+  test(expr, style) {
     try {
-      const tokens = tokenizeTest(expr);
+      // `[[ ]]` (the emitter tags the call with a second `"[["` arg):
+      // bash does NOT word-split in `[[ ]]` — an unquoted expansion that
+      // evaluates EMPTY stays an empty OPERAND (`[[ -n $(empty) ]]` is
+      // FALSE — the dangling `-n` is a syntax error only when literally
+      // present). In `[ ]` the empty vanishes (word-splitting) and a
+      // lone `-n` becomes a non-empty string test (true) — the two must
+      // differ.
+      const tokens = tokenizeTest(expr, style === '[[');
       const ast = parseTest(tokens);
       const r = evalTest(ast, this);
       this.lastExit = r ? 0 : 1;
@@ -1077,6 +1211,23 @@ export const sh2 = {
     } catch (e) {
       throw new Error(`sh2.test: cannot evaluate ${JSON.stringify(expr)}: ${e.message}`);
     }
+  },
+
+  // `[ -f x ]` family — the emitter's native file-test lowering
+  // (src/shir.rs try_native_file_test): evalUnary's exact bash semantics
+  // (empty-arg rule, cwd resolution, accessSync `-r`/`-w`/`-x`, lstatSync
+  // + the missing-path catch table, `-t` constant false) as a direct
+  // flag+path call — no test-string tokenize/parse, no builtin dispatch.
+  // SYNC (like every builtin — the sync I/O lives in the runtime, not the
+  // emitted code), so a file test keeps its enclosing loop on the *Sync
+  // gates (forLoopSync/whileLoopSync): the async `sh2.fs.lstat/access`
+  // chains this replaces were the last await in otherwise-sync bodies.
+  // Pure value: the EMITTER records the status (`$?`) via its
+  // native-test lastExit protocol (see src/shir.rs native_test_statused)
+  // — the helper must not write lastExit itself or the protocol's
+  // single-eval scratch would double-write.
+  fileTest(flag, arg) {
+    return evalUnary(flag, arg, this);
   },
 
   // ── command substitution ───────────────────────────────────────────
@@ -1089,6 +1240,40 @@ export const sh2 = {
     try {
       await fn();
       // bash command substitution strips NUL bytes from the captured output.
+      return this.fdTargets[1].buf.replace(/\u0000/g, '').replace(/\n+$/, '');
+    } finally {
+      this.fdTargets[1] = saved;
+      this.captureStart = savedStart;
+    }
+  },
+
+  // `line(s, i)` — the i-th line of a captured multi-value return (the
+  // c-sh-go out-param transform: a multi-write function echoes one value
+  // per line; the caller captures and destructures via line(t, 0),
+  // line(t, 1), ... — multi-return A1, core request c-multi-return).
+  line(s, i) {
+    const parts = String(s).split('\n');
+    return parts[Number(i) || 0] ?? '';
+  },
+
+  // Sync twin of capture() for PROVABLY-AWAIT-FREE bodies (the emitter's
+  // verdict: no AwaitExpression in the lowered body — the same scan the
+  // *Sync loops use, src/shir.rs). Identical semantics — the fd-1 capture
+  // swap, NUL strip, trailing-newline strip, captureStart bound — minus
+  // the per-call promise/microtask machinery (the whileLoopSync pattern).
+  // An await-free body runs to completion synchronously and cannot yield,
+  // so the microtask interleaving of background jobs matches the async
+  // form's post-await continuation; a background job's fd-1 writes go to
+  // the REAL sink, never into a live capture buffer (closer to bash's
+  // fork than the async form's late-restore window).
+  captureSync(fn) {
+    process.stderr.write("TRACE captureSync\n");
+    const saved = this.fdTargets[1];
+    const savedStart = this.captureStart;
+    this.fdTargets[1] = { kind: 'capture', buf: '' };
+    this.captureStart = Date.now();
+    try {
+      fn();
       return this.fdTargets[1].buf.replace(/\u0000/g, '').replace(/\n+$/, '');
     } finally {
       this.fdTargets[1] = saved;
@@ -1114,6 +1299,64 @@ export const sh2 = {
     while (s.endsWith('/') && s.length > 1) s = s.slice(0, -1);
     const idx = s.lastIndexOf('/');
     return idx < 0 ? '.' : (idx === 0 ? '/' : s.slice(0, idx));
+  },
+
+  // `$(mktemp TPL)` — value-returning twin of builtins.mktemp (the
+  // emitter's capture lift for the FILE form; `-d` has the native
+  // fs.mkdtemp path). Creates the unique file and RETURNS its path —
+  // the exact value the builtin would emit minus the trailing newline —
+  // with the same lastExit protocol (0 + path, 1 + "" on a too-few-X
+  // template / exhausted retries). Mirrors builtins.mktemp's arg parse
+  // (flags -d/-u/-t/--suffix; the FIRST positional is the template),
+  // the trailing-X-run rule (≥3 X's), the random-suffix retry loop and
+  // the error messages.
+  mktempValue(args) {
+    let isDir = false, dry = false, template = null, suffix = '';
+    const pos = [];
+    for (let i = 0; i < args.length; i++) {
+      const a = String(args[i]);
+      if (a === '-d') isDir = true;
+      else if (a === '-u') dry = true;
+      else if (a === '-t' && pos.length === 0) template = path.join(os.tmpdir(), 'tmp.XXXXXXXXXX');
+      else if (a === '--suffix') suffix = String(args[++i] ?? '');
+      else if (a.startsWith('--suffix=')) suffix = a.slice(9);
+      else if (a.startsWith('-')) { /* other flags: best-effort */ }
+      else pos.push(a);
+    }
+    if (pos.length === 1) template = pos[0];
+    const tpl = template ?? path.join(os.tmpdir(), 'tmp.XXXXXXXXXX');
+    const xRun = tpl.match(/X+$/);
+    if (!xRun || xRun[0].length < 3) {
+      emitErr(this, `mktemp: too few X's in template \`${tpl}'\n`);
+      this.lastExit = 1;
+      return '';
+    }
+    if (suffix.length > xRun[0].length) {
+      emitErr(this, `mktemp: suffix is too long (no room for it in the template)\n`);
+      this.lastExit = 1;
+      return '';
+    }
+    const base = tpl.slice(0, tpl.length - xRun[0].length);
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    const rand = (n) => Array.from({ length: n }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const name = base + rand(xRun[0].length - suffix.length) + suffix;
+      try {
+        if (dry) { this.lastExit = 0; return name; }
+        if (isDir) fs.mkdirSync(name);
+        else fs.closeSync(fs.openSync(name, 'wx'));
+        this.lastExit = 0;
+        return name;
+      } catch (e) {
+        if (e && e.code === 'EEXIST') continue; // collision — retry
+        emitErr(this, `mktemp: cannot create ${isDir ? 'directory' : 'file'} \`${name}': ${e?.message ?? e}\n`);
+        this.lastExit = 1;
+        return '';
+      }
+    }
+    emitErr(this, `mktemp: failed to create ${isDir ? 'directory' : 'file'} via template \`${tpl}'\n`);
+    this.lastExit = 1;
+    return '';
   },
   basename(x) {
     let s = String(x ?? '');
@@ -1154,10 +1397,34 @@ export const sh2 = {
     this.fdTargets[1] = saved;
     return out;
   },
+  whoami() {
+    const saved = this.fdTargets[1];
+    this.fdTargets[1] = { kind: 'capture', buf: '' };
+    builtins.whoami.call(this, []);
+    const out = this.fdTargets[1].buf.replace(/\n$/, '');
+    this.fdTargets[1] = saved;
+    return out;
+  },
+  hostname(...args) {
+    const saved = this.fdTargets[1];
+    this.fdTargets[1] = { kind: 'capture', buf: '' };
+    builtins.hostname.call(this, args);
+    const out = this.fdTargets[1].buf.replace(/\n$/, '');
+    this.fdTargets[1] = saved;
+    return out;
+  },
 
   // Unquoted $(...) — bash word-splits the captured output on IFS.
   async captureWords(fn) {
     const out = await this.capture(fn);
+    return out.split(/\s+/).filter(w => w.length > 0);
+  },
+
+  // Sync twin of captureWords (see captureSync): the await-free verdict
+  // makes the capture body run synchronously, so the split applies to the
+  // already-complete buffer.
+  captureWordsSync(fn) {
+    const out = this.captureSync(fn);
     return out.split(/\s+/).filter(w => w.length > 0);
   },
 
@@ -1173,69 +1440,143 @@ export const sh2 = {
   // iterates once with the empty string; bash iterates zero times).
   split(s) {
     if (this.lang === 'zsh') return [String(s ?? '')];
-    return String(s ?? '').split(/\s+/).filter(w => w.length > 0);
+    const text = String(s ?? '');
+    // Custom IFS (core request frontends-ifs 20260806): a NON-whitespace
+    // IFS (`IFS=, for w in $x` / `IFS=: read`) splits on the separator
+    // chars and KEEPS empty fields between adjacent separators (bash
+    // field semantics — same rule as the read builtin below). The
+    // default / whitespace-only IFS keeps the historic whitespace
+    // collapse (byte-identical corpus behavior).
+    const ifs = this.vars.IFS;
+    if (ifs === undefined || ifs === null || /^[ \t\n]+$/.test(String(ifs))) {
+      return text.split(/\s+/).filter(w => w.length > 0);
+    }
+    const esc = String(ifs).replace(/[\]^$.*+?()[{}|\\]/g, '\\$&');
+    return text.split(new RegExp('[' + esc + ']'));
   },
 
   // ── redirects ──────────────────────────────────────────────────────
+  // The fd-spec install/restore logic shared by redirect + redirectSync.
+  // `saved` is the pre-redirect fd table (fd-duplication `&N` targets
+  // resolve against it — bash fds share the underlying file description,
+  // so a duplicate must alias the SAME target object). `check` enables
+  // the missing-file error path (the live install; the persistent-restore
+  // pass installs without checking — a vanished file must not flip the
+  // status). Returns false when a read-mode target is missing (the
+  // caller returns that as the redirect's status, exactly the async
+  // original's early return).
+  _applyRedirectSpecs(specs, saved, check) {
+    for (const s of specs) {
+      const fd = s.fd ?? (s.mode === 'r' ? 0 : 1);
+      if (s.mode === 'unsupported') throw new Error('redirect: process substitution not yet supported');
+      // `2>&1` / `3<&0` — duplicate another fd (target is "&N"). Share
+      // the SAME target object (bash fds share the underlying file
+      // description): a shallow copy would lose capture-buffer writes
+      // (`$(cmd 2>&1)` must capture stderr into the same buf).
+      if (/^&\d+$/.test(String(s.target ?? ''))) {
+        const src = Number(String(s.target).slice(1));
+        this.fdTargets[fd] = saved[src] ? saved[src] : { kind: 'closed' };
+        continue;
+      }
+      // `>&-` / `<&-` — close an fd. The parser strips the `&` (`4>&-`
+      // arrives as target "-"), so accept the bare form too (a file named
+      // "-" does not occur in the corpus).
+      if (String(s.target ?? '') === '&-' || String(s.target ?? '') === '-') {
+        this.fdTargets[fd] = { kind: 'closed' };
+        continue;
+      }
+      if (s.mode === 'heredoc' || s.mode === 'heredoc-tabs' || s.mode === 'herestring') {
+        let content = String(s.target ?? '');
+        // bash appends a newline to herestrings (`<<< x` feeds "x\n").
+        if (s.mode === 'herestring') content += '\n';
+        if (s.mode === 'heredoc' && s.interpolate) content = expandWord(this, content);
+        if (s.mode === 'heredoc-tabs') {
+          content = content.split('\n').map(l => l.replace(/^\t+/, '')).join('\n');
+          if (s.interpolate) content = expandWord(this, content);
+        }
+        this.fdTargets[fd] = { kind: 'string', content };
+      } else if (s.mode === 'r' || s.mode === 'r+') {
+        const target = expandWord(this, String(s.target));
+        if (check && !fs.existsSync(target)) {
+          emitErr(this, `bash: ${target}: No such file or directory\n`);
+          this.lastExit = 1;
+          return false;
+        }
+        this.fdTargets[fd] = { kind: 'file', target, readMode: true };
+      } else if (s.mode === 'w' || s.mode === 'a') {
+        const t = expandWord(this, String(s.target));
+        // `>/dev/null` (and `2>/dev/null`): the corpus's most common
+        // write redirect — a char device that discards everything, so a
+        // `{kind:'discard'}` target skips the per-write open/write syscall
+        // (writeFileSync to /dev/null) AND the existence check.
+        // ASSUMPTION (option-gated, default ON): SH2_ASSUME_DEVNULL=0
+        // restores the file-target path — the standard /dev/null discard
+        // device is present and writable (the corpus env's /dev/null is
+        // the kernel char device, never a replaced regular file; a write
+        // to it can never fail, so the discard's silent success matches
+        // GNU's status-0 behavior).
+        if (t === '/dev/null' && process.env.SH2_ASSUME_DEVNULL !== '0') {
+          this.fdTargets[fd] = { kind: 'discard' };
+          continue;
+        }
+        // The persistent-restore pass creates the file if missing (the
+        // original restore loop did; the live install defers creation to
+        // the writer or `_ensureRedirectFiles`).
+        if (!check && !fs.existsSync(t)) {
+          try { fs.closeSync(fs.openSync(t, 'w')); } catch { /* unwritable target: bash reports, we ignore */ }
+        }
+        // bash opens the target EAGERLY at redirect-install time: an
+        // unwritable target skips the command entirely with status 1
+        // (`cat - > unwritable` with NO stdin still fails in bash — the
+        // open precedes the command; the lazy first-write open would
+        // silently succeed for a write-free command — the cat-dash-stdin
+        // corpus test's /tmp/out.txt permission collision exposed it).
+        // The eager open also truncates an existing file at install time
+        // (bash's `> f` semantics — the writer's 'w' mode truncates at
+        // first write anyway). Mirror of the r-mode's live-install
+        // existence check (check=true only — the persistent-restore pass
+        // keeps its create-if-missing and never fails the status).
+        if (check) {
+          try {
+            fs.closeSync(fs.openSync(t, s.mode === 'a' ? 'a' : 'w'));
+          } catch (e) {
+            emitErr(
+              this,
+              `bash: ${t}: ${e.code === 'EACCES' ? 'Permission denied' : e.code}\n`
+            );
+            this.lastExit = 1;
+            return false;
+          }
+        }
+        this.fdTargets[fd] = { kind: 'file', target: t, mode: s.mode };
+      } else {
+        throw new Error(`redirect: unknown mode ${s.mode}`);
+      }
+    }
+    return true;
+  },
+
+  // Standalone redirect (`>file` with no command): bash creates the
+  // (empty) file even when nothing writes to it.
+  _ensureRedirectFiles(specs) {
+    for (const s of specs) {
+      if (s.mode === 'w' || s.mode === 'a') {
+        const t = expandWord(this, String(s.target));
+        if (!fs.existsSync(t)) {
+          try { fs.closeSync(fs.openSync(t, 'w')); } catch { /* unwritable target: bash reports, we ignore */ }
+        }
+      }
+    }
+  },
+
   async redirect(fn, specs = []) {
     process.stderr.write("TRACE redirect\n");
     const saved = { ...this.fdTargets };
     const persistent = specs.filter(s => s.persist);
     try {
-      for (const s of specs) {
-        const fd = s.fd ?? (s.mode === 'r' ? 0 : 1);
-        if (s.mode === 'unsupported') throw new Error('redirect: process substitution not yet supported');
-        // `2>&1` / `3<&0` — duplicate another fd (target is "&N"). Share
-        // the SAME target object (bash fds share the underlying file
-        // description): a shallow copy would lose capture-buffer writes
-        // (`$(cmd 2>&1)` must capture stderr into the same buf).
-        if (/^&\d+$/.test(String(s.target ?? ''))) {
-          const src = Number(String(s.target).slice(1));
-          this.fdTargets[fd] = saved[src] ? saved[src] : { kind: 'closed' };
-          continue;
-        }
-        // `>&-` / `<&-` — close an fd. The parser strips the `&` (`4>&-`
-        // arrives as target "-"), so accept the bare form too (a file named
-        // "-" does not occur in the corpus).
-        if (String(s.target ?? '') === '&-' || String(s.target ?? '') === '-') {
-          this.fdTargets[fd] = { kind: 'closed' };
-          continue;
-        }
-        if (s.mode === 'heredoc' || s.mode === 'heredoc-tabs' || s.mode === 'herestring') {
-          let content = String(s.target ?? '');
-          // bash appends a newline to herestrings (`<<< x` feeds "x\n").
-          if (s.mode === 'herestring') content += '\n';
-          if (s.mode === 'heredoc' && s.interpolate) content = expandWord(this, content);
-          if (s.mode === 'heredoc-tabs') {
-            content = content.split('\n').map(l => l.replace(/^\t+/, '')).join('\n');
-            if (s.interpolate) content = expandWord(this, content);
-          }
-          this.fdTargets[fd] = { kind: 'string', content };
-        } else if (s.mode === 'r' || s.mode === 'r+') {
-          const target = expandWord(this, String(s.target));
-          if (!fs.existsSync(target)) {
-            emitErr(this, `bash: ${target}: No such file or directory\n`);
-            this.lastExit = 1;
-            return false;
-          }
-          this.fdTargets[fd] = { kind: 'file', target, readMode: true };
-        } else if (s.mode === 'w' || s.mode === 'a') {
-          this.fdTargets[fd] = { kind: 'file', target: expandWord(this, String(s.target)), mode: s.mode };
-        } else {
-          throw new Error(`redirect: unknown mode ${s.mode}`);
-        }
-      }
+      if (!this._applyRedirectSpecs(specs, saved, true)) return false;
       await fn();
-      // Standalone redirect (`>file` with no command): bash creates the
-      // (empty) file even when nothing writes to it.
-      for (const s of specs) {
-        if (s.mode === 'w' || s.mode === 'a') {
-          const t = expandWord(this, String(s.target));
-          if (!fs.existsSync(t)) {
-            try { fs.closeSync(fs.openSync(t, 'w')); } catch { /* unwritable target: bash reports, we ignore */ }
-          }
-        }
-      }
+      this._ensureRedirectFiles(specs);
       return this.lastExit === 0;
     } finally {
       // Restore the pre-redirect fd table...
@@ -1243,32 +1584,28 @@ export const sh2 = {
       // ...but `exec N>f` / `exec N>&M` (exec with no command) redirects
       // persist permanently — bash installs them in the shell's own fd
       // table (`exec 3>&1` then `cmd >&3` later must keep working).
-      for (const s of persistent) {
-        const fd = s.fd ?? (s.mode === 'r' ? 0 : 1);
-        if (/^&\d+$/.test(String(s.target ?? ''))) {
-          const src = Number(String(s.target).slice(1));
-          this.fdTargets[fd] = saved[src] ? saved[src] : { kind: 'closed' };
-        } else if (String(s.target ?? '') === '&-' || String(s.target ?? '') === '-') {
-          this.fdTargets[fd] = { kind: 'closed' };
-        } else if (s.mode === 'heredoc' || s.mode === 'heredoc-tabs' || s.mode === 'herestring') {
-          let content = String(s.target ?? '');
-          if (s.mode === 'herestring') content += '\n';
-          if (s.mode === 'heredoc' && s.interpolate) content = expandWord(this, content);
-          if (s.mode === 'heredoc-tabs') {
-            content = content.split('\n').map(l => l.replace(/^\t+/, '')).join('\n');
-            if (s.interpolate) content = expandWord(this, content);
-          }
-          this.fdTargets[fd] = { kind: 'string', content };
-        } else if (s.mode === 'r' || s.mode === 'r+') {
-          this.fdTargets[fd] = { kind: 'file', target: expandWord(this, String(s.target)), readMode: true };
-        } else if (s.mode === 'w' || s.mode === 'a') {
-          const t = expandWord(this, String(s.target));
-          if (!fs.existsSync(t)) {
-            try { fs.closeSync(fs.openSync(t, 'w')); } catch { /* unwritable target: bash reports, we ignore */ }
-          }
-          this.fdTargets[fd] = { kind: 'file', target: t, mode: s.mode };
-        }
-      }
+      this._applyRedirectSpecs(persistent, saved, false);
+    }
+  },
+
+  // Sync twin of redirect for PROVABLY-AWAIT-FREE bodies (see
+  // captureSync): the exact same spec install, body run, standalone-file
+  // creation, restore + persist logic — minus the await. An await-free
+  // body runs to completion synchronously, so no background microtask can
+  // observe the mid-redirect fd table (bash: the redirect is installed
+  // before the command forks, so background jobs never see it either).
+  redirectSync(fn, specs = []) {
+    process.stderr.write("TRACE redirectSync\n");
+    const saved = { ...this.fdTargets };
+    const persistent = specs.filter(s => s.persist);
+    try {
+      if (!this._applyRedirectSpecs(specs, saved, true)) return false;
+      fn();
+      this._ensureRedirectFiles(specs);
+      return this.lastExit === 0;
+    } finally {
+      this.fdTargets = saved;
+      this._applyRedirectSpecs(persistent, saved, false);
     }
   },
 
@@ -1277,16 +1614,66 @@ export const sh2 = {
     process.stderr.write("TRACE pipeline\n");
     const saved = { ...this.fdTargets };
     let prev = null;
+    const statuses = [];
     try {
       for (let i = 0; i < stages.length; i++) {
+        if (typeof stages[i] !== 'function') {
+          // String stage — the emitter's `echo ARGS | ...` collapse (see
+          // src/shir.rs try_echo_stage_text): the stage expression is a
+          // sequence `(sh2.lastExit = 0, text)` holding the EXACT bytes
+          // the echo builtin would write into the pipe (join + trailing
+          // newline unless -n). The produced text IS the stage's output;
+          // no fd juggling, no builtin dispatch. Only non-last stages
+          // collapse (the last stage must write through the current
+          // fd-1 sink — emit — which only the arrow form does).
+          prev = String(stages[i] ?? '');
+          statuses.push(this.lastExit);
+          continue;
+        }
         if (i > 0 && prev !== null) this.fdTargets[0] = { kind: 'string', content: prev };
         else if (i === 0) this.fdTargets[0] = saved[0];
         if (i < stages.length - 1) this.fdTargets[1] = { kind: 'capture', buf: '' };
         else this.fdTargets[1] = saved[1];
         await stages[i]();
+        statuses.push(this.lastExit);
         const cap = this.fdTargets[1];
         prev = cap && cap.kind === 'capture' ? cap.buf : null;
       }
+      this.pipeStatuses = statuses;
+      return this.lastExit === 0;
+    } finally {
+      this.fdTargets = saved;
+    }
+  },
+
+  // Sync twin of pipeline for PROVABLY-AWAIT-FREE stages (same verdict
+  // and semantics as captureSync above): identical fd0/fd1 swaps, string
+  // stages, lastExit protocol — minus the per-stage await. The stages run
+  // to completion synchronously; an await-free stage cannot yield, so no
+  // background job can interleave mid-pipeline (the async form's awaits
+  // allowed exactly that — this is closer to bash's sequential pipes).
+  pipelineSync(stages) {
+    process.stderr.write("TRACE pipelineSync\n");
+    const saved = { ...this.fdTargets };
+    let prev = null;
+    const statuses = [];
+    try {
+      for (let i = 0; i < stages.length; i++) {
+        if (typeof stages[i] !== 'function') {
+          prev = String(stages[i] ?? '');
+          statuses.push(this.lastExit);
+          continue;
+        }
+        if (i > 0 && prev !== null) this.fdTargets[0] = { kind: 'string', content: prev };
+        else if (i === 0) this.fdTargets[0] = saved[0];
+        if (i < stages.length - 1) this.fdTargets[1] = { kind: 'capture', buf: '' };
+        else this.fdTargets[1] = saved[1];
+        stages[i]();
+        statuses.push(this.lastExit);
+        const cap = this.fdTargets[1];
+        prev = cap && cap.kind === 'capture' ? cap.buf : null;
+      }
+      this.pipeStatuses = statuses;
       return this.lastExit === 0;
     } finally {
       this.fdTargets = saved;
@@ -1338,6 +1725,35 @@ export const sh2 = {
   // exit status: 0 iff any line was selected, even under `-c` with a zero
   // count). With captureMode true the output text is returned instead of
   // emitted (the emitter wraps it in sh2.trimCapture for `$(...)`).
+  // grepMatches(text, pattern, flags) — the `grep -o` lift (the A1
+  // generic op): the array of matched substrings, one per line (grep
+  // -o's output). flags: "E" (ERE as-is), "F" (fixed string), "i"
+  // (case-insensitive); the default is BRE (translated). lastExit = 0
+  // iff any match; the matches are emitted to the current fd-1 sink
+  // (statement context) and returned (value/capture contexts).
+  grepMatches(text, pattern, flags) {
+    const s = String(text ?? '');
+    const fl = String(flags ?? '');
+    let body = String(pattern ?? '');
+    try {
+      if (fl.includes('F')) {
+        body = body.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      } else if (!fl.includes('E')) {
+        body = body
+          .replace(/\\+/g, '+').replace(/\\\?/g, '?')
+          .replace(/\\\(/g, '(').replace(/\\\)/g, ')')
+          .replace(/\\\|/g, '|').replace(/\\\{/g, '{').replace(/\\\}/g, '}');
+      }
+      const re = new RegExp(body, fl.includes('i') ? 'gi' : 'g');
+      const matches = s.match(re) || [];
+      this.lastExit = matches.length > 0 ? 0 : 1;
+      return matches.join('\n');   // grep -o: one match per line
+    } catch {
+      this.lastExit = 2;
+      return [];
+    }
+  },
+
   grepText(text, args, captureMode) {
     const s = String(text ?? '');
     const { opts, patterns } = parseGrepArgs(args, false);
@@ -1435,16 +1851,31 @@ export const sh2 = {
       if (Array.isArray(it)) for (const x of it) flat.push(...expandItem(x));
       else flat.push(...expandItem(it));
     }
+    // bash: the loop's exit status is the last body command's status (or
+    // 0 if the body never ran — including a BREAK on the first iteration
+    // boundary and the capture bound). The body's own statements record
+    // lastExit, so snapshot it after each iteration (mirror of the
+    // whileLoop bodyLastExit discipline).
+    let bodyLastExit = 0;
+    let ran = false;
     for (const v of flat) {
       if (this._capExceeded()) break; // bound infinite producers in a capture
+      ran = true;
       try {
         await bodyFn(v);
       } catch (e) {
-        if (isSignal(e, 'BREAK')) break;
-        if (isSignal(e, 'CONTINUE')) continue;
+        // bash: break/continue terminate the iteration with STATUS 0 (the
+        // loop's exit status rule — "last command executed in the body" —
+        // treats the control-flow keyword itself as the last command,
+        // whose status is 0: `for i in 1; do false || continue; done; echo
+        // $?` → 0).
+        if (isSignal(e, 'BREAK')) { bodyLastExit = 0; break; }
+        if (isSignal(e, 'CONTINUE')) { bodyLastExit = 0; continue; }
         throw e;
       }
+      bodyLastExit = this.lastExit;
     }
+    this.lastExit = ran ? bodyLastExit : 0;
     return true;
   },
 
@@ -1469,16 +1900,29 @@ export const sh2 = {
       if (Array.isArray(it)) for (const x of it) flat.push(...expandItem(x));
       else flat.push(...expandItem(it));
     }
+    // Same bodyLastExit discipline as the async twin (bash: the loop's
+    // status is the last body command's status, or 0 if the body never
+    // ran).
+    let bodyLastExit = 0;
+    let ran = false;
     for (const v of flat) {
       if (this._capExceeded()) break;
+      ran = true;
       try {
         bodyFn(v);
       } catch (e) {
-        if (isSignal(e, 'BREAK')) break;
-        if (isSignal(e, 'CONTINUE')) continue;
+        // bash: break/continue terminate the iteration with STATUS 0 (the
+        // loop's exit status rule — "last command executed in the body" —
+        // treats the control-flow keyword itself as the last command,
+        // whose status is 0: `for i in 1; do false || continue; done; echo
+        // $?` → 0).
+        if (isSignal(e, 'BREAK')) { bodyLastExit = 0; break; }
+        if (isSignal(e, 'CONTINUE')) { bodyLastExit = 0; continue; }
         throw e;
       }
+      bodyLastExit = this.lastExit;
     }
+    this.lastExit = ran ? bodyLastExit : 0;
     return true;
   },
 
@@ -1551,12 +1995,44 @@ export const sh2 = {
       fdTargets: this.fdTargets, traps: this.traps, shoptState: this.shoptState,
       cwd: this.cwd,
     };
-    this.vars = new Map(this.vars);
+    this.vars = { ...this.vars };
     this.exported = new Set(this.exported);
     this.fdTargets = { ...this.fdTargets };
     this.shoptState = new Map(this.shoptState);
     try {
       await fn();
+      return this.lastExit === 0;
+    } finally {
+      this.vars = saved.vars;
+      this.exported = saved.exported;
+      this.positional = saved.positional;
+      this.fdTargets = saved.fdTargets;
+      this.traps = saved.traps;
+      this.shoptState = saved.shoptState;
+      this.cwd = saved.cwd;
+      try { process.chdir(saved.cwd); } catch { /* ignore */ }
+    }
+  },
+
+  // Sync twin of subshell for PROVABLY-AWAIT-FREE bodies (see
+  // captureSync): the same full state copy/restore (vars/exported/
+  // positional/fdTargets/traps/shoptState/cwd) and lastExit protocol,
+  // minus the await — the body runs to completion synchronously, so no
+  // background microtask can observe the mid-subshell state (the async
+  // form's await at the end of fn() allowed exactly that).
+  subshellSync(fn) {
+    process.stderr.write("TRACE subshellSync\n");
+    const saved = {
+      vars: this.vars, exported: this.exported, positional: this.positional,
+      fdTargets: this.fdTargets, traps: this.traps, shoptState: this.shoptState,
+      cwd: this.cwd,
+    };
+    this.vars = { ...this.vars };
+    this.exported = new Set(this.exported);
+    this.fdTargets = { ...this.fdTargets };
+    this.shoptState = new Map(this.shoptState);
+    try {
+      fn();
       return this.lastExit === 0;
     } finally {
       this.vars = saved.vars;
@@ -1585,6 +2061,13 @@ export const sh2 = {
 
   async block(fn) {
     await fn();
+    return this.lastExit === 0;
+  },
+
+  // Sync twin of block for provably-await-free bodies (the *Sync family):
+  // identical lastExit protocol minus the per-call promise.
+  blockSync(fn) {
+    fn();
     return this.lastExit === 0;
   },
 
@@ -1876,6 +2359,7 @@ export const sh2 = {
     return [...(this.arrays.get(nm) ?? []).keys()].map(String);
   },
   arrayLen(name) {
+    if (name === 'PIPESTATUS') return String(this.pipeStatuses.length);
     if (this.assocNames.has(name)) return String(this.assocKeys(name).length);
     const arr = this.arrays.get(String(name));
     if (arr) {
@@ -1897,9 +2381,26 @@ export const sh2 = {
     if (!arr) return '';
     if (key === '@' || key === '*') return [...arr];   // ${arr[@]} — exec flattens
     let idx;
-    try { idx = evalArith(String(key), this); } catch { return ''; } // bad subscript: bash keeps going, expands empty
+    try { idx = evalArith(String(key), this); } catch { return ARITH_BAD_MAGIC; } // subscript arithmetic syntax error: bash skips the whole command (status 1)
     if (idx < 0) idx += arr.length;   // negative subscript: from the end (bash + zsh agree)
     return idx >= 0 && idx < arr.length ? String(arr[idx]) : '';
+  },
+
+  // `arrayStore(name, idx, v)` — a C array write with a DYNAMIC index
+  // (the c-sh-go frontend's `a[i] = v` with i a variable). The baked-name
+  // `a[$i]` write target would resolve the subscript via the STORE
+  // (evalArith → getVar), which is stale for natively-lifted index vars;
+  // this call receives the index ALREADY lowered (the core's `arith` arm
+  // converts `$i` → the native binding) and writes the runtime array
+  // store directly — the mirror of arrayIndex. Like the setVar subscript
+  // path, an out-of-range index extends the array (bash sparse arrays).
+  arrayStore(name, idx, v) {
+    const nm = String(name);
+    const arr = this.arrays.get(nm) ?? [];
+    let i;
+    try { i = evalArith(String(idx), this); } catch { return ARITH_BAD_MAGIC; }
+    arr[i] = String(v ?? '');
+    this.arrays.set(nm, arr);
   },
 
   // ── sh2.mem — allocation_id + offset pointer emulation (slice 1) ──────
@@ -1926,6 +2427,98 @@ export const sh2 = {
     this.setVar(m[1], String(v ?? ''));
   },
 
+  // ── sh2.mem arena — slice 2 (core request c-mem-slice2) ────────────
+  // Heap pointers (C malloc / dynamic pointer arithmetic). The handle is
+  // the slice-1 tagged-string format with a NUMERIC allocation id and the
+  // ELEMENT OFFSET of the pointer position in the offset field:
+  // `\u0001mem:<id>:<off>` (slice 1's id is a variable NAME —
+  // memLoad/memStore below branch on that). The arena is a flat byte
+  // slot array; load/store scale the element offset by the type's element
+  // size (the `type` arg: a byte size or a C type name — the table maps
+  // the common ones), so `p + n` pointer arithmetic gets its sizeof(*p)
+  // semantics. A pointer's POSITION lives in its handle: `memAdvance`
+  // returns a new handle with the offset advanced (the frontend keeps a
+  // dedicated handle var for a pointer it advances — the allocation root
+  // var always holds the base `:0` handle). `memFree` drops the slot.
+  memAlloc(size) {
+    const id = (this.memSeq = (this.memSeq ?? 0) + 1);
+    const n = Math.max(0, Math.floor(Number(size) || 0));
+    (this.memArena ??= {})[id] = new Array(n).fill(0);
+    return `\u0001mem:${id}:0`;
+  },
+  memElemSize(type) {
+    if (typeof type === 'number') return Math.max(1, Math.floor(type));
+    const t = String(type ?? 'int');
+    const sizes = {
+      char: 1, 'signed char': 1, 'unsigned char': 1, 'short': 2, 'short int': 2,
+      int: 4, 'unsigned int': 4, long: 8, 'long int': 8, 'long long': 8,
+      float: 4, double: 8, 'void*': 8, ptr: 8, pointer: 8,
+      int8: 1, int16: 2, int32: 4, int64: 8,
+    };
+    return sizes[t] ?? 1;
+  },
+  _memArenaOf(h) {
+    const m = /^\u0001mem:([^:]+):(-?\d+)$/.exec(String(h));
+    if (!m) return null;                     // null/bad handle
+    const id = m[1];
+    if (!/^\d+$/.test(id)) return null;      // slice-1 named-var handle
+    const arr = (this.memArena ?? {})[Number(id)];
+    if (!arr) return null;                   // freed / never allocated
+    return { arr };
+  },
+  // `_memPos(h)` — the ELEMENT OFFSET a handle points at: the embedded
+  // offset field for arena handles; a bare number string is used as-is
+  // (the frontend may pass a static offset). Not a handle / freed → 0.
+  _memPos(h) {
+    const m = /^\u0001mem:([^:]+):(-?\d+)$/.exec(String(h ?? ''));
+    if (m) return Number(m[2]) || 0;
+    return Number(h) || 0;
+  },
+  memLoad(h, offset, type) {
+    const a = this._memArenaOf(h);
+    if (!a) return '';                       // slice-1 / null: the old seam
+    const i = (this._memPos(h) + (Number(offset) || 0)) * this.memElemSize(type);
+    return i >= 0 && i < a.arr.length ? String(a.arr[i]) : '';
+  },
+  memStore(h, offset, type, v) {
+    const a = this._memArenaOf(h);
+    if (!a) return;                          // slice-1 / null store: no-op
+    const i = (this._memPos(h) + (Number(offset) || 0)) * this.memElemSize(type);
+    if (i >= 0 && i < a.arr.length) a.arr[i] = String(v ?? '');
+  },
+  // `memAdvance(h, n)` — a pointer advance (`p = p + n`, `p++`): return a
+  // NEW handle with the element offset advanced by n (type-scaled at
+  // load/store — the offset is in ELEMENTS of the pointer's type).
+  memAdvance(h, n) {
+    const m = /^(\u0001mem:[^:]+):(-?\d+)$/.exec(String(h));
+    if (!m) return h;   // non-handle: no-op
+    return `${m[1]}:${this._memPos(h) + (Number(n) || 0)}`;
+  },
+  // `memTest(op, a, b)` — a pointer comparison (`p < end`): both operands
+  // are handles (or static element offsets); compare their positions.
+  // Returns the boolean condition (lastExit recorded like a test).
+  memTest(op, a, b) {
+    const pa = this._memPos(a);
+    const pb = this._memPos(b);
+    let r;
+    switch (op) {
+      case '<': r = pa < pb; break;
+      case '<=': r = pa <= pb; break;
+      case '>': r = pa > pb; break;
+      case '>=': r = pa >= pb; break;
+      case '==': r = pa === pb; break;
+      case '!=': r = pa !== pb; break;
+      default: r = false;
+    }
+    this.lastExit = r ? 0 : 1;
+    return r;
+  },
+  memFree(h) {
+    const m = /^\u0001mem:([^:]+):(-?\d+)$/.exec(String(h));
+    if (!m || !/^\d+$/.test(m[1])) return;
+    delete (this.memArena ?? {})[Number(m[1])];
+  },
+
   // ── parameter expansion / arithmetic / brace expansion ─────────────
   param(op, name, a, b, value) {
     // `value` — the emitter's value-override for LIFTED variables: their
@@ -1950,21 +2543,38 @@ export const sh2 = {
       case '%': return stripGlobSuffix(v, a, false);
       case '%%': return stripGlobSuffix(v, a, true);
       case '//': return substGlob(this, v, a, b);
+      case '/': return substGlobFirst(this, v, a, b);
       case ':-': return v !== '' ? v : expandWord(this, a ?? '');
       case ':=':
         if (v === '') { const d = expandWord(this, a ?? ''); this.setVar(name, d); return d; }
         return v;
+      case '?':
+        // `${x?msg}` — error if x is UNSET (unlike `:?` which also fires
+        // on empty). bash prints the message to stderr and EXITS the
+        // shell with status 1; the gate compares exit codes, so exit 1
+        // (a 0 would read as an exit-code mismatch).
+        if (!(name in this.vars)) {
+          const m = expandWord(this, a !== '' ? a : `${name}: parameter null or not set`);
+          process.stderr.write(`bash: ${name}: ${m}\n`);
+          process.exit(1);
+        }
+        return v;
       case ':?':
         if (v === '') {
           const m = expandWord(this, a !== '' ? a : `${name}: parameter null or not set`);
-          // bash: `${x:?msg}` prints `bash: x: msg` to stderr and EXITS the
-          // shell (status 1). The corpus gate compares stdout only, so exit
-          // cleanly like the `exit` builtin (nonzero would read as a runtime
-          // error even though stdout matches).
+          // bash: `${x:?msg}` prints `bash: x: msg` to stderr and EXITS
+          // the shell (status 1). The gate compares exit codes, so exit
+          // with the REAL code.
           process.stderr.write(`bash: ${name}: ${m}\n`);
-          process.exit(0);
+          process.exit(1);
         }
         return v;
+      case 'badsub':
+        // `${arr[1]>2}` and friends — the parser keeps the full text in
+        // the name; bash prints "bad substitution", SKIPS the whole
+        // command (status 1) and keeps the script running. The BADSUB
+        // marker makes the exec/builtin flatteners do exactly that.
+        return BADSUB_MAGIC;
       case 'basename': {
         const p = v.replace(/\/+$/, '');
         const i = p.lastIndexOf('/');
@@ -2032,7 +2642,11 @@ export const sh2 = {
         }
         // ${@:off:len} / ${*:off:len} — positional slice. bash offsets are
         // 1-BASED for @/* (${@:1} = all params; ${@:0} includes $0);
-        // negative offsets count from the end.
+        // negative offsets count from the end. `"${@:off:len}"` expands
+        // to SEPARATE words (one per positional — an empty slice yields
+        // ZERO words), so the `@` form returns the ARRAY and the
+        // exec/echo/builtin arg flatteners splice it; `"${*:…}"` is the
+        // joined scalar (one space-joined word, like `"$*"`).
         if (name === '@' || name === '*') {
           const off = sliceOff(a);
           let list = this.positional;
@@ -2042,7 +2656,7 @@ export const sh2 = {
           const sl = b !== undefined && b !== null && b !== ''
             ? list.slice(start, start + (Number(b) || 0))
             : list.slice(start);
-          return sl.join(' ');
+          return name === '@' ? [...sl] : sl.join(' ');
         }
         if (a === '@' || a === '*') return this.arrayItems(name); // ${arr[@]} — exec flattens; template literals join via sh2.join
         const am = /^([A-Za-z_][A-Za-z0-9_]*)\[@\]$/.exec(name);
@@ -2072,12 +2686,33 @@ export const sh2 = {
   },
 
   arith(src) {
-    // bash: an arithmetic evaluation error leaves the target unset, which
-    // reads back as the empty string — mirror that instead of crashing.
+    // bash: an arithmetic evaluation error (syntax error, empty operand
+    // like `$(( $1 * 100 ))` with an unset positional, division by zero)
+    // ABORTS the whole expansion — the command is skipped (status 1),
+    // the script continues. The magic marker lets the exec/builtin arg
+    // flatteners skip the command (mirror of BADSUB_MAGIC); the native
+    // echo emitter guards the bare-arith shape with the same marker.
     try {
       return String(evalArith(String(src), this));
     } catch {
-      return '';
+      return ARITH_BAD_MAGIC;
+    }
+  },
+
+  // Float arithmetic (frontend c-sh-go): C `double` expressions are
+  // outside the integer Arith AST, so the frontend lowers float
+  // arithmetic to a STRING expression evaluated here with JS doubles
+  // (binary64 — the same IEEE-754 format as C doubles). The grammar is
+  // the frontend's own (exprToArithString): fully-parenthesized
+  // `(l op r)` trees over decimal literals and `$name` store reads
+  // (unary minus is emitted as `0 - e`, so no unary arm is needed).
+  // Like bash `$((...))`, a syntax error aborts with the magic marker
+  // (the assignment is skipped — bash's `x=$((bad))` behavior).
+  fparith(src) {
+    try {
+      return String(evalFloatArith(String(src), this));
+    } catch {
+      return ARITH_BAD_MAGIC;
     }
   },
 
@@ -2129,7 +2764,9 @@ export const sh2 = {
   // error even though stdout matches).
   guard(v) {
     if (this.errexit && !v) {
-      process.exit(0);
+      // bash `set -e`: abort with the FAILING command's status (the
+      // guarded runtime call recorded it in lastExit before returning).
+      process.exit(this.lastExit);
     }
     return v;
   },
@@ -2202,10 +2839,22 @@ builtins.echo = function (args) {
 };
 
 builtins.printf = function (args) {
-  const format = args[0] ?? '';
-  const rest = args.slice(1);
-  let out = printfFormat(format, rest);
+  // `printf -v VAR FMT ARGS...` — assign the formatted output to VAR
+  // instead of writing stdout (bash semantics: -v takes a variable name,
+  // possibly an array subscript `-v arr[0]`).
+  let rest = args;
+  let target = null;
+  if (args[0] === '-v' && args.length >= 2) {
+    target = String(args[1]);
+    rest = args.slice(2);
+  }
+  const format = rest[0] ?? '';
+  let out = printfFormat(format, rest.slice(1));
   this.lastExit = 0;
+  if (target !== null) {
+    this.setVar(target, out);
+    return true;
+  }
   emit(this, out);
   return true;
 };
@@ -2251,18 +2900,18 @@ function mergeAssignArgs(args) {
 
 builtins.export = function (args) {
   if (args.length === 0) {
-    for (const k of this.vars.keys()) emit(this, `declare -x ${k}="${this.vars.get(k)}"\n`);
+    for (const k of Object.keys(this.vars)) emit(this, `declare -x ${k}="${this.vars[k]}"\n`);
   } else {
     for (const a of args) {
       const eq = a.indexOf('=');
       if (eq >= 0) {
         const k = a.slice(0, eq), v = a.slice(eq + 1);
-        this.vars.set(k, v);
+        this.vars[k] = v;
         process.env[k] = v;
         this.exported.add(k);
       } else {
         this.exported.add(a);
-        if (this.vars.has(a)) process.env[a] = this.vars.get(a);
+        if (a in this.vars) process.env[a] = this.vars[a];
       }
     }
   }
@@ -2272,7 +2921,7 @@ builtins.export = function (args) {
 
 builtins.unset = function (args) {
   for (const a of args) {
-    this.vars.delete(a);
+    delete this.vars[a];
     this.exported.delete(a);
     this.refVars.delete(a);
     this.intVars.delete(a);
@@ -2295,8 +2944,12 @@ builtins.read = function (args, env) {
   // the stdio discipline).
   _flushStdout();
   const names = args.filter(a => !a.startsWith('-'));
-  // `IFS=: read ...` — command-scoped env from the emitter
-  const ifs = env && env.IFS !== undefined ? String(env.IFS) : ' \t\n';
+  // `IFS=: read ...` — command-scoped env from the emitter; a plain
+  // (non-env) `IFS=,` assignment earlier in the script reads the STORE
+  // (frontends-ifs: the runtime's read honors the current IFS value).
+  const ifs = env && env.IFS !== undefined
+    ? String(env.IFS)
+    : (this.vars.IFS !== undefined ? String(this.vars.IFS) : ' \t\n');
   const src = this.fdTargets[0];
   const key = src.kind === 'string' ? ('s:' + src.content) : src.kind === 'file' ? ('f:' + src.target) : 'stdin';
   if (!this.readBufs.has(key)) {
@@ -2354,11 +3007,14 @@ builtins.mapfile = function (args) {
 builtins.readarray = builtins.mapfile;
 
 builtins.exit = function (args) {
-  // The corpus gate compares stdout only (like the perl path, which ignores
-  // exit codes). A nonzero `exit N` must not be reported as a runtime error
-  // by the harness, so terminate cleanly with status 0.
-  void args;
-  process.exit(0);
+  // bash: `exit N` exits with N (mod 256); `exit` with the previous
+  // status. The corpus gate compares exit codes, so the code must be
+  // REAL — a deliberate 0 would read as an exit-code mismatch. Number()
+  // coerces the string arg ("1" → 1); a non-numeric arg → NaN → 0
+  // (bash would print "numeric argument required" and exit 2 — outside
+  // the corpus's reach). process.exit mods by 256 like bash.
+  const code = args.length > 0 ? (Number(args[0]) || 0) : this.lastExit;
+  process.exit(code);
 };
 
 // `set -euo pipefail` / `set -- a b c` — flags change runtime behavior
@@ -2367,7 +3023,7 @@ builtins.exit = function (args) {
 builtins.set = function (args) {
   if (args[0] === '--') this.positional = args.slice(1);
   else if (args.length === 0) {
-    for (const k of this.vars.keys()) emit(this, `${k}=${this.vars.get(k)}\n`);
+    for (const k of Object.keys(this.vars)) emit(this, `${k}=${this.vars[k]}\n`);
   } else if (!args[0].startsWith('-') && !args[0].startsWith('+')) {
     this.positional = [...args];
   } else {
@@ -2474,17 +3130,17 @@ builtins.declare = function (args) {
   // `typeset -p [names]` — print variable declarations with attributes
   // (`declare -ir printtest="99"`), bash-style: `--` when no attributes.
   if (isPrint) {
-    const names = rest.length > 0 ? rest : [...this.vars.keys()];
+    const names = rest.length > 0 ? rest : Object.keys(this.vars);
     let out = '';
     for (const k of names) {
-      if (!this.vars.has(k)) continue;
+      if (!(k in this.vars)) continue;
       let attrs = '';
       if (this.intVars.has(k)) attrs += 'i';
       if (this.roVars.has(k)) attrs += 'r';
       if (this.lcVars.has(k)) attrs += 'l';
       if (this.ucVars.has(k)) attrs += 'u';
       if (this.exported.has(k)) attrs += 'x';
-      out += `declare ${attrs ? '-' + attrs : '--'} ${k}="${this.vars.get(k)}"\n`;
+      out += `declare ${attrs ? '-' + attrs : '--'} ${k}="${this.vars[k]}"\n`;
     }
     if (out) emit(this, out);
     this.lastExit = 0;
@@ -2532,7 +3188,7 @@ builtins.declare = function (args) {
       if (isLower) this.lcVars.add(a);
       if (isUpper) this.ucVars.add(a);
       if (isReadonly) this.roVars.add(a);
-      if (isExport) { this.exported.add(a); if (this.vars.has(a)) process.env[a] = this.vars.get(a); }
+      if (isExport) { this.exported.add(a); if (a in this.vars) process.env[a] = this.vars[a]; }
     }
   }
   this.lastExit = 0;
@@ -2674,6 +3330,43 @@ builtins.shift = function (args) {
 
 builtins.true = function () { this.lastExit = 0; return true; };
 
+// `env` with NO operands — the corpus surface (`env | grep '^myexport='`
+// in typeset-cmdsub.sh): print every environment variable as
+// `NAME=value`, one per line, in environment order — the exact bytes the
+// spawned env(1) would emit for the same process.env (the runtime
+// mirrors script exports into process.env, and the spawned child
+// inherits it, so both dumps agree). The ONE byte-level divergence is
+// the `_` entry: GNU env overwrites `_` with its own argv[0]
+// (`/usr/bin/env`), while node's process.env carries the node launcher's
+// `_`. ASSUMPTION (option-gated, default ON): SH2_ASSUME_ENV=0 makes
+// the builtin REFUSE with status 127 (the established uname/ls gate
+// pattern — the emitter-side twin of the gate restores the exec
+// dispatch for the option-off emission, but the runtime exec path
+// dispatches this builtin too, so the refusal is the honest option-off
+// behavior). The single corpus site pipes the dump through
+// `grep '^myexport='` — the `_` line never matches, so the divergence
+// is corpus-unobservable; the gate documents it for maximal fidelity.
+// Flag/carrying forms (`env -i`, `env NAME=V cmd`) must keep the spawn:
+// the emitter only lowers the bare form (try_native_env_stmt), so any
+// arg that reaches the builtin is an emitter bug.
+builtins.env = function (args) {
+  if (process.env.SH2_ASSUME_ENV === '0') { this.lastExit = 127; return false; }
+  if (args.length > 0) {
+    throw new Error(`sh2.builtin: env with args is not a sync builtin form (${args[0]})`);
+  }
+  const e = process.env;
+  const lines = [];
+  let underscore = false;
+  for (const k of Object.keys(e)) {
+    if (k === '_') { lines.push('_=/usr/bin/env'); underscore = true; continue; } // GNU env overwrites `_` with its own path, in place
+    lines.push(`${k}=${e[k]}`);
+  }
+  if (!underscore) lines.push('_=/usr/bin/env');
+  emit(this, lines.join('\n') + '\n');
+  this.lastExit = 0;
+  return true;
+};
+
 // `test` command (bash builtin): operands arrive ALREADY WORD-SPLIT, so
 // each arg is exactly one test token — unlike `[ ... ]`, whose raw
 // expression the runtime tokenizes by whitespace. A malformed expression
@@ -2702,7 +3395,7 @@ builtins.exec = async function (args) {
     // `exec` as the exec builtin, leaving an `=value`-shaped arg. Bash
     // treats it as a plain assignment.
     if (String(args[0]).startsWith('=')) {
-      this.vars.set('exec', String(args[0]).slice(1));
+      this.vars.exec = String(args[0]).slice(1);
       this.lastExit = 0;
       return true;
     }
@@ -2737,13 +3430,13 @@ builtins.local = function (args) {
       const v = expandWord(this, a.slice(eq + 1));
       if (isAssoc) { this.assocNames.add(k); this.assocSet(k, v); }
       else if (isArray) { const arr = this.arrays.get(k) ?? []; arr.push(v); this.arrays.set(k, arr); }
-      else this.vars.set(k, v);
+      else this.vars[k] = v;
     } else if (isAssoc) {
       this.assocNames.add(a);
     } else if (isArray) {
       if (!this.arrays.has(a)) this.arrays.set(a, []);
     } else {
-      this.vars.set(a, '');
+      this.vars[a] = '';
     }
   }
   this.lastExit = 0;
@@ -3063,6 +3756,259 @@ builtins.readlink = function (args) {
   return !failed;
 };
 
+// ── native ls (SH2_ASSUME_LS gate) ──────────────────────────────────
+// GNU ls for the corpus surface (verified byte-identical vs GNU coreutils
+// 9.x on this box): flags -1/-A/-a/-l in any combination (incl. -la/-al),
+// file + dir operands (file operands sorted first, no headers; each dir
+// with a `name:` header only when mixed with files or another dir),
+// C-locale byte sort, per-path errors (`ls: cannot access 'X': …` → fd2,
+// exit 2 — GNU continues with the valid operands), and the -l long format
+// (the `total N` block line, column-aligned nlink/owner/group/size, the
+// `%b %e %H:%M` mtime — `%b %e  %Y` outside the 6-month window — and
+// `name -> target` for symlinks).
+//
+// ASSUMPTION (option-gated, default ON): SH2_ASSUME_LS=0 restores the
+// spawn for maximal fidelity. The assumptions: (1) the locale is
+// C/C.UTF-8 — the byte-order sort matches GNU's collation (non-ASCII
+// names could sort differently under other locales; the corpus env is
+// ASCII-only); (2) uid/gid names resolve via /etc/passwd + /etc/group
+// (GNU prints the NUMBER when the name is absent — same fallback);
+// (3) the mtime display uses local time (like GNU) and the 6-month
+// year-switch window is never straddled by the corpus.
+builtins.ls = function (args) {
+  if (process.env.SH2_ASSUME_LS === '0') { this.lastExit = 127; return false; }
+  let long = false, all = false, almostAll = false;
+  const files = [];
+  let afterDashDash = false;
+  for (const a of args) {
+    const s = String(a);
+    if (!afterDashDash && s === '--') { afterDashDash = true; continue; }
+    if (!afterDashDash && s.startsWith('-') && s !== '-') {
+      for (const c of s.slice(1)) {
+        if (c === '1') { /* one-per-line is the piped default */ }
+        else if (c === 'l') long = true;
+        else if (c === 'a') all = true;
+        else if (c === 'A') almostAll = true;
+        else {
+          process.stderr.write(`ls: invalid option -- '${c}'\n`);
+          this.lastExit = 2;
+          return false;
+        }
+      }
+      continue;
+    }
+    files.push(s);
+  }
+  if (files.length === 0) files.push('.');
+
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const fmtMtime = (d) => {
+    const now = Date.now();
+    const t = d.getTime();
+    const day = String(d.getDate()).padStart(2, ' ');
+    const mon = MONTHS[d.getMonth()];
+    // GNU: the year replaces the time when the mtime is in the future
+    // or older than ~6 months.
+    if (t > now + 60 * 60 * 1000 || now - t > 6 * 30 * 24 * 60 * 60 * 1000) {
+      return `${mon} ${day}  ${d.getFullYear()}`;
+    }
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${mon} ${day} ${hh}:${mm}`;
+  };
+  const modeStr = (st) => {
+    let s = st.isDirectory() ? 'd' : st.isSymbolicLink() ? 'l'
+      : st.isBlockDevice() ? 'b' : st.isCharacterDevice() ? 'c'
+      : st.isFIFO() ? 'p' : st.isSocket() ? 's' : '-';
+    const chars = 'rwxrwxrwx';
+    for (let i = 0; i < 9; i++) s += (st.mode & (1 << (8 - i))) ? chars[i] : '-';
+    if (st.mode & 0x800) s = s.slice(0, 3) + (s[3] === 'x' ? 's' : 'S') + s.slice(4);
+    if (st.mode & 0x400) s = s.slice(0, 6) + (s[6] === 'x' ? 's' : 'S') + s.slice(7);
+    if (st.mode & 0x200) s = s.slice(0, 9) + (s[9] === 'x' ? 't' : 'T');
+    return s;
+  };
+  // uid/gid → name (GNU prints the number when the name is not found).
+  let passwd = null, group = null;
+  const uidName = (uid) => {
+    if (passwd === null) {
+      passwd = {};
+      try {
+        for (const l of fs.readFileSync('/etc/passwd', 'utf8').split('\n')) {
+          const f = l.split(':');
+          if (f.length >= 3 && /^\d+$/.test(f[2])) passwd[f[2]] = f[0];
+        }
+      } catch { /* no /etc/passwd — numeric fallback */ }
+    }
+    return passwd[String(uid)] ?? String(uid);
+  };
+  const gidName = (gid) => {
+    if (group === null) {
+      group = {};
+      try {
+        for (const l of fs.readFileSync('/etc/group', 'utf8').split('\n')) {
+          const f = l.split(':');
+          if (f.length >= 3 && /^\d+$/.test(f[2])) group[f[2]] = f[0];
+        }
+      } catch { /* no /etc/group — numeric fallback */ }
+    }
+    return group[String(gid)] ?? String(gid);
+  };
+  const longLine = (name, st, w) => {
+    let line = `${modeStr(st)} ${String(st.nlink).padStart(w.nlink)} `
+      + `${uidName(st.uid).padEnd(w.owner)} ${gidName(st.gid).padEnd(w.group)} `
+      + `${String(st.size).padStart(w.size)} ${fmtMtime(st.mtime)} ${name}`;
+    if (st.isSymbolicLink()) {
+      try { line += ' -> ' + fs.readlinkSync(name); } catch { /* broken link */ }
+    }
+    return line;
+  };
+  const widthsOf = (entries) => {
+    const w = { nlink: 1, owner: 1, group: 1, size: 1 };
+    for (const [, st] of entries) {
+      w.nlink = Math.max(w.nlink, String(st.nlink).length);
+      w.owner = Math.max(w.owner, uidName(st.uid).length);
+      w.group = Math.max(w.group, gidName(st.gid).length);
+      w.size = Math.max(w.size, String(st.size).length);
+    }
+    return w;
+  };
+
+  let failed = false;
+  const fileEntries = [];
+  const dirs = [];   // [path, lstat] — the dir operands themselves
+  const dirOwn = []; // the dir operands' OWN lstats feed the FILE group's
+                     // width scan (GNU: `ls -l f d` pads f's columns to
+                     // the dir operand's nlink/owner/group/size — verified
+                     // vs GNU on this box)
+  const operandCount = files.length;
+  for (const p of files) {
+    let st = null;
+    try { st = fs.lstatSync(p); } catch { /* missing below */ }
+    if (st === null) {
+      emitErr(this, `ls: cannot access '${p}': No such file or directory\n`);
+      failed = true;
+      continue;
+    }
+    if (st.isDirectory()) { dirs.push([p, st]); dirOwn.push([p, st]); }
+    else fileEntries.push([p, st]);
+  }
+  const sortName = (a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+  fileEntries.sort(sortName);
+  // The -l column widths: the FILE group scans the file entries PLUS the
+  // dir operands' own lstats (GNU pads `ls -l f d`'s f-line to d's own
+  // nlink/owner/group/size); each DIR group scans its own entries only.
+  // Groups are separated by a blank line (files → first dir, and between
+  // dirs) when a header prints.
+  const dirEntries = [];
+  for (const [d] of dirs) {
+    let names = [];
+    try { names = fs.readdirSync(d); } catch { /* unreadable dir */ }
+    const entries = [];
+    const push = (n) => {
+      try {
+        const full = d === '.' ? n : `${d}/${n}`;
+        const st = fs.lstatSync(full);
+        entries.push([n, st]);
+      } catch { /* vanished between readdir and stat */ }
+    };
+    if (all) {
+      try {
+        const st = fs.lstatSync(d === '.' ? '.' : d);
+        entries.push(['.', st]);
+      } catch {}
+      try {
+        const st = fs.lstatSync(d === '.' ? '..' : `${d}/..`);
+        entries.push(['..', st]);
+      } catch {}
+    }
+    names.sort();
+    for (const n of names) {
+      if (n.startsWith('.')) { if (all || almostAll) push(n); }
+      else push(n);
+    }
+    dirEntries.push([d, entries]);
+  }
+  const w = widthsOf([...fileEntries, ...dirOwn]);
+  let out = '';
+  if (fileEntries.length > 0) {
+    for (const [n, st] of fileEntries) out += (long ? longLine(n, st, w) : n) + '\n';
+  }
+  // GNU prints the dir header when the operand COUNT (including
+  // missing ones — `ls . missing` still headers `.:`) exceeds one.
+  const header = operandCount > 1;
+  for (const [d, entries] of dirEntries) {
+    if (header) out += (out.length ? '\n' : '') + d + ':\n';
+    if (long) {
+      let total = 0;
+      for (const [, st] of entries) total += st.blocks;
+      out += `total ${Math.floor((total * 512) / 1024)}\n`;
+    }
+    const dw = widthsOf(entries);
+    for (const [n, st] of entries) out += (long ? longLine(n, st, dw) : n) + '\n';
+  }
+  if (out) emit(this, out);
+  this.lastExit = failed ? 2 : 0;
+  return !failed;
+};
+
+// ── native which (SH2_ASSUME_WHICH gate) ───────────────────────────
+// GNU which for the corpus surface: for each operand, print the first
+// executable found on PATH (no output + exit 1 for not-found — GNU
+// reports the miss on STDERR, which the corpus never compares).
+// ASSUMPTION (option-gated): SH2_ASSUME_WHICH=0 restores the spawn; the
+// PATH walk uses process.env.PATH exactly like the spawned binary would.
+builtins.which = function (args) {
+  if (process.env.SH2_ASSUME_WHICH === '0') { this.lastExit = 127; return false; }
+  const out = [];
+  let missed = false;
+  for (const raw of args) {
+    const a = String(raw);
+    if (a.startsWith('-') && a !== '-') {
+      // GNU which flags (--all/-a, --skip-alias, ...) — the corpus uses
+      // none; accept and ignore (the operand semantics are unchanged).
+      continue;
+    }
+    if (a.includes('/')) {
+      // an explicit path: exists + executable → print it
+      try { fs.accessSync(a, fs.constants.X_OK); out.push(a); }
+      catch { missed = true; }
+      continue;
+    }
+    const pathEnv = process.env.PATH ?? '';
+    let found = false;
+    for (const dir of pathEnv.split(':')) {
+      const cand = dir === '' ? a : `${dir}/${a}`;
+      try {
+        fs.accessSync(cand, fs.constants.X_OK);
+        const st = fs.statSync(cand);
+        if (!st.isDirectory()) { out.push(cand); found = true; break; }
+      } catch { /* keep walking */ }
+    }
+    if (!found) missed = true;
+  }
+  if (out.length) emit(this, out.join('\n') + '\n');
+  this.lastExit = missed ? 1 : 0;
+  return !missed;
+};
+
+// ── native hostname ────────────────────────────────────────────────
+// GNU hostname for the corpus surface: `hostname` prints the machine's
+// host name (os.hostname() — identical to uname -n).
+// ASSUMPTION (option-gated): SH2_ASSUME_HOSTNAME=0 restores the spawn;
+// the node os.hostname() value equals the system hostname on GNU/Linux
+// (verified — both read the same utsname field).
+builtins.hostname = function (args) {
+  if (process.env.SH2_ASSUME_HOSTNAME === '0') { this.lastExit = 127; return false; }
+  if (args.length > 0 && typeof args[0] === 'string' && args[0].startsWith('-')) {
+    process.stderr.write(`hostname: invalid option -- '${args[0].slice(1)}'\n`);
+    this.lastExit = 1;
+    return false;
+  }
+  emit(this, os.hostname() + '\n');
+  this.lastExit = 0;
+  return true;
+};
+
 // Shared %-directive formatter for builtins.date (module-level, also
 // reachable from the -u path).
 function formatDate(d, fmt, utc) {
@@ -3264,6 +4210,14 @@ builtins.cat = function (args) {
 // files). Filename prefixes follow GNU: >1 source, a -r directory
 // expansion, or -H; suppressed by -h. -l/-L print the matching/empty
 // source names (-Z: NUL-terminated, GNU).
+// `egrep` — GNU's deprecated alias for `grep -E`: same flags, ERE
+// patterns (the grep builtin's -E flag is the identical regex path).
+// The corpus surface is `$(egrep PAT FILE)`; any other shape routes
+// through the same builtin and the shared parser.
+builtins.egrep = function (args) {
+  return builtins.grep.call(this, ['-E', ...args]);
+};
+
 builtins.grep = function (args) {
   let parsed;
   try {
@@ -3565,24 +4519,26 @@ builtins.cut = function (args) {
 };
 
 builtins.wc = function (args) {
-  let countLines = false, countWords = false, countChars = false;
+  let countLines = false, countWords = false, countChars = false, countLongest = false;
   const files = [];
   for (const a of args) {
     if (a === '-l') countLines = true;
     else if (a === '-w') countWords = true;
     else if (a === '-c') countChars = true;
+    else if (a === '-L') countLongest = true;
     else if (a.startsWith('-') && a.length > 1) { /* other flags ignored */ }
     else files.push(a);
   }
-  if (!countLines && !countWords && !countChars) { countLines = countWords = countChars = true; }
+  if (!countLines && !countWords && !countChars && !countLongest) { countLines = countWords = countChars = true; }
   const sources = files.length ? files : [null];
   let out = '';
-  const totals = [0, 0, 0];
-  const fmt = (l, w, ch) => {
+  const totals = [0, 0, 0, 0];
+  const fmt = (l, w, ch, longest) => {
     const cols = [];
     if (countLines) cols.push(String(l));
     if (countWords) cols.push(String(w));
     if (countChars) cols.push(String(ch));
+    if (countLongest) cols.push(String(longest));
     return cols.join(' ');
   };
   for (const f of sources) {
@@ -3590,14 +4546,24 @@ builtins.wc = function (args) {
     const lines = countLines ? ((text.match(/\n/g) || []).length) : 0;
     const words = countWords ? (text.trim() ? text.trim().split(/\s+/).length : 0) : 0;
     const chars = countChars ? Buffer.byteLength(text, 'utf8') : 0;
+    // -L: length of the longest line (GNU: bytes; the terminal newline is
+    // not counted — a line is the text between newlines)
+    let longest = 0;
+    if (countLongest) {
+      for (const ln of text.split('\n')) {
+        const bl = Buffer.byteLength(ln, 'utf8');
+        if (bl > longest) longest = bl;
+      }
+    }
     if (countLines) totals[0] += lines;
     if (countWords) totals[1] += words;
     if (countChars) totals[2] += chars;
-    if (f === null) out += fmt(lines, words, chars) + '\n';
-    else out += fmt(lines, words, chars) + ' ' + f + '\n';
+    if (countLongest) totals[3] = Math.max(totals[3], longest);
+    if (f === null) out += fmt(lines, words, chars, longest) + '\n';
+    else out += fmt(lines, words, chars, longest) + ' ' + f + '\n';
   }
   if (files.length > 1) {
-    out += fmt(totals[0], totals[1], totals[2]) + ' total\n';
+    out += fmt(totals[0], totals[1], totals[2], totals[3]) + ' total\n';
   }
   emit(this, out);
   this.lastExit = 0;
@@ -3939,11 +4905,13 @@ function sedReplJs(repl) {
 
 builtins.sed = function (args) {
   let quiet = false;
+  let ere = false; // -r: ERE flavors (BRE is the default)
   const scripts = [];
   const positionals = [];
   for (let i = 0; i < args.length; i++) {
     const a = String(args[i]);
     if (a === '-n') { quiet = true; continue; }
+    if (a === '-r' || a === '-E') { ere = true; continue; }
     if (a === '-e') { scripts.push(String(args[++i] ?? '')); continue; }
     if (a.startsWith('-e') && a.length > 2) { scripts.push(a.slice(2)); continue; }
     if (a === '--') { positionals.push(...args.slice(i + 1).map(String)); break; }
@@ -3981,7 +4949,7 @@ builtins.sed = function (args) {
     const addrHit = (ad, li, last, line) => {
       if (ad.type === 'num') return li + 1 === ad.n;
       if (ad.type === 'last') return last;
-      return new RegExp(breToJs(ad.src)).test(line);
+      return new RegExp(ere ? ereToJs(ad.src) : breToJs(ad.src)).test(line);
     };
     const runList = (list, line, li, last) => {
       let deleted = false;
@@ -4007,7 +4975,7 @@ builtins.sed = function (args) {
         }
         if (!hit) continue;
         if (cmd.type === 's') {
-          const src = breToJs(cmd.pat);
+          const src = ere ? ereToJs(cmd.pat) : breToJs(cmd.pat);
           const rep = sedReplJs(cmd.repl);
           const ciFlag = cmd.ci ? 'i' : '';
           if (cmd.global) {
@@ -4112,12 +5080,13 @@ builtins.cmp = function (args) {
   return !differ;
 };
 builtins.sort = function (args) {
-  let numeric = false, reverse = false, unique = false, fold = false;
+  let numeric = false, reverse = false, unique = false, fold = false, human = false;
   let sep = null, key = null, outFile = null;
   const files = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '-n') numeric = true;
+    else if (a === '-h') human = true;
     else if (a === '-r') reverse = true;
     else if (a === '-u') unique = true;
     else if (a === '-f') fold = true;
@@ -4133,6 +5102,16 @@ builtins.sort = function (args) {
   const text = files.length ? files.map(f => readFileSafe(f)).join('') : readFd0(this);
   const lines = text.split('\n');
   if (lines.length && lines[lines.length - 1] === '') lines.pop();
+  // -h human-numeric value: `500` / `10K` / `2M` / `1.5G` → bytes
+  // (powers of 1024; GNU accepts a bare number and K/M/G/T/P/E/Z/Y in
+  // either case; a trailing decimal is allowed).
+  const humanVal = (s) => {
+    const m = /^\s*([0-9]+(?:\.[0-9]*)?)([kKmMgGtTpPeEzZyY]?)/.exec(String(s));
+    if (!m) return NaN;
+    const mult = { k: 1024, m: 1024 ** 2, g: 1024 ** 3, t: 1024 ** 4,
+      p: 1024 ** 5, e: 1024 ** 6, z: 1024 ** 7, y: 1024 ** 8 }[m[2].toLowerCase()] ?? 1;
+    return parseFloat(m[1]) * mult;
+  };
   const keyFn = (line) => {
     let v = line;
     if (key) {
@@ -4148,7 +5127,8 @@ builtins.sort = function (args) {
   lines.sort((a, b) => {
     const ka = keyFn(a), kb = keyFn(b);
     let c;
-    if (numeric) { const na = parseFloat(ka) || 0, nb = parseFloat(kb) || 0; c = na < nb ? -1 : na > nb ? 1 : 0; }
+    if (human) { const na = humanVal(ka), nb = humanVal(kb); c = na < nb ? -1 : na > nb ? 1 : 0; }
+    else if (numeric) { const na = parseFloat(ka) || 0, nb = parseFloat(kb) || 0; c = na < nb ? -1 : na > nb ? 1 : 0; }
     else c = ka < kb ? -1 : ka > kb ? 1 : 0;
     return reverse ? -c : c;
   });
@@ -4233,6 +5213,1009 @@ builtins.comm = function (args) {
   return true;
 };
 
+// ── paste / diff / find — the remaining text-tool spawn families ────
+// paste: concatenate files column-wise (GNU). Each row joins line i of
+// every file with the delimiter (default TAB, `-d` chars cycle per
+// column gap); a file with fewer lines contributes an empty field; rows
+// continue to the LONGEST file. No file operands (or `-`) read the
+// current fd-0 (heredoc/herestring/file redirect). All files are opened
+// BEFORE any output (GNU: an unopenable file aborts the whole paste
+// with no stdout, exit 1).
+builtins.paste = function (args) {
+  let delim = '\t';
+  const files = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '-d') delim = args[++i] ?? '\t';
+    else if (a.startsWith('-d') && a.length > 2) delim = a.slice(2);
+    else if (a === '--') { files.push(...args.slice(i + 1)); break; }
+    else files.push(a);
+  }
+  const srcs = files.length ? files : ['-'];
+  const cols = [];
+  for (const f of srcs) {
+    let text;
+    if (f === '-') text = readFd0(this);
+    else {
+      try { text = fs.readFileSync(f, 'utf8'); }
+      catch {
+        let msg = 'No such file or directory';
+        try { if (fs.statSync(f).isDirectory()) msg = 'Is a directory'; } catch {}
+        emitErr(this, `paste: ${f}: ${msg}\n`);
+        this.lastExit = 1;
+        return false;
+      }
+    }
+    const lines = text.split('\n');
+    if (lines.length && lines[lines.length - 1] === '') lines.pop();
+    cols.push(lines);
+  }
+  const n = Math.max(0, ...cols.map(c => c.length));
+  let out = '';
+  for (let i = 0; i < n; i++) {
+    let row = cols[0][i] ?? '';
+    for (let k = 1; k < cols.length; k++) {
+      row += (delim.length ? delim[(k - 1) % delim.length] : '') + (cols[k][i] ?? '');
+    }
+    out += row + '\n';
+  }
+  emit(this, out);
+  this.lastExit = 0;
+  return true;
+};
+
+// diff: the two-file normal-format line diff, GNU-faithful end-to-end —
+// transcribed from diffutils 3.10 (analyze.c discard_confusing_lines +
+// shift_boundaries, lib/diffseq.h compareseq/diag, util.c build_script/
+// print_number_range, normal.c hunk printing) and fuzz-verified
+// byte-identical vs GNU diff. Exit 0 identical / 1 differences / 2 error
+// (missing operand, unreadable file, unknown flag) — GNU's statuses.
+// `\ No newline at end of file` markers on the last line of a file
+// without a trailing newline (such a line is a distinct equivalence
+// class — it can only match the other file's incomplete last line).
+builtins.diff = function (args) {
+  const files = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--') { files.push(...args.slice(i + 1)); break; }
+    else if (a === '-') files.push(a);
+    else if (a.startsWith('-') && a.length > 1) {
+      // No flags are corpus-reachable (the corpus uses the bare two-file
+      // form); GNU errors on a truly-invalid option, so error loudly on
+      // ANY flag rather than silently emitting normal format for a -u/
+      // -c request (SH2_ASSUME_DIFF documents the subset).
+      emitErr(this, `diff: invalid option -- '${a.slice(1, 2)}'\n`);
+      this.lastExit = 2;
+      return false;
+    }
+    else files.push(a);
+  }
+  if (files.length < 2) {
+    emitErr(this, `diff: missing operand after '${files[0] ?? ''}'\n`);
+    this.lastExit = 2;
+    return false;
+  }
+  const read = (f) => {
+    if (f === '-') return { text: readFd0(this), ok: true };
+    try { return { text: fs.readFileSync(f, 'utf8'), ok: true }; }
+    catch {
+      let msg = 'No such file or directory';
+      try { if (fs.statSync(f).isDirectory()) msg = 'Is a directory'; } catch {}
+      emitErr(this, `diff: ${f}: ${msg}\n`);
+      return { ok: false };
+    }
+  };
+  const r1 = read(files[0]), r2 = read(files[1]);
+  if (!r1.ok || !r2.ok) { this.lastExit = 2; return false; }
+  const a = r1.text, b = r2.text;
+  if (a === b) { this.lastExit = 0; return true; }
+  const res = gnuDiff(a, b);
+  emit(this, res.out);
+  this.lastExit = res.differ ? 1 : 0;
+  return !res.differ;
+};
+
+// The GNU normal-format diff core — the FULL diffutils 3.10 pipeline,
+// transcribed from io.c (normalization + byte-level prefix/suffix trims
+// with the horizon adjustment), analyze.c (discard_confusing_lines +
+// shift_boundaries), lib/diffseq.h (compareseq/diag middle-snake) and
+// util.c/normal.c (build_script + hunk printing) — fuzz-verified
+// byte-identical vs GNU diff. Returns { out, differ }.
+function gnuDiff(aText, bText) {
+  const MARK = '\u0000'; // incomplete-line sentinel (see below)
+  // io.c prepare_text: a missing trailing newline is APPENDED before
+  // hashing (the file still prints the `\ No newline` marker); the
+  // incomplete line's equivalence class is kept separate (bucket[-1] —
+  // it can match only the other file's incomplete line).
+  const missingA = aText.length > 0 && !aText.endsWith('\n');
+  const missingB = bText.length > 0 && !bText.endsWith('\n');
+  const bufA = aText + (missingA ? '\n' : '');
+  const bufB = bText + (missingB ? '\n' : '');
+  const nA = bufA.length, nB = bufB.length;
+  // ── byte-level common prefix (io.c read_files) ──
+  let p0 = 0;
+  const minLen = Math.min(nA, nB);
+  while (p0 < minLen && bufA[p0] === bufB[p0]) p0++;
+  // don't count a missing newline as part of the prefix
+  if (((nA - (missingA ? 1 : 0)) < p0) !== ((nB - (missingB ? 1 : 0)) < p0)) p0--;
+  // horizon: back up to the last line beginning (horizon_lines defaults
+  // to 0 — the `i--` guard only ever stops the walk at a line boundary)
+  let i = 0;
+  while (p0 > 0 && (bufA[p0 - 1] !== '\n' || i-- > 0)) p0--;
+  // ── byte-level common suffix (skipped when the missing-newline status
+  // differs — the appended newlines would confuse the comparison) ──
+  let q0 = nA, q1 = nB;
+  if (missingA === missingB) {
+    const end0 = q0;
+    let beg0 = p0 + (nA < nB ? 0 : nA - nB);
+    while (q0 !== beg0) {
+      q0--; q1--;
+      if (bufA[q0] !== bufB[q1]) { q0++; q1++; beg0 = q0; break; }
+    }
+    const atLine = (p0 === 0 || bufA[p0 - 1] === '\n') && (p0 === 0 || bufB[p0 - 1] === '\n');
+    // consume one extra line to a line boundary (shift_boundaries may
+    // need it) — horizon_lines defaults to 0
+    i = atLine ? 0 : 1;
+    while (i-- > 0 && q0 !== end0) {
+      while (q0 < end0 && bufA[q0] !== '\n') q0++;
+      if (q0 < end0) q0++;
+    }
+    q1 += q0 - beg0;
+  }
+  const prefixLines = (bufA.slice(0, p0).match(/\n/g) || []).length;
+  // the hashed lines (equiv classes are computed over these ONLY — a
+  // line trimmed from A's prefix is absent from A's counts, so its B
+  // counterpart is "unique" and gets discarded — GNU-faithful)
+  const split = (t) => {
+    const l = t.split('\n');
+    if (l.length && l[l.length - 1] === '') l.pop();
+    return l;
+  };
+  const la = split(bufA.slice(p0, q0));
+  const lb = split(bufB.slice(p0, q1));
+  // The incomplete (no-newline) line is a distinct equivalence class
+  // (io.c bucket[-1]) ONLY when it is the last hashed line — i.e. the
+  // suffix did not trim past it (the suffix scan runs when both files
+  // share the missing-newline status and can consume the common tail).
+  if (missingA && q0 === nA && la.length) la[la.length - 1] += MARK;
+  if (missingB && q1 === nB && lb.length) lb[lb.length - 1] += MARK;
+  const na = la.length, nb = lb.length;
+
+  // ── equivalence classes (io.c find_and_hash_each_line) ──
+  const clsA = new Int32Array(na), clsB = new Int32Array(nb);
+  const clsOf = new Map();
+  const cntA = new Map(), cntB = new Map();
+  let nextCls = 1;
+  for (let i = 0; i < na; i++) {
+    let c = clsOf.get(la[i]);
+    if (c === undefined) { c = nextCls++; clsOf.set(la[i], c); }
+    clsA[i] = c; cntA.set(c, (cntA.get(c) || 0) + 1);
+  }
+  for (let i = 0; i < nb; i++) {
+    let c = clsOf.get(lb[i]);
+    if (c === undefined) { c = nextCls++; clsOf.set(lb[i], c); }
+    clsB[i] = c; cntB.set(c, (cntB.get(c) || 0) + 1);
+  }
+
+  // ── discard_confusing_lines (analyze.c) ──
+  const discA = new Int8Array(na), discB = new Int8Array(nb);
+  for (const [disc, cls, otherCnt] of [[discA, clsA, cntB], [discB, clsB, cntA]]) {
+    let many = 5;
+    let tem = (disc.length / 64) | 0;
+    while ((tem = tem >> 2) > 0) many *= 2;
+    for (let i = 0; i < disc.length; i++) {
+      const nmatch = otherCnt.get(cls[i]) || 0;
+      if (nmatch === 0) disc[i] = 1;
+      else if (nmatch > many) disc[i] = 2;
+    }
+  }
+  for (const disc of [discA, discB]) {
+    const end = disc.length;
+    for (let i = 0; i < end; i++) {
+      if (disc[i] === 2) disc[i] = 0;
+      else if (disc[i] !== 0) {
+        let j = i;
+        let provisional = 0;
+        for (; j < end; j++) {
+          if (disc[j] === 0) break;
+          if (disc[j] === 2) provisional++;
+        }
+        while (j > i && disc[j - 1] === 2) { disc[--j] = 0; provisional--; }
+        const length = j - i;
+        if (provisional * 4 > length) {
+          while (j > i) if (disc[--j] === 2) disc[j] = 0;
+        } else {
+          let minimum = 1;
+          let tem = length >> 2;
+          while (0 < (tem >>= 2)) minimum <<= 1;
+          minimum++;
+          for (let jj = 0, consec = 0; jj < length; jj++) {
+            if (disc[i + jj] !== 2) consec = 0;
+            else if (minimum === ++consec) jj -= consec;
+            else if (minimum < consec) disc[i + jj] = 0;
+          }
+          for (let jj = 0, consec = 0; jj < length; jj++) {
+            if (jj >= 8 && disc[i + jj] === 1) break;
+            if (disc[i + jj] === 2) { consec = 0; disc[i + jj] = 0; }
+            else if (disc[i + jj] === 0) consec = 0;
+            else consec++;
+            if (consec === 3) break;
+          }
+          i += length - 1;
+          for (let jj = 0, consec = 0; jj < length; jj++) {
+            if (jj >= 8 && disc[i - jj] === 1) break;
+            if (disc[i - jj] === 2) { consec = 0; disc[i - jj] = 0; }
+            else if (disc[i - jj] === 0) consec = 0;
+            else consec++;
+            if (consec === 3) break;
+          }
+        }
+      }
+    }
+  }
+  const changedA = new Int8Array(na), changedB = new Int8Array(nb);
+  const undA = [], realA = [], undB = [], realB = [];
+  for (let i = 0; i < na; i++) {
+    if (discA[i] === 0) { undA.push(clsA[i]); realA.push(i); } else changedA[i] = 1;
+  }
+  for (let i = 0; i < nb; i++) {
+    if (discB[i] === 0) { undB.push(clsB[i]); realB.push(i); } else changedB[i] = 1;
+  }
+
+  // ── compareseq + diag (lib/diffseq.h) ──
+  const na2 = undA.length, nb2 = undB.length;
+  if (na2 > 0 && nb2 > 0) {
+    const fd = new Int32Array(2 * (na2 + nb2 + 3));
+    const bd = new Int32Array(2 * (na2 + nb2 + 3));
+    const off = nb2 + 1;
+    const MAXV = 0x7fffffff;
+    let diags = na2 + nb2 + 3;
+    let tooExpensive = 1;
+    for (; diags !== 0; diags >>= 2) tooExpensive <<= 1;
+    tooExpensive = Math.max(4096, tooExpensive);
+    const eq = (x, y) => undA[x] === undB[y];
+    const diag = (xoff, xlim, yoff, ylim, part) => {
+      const dmin = xoff - ylim, dmax = xlim - yoff;
+      const fmid = xoff - yoff, bmid = xlim - ylim;
+      let fmin = fmid, fmax = fmid;
+      let bmin = bmid, bmax = bmid;
+      const odd = (fmid - bmid) & 1;
+      fd[off + fmid] = xoff;
+      bd[off + bmid] = xlim;
+      for (let c = 1; ; c++) {
+        if (fmin > dmin) fd[off + (--fmin - 1)] = -1; else ++fmin;
+        if (fmax < dmax) fd[off + (++fmax + 1)] = -1; else --fmax;
+        for (let d = fmax; d >= fmin; d -= 2) {
+          const tlo = fd[off + d - 1], thi = fd[off + d + 1];
+          let x = tlo < thi ? thi : tlo + 1;
+          let y = x - d;
+          while (x < xlim && y < ylim && eq(x, y)) { x++; y++; }
+          fd[off + d] = x;
+          if (odd && bmin <= d && d <= bmax && bd[off + d] <= x) {
+            part.xmid = x; part.ymid = y;
+            return;
+          }
+        }
+        if (bmin > dmin) bd[off + (--bmin - 1)] = MAXV; else ++bmin;
+        if (bmax < dmax) bd[off + (++bmax + 1)] = MAXV; else --bmax;
+        for (let d = bmax; d >= bmin; d -= 2) {
+          const tlo = bd[off + d - 1], thi = bd[off + d + 1];
+          let x = tlo < thi ? tlo : thi - 1;
+          let y = x - d;
+          while (xoff < x && yoff < y && eq(x - 1, y - 1)) { x--; y--; }
+          bd[off + d] = x;
+          if (!odd && fmin <= d && d <= fmax && x <= fd[off + d]) {
+            part.xmid = x; part.ymid = y;
+            return;
+          }
+        }
+        if (c >= tooExpensive) {
+          let fxybest = -1, fxbest = 0;
+          for (let d = fmax; d >= fmin; d -= 2) {
+            let x = Math.min(fd[off + d], xlim);
+            let y = x - d;
+            if (ylim < y) { x = ylim + d; y = ylim; }
+            if (fxybest < x + y) { fxybest = x + y; fxbest = x; }
+          }
+          let bxybest = MAXV, bxbest = 0;
+          for (let d = bmax; d >= bmin; d -= 2) {
+            let x = Math.max(xoff, bd[off + d]);
+            let y = x - d;
+            if (y < yoff) { x = yoff + d; y = yoff; }
+            if (x + y < bxybest) { bxybest = x + y; bxbest = x; }
+          }
+          if ((xlim + ylim) - bxybest < fxybest - (xoff + yoff)) {
+            part.xmid = fxbest; part.ymid = fxybest - fxbest;
+          } else {
+            part.xmid = bxbest; part.ymid = bxybest - bxbest;
+          }
+          return;
+        }
+      }
+    };
+    const compareseq = (xoff, xlim, yoff, ylim) => {
+      while (true) {
+        while (xoff < xlim && yoff < ylim && eq(xoff, yoff)) { xoff++; yoff++; }
+        while (xoff < xlim && yoff < ylim && eq(xlim - 1, ylim - 1)) { xlim--; ylim--; }
+        if (xoff === xlim) {
+          while (yoff < ylim) { changedB[realB[yoff]] = 1; yoff++; }
+          return;
+        }
+        if (yoff === ylim) {
+          while (xoff < xlim) { changedA[realA[xoff]] = 1; xoff++; }
+          return;
+        }
+        const part = {};
+        diag(xoff, xlim, yoff, ylim, part);
+        let xoff1, xlim1, yoff1, ylim1, xoff2, xlim2, yoff2, ylim2;
+        if ((xlim + ylim) - (part.xmid + part.ymid) < (part.xmid + part.ymid) - (xoff + yoff)) {
+          xoff1 = part.xmid; xlim1 = xlim; yoff1 = part.ymid; ylim1 = ylim;
+          xoff2 = xoff; xlim2 = part.xmid; yoff2 = yoff; ylim2 = part.ymid;
+        } else {
+          xoff1 = xoff; xlim1 = part.xmid; yoff1 = yoff; ylim1 = part.ymid;
+          xoff2 = part.xmid; xlim2 = xlim; yoff2 = part.ymid; ylim2 = ylim;
+        }
+        compareseq(xoff1, xlim1, yoff1, ylim1);
+        xoff = xoff2; xlim = xlim2; yoff = yoff2; ylim = ylim2;
+      }
+    };
+    compareseq(0, na2, 0, nb2);
+  }
+
+  // ── shift_boundaries (analyze.c) ──
+  for (const [changed, otherChanged, cls, len] of [[changedA, changedB, clsA, na], [changedB, changedA, clsB, nb]]) {
+    let i = 0, j = 0;
+    while (true) {
+      while (i < len && !changed[i]) {
+        while (otherChanged[j++]) { /* skip */ }
+        i++;
+      }
+      if (i === len) break;
+      let start = i;
+      while (changed[++i]) { /* skip */ }
+      while (otherChanged[j]) j++;
+      let runlength;
+      let corresponding;
+      do {
+        runlength = i - start;
+        while (start && cls[start - 1] === cls[i - 1]) {
+          changed[--start] = 1;
+          changed[--i] = 0;
+          while (changed[start - 1]) start--;
+          while (otherChanged[--j]) { /* skip */ }
+        }
+        corresponding = otherChanged[j - 1] ? i : len;
+        while (i !== len && cls[start] === cls[i]) {
+          changed[start++] = 0;
+          changed[i++] = 1;
+          while (changed[i]) i++;
+          while (otherChanged[++j]) corresponding = i;
+        }
+      } while (runlength !== i - start);
+      while (corresponding < i) {
+        changed[--start] = 1;
+        changed[--i] = 0;
+        while (otherChanged[--j]) { /* skip */ }
+      }
+    }
+  }
+
+  // ── build_script + normal-format hunks (util.c / normal.c) ──
+  let out = '';
+  let i0 = na, i1 = nb;
+  const changes = [];
+  while (i0 >= 0 || i1 >= 0) {
+    if ((changedA[i0 - 1] || 0) | (changedB[i1 - 1] || 0)) {
+      const line0 = i0, line1 = i1;
+      while (changedA[i0 - 1]) i0--;
+      while (changedB[i1 - 1]) i1--;
+      changes.push({ line0: i0, line1: i1, deleted: line0 - i0, inserted: line1 - i1 });
+    }
+    i0--; i1--;
+  }
+  for (const ch of changes.reverse()) {
+    const first0 = ch.line0, first1 = ch.line1;
+    const last0 = ch.line0 + ch.deleted - 1, last1 = ch.line1 + ch.inserted - 1;
+    // line numbers: hashed index + prefix lines + 1
+    const nr = (first, last) => (last > first ? `${first + 1 + prefixLines},${last + 1 + prefixLines}` : `${last + 1 + prefixLines}`);
+    const letter = ch.deleted && ch.inserted ? 'c' : ch.deleted ? 'd' : 'a';
+    out += nr(first0, last0) + letter + nr(first1, last1) + '\n';
+    if (ch.deleted) {
+      for (let k = first0; k <= last0; k++) {
+        out += '< ' + la[k].replace(/\u0000$/, '') + '\n';
+        if (missingA && k === na - 1) out += '\\ No newline at end of file\n';
+      }
+    }
+    if (ch.deleted && ch.inserted) out += '---\n';
+    if (ch.inserted) {
+      for (let k = first1; k <= last1; k++) {
+        out += '> ' + lb[k].replace(/\u0000$/, '') + '\n';
+        if (missingB && k === nb - 1) out += '\\ No newline at end of file\n';
+      }
+    }
+  }
+  return { out, differ: changes.length > 0 };
+}
+
+// find: the corpus's `find OPTS...` subset with GNU semantics — raw
+// readdir order (opendirSync/readSync, NOT fs.readdirSync's sort — the
+// grep -r pattern: GNU find walks getdents order), depth-first pre-order,
+// no symlink following, starting operands at depth 0 (a matching
+// starting point IS printed: `find . -maxdepth 1 -type d` prints `.`).
+// -name (fnmatch on the basename — `*` DOES match leading dots, unlike
+// shell expansion), -type f/d, -maxdepth/-mindepth, default operand `.`.
+builtins.find = function (args) {
+  const operands = [];
+  let namePat = null, type = null, maxdepth = Infinity, mindepth = 0;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '-name') namePat = args[++i];
+    else if (a.startsWith('-name') && a.length > 5) namePat = a.slice(5);
+    else if (a === '-type') type = args[++i];
+    else if (a === '-maxdepth') maxdepth = parseInt(args[++i], 10);
+    else if (a.startsWith('-maxdepth') && a.length > 9) maxdepth = parseInt(a.slice(9), 10);
+    else if (a === '-mindepth') mindepth = parseInt(args[++i], 10);
+    else if (a === '-print' || a === '--') { /* the default action */ }
+    else if (a.startsWith('-') && a.length > 1) {
+      emitErr(this, `find: unknown predicate '${a}'\n`);
+      this.lastExit = 1;
+      return false;
+    }
+    else operands.push(a);
+  }
+  if (type !== null && type !== 'f' && type !== 'd') {
+    emitErr(this, `find: invalid argument '${type}' to '-type'\n`);
+    this.lastExit = 1;
+    return false;
+  }
+  const starts = operands.length ? operands : ['.'];
+  let failed = false;
+  // dir/file flags come from lstat semantics: the starting operand is
+  // stat'ed, children carry their raw dirent types (a symlink is neither
+  // f nor d and is never descended — GNU without -L).
+  const walk = (dir, depth, isDir, isFile) => {
+    const bn = path.basename(dir);
+    const nameOk = namePat === null || globMatch(namePat, bn);
+    const typeOk = type === null || (type === 'f' ? isFile : isDir);
+    if (nameOk && typeOk && depth >= mindepth && depth <= maxdepth) {
+      emit(this, dir + '\n');
+    }
+    if (!isDir || depth >= maxdepth) return;
+    let dh;
+    try { dh = fs.opendirSync(dir); } catch { failed = true; return; }
+    try {
+      let e;
+      while ((e = dh.readSync()) !== null) {
+        walk(dir + '/' + e.name, depth + 1, e.isDirectory(), e.isFile());
+      }
+    } finally {
+      dh.closeSync();
+    }
+  };
+  for (const s of starts) {
+    const base = s.replace(/\/+$/, '') || '/';
+    let st = null;
+    try { st = fs.lstatSync(base); } catch {
+      failed = true;
+      emitErr(this, `find: '${base}': No such file or directory\n`);
+      continue;
+    }
+    walk(base, 0, st.isDirectory(), st.isFile());
+  }
+  this.lastExit = failed ? 1 : 0;
+  return !failed;
+};
+
+// ── filesystem builtins: rm / cp / mv / rmdir / mkdir — the corpus's file
+// manipulation families now run on native fs (no subprocess). The emitter
+// ALSO has a statement-level `sh2.fs.*` promise lowering for rm/mkdir with
+// plain args (src/shir.rs try_native_fs_exec) — that path is strictly
+// cheaper (no dispatch at all) and fires first; these builtins cover the
+// shapes the compile-time lift refuses (glob operands, multiple paths,
+// env/redirect contexts) plus the sync-twin dispatch for async contexts.
+// stderr text is approximated (the corpus gate compares stdout + status
+// only); STATUSES mirror GNU exactly (verified against the real binaries).
+//
+// ASSUMPTION (option-gated, default ON — SH2_ASSUME_NATIVE_TOOLS=0 makes
+// the runtime REFUSE these builtins with status 127 instead of emulating
+// them, the established uname/ls gate pattern): the corpus shapes are
+// GNU-faithful on stdout + exit status with these per-command bounds:
+//   rm/cp/mv/rmdir/mkdir — the GNU flag subsets each builtin parses
+//     (unknown options error + exit 1 like GNU); no -i/-v interactive
+//     modes; cp/mv multi-source forms only to a directory target;
+//   sha256sum/sha512sum — node:crypto digests, byte-identical hex;
+//   tee — -a append; a failed file write fails the status like GNU;
+//   xargs — -0/-n/-r/--no-run-if-empty, GNU quote/backslash word
+//     splitting, one giant batch (GNU's ARG_MAX-based batching is not
+//     modeled — the corpus trees fit one batch; output is order-
+//     preserving either way); no -I/-P/-d custom modes;
+//   gzip/gunzip — node:zlib decompression (byte-identical output for
+//     valid gzip streams); gzip COMPRESSION (no -d, corpus-unreachable)
+//     uses zlib's header (mtime 0), which differs from GNU's bytes;
+//     a corrupt stream fails exit 2 (GNU).
+function nativeToolsEnabled() {
+  return process.env.SH2_ASSUME_NATIVE_TOOLS !== '0';
+}
+
+// rm — GNU status semantics: every operand is attempted; a failure
+// (missing file without -f, directory without -r) sets the final status 1
+// while the remaining operands still run. -f ignores ENOENT; -r/-R/
+// --recursive removes trees (fs.rmSync recursive); combined shorts
+// (-rf/-fr/-rR...) parse like GNU's single-letter option cluster.
+builtins.rm = function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
+  let force = false, recursive = false;
+  const files = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--') { files.push(...args.slice(i + 1)); break; }
+    else if (/^-[frR]+$/.test(a)) {
+      for (const c of a.slice(1)) {
+        if (c === 'f') force = true;
+        else if (c === 'r' || c === 'R') recursive = true;
+      }
+    }
+    else if (a === '--force') force = true;
+    else if (a === '--recursive' || a === '-d' || a === '--dir') recursive = true;
+    else if (a.startsWith('-') && a.length > 1) {
+      emitErr(this, `rm: invalid option -- '${a[1]}'\n`);
+      this.lastExit = 1;
+      return false;
+    }
+    else files.push(a);
+  }
+  let failed = false;
+  for (const f of files) {
+    try {
+      if (recursive) {
+        // fs.rmSync({recursive, force}): force suppresses a missing path
+        // (GNU `rm -rf missing` exits 0); without force a missing path
+        // fails (GNU `rm -r missing` exits 1).
+        fs.rmSync(f, { recursive: true, force });
+      } else {
+        fs.unlinkSync(f);
+      }
+    } catch (e) {
+      if (e.code === 'ENOENT' && force) continue; // -f: missing is fine
+      let msg = e.code === 'ENOENT' ? 'No such file or directory'
+        : e.code === 'EISDIR' || e.code === 'EPERM' ? 'Is a directory'
+        : e.code === 'ENOTEMPTY' ? 'Directory not empty' : e.message;
+      emitErr(this, `rm: cannot remove '${f}': ${msg}\n`);
+      failed = true;
+    }
+  }
+  this.lastExit = failed ? 1 : 0;
+  return !failed;
+};
+
+// cp — the corpus's `cp SRC DST` (and `cp SRC... DIR`) file copies.
+// fs.copyFileSync overwrites an existing destination exactly like GNU's
+// default. A missing source / unreadable path fails the status 1 (GNU:
+// `cp: cannot stat ...` on fd2 — stdout is unaffected either way).
+builtins.cp = function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
+  const operands = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--') { operands.push(...args.slice(i + 1)); break; }
+    else if (/^-[a-z]+$/.test(a)) { /* -f/-i/-n/-v...: no corpus-visible effect */ }
+    else if (a.startsWith('-') && a.length > 1) {
+      emitErr(this, `cp: invalid option -- '${a[1]}'\n`);
+      this.lastExit = 1;
+      return false;
+    }
+    else operands.push(a);
+  }
+  if (operands.length < 2) {
+    emitErr(this, 'cp: missing destination file operand\n');
+    this.lastExit = 1;
+    return false;
+  }
+  const srcs = operands.slice(0, -1);
+  const dst = operands[operands.length - 1];
+  let dstIsDir = false;
+  try { dstIsDir = fs.statSync(dst).isDirectory(); } catch { /* fresh path */ }
+  if (srcs.length > 1 && !dstIsDir) {
+    emitErr(this, `cp: target '${dst}': Not a directory\n`);
+    this.lastExit = 1;
+    return false;
+  }
+  let failed = false;
+  for (const src of srcs) {
+    const target = dstIsDir ? path.join(dst, path.basename(src)) : dst;
+    try {
+      fs.copyFileSync(src, target);
+    } catch (e) {
+      emitErr(this, `cp: cannot stat '${src}': ${e.code === 'ENOENT' ? 'No such file or directory' : e.message}\n`);
+      failed = true;
+    }
+  }
+  this.lastExit = failed ? 1 : 0;
+  return !failed;
+};
+
+// mv — the corpus's `mv SRC DST` renames (fs.renameSync, with the
+// cross-device EXDEV copy+unlink fallback — GNU's own). An UNKNOWN option
+// errors and does nothing (exit 1) exactly like GNU — the corpus's
+// checkqx-qx-var-mv.sh pins `mv -Z src dst` failing that way. Known
+// single-letter flags (-f -i -n -v -t -u -T) are accepted (no corpus-
+// visible effect for the shapes used).
+builtins.mv = function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
+  const operands = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--') { operands.push(...args.slice(i + 1)); break; }
+    else if (/^-[finvtuT]+$/.test(a)) { /* accepted, no observable effect here */ }
+    else if (a.startsWith('-') && a.length > 1) {
+      emitErr(this, `mv: invalid option -- '${a[1]}'\n`);
+      this.lastExit = 1;
+      return false;
+    }
+    else operands.push(a);
+  }
+  if (operands.length < 2) {
+    emitErr(this, 'mv: missing destination file operand\n');
+    this.lastExit = 1;
+    return false;
+  }
+  const srcs = operands.slice(0, -1);
+  const dst = operands[operands.length - 1];
+  let dstIsDir = false;
+  try { dstIsDir = fs.statSync(dst).isDirectory(); } catch { /* fresh path */ }
+  let failed = false;
+  for (const src of srcs) {
+    const target = dstIsDir ? path.join(dst, path.basename(src)) : dst;
+    try {
+      fs.renameSync(src, target);
+    } catch (e) {
+      if (e.code === 'EXDEV') {
+        // cross-device: copy + unlink (GNU's own fallback)
+        try { fs.copyFileSync(src, target); fs.unlinkSync(src); }
+        catch (e2) {
+          emitErr(this, `mv: cannot move '${src}': ${e2.message}\n`);
+          failed = true;
+        }
+      } else {
+        emitErr(this, `mv: cannot stat '${src}': ${e.code === 'ENOENT' ? 'No such file or directory' : e.message}\n`);
+        failed = true;
+      }
+    }
+  }
+  this.lastExit = failed ? 1 : 0;
+  return !failed;
+};
+
+// rmdir — remove an EMPTY directory (fs.rmdirSync, non-recursive); any
+// failure (missing, not empty) reports and exits 1 like GNU.
+builtins.rmdir = function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
+  let failed = false;
+  for (const d of args) {
+    if (d.startsWith('-') && d.length > 1 && d !== '-') {
+      emitErr(this, `rmdir: invalid option -- '${d[1]}'\n`);
+      this.lastExit = 1;
+      return false;
+    }
+    try {
+      fs.rmdirSync(d);
+    } catch (e) {
+      const msg = e.code === 'ENOENT' ? 'No such file or directory'
+        : e.code === 'ENOTEMPTY' ? 'Directory not empty' : e.message;
+      emitErr(this, `rmdir: failed to remove '${d}': ${msg}\n`);
+      failed = true;
+    }
+  }
+  this.lastExit = failed ? 1 : 0;
+  return !failed;
+};
+
+// mkdir — `mkdir [-p] DIR...` (the statement-level emitter lift already
+// covers plain-arg mkdir via sh2.fs; this builtin covers the rest: globs,
+// redirects, async contexts). -p/--parents → recursive (existing dirs
+// fine); EEXIST without -p fails like bash.
+builtins.mkdir = function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
+  let parents = false;
+  const dirs = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '-p' || a === '--parents') parents = true;
+    else if (a === '--') { dirs.push(...args.slice(i + 1)); break; }
+    else if (a.startsWith('-') && a.length > 1) {
+      emitErr(this, `mkdir: invalid option -- '${a[1]}'\n`);
+      this.lastExit = 1;
+      return false;
+    }
+    else dirs.push(a);
+  }
+  let failed = false;
+  for (const d of dirs) {
+    try {
+      fs.mkdirSync(d, { recursive: parents });
+    } catch (e) {
+      // recursive:true swallows EEXIST internally (mkdir -p on an
+      // existing dir is fine); without -p an existing dir fails.
+      if (parents && (e.code === 'EEXIST')) continue;
+      emitErr(this, `mkdir: cannot create directory '${d}': ${e.code === 'EEXIST' ? 'File exists' : e.code === 'ENOENT' ? 'No such file or directory' : e.message}\n`);
+      failed = true;
+    }
+  }
+  this.lastExit = failed ? 1 : 0;
+  return !failed;
+};
+
+// whoami — print the effective user name (os.userInfo().username — the
+// same utmp/uid lookup GNU whoami performs; node reads getpwuid).
+builtins.whoami = function () {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
+  let name = '';
+  try { name = os.userInfo().username; } catch { /* fall through: exit 1 */ }
+  if (!name) { emitErr(this, 'whoami: cannot find name for user ID\n'); this.lastExit = 1; return false; }
+  emit(this, name + '\n');
+  this.lastExit = 0;
+  return true;
+};
+
+// sha256sum / sha512sum — the GNU `<hex>  <name>` line format (two
+// spaces), `-` = stdin, per-file continuation on errors with a final
+// status 1 (GNU). node:crypto digests are the same algorithm — byte-
+// identical hex.
+function checksumBuiltin(algo) {
+  return function (args) {
+    if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
+    const files = [];
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i];
+      if (a === '--') { files.push(...args.slice(i + 1)); break; }
+      else if (/^-[a-z]+$/.test(a)) { /* -b/-t/--tag...: no corpus-visible effect */ }
+      else files.push(a);
+    }
+    const srcs = files.length ? files : ['-'];
+    let out = '', failed = false;
+    for (const f of srcs) {
+      let data = null;
+      if (f === '-') data = readFd0(this);
+      else {
+        try { data = fs.readFileSync(f); }
+        catch {
+          emitErr(this, `${algo}: ${f}: No such file or directory\n`);
+          failed = true;
+          continue;
+        }
+      }
+      const h = crypto.createHash(algo).update(data).digest('hex');
+      out += `${h}  ${f}\n`;
+    }
+    emit(this, out);
+    this.lastExit = failed ? 1 : 0;
+    return !failed;
+  };
+}
+builtins.sha256sum = checksumBuiltin('sha256');
+builtins.sha512sum = checksumBuiltin('sha512');
+
+// tee — copy the current fd-0 input to every FILE operand AND to stdout
+// (GNU). -a appends instead of overwriting. readFd0 covers pipes,
+// heredocs, herestrings and file redirects (the corpus's `echo X | tee f`
+// and `< f` shapes).
+builtins.tee = function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
+  let append = false;
+  const files = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '-a' || a === '--append') append = true;
+    else if (a === '--') { files.push(...args.slice(i + 1)); break; }
+    else if (a.startsWith('-') && a.length > 1) {
+      emitErr(this, `tee: invalid option -- '${a[1]}'\n`);
+      this.lastExit = 1;
+      return false;
+    }
+    else files.push(a);
+  }
+  const text = readFd0(this);
+  let failed = false;
+  for (const f of files) {
+    try {
+      if (append) fs.appendFileSync(f, text);
+      else fs.writeFileSync(f, text);
+    } catch (e) {
+      emitErr(this, `tee: ${f}: ${e.message}\n`);
+      failed = true;
+    }
+  }
+  emit(this, text);
+  this.lastExit = failed ? 1 : 0;
+  return !failed;
+};
+
+// xargs — the corpus's stdin-driven command runner: read the current fd-0
+// input, split into words (whitespace with GNU quote/backslash handling,
+// or NUL records under -0), batch them (default: one giant batch like
+// GNU's ARG_MAX default — the corpus tree fits; -n N counts the INITIAL
+// args toward the batch like GNU), and run the command once per batch
+// through the normal exec dispatch (builtin/function/external — the
+// corpus commands are echo/grep, both native builtins). -r /
+// --no-run-if-empty skips the run on empty input; an empty input without
+// it still runs once with zero args (GNU). The utility defaults to echo.
+// A failing command marks the final status 123 like GNU (the corpus only
+// exercises successful runs).
+function xargsSplitWords(input) {
+  // GNU xargs word splitting: whitespace separates; '' and "" quote
+  // (empty string arguments are dropped by default); `\x` escapes the
+  // next char.
+  const words = [];
+  let cur = '';
+  let i = 0;
+  const s = String(input);
+  while (i < s.length) {
+    const c = s[i];
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\v' || c === '\f') {
+      if (cur !== '') { words.push(cur); cur = ''; }
+      i++;
+    } else if (c === '\\') {
+      if (i + 1 < s.length) { cur += s[i + 1]; i += 2; }
+      else i++; // trailing backslash: dropped
+    } else if (c === "'") {
+      i++;
+      while (i < s.length && s[i] !== "'") { cur += s[i]; i++; }
+      i++; // closing quote (or EOF: GNU warns, keeps)
+    } else if (c === '"') {
+      i++;
+      while (i < s.length && s[i] !== '"') {
+        if (s[i] === '\\' && i + 1 < s.length && (s[i + 1] === '"' || s[i + 1] === '\\')) { cur += s[i + 1]; i += 2; }
+        else { cur += s[i]; i++; }
+      }
+      i++;
+    } else { cur += c; i++; }
+  }
+  if (cur !== '') words.push(cur);
+  return words;
+}
+builtins.xargs = async function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
+  let nullDelim = false, noRunIfEmpty = false, maxArgs = 0; // 0 = one giant batch
+  let cmd = null;
+  const cmdArgs = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '-0' || a === '--null') nullDelim = true;
+    else if (a === '-r' || a === '--no-run-if-empty') noRunIfEmpty = true;
+    else if (a === '-n' || a === '--max-args') maxArgs = parseInt(args[++i], 10) || 0;
+    else if (a.startsWith('-n') && a.length > 2) maxArgs = parseInt(a.slice(2), 10) || 0;
+    else if (a === '--') { cmd = args[++i] ?? null; cmdArgs.push(...args.slice(i + 1)); break; }
+    else if (a.startsWith('-') && a.length > 1) { /* -P/-d/-I/...: not corpus-reachable */ }
+    else { cmd = a; cmdArgs.push(...args.slice(i + 1)); break; }
+  }
+  const input = readFd0(this);
+  const items = nullDelim ? String(input).split('\0').filter(w => w !== '') : xargsSplitWords(input);
+  if (items.length === 0) {
+    if (noRunIfEmpty) { this.lastExit = 0; return true; }
+    // GNU runs the utility once with no input args (echo → empty line)
+    if (cmd === null) { emit(this, '\n'); this.lastExit = 0; return true; }
+    const r = await this.exec(cmd, [...cmdArgs]);
+    this.lastExit = this.lastExit === 0 ? 0 : 123;
+    return r;
+  }
+  // batch: maxArgs counts the INITIAL args toward the per-invocation
+  // total (GNU -n semantics: `-n2 echo X` runs `echo X w`); 0 = unlimited.
+  const per = maxArgs > 0 ? Math.max(1, maxArgs - cmdArgs.length) : items.length;
+  let failed = false;
+  for (let i = 0; i < items.length; i += per) {
+    const batch = items.slice(i, i + per);
+    const r = await this.exec(cmd ?? 'echo', [...cmdArgs, ...batch]);
+    if (this.lastExit !== 0) failed = true;
+    if (r === false && failed) break; // command-not-found aborts the run (GNU: 127)
+  }
+  this.lastExit = failed ? 123 : 0;
+  return !failed;
+};
+
+// gzip / gunzip — decompress gzip streams with node:zlib (the same DEFLATE
+// core; gunzip output is byte-identical to GNU's). gzip -c[d]fq -- FILE...
+// reads each FILE, decompresses, emits through the current fd-1 sink; a
+// missing operand fails status 1 (GNU, -q suppresses the report but not
+// the status); data that is not a gzip stream fails status 2 (GNU). The
+// corpus shapes are decompress-only (the parse-test gzip families never
+// see a real .gz file — the operands are unset vars/missing files).
+// BINARY-safe fd-0 read: the gzip stream must reach zlib as raw bytes
+// (readFd0 is UTF-8 text — it would mangle a .gz's high bytes).
+function readFd0Buffer(sh) {
+  const fd0 = sh.fdTargets[0];
+  if (fd0.kind === 'file' && fd0.readMode) {
+    try { return fs.readFileSync(fd0.target); } catch { return Buffer.alloc(0); }
+  }
+  if (fd0.kind === 'string') return Buffer.from(fd0.content, 'utf8');
+  return Buffer.from(readFd0(sh), 'utf8');
+}
+function gzipDecompressOperands(sh, files, prog) {
+  let failed = false;
+  for (const f of files) {
+    let data;
+    try { data = fs.readFileSync(f); }
+    catch {
+      emitErr(sh, `${prog}: ${f}: No such file or directory\n`);
+      failed = true;
+      continue;
+    }
+    let out;
+    try { out = zlib.gunzipSync(data); }
+    catch {
+      emitErr(sh, `${prog}: ${f}: not in gzip format\n`);
+      failed = true;
+      continue;
+    }
+    emit(sh, out.toString('utf8'));
+  }
+  return failed;
+}
+builtins.gzip = function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
+  let toStdout = false, decompress = false, quiet = false, force = false;
+  const files = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--') { files.push(...args.slice(i + 1)); break; }
+    else if (a.startsWith('-') && a.length > 1 && !/^-[0-9]/.test(a)) {
+      for (const c of a.slice(1)) {
+        if (c === 'c') toStdout = true;
+        else if (c === 'd') decompress = true;
+        else if (c === 'q') quiet = true;
+        else if (c === 'f') force = true;
+        else if (c === 't') { /* test: no output — treat like decompress */ decompress = true; }
+        else if (c === 'k' || c === 'v' || c === 'l' || c === '1' || c === '9') { /* accepted */ }
+        else {
+          emitErr(this, `gzip: invalid option -- '${c}'\n`);
+          this.lastExit = 1;
+          return false;
+        }
+      }
+    }
+    else files.push(a);
+  }
+  if (files.length === 0) {
+    // stdin form: gzip -cd < file — read fd0 as raw bytes
+    const data = readFd0Buffer(this);
+    if (decompress) {
+      try { emit(this, zlib.gunzipSync(data).toString('utf8')); this.lastExit = 0; return true; }
+      catch { emitErr(this, 'gzip: (stdin): not in gzip format\n'); this.lastExit = 2; return false; }
+    }
+    // compression of stdin (no -d): corpus-unreachable — approximate
+    // with zlib (content round-trips; the .gz header bytes differ from
+    // GNU — documented assumption SH2_ASSUME_GZIP).
+    emit(this, zlib.gzipSync(data).toString('latin1'));
+    this.lastExit = 0;
+    return true;
+  }
+  const failed = gzipDecompressOperands(this, files, 'gzip');
+  this.lastExit = failed ? (quiet ? 1 : 1) : 0;
+  return !failed;
+};
+builtins.gunzip = function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
+  const files = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--') { files.push(...args.slice(i + 1)); break; }
+    else if (a.startsWith('-') && a.length > 1) { /* -c/-f/-q/-t/-k: accepted */ }
+    else files.push(a);
+  }
+  if (files.length === 0) {
+    // stdin form: `gunzip < f.gz` — the corpus's gunzip_example shape
+    // (binary-safe fd-0 read — see readFd0Buffer)
+    let out;
+    try { out = zlib.gunzipSync(readFd0Buffer(this)); }
+    catch { emitErr(this, 'gunzip: (stdin): not in gzip format\n'); this.lastExit = 1; return false; }
+    emit(this, out.toString('utf8'));
+    this.lastExit = 0;
+    return true;
+  }
+  const failed = gzipDecompressOperands(this, files, 'gunzip');
+  this.lastExit = failed ? 1 : 0;
+  return !failed;
+};
+
 // `command` — explicit escape hatch: run the given command (possibly dynamic)
 // with the exec allowlist bypassed. The source author opted into dynamic
 // execution by writing `command $something`, which cannot be pre-audited.
@@ -4297,6 +6280,7 @@ function decodeRawBytes(text) {
 function emit(sh, text) {
   const t = sh.fdTargets[1];
   if (t.kind === 'capture') t.buf += text;
+  else if (t.kind === 'discard') { /* >/dev/null — nothing to write */ }
   else if (t.kind === 'file') writeFileSync(t.target, decodeRawBytes(text) ?? Buffer.from(text, 'utf8'), t.mode);
   else if (t.kind === 'stderr') process.stderr.write(decodeRawBytes(text) ?? text);
   else if (t.kind === 'closed') { /* fd closed: bash errors (exit 1) and the output is lost */ sh.lastExit = 1; }
@@ -4306,6 +6290,7 @@ function emit(sh, text) {
 function emitErr(sh, text) {
   const t = sh.fdTargets[2];
   if (t.kind === 'capture') t.buf += text;
+  else if (t.kind === 'discard') { /* 2>/dev/null — nothing to write */ }
   else if (t.kind === 'file') writeFileSync(t.target, decodeRawBytes(text) ?? Buffer.from(text, 'utf8'), t.mode);
   else if (t.kind === 'stdout') process.stdout.write(decodeRawBytes(text) ?? text);
   else if (t.kind === 'closed') { /* fd closed */ sh.lastExit = 1; }
@@ -4391,7 +6376,31 @@ function _installStdoutBuffer() {
     };
   }
   const realExit = process.exit.bind(process);
-  process.exit = (code) => { _flushStdout(); realExit(code); };
+  let exitScheduled = false;
+  // process.exit after a LARGE stdout write truncates the output at the
+  // 64KB pipe capacity: node's stdout is a pipe with a writer thread, and
+  // the exit kills it with bytes still in flight (000__07_find_path_
+  // commands: 348KB find capture → exactly 65536 bytes). The corpus
+  // harness reads the runner's stdout through a pipe, so every exit path
+  // (the `exit` builtin, errexit aborts, _finish) must wait for the
+  // pending writes to drain before the REAL exit. Poll writableLength
+  // (the 'drain' event alone can miss a stream that errors); a 5s cap
+  // keeps a wedged pipe from hanging the runner forever.
+  process.exit = (code) => {
+    _flushStdout();
+    if (exitScheduled) return;
+    exitScheduled = true;
+    const out = process.stdout;
+    const t0 = Date.now();
+    const tryExit = () => {
+      if (out.writableLength === 0 || Date.now() - t0 > 5000) {
+        realExit(code);
+      } else {
+        setTimeout(tryExit, 25);
+      }
+    };
+    tryExit();
+  };
 }
 
 // ── process substitution materialization ────────────────────────────
@@ -4405,6 +6414,7 @@ const ARRAY_LIT_MAGIC = '\u0001SH2ARRLIT\u0001';
 // forLoop expand the suffix against the filesystem.
 const GLOB_MAGIC = '\u0001SH2GLOB\u0001';
 const BADSUB_MAGIC = '\u0001SH2BADSUB\u0001';
+const ARITH_BAD_MAGIC = '\u0001SH2ARITH\u0001'; // `$(( bad ))` — expansion error: bash skips the whole command (status 1)
 function materializePath(content) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sh2-ps-'));
   const f = path.join(dir, 'ps');
@@ -4416,6 +6426,15 @@ function materializePath(content) {
   return f;
 }
 function readFileSafe(p) {
+  // /dev/fd/N resolves against the NODE process's fd table, whose high
+  // fds are internal pipes with no writer — `fs.readFileSync('/dev/fd/5')`
+  // would BLOCK FOREVER (double-paren-subshell.sh: `eval cmp /dev/fd/5 -`
+  // hung the runner exactly there). The shell's own fd table is modeled in
+  // fdTargets, so a source-level /dev/fd/N reference is never a real open
+  // fd here — bash errors on the unopened fd; an empty read is the
+  // closest non-blocking equivalent (cmp then diffs two empty files,
+  // status 0, no stdout).
+  if (typeof p === 'string' && /^\/dev\/fd\/\d+$/.test(p)) return '';
   try { return fs.readFileSync(p, 'utf8'); } catch { return ''; }
 }
 function findBin(name) {
@@ -4466,7 +6485,27 @@ export function expandWord(sh, s) {
     const next = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)([^{}]*)\}/g, (m, n, body) => {
       const v = sh.getVar(n);
       if (body === '') return v;
-      if (body.startsWith('#')) return String(v.length);
+      if (body === '#') return String(v.length); // ${#name} — length ONLY
+      // glob-strip / case / substitute ops — the sh.param switch's set
+      // (`#pat`, `##pat`, `%pat`, `%%pat`, `^^`, `,,`, `^`, `/p/r`,
+      // `//p/r`): `${p##*/}` inside a quoted test word arrives here (the
+      // tokenizer's own `${...}` branch only sees UNQUOTED positions). The
+      // old `body.startsWith('#')` length check mis-handled `##` (the
+      // prefix-strip op) as `${#name}` length.
+      const om2 = /^(##?|%%?|\^\^?|,,|\/\/?)(.*)$/s.exec(body);
+      if (om2) {
+        const op = om2[1];
+        const rest = om2[2] ?? '';
+        if (op === '#' || op === '##' || op === '%' || op === '%%') {
+          return sh.param(op, n, rest, '', v);
+        }
+        if (op === '/' || op === '//') {
+          const slash = rest.indexOf('/');
+          if (slash < 0) return m; // unterminated substitution — leave literal
+          return sh.param(op, n, rest.slice(0, slash), rest.slice(slash + 1), v);
+        }
+        return sh.param(op, n, '', '', v); // ^^ ,, ^
+      }
       if (body.startsWith('[') && body.endsWith(']')) {
         // ${name[key]} / ${name[@]} / ${name[*]} — array element / join
         const k = body.slice(1, -1);
@@ -4572,8 +6611,15 @@ function runShellFile(file, args) {
 // nothing matches (caller keeps the literal pattern — nullglob is off).
 function globExpand(pattern) {
   const parts = pattern.split('/');
+  // An ABSOLUTE pattern (`/dev/pts/*`) splits to ['', 'dev', 'pts', '*']:
+  // the empty first part is the root, not the cwd — seed the walk at '/'
+  // and skip it (tty-cmdsub.sh's `for dev in /dev/pts/*` fallback loop
+  // silently matched NOTHING before this fix, while bash globbed the
+  // readable pts).
   let dirs = [''];
-  for (let i = 0; i < parts.length; i++) {
+  let i = 0;
+  if (parts[0] === '') { dirs = ['/']; i = 1; }
+  for (; i < parts.length; i++) {
     const part = parts[i];
     const last = i === parts.length - 1;
     const next = [];
@@ -4585,7 +6631,7 @@ function globExpand(pattern) {
         const name = ent.name;
         if (name.startsWith('.') && !part.startsWith('.')) continue; // dotglob off
         if (!globMatch(part, name)) continue;
-        const p = d === '' ? name : d + '/' + name;
+        const p = d === '/' ? '/' + name : (d === '' ? name : d + '/' + name);
         if (last) next.push(p);
         else if (ent.isDirectory()) next.push(p);
       }
@@ -4727,7 +6773,7 @@ function ansiCDecode(s) {
   return out;
 }
 
-export function tokenizeTest(expr) {
+export function tokenizeTest(expr, keepEmpty) {
   const tokens = [];
   let i = 0;
   const n = expr.length;
@@ -4914,7 +6960,9 @@ export function tokenizeTest(expr) {
     // Unquoted expansions that evaluate to EMPTY vanish under bash
     // word-splitting (`[ ${A% *} -gt ${B#* } ]` with both unset becomes
     // `[ -gt ]`); only quoted empties survive as an empty argument.
-    if (started && (tok !== '' || quoted)) tokens.push(tok);
+    // EXCEPT in `[[ ]]` (keepEmpty — no word-splitting there): the empty
+    // expansion remains an empty operand (`[[ -n $(empty) ]]` → false).
+    if (started && (tok !== '' || quoted || keepEmpty)) tokens.push(tok);
   }
   return tokens;
 }
@@ -5309,6 +7357,69 @@ function arithExpand(sh, s) {
   return out;
 }
 
+// Float arithmetic evaluator — C-double semantics for the c-sh-go
+// frontend's lowered float expressions (`sh2.fparith`). The frontend
+// emits fully-parenthesized trees (`(l op r)`) over decimal literals
+// and `$name` store reads, so precedence is explicit; unary minus is
+// emitted as `0 - e` by the frontend and needs no arm here. Unset/empty
+// store reads count as 0 (the numeric-zero rule). A parse failure
+// throws — the fparith caller maps it to the bash `$((...))` abort
+// marker, skipping the assignment exactly like bash.
+export function evalFloatArith(src, sh) {
+  const s = arithExpand(sh, String(src));
+  let pos = 0;
+  function ws() { while (/\s/.test(s[pos] ?? '')) pos++; }
+  function num() {
+    ws();
+    let start = pos;
+    if (s[pos] === '-') pos++;
+    while (/[0-9.]/.test(s[pos] ?? '')) pos++;
+    const raw = s.slice(start, pos);
+    if (raw === '' || raw === '-' || raw === '.') throw new Error(`fparith: expected number near '${s.slice(pos)}'`);
+    const v = Number(raw);
+    if (!Number.isFinite(v)) throw new Error(`fparith: expected number near '${raw}'`);
+    return v;
+  }
+  function primary() {
+    ws();
+    if (s[pos] === '(') { pos++; const v = addsub(); ws(); if (s[pos] !== ')') throw new Error('fparith: missing )'); pos++; return v; }
+    const dm = s.slice(pos).match(/^\$([A-Za-z_][A-Za-z0-9_]*)/);
+    if (dm) {
+      pos += dm[0].length;
+      const v = sh.getVar(dm[1]);
+      return v === '' || v === undefined ? 0 : Number(v);
+    }
+    return num();
+  }
+  function muldiv() {
+    let v = primary();
+    for (;;) {
+      ws();
+      const op = s[pos];
+      if (op !== '*' && op !== '/') return v;
+      pos++;
+      const r = primary();
+      v = op === '*' ? v * r : v / r;
+    }
+  }
+  function addsub() {
+    let v = muldiv();
+    for (;;) {
+      ws();
+      const op = s[pos];
+      if (op !== '+' && op !== '-') return v;
+      pos++;
+      const r = muldiv();
+      v = op === '+' ? v + r : v - r;
+    }
+  }
+  ws();
+  const v = addsub();
+  ws();
+  if (pos !== s.length) throw new Error(`fparith: trailing input near '${s.slice(pos)}'`);
+  return v;
+}
+
 export function evalArith(src, sh) {
   // recursive descent over integers; supports + - * / % ** << >> & | ^
   // comparison, equality, && || !, ternary, ( ), assignments (x=5, x+=3,
@@ -5506,6 +7617,29 @@ function substGlob(sh, v, pattern, replacement) {
     if (!matched) { out += v[i]; i++; }
   }
   return out;
+}
+
+// ${var/pat/rep} — substitute the FIRST match only. Literal pattern:
+// indexOf + splice (bash replaces the leftmost occurrence). Glob
+// pattern: walk left-to-right, replace the first (longest) match.
+function substGlobFirst(sh, v, pattern, replacement) {
+  const rep = expandWord(sh, replacement ?? '');
+  if (v === '') return v;
+  if (!/[*?[]/.test(pattern)) {
+    const i = v.indexOf(pattern);
+    if (i < 0) return v;
+    return v.slice(0, i) + rep + v.slice(i + pattern.length);
+  }
+  let i = 0;
+  while (i < v.length) {
+    for (let len = v.length - i; len >= 1; len--) {
+      if (globMatch(pattern, v.slice(i, i + len))) {
+        return v.slice(0, i) + rep + v.slice(i + len);
+      }
+    }
+    i++;
+  }
+  return v;
 }
 
 // ── brace-expansion helpers ──────────────────────────────────────────

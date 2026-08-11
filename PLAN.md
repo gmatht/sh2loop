@@ -12,6 +12,205 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v21: **c-sh-go v4 — the last refused rung, gate 74/74 → 79/79** (workspace
+>   only — no core changes; frontend main.go + harness/outparam_to_returns.py).
+>   The five documented refusals from v3, each pinned by a stdout example
+>   (t75–t79): (1) runtime VALUE reads in CONDITIONS (deref/index/call/
+>   prefix-inc in if/while/for/switch conds) — hoisted to temps; an if
+>   hoists once, a while/for/do-while gets the refresh-and-guard structure
+>   `while (1) { temps; if (!cond) break; body }` (the cond must
+>   re-evaluate per iteration). t75: array-max loop, `while (*q < 3)` walk,
+>   call in cond. (2) prefix ++/-- in EXPRESSION position (the value is the
+>   NEW value — increment statement + plain read hoisted at the statement
+>   level). t76. (3) multi-char literals (GCC big-endian packing). t77.
+>   (4) READ+WRITE out-params (`*x = *x + 1`) — arithOperand now recurses
+>   into bins (only the read subtree temps), and the transform treats a
+>   read+write write-param as IN-OUT (keeps its input position, caller
+>   passes the current value, the new value returns via the echo channel;
+>   only write-ONLY params shift later positions). t78: bump + addout(&v, 5).
+>   (5) switch MID-ARM breaks — a guarded `if (c) break;` keeps its guard
+>   with an empty then and wraps the remainder of the merged arm in the
+>   guard's ELSE (true guard exits the switch, false falls through); the
+>   Goto/Label route was tried first but the shared RestructureGoto handles
+>   one goto per label and removes it — multiple break-gotos to one label
+>   panic the renderer. t79. Also hardened the Makefile gate against
+>   root-owned stale /tmp files (local .gate-tmp + clean). Still refused
+>   (honest): char ordering comparisons, pointer advance on array-derived
+>   pointers, pointer declarators in multi-declarator lists.
+> - v20: **c-sh-go v3 — mem-slice-2, multi-return, and the next rung, gate 68/68 → 74/74**
+>   (workspace + submodule). Implemented the two core requests directly.
+>   (1) mem-slice-2 (c-mem-slice2): the arena was runtime-side; the missing
+>   piece was the DYNAMIC position model — a pointer that is advanced or
+>   comparison-used carries its position in a dedicated runtime handle var
+>   (ptrNeedsDyn pre-scans at the declaration; the while-header cond is
+>   emitted BEFORE the body's advance, so a compile-time offset could
+>   never advance per-iteration). `p = p + n` / `p++` / `p += n` → runtime
+>   memAdvance (new handle with the embedded element offset); `p < end` →
+>   runtime memTest (position compare); reads/writes go through the
+>   embedded offset; the root var keeps the base `:0` handle (pointer-copy
+>   semantics). t69 walk-sum, t70 store-walk. (2) multi-return
+>   (c-multi-return): the out-param transform handles MULTIPLE
+>   write-targets — each write-param's last store becomes an echo (one
+>   value per line), dropped write-params' bindings are removed with later
+>   read-params renumbered, and the caller captures once and destructures
+>   via the runtime `line` helper (the core renders `line` NATIVELY so the
+>   destructure takes the native store-write path — a lifted destructured
+>   var would desync from a runtime store write; also fixes the vacuous
+>   string-lift of source-less vars). Mixed shapes work (write + read-only
+>   non-pointer params, read-only pointer params). Statement-position user
+>   calls now emit fnCall (they were silently DROPPED). The gate pipeline
+>   runs the transform on every emitted A1 (identity without out-params).
+>   (3) next rung: calls/ternaries inside ARITHMETIC are now hoisted to
+>   temps automatically (printf args, decl inits, plain/compound assigns,
+>   for headers — a compound RHS is an implicit arith operand), and switch
+>   FALLTHROUGH lands (a case body without a trailing break merges the
+>   next case's arm — shared-body `case 1: case 2:` and fallthrough into
+>   default included; mid-arm breaks stay stripped — documented). Still
+>   refused (honest): calls/ternary in test operands, prefix ++/-- in
+>   expression position, multi-char literals, multi-return with read+write
+>   params, switch mid-arm breaks. ESTree corpus unchanged (521/532 — the
+>   pre-existing grepMatches WIP + env drift failures).
+> - v19: **c-sh-go v2 — the fnCall-value fix + the v2 idiom set, gate 57/57 → 68/68**
+>   (workspace + submodule). Fixed the SILENT-0 function-call corruption (a
+>   runtime user call in a value position emitted A1 `fnCall` — the shell
+>   STATUS channel — and printf got 0 while gcc got 10): the frontend now
+>   emits `fnValue` for value-position calls, the runtime gains the
+>   value-returning `fnValue` dispatch (same positional/RETURN-signal
+>   handling as fnCall, the define-arrow's native return comes back), and
+>   the perl backend already rendered the same A1 as a direct sub call.
+>   Then landed the v2 idiom set, each pinned by an executed-stdout example
+>   (t58–t68): runtime function calls (multi-param/multi-stmt/nested),
+>   multi-declarator `int a, b;`, compound assignments `*= /= %= <<= >>=
+>   &= |= ^=`, prefix `++i`/`--i` (statements + for headers), char
+>   literals with STRING test semantics (`=`/`!=` — `-eq` would coerce
+>   both sides to 0), bitwise `& | ^ ~ << >>` (native int32 JS ops;
+>   `~x` → `x ^ -1`), bitwise/mod in CONDITIONS via the runtime `testArith`
+>   (bash-arith truth — the test-string grammar is comparison-only),
+>   ternary via the runtime `ternary` call (native-first cond), dynamic
+>   array writes `a[i] = v` in loops via the runtime `arrayStore` call
+>   (the baked `a[$i]` target would read a stale store for lifted index
+>   vars), and dynamic heap indices `p[i]` read+write (mem-arena offsets
+>   as runtime arith calls). Also fixed a per-run state leak in
+>   `frontends/c-sh-go/main.go` (arrayVars/scalarAliases/ptrTargets/
+>   charPtrVars/userFuncs were never reset for in-process parses) and
+>   cleared the queue: the two c-sh-go regression requests
+>   (c-sh-go-20260809-131354/134020) are RESOLVED — their fix landed as
+>   sh2perl 5c717a7 — moved to done/ with OUTCOME markers, and the
+>   sleeping-c-sh-go marker is removed. ESTree corpus gate A/B-verified:
+>   identical 521/532 with and without the core changes (the 11 failures
+>   are the estree worker's uncommitted grepMatches WIP + env drift —
+>   pre-existing, not this work). Refused still (honest): calls/ternary/
+>   bitwise inside ARITHMETIC or test operands (lower to a temp),
+>   dynamic pointer advance, multi-out-param functions, switch
+>   fallthrough, multi-char literals.
+> - v19: **Perl corpus 459 → 472/532 — redirect order, set -e, native cmp,
+>   echo|tr lift, process-sub fixes** (workspace, submodule 98df802/d11da89).
+>   Follow-up to the v18 survey: (3) redirects now apply in SOURCE order —
+>   a `2>&1` before `>file` dups the ORIGINAL stdout (the ESTree backend
+>   already passed because it lowers redirects to an ordered spec list; the
+>   Perl generator hardcoded stdout-then-stderr), and stderr dups use
+>   explicit fd save/restore (`local *STDERR` rebinds the Perl handle
+>   without dup-ing OS fd 2, so bash children ignored it); (7) `set -e`
+>   top-level errexit (`exit $CHILD_ERROR if $__set_e && $CHILD_ERROR != 0`
+>   after Simple/Test/Pipeline/Redirect statements, condition contexts
+>   exempt); (9) native GNU-format `cmp` emulation (-s/-l/-b/-n/-i, octal
+>   bytes, process-sub operands) — check_qx forbids system(cmp); (4)
+>   `echo X | tr` in command substitution is now native Perl, so function
+>   positional args map naturally (the function-body `$1`→`$_[0]` rewrite
+>   is quote-aware, skipping shell-out literals); (1) process-sub shell-outs
+>   now resolve the temp-file vars (exported to the child env, unescaped in
+>   the reconstruction) — fixes the whole diff/comm-vs-`<(...)` class
+>   (012/042/083/064_01/063_14/process-substitution); subshell env snapshots
+>   use the @ sigil for indexed arrays (064_hard_to_generate compiles and
+>   runs, matching bash except the documented $HOSTNAME line); (8) debashc
+>   reads scripts lossily-with-PUA-markers and string literals re-emit
+>   non-UTF-8 bytes as `\xNN` byte escapes (utf8-non-utf8-content passes —
+>   bash treats scripts as byte streams); also `ls -A` shows dotfiles minus
+>   . and .., `readlink -m/-f` canonicalizes missing paths.  Created
+>   BASH_ENV_FAILURES.md documenting the deliberately-deferred bash-runtime
+>   introspection class ($-, $BASH_VERSION, HOSTNAME, tty); `bash -n`
+>   confirmed to reject all five parse-fallback files (they are genuinely
+>   invalid bash — the harness FAIL is the parser-gap gate, not a
+>   translation bug).
+> - v18: **Perl corpus 420 → 459/532 (39 fixes, zero regressions)** (workspace,
+>   submodule 2108602). One session of Perl-generator translation fixes:
+>   parser — test-expression `\${var#pat}` no longer drops the closing `}` when
+>   the `#` lexes as a Comment, and `--x="\${VAR}"` keeps the value as a real
+>   interpolation; test-expression renderer — `\${var#pat}/\${var%pat}/...`
+>   render to real Perl, numeric compares reproduce bash's empty-unquoted
+>   expansion collapse (`[ -gt ]` single-arg → TRUE) for single-bracket tests,
+>   `==`/`=~`/`!=` operands convert vars + strip pattern quotes, `\${var:?err}`
+>   prints to stderr and exits 1 (plain `die` was swallowed by the harness's
+>   `do`-wrapper); heredoc bodies — Perl single-quote escaping doubles
+>   backslashes first (fixes `'\''` sequences), `\${#s}` → `length()`,
+>   `\${s//p/r}` substitution + shortest-suffix reverse trick in the words
+>   path; statements — top-level `[ ]` sets `$CHILD_ERROR`, `&&`/`||` chains
+>   propagate status to `exit ($main_exit_code || $CHILD_ERROR)`, `exec cmd`
+>   runs then exits, `true`/`false` set `$CHILD_ERROR`; pipelines — shell-outs
+>   export referenced vars to the bash child, empty pipeline output prints
+>   nothing, grep -c capture returns the result, grep -L exits per GNU
+>   semantics, bare globs stay unquoted for bash expansion; `printf %q`
+>   emulation; `-w` uses lookarounds not ``. Also synced SYNC_BUILTINS with
+>   data/sh2-builtins.json (`.`, `source`) so the a4 sync test passes. The
+>   commit also carries the pre-existing in-flight worker WIP (c-frontend Go
+>   shir path, cfront.rs removal, var_nospace) already in the working tree.
+>   ESTree backend unchanged (521/532, no regression).
+> - v17: **c-sh-go fleet unblock — 26/31 → 30/31, t23 float arith filed**
+>   (workspace). Killed the c-sh-go worker, made the non-estree-core
+>   changes, restarted it. c-sh-go (Go) gate at 30/31: t23 float is the
+>   one remaining failure (core-side float-arith path needed — see
+>   `core-requests/c-sh-go-float-arith-20260807.md`). New
+>   `frontends/c-sh-go/main.go` work in this session: float-literal
+>   lexing (`1.5` → single num token), `double`/`float` type-keyword
+>   handling, `testExpr` top-level-id `-ne 0` (C numeric truth vs bash
+>   string-non-empty), `wrapForContinues` for `for`/`continue`
+>   interaction (the trailing-update bug — the for-lowering puts the
+>   update at the END of the body so a shell `continue` would skip the
+>   update, infinite-looping the test; fix: wrap each top-level continue
+>   in the for-body with `{update; continue}`), `Label`/`Goto`
+>   parser emission (with flat list-return flattening in
+>   `stmts()`/`stmtOrBlock()` so labels stay at the same level as the
+>   surrounding stmts — `RestructureGoto` scans top-level labels only).
+>   Shared-core fix in `sh2perl/src/shir_passes/restructure.rs`:
+>   `RestructureGoto::handle_nested` was adding `if (flag) break` to the
+>   parent at EVERY loop step including non-loop parents (Block-wrapped
+>   for-bodies, like c-sh-go emits) — a `break` that escapes every
+>   enclosing `whileLoopSync` and aborts the program. Added
+>   `is_loop_stmt_at` to guard only real loops (While/For/DoWhile) and
+>   added a regression test. ESTree corpus: **531/531 (100%)** (was
+>   525/531) — the t30 nested-goto test in the ESTree corpus was
+>   silently failing for the same reason; my fix improves the shared
+>   library. shir_passes test count 55→56 (new
+>   `nested_goto_through_block_wrapper_does_not_escape`).
+> - v16: **`$0` = argv0 pass-through — the corpus stays stdout-pure; new
+>   argv0 conformance suite** (workspace + submodule). Decision: a translated
+>   script's `$0` is its own invocation path (like bash's), not a constant;
+>   the stdout-match corpus can only bless ONE invocation, so `$0` semantics
+>   are pinned by `harness/argv0-tests/` — every $0 script × 3 argv0s (full
+>   path / basename-only / renamed) × {bash ref, sh, estree, perl} must
+>   agree (72/72 green). Five incidental-`$0` examples (lexer/param-`##`
+>   tests where `$0` was just a convenient variable) rewritten to
+>   deterministic vars and stay in the corpus; the `$0`-centric ones
+>   (057_case usage line, qx-var-builtin-cd self-location) stay in the
+>   corpus AND are referenced from the suite. Perl: dropped the
+>   `set_original_script_name` bake (`$0 = 'basename'` was an oracle-tuned
+>   constant that broke `dirname "$0"` and ignored runtime argv0); `./fail`
+>   + `./fail-estree` now run the generated Perl through a `do` wrapper that
+>   sets argv0 = the source path (what `bash '$test_file'` sees) and empties
+>   @ARGV. Old-generator echo fix: bare `$0`/`$1`/… in echo rendered as
+>   `$ENV{0}`/`$ENV{1}` (never set) in four echo renderers — now `$0`/`$ARGV`.
+>   Both semantics are now SELECTABLE: `debashc --argv0-source <name>` bakes
+>   the source name into the output (Perl `$0 = '<name>'`; estree emits a
+>   leading `sh2.argv0 = '<name>'` assignment) — the translation-product
+>   semantic (the JS shell executing foo.sh should say "foo.sh", not the
+>   temp JS file name) — while the default stays argv0 pass-through (the
+>   harness supplies argv0 at run time). The argv0 suite tests BOTH:
+>   108/108 (72 pass-through + 36 source-mode).
+>   sh gate: the render now runs with argv0 = the source path
+>   (`sh -c '. /dev/fd/3' "$f" 3< render`) so $0-examples stop failing (and
+>   stop being flaky — the temp name varied per run). Corpus: PERL 401→414
+>   (the $0-centric examples flip from FAIL to PASS), ESTREE unchanged
+>   (the 1 tty-cmdsub flake is pre-existing environment drift).
 > - v15: **renderer v3 — 304/531, env-export for shell-outs, var-export
 >   correctness bug, function/case/param/subshell semantics** (workspace,
 >   submodule 283→304: 12 commits). The `bash -c` shell-outs embedded Perl
