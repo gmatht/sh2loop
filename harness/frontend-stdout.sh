@@ -74,7 +74,7 @@ fi
 # native run, so the transpiler path keeps real coverage. Format:
 #   "name.ext|expected-stdout-with-\\n-escapes" (one entry per line)
 native_limits_fish="t43_heredoc.fish|line1\nline2"
-native_limits_powershell=""
+native_limits_powershell="t01_echo.ps1|hello powershell\n"
 native_limits_bat="t01_echo.bat|hello world\n
 t02_set.bat|hello world\n
 t03_arith.bat|x=14\n
@@ -177,7 +177,7 @@ for f in "$dir"/*"$ext"; do
   # emit MUST fail, so they are exercised by the frontend's own gate
   # (make test), never compared here.
   case "$bn" in *_refuse*) echo "SKIP $bn (refusal pin — asserted failing by the frontend gate)"; skips=$((skips+1)); continue ;; esac
-  if [ "$lang" != go ] && [ "$lang" != bat ] && ! command -v "${native[0]}" >/dev/null 2>&1; then
+  if [ "$lang" != go ] && [ "$lang" != bat ] && [ "$lang" != powershell ] && ! command -v "${native[0]}" >/dev/null 2>&1; then
     echo "SKIP $bn (native interpreter '${native[0]}' not installed)"
     skips=$((skips+1)); continue
   fi
