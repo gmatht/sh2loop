@@ -36,7 +36,7 @@ FT="$ROOT/frontends"
 WORKSPACE="$ROOT"
 
 DEFAULT_BACKEND_LANGS="perl js c python zig go rust sh java"
-DEFAULT_FRONTEND_LANGS="py-sh-go go-sh posix-sh-go perl-sh-go fish-sh-go zsh-sh-go c-sh-go"
+DEFAULT_FRONTEND_LANGS="py-sh-go go-sh posix-sh-go perl-sh-go fish-sh-go zsh-sh-go c-sh-go cpp-sh-go rust-frontend zig-sh-go powershell-sh-go"
 
 # Active backends whose workers already run from the main checkout
 # (main_loop_rust.pl / main_loop_estree.pl); the per-worktree worker
@@ -161,6 +161,9 @@ build_cmd() {
     backend:go)                     echo "true" ;;  # no Go renderer yet; build = noop
     frontend:py-sh)                 echo "python3 -c 'import ast; ast.parse(open(\"$FT/py-sh/pysh.py\").read())'" ;;
     frontend:go-sh)                 echo "go build -o /tmp/go-sh-build $FT/go-sh/" ;;
+    frontend:cpp-sh-go)             echo "make -C $FT/cpp-sh-go build" ;;
+    frontend:zig-sh-go)             echo "make -C $FT/zig-sh-go build" ;;
+    frontend:powershell-sh-go)      echo "make -C $FT/powershell-sh-go build" ;;
     *) echo "echo 'no build for $kind:$lang' && true" ;;
   esac
 }
@@ -315,8 +318,8 @@ do_build () {
   local -a langs=()
   case "$scope" in
     backends)  langs=(perl js c python zig go rust sh java) ;;
-    frontends) langs=(py-sh go-sh) ;;
-    all|*)     langs=(perl js c python zig go rust sh java py-sh go-sh) ;;
+    frontends) langs=(py-sh-go go-sh c-sh-go cpp-sh-go) ;;
+    all|*)     langs=(perl js c python zig go rust sh java py-sh go-sh c-sh-go cpp-sh-go) ;;
   esac
   echo "=== build: scope=$scope langs=${langs[*]} ==="
   # parallel: run each build in background, wait for all. Bound the
@@ -326,7 +329,7 @@ do_build () {
   for lang in "${langs[@]}"; do
     # decide kind
     local kind="backend"
-    case "$lang" in py-sh|go-sh|posix-sh|busybox-ash|fish|zsh|perl-sh|cpp-sh|rust-sh|c-sh-go) kind="frontend" ;; esac
+    case "$lang" in py-sh|go-sh|posix-sh|busybox-ash|fish|zsh|perl-sh|cpp-sh|rust-sh|c-sh-go|cpp-sh-go|rust-frontend) kind="frontend" ;; esac
     local cmd; cmd=$(build_cmd "$kind" "$lang")
     echo "  [$kind:$lang] build: $cmd"
     (
@@ -413,6 +416,16 @@ case "${1:-}" in
   --frontends)    MODE=frontends; shift ;;
   --build)        MODE=build; shift; SCOPE="${1:-all}"; shift || true ;;
   --start-workers) MODE=start-workers; shift ;;
+  --start-triage-worker) # the cross-product triage worker (frontend corpus ×
+                  # backend). Rotates frontends, sweeps each through ALL
+                  # backends, escalates NEW failures by class (frontend →
+                  # --pi-fix-frontend; backend → a core-request), and
+                  # regenerates triage/report.json for external consumers.
+                  # Verdicts: triage/verdicts.tsv (see harness/triage.sh).
+                  nohup nice -n 19 bash "$ROOT/run_triage_worker.sh" \
+                    >> "$WORKSPACE/loop-triage-worker.log" 2>&1 &
+                  echo "triage worker started (pid $!) — log: $WORKSPACE/loop-triage-worker.log"
+                  exit 0 ;;
   --run-backend-worker) # internal: run ONE backend worker loop until it
                   # dies (the start-workers supervisor relaunches it up to
                   # 5 times). Usage: setup_backends.sh --run-backend-worker <lang>
@@ -544,6 +557,11 @@ case "${1:-}" in
                     printf '\nThe shIR (A1) contract is the source of truth (sh2perl/src/shir_json.rs). Parse the %s source language, emit the A1 shIR JSON byte-identical to the core frontend.\n' "$fix_name"
                     printf 'Shared core (DO NOT TOUCH): sh2perl/src/shir.rs, sh2perl/src/ir.rs, sh2perl/src/estree.rs, sh2perl/src/parser/\n'
                     printf 'You may create or edit files inside frontends/%s/ and harness/.\n' "$fix_name"
+                    if [ "$fix_name" = "cpp-sh-go" ]; then
+                      printf 'C++-surface only: you may edit THIS dir. c-sh-go-owned code (frontends/c-sh-go/*) is single-owner — if a fix needs a SHARED-LOWERING change there, APPEND a structured request to c-requests/%s-<timestamp>.md per c-requests/README.md (NEED / WHY / MINIMAL-C-CHANGE / FAILING-CASE / VALIDATION) and exit 0. Do NOT touch c-sh-go-owned files — the c-sh-go worker implements c-requests.\n' "$fix_name"
+                    elif [ "$fix_name" = "c-sh-go" ]; then
+                      printf 'You are the OWNER of the shared C lowering and the c-requests implementer. If c-requests/*.md (not in done/) exist, implement them FIRST; acceptance = make test AND the request VALIDATION target both green; then move them to c-requests/done/.\n'
+                    fi
                     printf 'If a SHARED-CORE change is required (shIR node, deserializer, contract field, parser fix) to fix this, APPEND a structured request to core-requests/%s-<timestamp>.md per core-requests/README.md (NEED / WHY / MINIMAL-CORE-CHANGE / FAILING-CASE) and exit 0. Do NOT touch the core — the estree worker implements core requests.\n' "$fix_name"
                   } > /tmp/pi-fix-prompt-$$
                   # RAM gate (fail-open, up to 10 min): don't start pi while RAM is tight
@@ -551,6 +569,67 @@ case "${1:-}" in
                   pi --mode json --provider opencode-go --model deepseek-v4-flash \
                      --thinking xhigh < /tmp/pi-fix-prompt-$$ >> "$fix_log" 2>&1 || true
                   rm -f /tmp/pi-fix-prompt-$$
+                  exit 0 ;;
+  --pi-coverage-example) # internal: invoked by a frontend worker after a
+                  # GREEN gate when its parser node coverage is incomplete
+                  # (worker-coverage-step.sh). pi creates ONE testdata
+                  # example exercising the uncovered node, scoped to
+                  # frontends/<name>/testdata/. The worker's gate validates
+                  # and commits (or discards) it.
+                  # Usage: setup_backends.sh --pi-coverage-example <name> <gap>
+                  shift; cov_name="$1"; cov_gap="$2"
+                  cov_dir="$FT/$cov_name"; cov_log="$WORKSPACE/loop-frontend-$cov_name.log"
+                  {
+                    cat <<EOF
+Your frontend's gate is GREEN, but its testdata examples do not yet cover every parser node.
+Uncovered parser node / construct: $cov_gap
+
+Create ONE new testdata example in $cov_dir/testdata/ that exercises this construct.
+
+Constraints:
+  - check the existing testdata/ files first — the construct must NOT already be covered
+  - the example must be a minimal, valid $cov_name program the frontend EXPRESSES (it must EMIT, not refuse)
+  - it must pass the gate: make test in $cov_dir (refusals + ingress acceptance + executed-stdout oracle)
+  - name it t<NN>_<description>.<ext> following the existing testdata numbering
+  - if the frontend REFUSES this construct by design (check FRONTEND.md / the parser source), do NOT create the example; exit 0
+
+Edit surface: frontends/$cov_name/testdata/ only (harness/* only if the oracle needs it).
+Shared core (DO NOT TOUCH): sh2perl/src/shir.rs, sh2perl/src/ir.rs, sh2perl/src/estree.rs, sh2perl/src/parser/
+EOF
+                  } > /tmp/pi-coverage-prompt-$$
+                  wait_for_ram 2048 0.5 30 600 || true
+                  pi --mode json --provider opencode-go --model deepseek-v4-flash \
+                     --thinking xhigh < /tmp/pi-coverage-prompt-$$ >> "$cov_log" 2>&1 || true
+                  rm -f /tmp/pi-coverage-prompt-$$
+                  exit 0 ;;
+  --pi-fix-c-requests) # internal: the c-sh-go worker implements pending
+                  # c-requests/ (cpp-sh-go -> c-sh-go shared-lowering
+                  # requests, CPP_PLAN §4). Builds a prompt from the pending
+                  # request files and runs pi scoped to frontends/c-sh-go/.
+                  # The worker's own gate (make test) validates; on green it
+                  # moves the requests to c-requests/done/.
+                  c_reqdir="$WORKSPACE/c-requests"
+                  c_pending=$(ls "$c_reqdir"/*.md 2>/dev/null | grep -v '/done/' || true)
+                  if [ -z "$c_pending" ]; then
+                    exit 0
+                  fi
+                  c_log="$WORKSPACE/loop-frontend-c-sh-go.log"
+                  {
+                    printf 'Implement the pending c-requests (cpp-sh-go -> the shared C lowering).\n\n'
+                    for r in $c_pending; do
+                      printf '===== %s =====\n' "$r"
+                      cat "$r"
+                      printf '\n'
+                    done
+                    printf 'You are the OWNER of frontends/c-sh-go/ (the shared C lowering) and the c-requests implementer.\n'
+                    printf 'Acceptance = make test (the C corpus stays green) AND each request VALIDATION target (proves the feature works) — then the worker moves the requests to c-requests/done/.\n'
+                    printf 'Shared core (DO NOT TOUCH): sh2perl/src/shir.rs, sh2perl/src/ir.rs, sh2perl/src/estree.rs, sh2perl/src/parser/\n'
+                    printf 'If a SHARED-CORE change is required to satisfy a request, APPEND a structured request to core-requests/c-sh-go-<timestamp>.md per core-requests/README.md and exit 0.\n'
+                  } > /tmp/pi-fix-c-requests-$$
+                  wait_for_ram 2048 0.5 30 600 || true
+                  pi --mode json --provider opencode-go --model deepseek-v4-flash \
+                     --thinking xhigh < /tmp/pi-fix-c-requests-$$ >> "$c_log" 2>&1 || true
+                  rm -f /tmp/pi-fix-c-requests-$$
                   exit 0 ;;
   --backend-gate) # internal: the backend worker's progress signal. Render the
                   # shared corpus (sh2perl/examples/*.sh + frontend testdata)
@@ -634,9 +713,14 @@ case "${1:-}" in
                       g_bin="$g_wt/target/debug/debashc"
                       # probe: feed an invalid shIR JSON — the deserializer's
                       # "ShIR JSON ingress" marker proves --shir-in-<lang> is
-                      # wired into the worktree's CLI
-                      printf '%s' '{"contract_version":1,"imports":[],"requires":[],"stmts":[],"subs":[],"var_types":[],"stmt_lines":[]}' \
-                        | "$g_bin" "--shir-in-$g_lang" - >/dev/null 2>/tmp/gate_probe_$$
+                      # wired into the worktree's CLI. The probe exits 1 by
+                      # design (ingress error), so it MUST stay inside an `if`
+                      # condition — set -e + pipefail would otherwise kill the
+                      # whole gate before the corpus runs.
+                      if printf '%s' '{"contract_version":1,"imports":[],"requires":[],"stmts":[],"subs":[],"var_types":[],"stmt_lines":[]}' \
+                        | "$g_bin" "--shir-in-$g_lang" - >/dev/null 2>/tmp/gate_probe_$$; then
+                        : # probe rc=0 — fall through to the marker check
+                      fi
                       if grep -q "ShIR JSON ingress" /tmp/gate_probe_$$; then
                         g_flag="--shir-in-$g_lang"
                       elif [ -x "$g_wt/target/debug/${g_lang}_backend" ]; then
@@ -658,6 +742,15 @@ case "${1:-}" in
                   # no longer passes. Only for scaffolds with a toolchain
                   # (js/perl have their own correctness gates — fail-estree /
                   # ir_to_perl).
+                  # STDERR IS IGNORED ON BOTH SIDES: the reference runs
+                  # `bash file 2>/dev/null` and the translation runs with its
+                  # stderr discarded too — only stdout is ever compared, so a
+                  # translation is never forced to reproduce (or suppress)
+                  # tool diagnostics, command-not-found messages, or
+                  # `echo >&2` behavior. (This was previously asymmetric —
+                  # the translation side used `2>&1`, merging its stderr into
+                  # the diff, which forced renderers to inject a global
+                  # stderr-silencer to pass.)
                   # MULTITASKING: SERIAL by design. The gate is a correctness
                   # signal, not a benchmark — 7 scaffold workers × parallel
                   # gcc/go/rustc compiles would spike the shared 8-core box
@@ -721,13 +814,13 @@ case "${1:-}" in
                         fi
                         eq_exit=1
                         case "$g_lang" in
-                          c)    cc /tmp/eq_$$.c -o /tmp/eq_$$_bin 2>/dev/null && timeout 15 /tmp/eq_$$_bin > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
-                          go)   timeout 30 "$eq_tool" run /tmp/eq_$$.go > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
-                          python) timeout 15 python3 /tmp/eq_$$.py > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
-                          rust) rustc /tmp/eq_$$.rs -o /tmp/eq_$$_bin 2>/dev/null && timeout 15 /tmp/eq_$$_bin > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
-                          zig)  timeout 30 "$eq_tool" run /tmp/eq_$$.zig > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
-                          sh)   timeout 15 sh /tmp/eq_$$.sh > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
-                          java) javac -d /tmp /tmp/Sh2Program.java 2>/dev/null && timeout 15 java -cp /tmp Sh2Program > /tmp/eq_$$_out 2>&1 && eq_exit=0;;
+                          c)    cc /tmp/eq_$$.c -o /tmp/eq_$$_bin 2>/dev/null && timeout 15 /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
+                          go)   timeout 30 "$eq_tool" run /tmp/eq_$$.go > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
+                          python) timeout 15 python3 /tmp/eq_$$.py > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
+                          rust) rustc /tmp/eq_$$.rs -o /tmp/eq_$$_bin 2>/dev/null && timeout 15 /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
+                          zig)  timeout 30 "$eq_tool" run /tmp/eq_$$.zig > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
+                          sh)   timeout 15 sh -c '. /dev/fd/3' "$f" 3< /tmp/eq_$$.sh > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
+                          java) javac -d /tmp /tmp/Sh2Program.java 2>/dev/null && timeout 15 java -cp /tmp Sh2Program > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                         esac
                         if [ "$eq_exit" = 0 ] \
                            && timeout 15 bash "$f" > /tmp/eq_$$_ref 2>/dev/null \
@@ -747,6 +840,20 @@ case "${1:-}" in
                     fi
                   done
                   echo "  [$g_lang] backend gate: $pass/$((pass+skip+fail)) corpus render OK, $fail fail ($stub_files stubs, $eq_fail equiv), $skip skip — $stub_total stubs emitted${eq_gate:+; equiv: $eq_pass pass vs bash}"
+                  # CHIMERA gate (sh only): the bash-free WSL sandbox (BSD
+                  # shell + busybox toolchain, no bash/perl/GNU coreutils). A
+                  # test PASSES only if it passes under BOTH Ubuntu (dash,
+                  # above) AND Chimera — so chimera failures union into the
+                  # worker's work list. Skipped gracefully where the sh-gate
+                  # deployment (the sudo rule + harness script) is absent.
+                  if [ "$g_lang" = "sh" ] && command -v sh-gate >/dev/null 2>&1 && [ -x "$WORKSPACE/harness/chimera-gate.sh" ]; then
+                    if bash "$WORKSPACE/harness/chimera-gate.sh" "$g_wt/target/debug/debashc" "$WORKSPACE"; then
+                      echo "  [sh] backend gate: chimera green (passes under Ubuntu AND Chimera)"
+                    else
+                      fail=$((fail+1))
+                      echo "  [sh] backend gate: CHIMERA RED — a test fails if it fails under Ubuntu OR Chimera (lists above)"
+                    fi
+                  fi
                   if [ "$fail" -gt 0 ]; then echo "  fails: $fails" | head -c 200; echo; exit 1; fi
                   # valgrind memory gate (the C worker): the generated C
                   # must run without memory errors — a bounded sample (the

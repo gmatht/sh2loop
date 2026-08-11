@@ -280,6 +280,12 @@ STRATEGY
 - If a fix belongs in the runtime instead of the emitter, fix the runtime.
 - The PERL backend is 100% the perl workers' problem (rust loop / backends/perl). IGNORE perl verdicts entirely: never touch perl code, never act on perl failures. Your scope: the ESTree backend + the shared core's estree-facing parts + pending core-requests.
 - If you cannot fix something, move on — do not regress what works.
+- When REPRODUCING any failing test or RUNNING the transpiled output,
+  ALWAYS wrap the command in 'timeout 15' (e.g.
+  'timeout 15 node harness/estree-runner.mjs <estree.json> --source <f>').
+  Some transpiled programs (double-paren-subshell.sh) never terminate —
+  the harness's 20s timeout protects the corpus, but a direct pi
+  reproduction bypasses it and wedges this loop on the unclosed pipe.
 PROMPT
     return $prompt;
 }
@@ -636,7 +642,10 @@ sub invoke_pi {
     }
     close $pi_fh;
     print "\n(pi finished)\n";
-    return 1;
+    # Return the accumulated full text so callers (the dedicated
+    # core-request round) can parse per-request DECISION lines. Truthy
+    # for the existing boolean callers (non-empty on success).
+    return $full;
 }
 
 # ── scoped git operations (never add -A) ─────────────────────────────
@@ -953,12 +962,16 @@ sub finalize_core_requests {
         scoped_commit("core-request: mediate + implement worker escalations", $s);
         print "\ncore-requests: core changes present; committing.\n";
     }
-    # Only requests pi actually ADDRESSED (an ## OUTCOME line appended) move
-    # to done/; the rest stay pending for the next iteration. A rejected
-    # request carries its reason in the file (the README's promise).
-    my @addressed = grep { request_has_outcome($_) } @core_pending;
-    my @untouched = grep { !request_has_outcome($_) } @core_pending;
-    for my $r (@addressed) {
+    # implemented -> done/ + WAKE the trapped worker (the fix landed);
+    # rejected -> done/ with the reason RECORDED but NO wake (a rejected
+    # request re-files uselessly — the -b loop; the rejection is the record);
+    # untouched -> STAYS PENDING, with a stall cap: after 3 consecutive
+    # cycles without implementation it auto-moves to done/ as 'stalled'
+    # (no wake) so the queue cannot grow with pi-ignored requests.
+    my @impl      = grep { request_outcome($_) eq 'implemented' } @core_pending;
+    my @rejected  = grep { request_outcome($_) eq 'rejected' } @core_pending;
+    my @untouched = grep { request_outcome($_) eq '' } @core_pending;
+    for my $r (@impl) {
         my $bn = (split /\//, $r)[-1];
         system('mv', $r, "$core_requests_dir/done/$bn");
         if (my ($lang) = $bn =~ /^(.+)-\d{8}-\d{6}\.md$/) {
@@ -969,21 +982,117 @@ sub finalize_core_requests {
             }
         }
     }
-    if (@untouched) {
-        print "  kept " . scalar(@untouched) . " request(s) pending (no ## OUTCOME line — pi did not address them):\n";
-        print "    $_\n" for @untouched;
+    for my $r (@rejected) {
+        my $bn = (split /\//, $r)[-1];
+        system('mv', $r, "$core_requests_dir/done/$bn");
+        print "  rejected (worker stays asleep): $bn\n";
     }
-    log_decision('core-request', scalar(@addressed), scalar(@untouched), 'addressed/untouched');
-    @core_pending = @untouched;
+    for my $r (@untouched) {
+        my $n = 0;
+        if (open my $cf, '<', "$r.stall") { $n = <$cf>; close $cf; }
+        $n++;
+        my $bn = (split /\//, $r)[-1];
+        if ($n >= 3) {
+            system('mv', "$r.stall", "$core_requests_dir/done/$bn.stall") if -f "$r.stall";
+            system('mv', $r, "$core_requests_dir/done/$bn");
+            print "  STALLED (pending 3 cycles, no implementation): $bn\n";
+        } else {
+            open my $cf, '>', "$r.stall"; print $cf $n; close $cf;
+            print "  kept pending (cycle $n/3): $bn\n";
+        }
+    }
+    log_decision('core-request', scalar(@impl), scalar(@rejected) + scalar(@untouched), 'impl/rejected/pending');
+    @core_pending = ();
 }
 
-# A request is addressed iff pi appended an "## OUTCOME" section.
-sub request_has_outcome {
+# A request's verdict: 'implemented' | 'rejected' | '' (untouched/pending).
+sub request_outcome {
     my ($r) = @_;
-    return 0 unless -f $r;
-    open my $fh, '<', $r or return 0;
+    return '' unless -f $r;
+    open my $fh, '<', $r or return '';
     local $/; my $txt = <$fh>; close $fh;
-    return $txt =~ /^## OUTCOME:\s*(implemented|rejected)/m ? 1 : 0;
+    if ($txt =~ /^## OUTCOME:\s*implemented/m) { return 'implemented'; }
+    if ($txt =~ /^## OUTCOME:\s*rejected/m)    { return 'rejected'; }
+    return '';
+}
+
+# ── dedicated core-request mediation prompt ─────────────────────────
+# Anti-starvation: when sibling workers have pending core-requests, a full
+# pi round is given to the requests ALONE — the estree worker's own tiny
+# improvement work (the sh2.* call-site grind) waits until the queue is
+# empty. The corpus gate (green this iteration) still governs commits.
+sub build_core_request_prompt {
+    my ($summary) = @_;
+    my $p = "You are the SINGLE OWNER of the shared sh2perl core.\n";
+    $p .= "THIS ROUND IS DEDICATED TO MEDIATING PENDING CORE-REQUESTS from sibling workers\n";
+    $p .= "(the sh/c/go/python/... frontends and backends are blocked on them; trapped\n";
+    $p .= "workers sleep until their request lands). Do NOT do your own improvement work\n";
+    $p .= "— tiny estree lowerings (sh2.* call-site reductions) can wait until the\n";
+    $p .= "core-request queue is empty.\n\n";
+    $p .= "Current corpus verdict (informational): estree " . ($summary->{estree_passed} // '?') . "/" . ($summary->{total} // '?') . " pass.\n\n";
+    $p .= "MANDATORY PER-REQUEST ACCOUNTABILITY (the queue is no longer silently stalling):\n";
+    $p .= "For EVERY request below you MUST emit, in your final reply to this prompt, a single line of the form:\n";
+    $p .= "  [core-request <filename.md>] DECISION: implemented | rejected | untouched — <one-line reason>\n";
+    $p .= "The DECISION line is REQUIRED for every request — an in-file '## OUTCOME:' marker alone is NOT sufficient and is treated as a contract violation. The 'reason' is MANDATORY for 'untouched' (state what you need to make progress — e.g. 'waiting on an upstream core change', 'too large for one round, see partial work in <file>', 'conflicts with <other-request>, proposing reject'). The loop scans your reply for these lines and prints a per-request table; missing lines surface as warnings so the situation is visible (and the stall cap is still the safety net).\n\n";
+    $p .= "In-file outcomes (the existing contract) still apply where you DO land work: APPEND '## OUTCOME: implemented' to the request file on implementation, or '## OUTCOME: rejected: <reason>' on rejection. The DECISION line is the per-round log signal; the in-file marker is the finalize signal.\n";
+    $p .= "Regression rules (unchanged): ./fail-estree must stay green at the trusted baseline; determinism (cargo test --lib) and the structural gate must stay green; PERL pass count must not drop. If implementing would regress, the right call is 'untouched' WITH a reason (e.g. 'would regress tXX; needs a shir_passes fix first'), not a silent leave.\n";
+    $p .= "If two requests conflict, implement the one maximizing corpus coverage and reject the other — the DECISION line carries the reason.\n";
+    $p .= "Scope: shared core (src/shir.rs, src/ir.rs, src/estree.rs, src/parser/, shir_json.rs, shir_json_in.rs), src/transforms/ compile-ins (core-requests/transforms/), harness/*. Commit scoped changes when green.\n";
+    return $p;
+}
+
+# ── parse per-request DECISION lines from pi's reply ─────────────────
+# The dedicated mediation round requires pi to emit, for every request,
+# `[core-request <name>] DECISION: implemented|rejected|untouched — <reason>`.
+# Scan the pi transcript and build a { name => { state, reason } } map;
+# report requests with no DECISION line as contract violations (so the
+# situation is visible — "Deepseek trouble" / silent stall — without
+# waiting for the cycle-3 auto-stall cap).
+sub parse_pi_decisions {
+    my ($text) = @_;
+    my %d;
+    return \%d unless defined $text && length $text;
+    # Match the line; tolerate leading/trailing whitespace, em- or
+    # en-dash separators (pi occasionally emits those), and the
+    # <filename>.md may include hyphens.
+    while ($text =~ m{
+        \[\s*core-request\s+([\w.-]+\.md)\s*\]\s*
+        DECISION\s*:\s*
+        (implemented|rejected|untouched)\s*
+        [-–—]\s*
+        ( [^\n\r]* )
+    }gix) {
+        $d{$1} = { state => lc($2), reason => $3 };
+    }
+    return \%d;
+}
+
+# ── print the per-request mediation table for a round ─────────────────
+# For each request in @names, report the DECISION pi emitted (or flag
+# a contract violation if none). This is the per-round accountability
+# the dedicated prompt demands.
+sub print_mediation_table {
+    # Note: avoid `my (..., \@name) = @_` — that's the experimental
+    # `declared_refs` feature in Perl 5.36+ and fatally aborts the
+    # loop on startup. Take the array ref plainly.
+    my ($decisions, $names) = @_;
+    my $v = 0;  # violations
+    for my $name (sort @$names) {
+        my $bn = $name; $bn =~ s{.*/}{};
+        my $d = $decisions->{$bn} || $decisions->{$name};
+        if ($d) {
+            my $r = $d->{reason}; $r //= ''; $r =~ s/^\s+|\s+$//g;
+            print "    [core-request $bn] DECISION=" . $d->{state}
+                . ($r ne '' ? "  — $r" : '') . "\n";
+        } else {
+            print STDERR "    [core-request $bn] *** CONTRACT VIOLATION: no per-round DECISION line emitted (in-file OUTCOME marker alone is insufficient; the situation is now visible — stall cap is the safety net)\n";
+            $v++;
+        }
+    }
+    if ($v) {
+        print STDERR "  core-request mediation: $v contract violation(s) this round (missing DECISION lines).\n";
+    }
+    return $v;
 }
 
 my $iteration = 0;
@@ -1136,6 +1245,39 @@ while (1) {
         # core-requests: once green, commit + wake any sleeping workers whose
         # requests the (single) pi call implemented.
         finalize_core_requests();
+        # Anti-starvation policy: requests STILL pending after the previous
+        # round's outcomes are finalized get a DEDICATED mediation round —
+        # sibling workers (sh/c/go/python frontends + backends, trapped
+        # sleepers) are blocked on them, so the estree worker's own tiny
+        # improvements (the sh2.* call-site grind) wait until the queue is
+        # empty. Regression protection is unchanged: the corpus gate (green
+        # above) governs commits; a red corpus next iteration goes to fix
+        # mode. report_only (prefix runs) never mutates: no invocation.
+        collect_core_requests();
+        if (!$report_only && @core_pending) {
+            print "\nImprovement mode deferred: " . scalar(@core_pending) . " pending core-requests — dedicated mediation round (tiny estree improvements wait for the queue).\n";
+            my $req_prompt = build_core_request_prompt($summary);
+            if ($dry_run) {
+                print "\n----- DRY RUN: core-request mediation prompt below, no pi invocation -----\n";
+                print $req_prompt . $core_block;
+                print "\n----- end dry run -----\n";
+                release_lock();
+                exit 0;
+            }
+            my $pi_text = invoke_pi($req_prompt . $core_block);
+            # Per-round accountability: scan pi's reply for the
+            # mandatory per-request DECISION lines and print a table.
+            # Without this the "silently leave pending" failure mode (pi
+            # in trouble) was invisible until the cycle-3 stall cap
+            # kicked in. Now the situation surfaces immediately.
+            my $decisions = parse_pi_decisions($pi_text);
+            my $violations = print_mediation_table($decisions, [map { my $p=$_; $p =~ s{.*/}{}; $p } @core_pending]);
+            if ($violations) {
+                log_decision('core-request-violation', $violations, scalar(@core_pending), 'missing-decision');
+            }
+            sleep 3;
+            next;
+        }
         my $metric = read_metric($metric_file);
         if (!$report_only && defined $metric) {
             my $prev_total = read_metric_total($metric_prev);

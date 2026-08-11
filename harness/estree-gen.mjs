@@ -84,6 +84,8 @@ function exprUnwrapped(node) {
       }
       return `${expr(node.callee, PREC.CallExpression)}(${node.arguments.map(a => parenSeq(a, expr(a))).join(', ')})`;
     }
+    case 'NewExpression':
+      return `new ${expr(node.callee, PREC.CallExpression)}(${node.arguments.map(a => parenSeq(a, expr(a))).join(', ')})`;
     case 'MemberExpression': {
       const obj = expr(node.object, PREC.MemberExpression);
       if (node.computed) return `${obj}[${parenSeq(node.property, expr(node.property))}]`;

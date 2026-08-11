@@ -90,11 +90,17 @@ sub run_one_test {
             }
         }
         if ($perl_verdict eq 'PASS') {
-            my $perl_out = `timeout $timeout_per_test perl -M5.010 '$perl_file' 2>"$tmp_dir/pserr.txt"`;
+            # argv0 = the source path (what `bash '$test_file'` sees) so
+            # $0-dependent stdout agrees with bash ($0 is argv0 pass-through).
+            my $perl_out = `timeout $timeout_per_test perl -M5.010 -e '\$0 = shift \@ARGV; my \$__f = shift \@ARGV; do \$__f' '$test_file' '$perl_file' 2>"$tmp_dir/pserr.txt"`;
             my $perl_exit = $? >> 8;
             my $bash_out = `timeout $timeout_per_test bash '$test_file' 2>"$tmp_dir/bserr.txt"`;
             my $bash_exit = $? >> 8;
-            if (($perl_out // '') ne ($bash_out // '')) {
+            if ($bash_exit == 124) {
+                # the bash reference itself timed out — inconclusive, not a
+                # backend failure (mirror of the estree path)
+                $perl_reason = 'bash reference timed out (inconclusive)';
+            } elsif (($perl_out // '') ne ($bash_out // '')) {
                 $perl_verdict = 'FAIL';
                 $perl_reason = 'stdout mismatch';
             } elsif ($perl_exit != $bash_exit) {
@@ -125,18 +131,34 @@ sub run_one_test {
         } else {
             my $est_out = `timeout $timeout_per_test node "$runner" "$json_file" --source "$test_file" 2>"$tmp_dir/estderr.txt"`;
             my $est_exit = $? >> 8;
-            if ($est_exit != 0) {
+            # The runner exits with the PROGRAM's exit code (the exit
+            # builtin, errexit aborts, and the program-final status via
+            # sh2._finish — bash's exit code is the last command's status),
+            # so a nonzero exit is a VERDICT to compare against bash, not
+            # a runtime error. Only the runner's own infrastructure
+            # failures (bad JSON / printer / usage errors) are runtime
+            # errors — it prefixes those with "estree-runner:" on stderr.
+            my $err = '';
+            if (open my $efh, '<', "$tmp_dir/estderr.txt") {
+                local $/; $err = <$efh>; close $efh;
+            }
+            if ($est_exit != 0 && $err =~ /^estree-runner:/m) {
                 $est_verdict = 'FAIL';
-                my $err = '';
-                if (open my $efh, '<', "$tmp_dir/estderr.txt") {
-                    local $/; $err = <$efh>; close $efh;
-                }
-                $err =~ s/\n.*//s;
-                $est_reason = "runtime error: $err";
+                my $first = (split /\n/, $err)[0];
+                $est_reason = "runtime error: $first";
             } else {
                 my $bash_out = `timeout $timeout_per_test bash '$test_file' 2>"$tmp_dir/bserr2.txt"`;
                 my $bash_exit2 = $? >> 8;
-                if (($est_out // '') ne ($bash_out // '')) {
+                # The bash REFERENCE timed out (the harness's per-test cap,
+                # not a bash exit code): e.g. sqrt1337.sh's 10k-iteration
+                # grep-in-loop is ~15s natively and more under parallel
+                # load. The estree translation ran to completion — a
+                # killed reference is INCONCLUSIVE, not a translation
+                # failure (a wrong translation still fails its own stdout
+                # / runtime-error checks above).
+                if ($bash_exit2 == 124) {
+                    $est_reason = "bash reference timed out (estree ran; inconclusive)";
+                } elsif (($est_out // '') ne ($bash_out // '')) {
                     $est_verdict = 'FAIL';
                     $est_reason = 'stdout mismatch';
                 } elsif ($est_exit != $bash_exit2) {

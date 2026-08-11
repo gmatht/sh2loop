@@ -2,6 +2,167 @@
 
 C source -> A1 shIR JSON (the shell-flavored subset of C).
 
+## v4 — the last refused rung (2026-08-10), 79/79
+
+## v4.1 — bare `!` on a numeric operand (c-request cpp-20260810-054745)
+
+`if (!no)` was silently DROPPING the branch in the estree run: the test
+string `! $no` negates the test grammar's "is the string non-empty"
+(a set variable `"0"` is a non-empty string → `! 0` is FALSE), not C's
+"is the value zero". The lowering now folds the negation into the
+comparison — C truth `!x` is exactly `x == 0`, so a bare `!` on an int
+var / int literal renders `$x -eq 0` (the grammar's `!` binds to the
+WHOLE rest, so `! $x -eq 0` would be the mirror image). STRING-valued
+operands (char vars, char* vars, literals) keep the bare `! $c` — the
+faithful "is the string empty" model (an `-eq` would coerce the char
+to 0). The proven `!(a == 1)` → `! $a -eq 1` shape is unchanged. The
+bare-int-operand truthiness of `&&`/`||` (`$x` directly under `-a`/
+`-o` — string-truth, documented deliberate) is a SEPARATE pre-existing
+gap, untouched.
+
+
+The five documented refusals that remained after v3, each pinned by a
+stdout example (t75–t79):
+
+- **Runtime VALUE reads in CONDITIONS** (deref / index / call / prefix-
+  inc inside `if`/`while`/`for`/`switch` conditions): hoisted to temps.
+  An `if` hoists once (Block[temps, If]); a `while`/`for`/`do-while`
+  whose cond needs reads becomes the refresh-and-guard structure
+  `while (1) { temps; if (!cond) break; body }` — the cond must
+  re-evaluate per iteration, so the temps refresh at the top of each
+  (the while-header cond is emitted before the body). A foldable call
+  (`twice(3)`) is hoisted too — the test-string grammar has no call
+  node. `switch (*p)` hoists the discriminant once. t75: array-max
+  loop, `while (*q < 3)` walk, call in cond.
+- **Prefix `++i` / `--i` in EXPRESSION position**: the value is the NEW
+  value — hoisted to an increment statement + the plain var read at the
+  statement level (printf args, decl inits, compound RHS, and inside
+  conditions). t76: `printf("%d", ++x + 1)`, `int y = ++x;`,
+  `while (++i < 3)`.
+- **Multi-char literals** `'ab'`: C packs the bytes big-endian into an
+  int (GCC 'ab' = 0x6162). Single chars stay the 1-char string form.
+  t77.
+- **Read+write out-params** (`void bump(int *x) { *x = *x + 1; }`): the
+  frontend lowers the RHS memory read through a temp (arithOperand now
+  recurses into bins — only the read subtree temps), and the transform
+  treats a read+write write-param as IN-OUT: it keeps its input
+  position (only write-ONLY params shift later positions), the caller
+  passes the current value, the function's load reads it, and the new
+  value comes back via the echo channel. t78: bump + addout(&v, 5).
+- **Switch mid-arm breaks** (`case 1: if (c) break; rest;`): a guarded
+  mid-arm break keeps its guard with an EMPTY then and wraps the
+  REMAINDER of the merged arm (the rest of this case + the fallthrough
+  tail) in the guard's ELSE — a true guard exits the switch by skipping
+  everything, a false guard falls through (C fallthrough). Trailing
+  breaks still end the arm; bare mid-breaks drop the unreachable rest.
+  (The Goto/Label route was tried first — the shared RestructureGoto
+  pass handles one goto per label and removes it, so multiple
+  break-gotos to one switch-end label panic the renderer.) t79.
+
+Still refused (honest): char ORDERING comparisons (`c < 'b'` — the test
+grammar has no string ordering and char values are strings), pointer
+ADVANCE on array-derived pointers (`q++` where `q = &a[1]` — the
+ptrTarget model is compile-time; heap pointers advance fine),
+`int a, b;` with pointer declarators.
+
+## v3 — mem-slice-2 + multi-return + the next rung (2026-08-10), 74/74
+
+Three stacked work items, each pinned by a testdata stdout example
+(t69–t74):
+
+- **mem-slice-2 (core request c-mem-slice2) — dynamic pointer
+  arithmetic**: the arena (numeric ids, element-size scaling) was
+  already runtime-side; this lands the missing dynamic POSITION model.
+  A pointer that is ever advanced/comparison-used carries its position
+  in a dedicated runtime handle var (the while-header cond is emitted
+  BEFORE the body's advance, so a compile-time offset could never
+  advance per-iteration — ptrNeedsDyn pre-scans the remaining tokens at
+  the declaration to force the runtime model). `p = p + n` / `p++` /
+  `p += n` lower to `memAdvance` (a NEW handle with the embedded
+  element offset); `p < end` / `p == end` lower to the runtime
+  `memTest` (position compare); reads/writes go through the handle's
+  embedded offset. The root var keeps the base `:0` allocation handle
+  (pointer-copy semantics: `int *p = a; a++` leaves p at the original
+  element). t69 walk-sum, t70 store-walk.
+- **multi-return (core request c-multi-return) — multi-out-param
+  functions**: `void getdim(int *w, int *h) { *w = 3; *h = 5; }` — the
+  out-param transform (harness/outparam_to_returns.py) now handles
+  MULTIPLE write-targets: each write-param's last store becomes an
+  `echo` (one value per line, in body order), the dropped write-params'
+  bindings are removed and later read-params renumber, and the caller
+  captures once and destructures via the runtime `line` helper (the
+  core renders `line` natively so the destructure takes the native
+  store-write path — a lifted destructured var would desync from a
+  runtime store write). Mixed shapes work: write + read-only non-
+  pointer params (`getdim(&w, &h, scale)` — renumbering) and
+  read-only pointer params (`copy(&dst, &src)` — `*dst = *src`). The
+  gate pipeline (Makefile + frontend-stdout.sh, lang c) runs the
+  transform on every emitted A1 (conservative identity for programs
+  without out-params). Statement-position user calls now emit fnCall
+  (they were silently DROPPED before — the call vanished).
+- **next rung — calls/ternaries inside ARITHMETIC** (previously "lower
+  it to a temp", now automated): hoistArithCalls rewrites any runtime
+  call or ternary nested inside arithmetic to a temp var (the A1 Arith
+  AST has no Call/Cond node), applied at printf args, declaration
+  initializers, plain and compound assignments (a compound RHS is an
+  implicit arith OPERAND, so even a top-level call there hoists) and
+  for headers. t73: `twice(x) + 1`, `add(x, 2) * 3`, `(x > 3 ? 10 : 20)
+  + 1`, `x += twice(x)`.
+- **switch fallthrough**: a case body that does NOT end with a break
+  merges the next case's arm (C semantics — the shared-body `case 1:
+  case 2: body` form and fallthrough into default both fall out). A
+  break in the MIDDLE of a case body is still stripped (the if-chain
+  has no mid-arm escape) — documented limitation.
+
+## v2 subset (2026-08-10) — 68/68 gate, beyond the v1 refusal wall
+
+v2 lands the common C idioms v1 refused, each pinned by a testdata
+stdout example (t58–t68):
+
+- **Runtime function calls return VALUES** — `twice(x)` with a
+  non-literal arg lowers to A1 `Call("fnValue", ...)` (the VALUE
+  channel; the old `fnCall` emission SILENTLY yielded 0 — the shell
+  fnCall is status-only — see the runtime fnValue / core ternary
+  arm). Multi-param, multi-statement bodies (`int y = x + 1; return
+  y * 2;`) and nested calls work. A call INSIDE arithmetic still
+  refuses (the A1 Arith AST has no Call node — lower to a temp).
+- **Multi-declarator** `int a, b;` / `int c = 3, d = 4;` (pointers
+  refuse — the pointer-init machinery is per-name).
+- **Compound assignments** `*= /= %= <<= >>= &= |= ^=` (v1 had
+  only `=`/`+=`/`-=`); also in for headers and function bodies.
+- **Prefix `++i` / `--i`** in statements and for headers (statement
+  position discards the value, so the lowering is `i = i +/- 1`;
+  prefix in EXPRESSION position still refuses).
+- **Char literals** `'x'` — a 1-char STRING in the store (multi-char
+  refuses). Char comparisons use the STRING test operators
+  (`=`/`!=` via charVars + operandIsString) — `-eq` would coerce
+  both sides to 0. Char ORDERING (`<`/`>`) still refuses (the test
+  grammar has no string ordering).
+- **Bitwise** `& | ^ ~ << >>` (the structured Arith AST renders
+  native JS int32 ops — C `int` semantics; `~x` lowers to `x ^ -1`)
+  and **bitwise/mod in CONDITIONS** (the test-string grammar is
+  comparison-only, so such conditions route to the runtime
+  `testArith` — bash-arith truth — via condCall; even/odd, flag
+  masks, `n % 2 == 0`).
+- **Ternary** `cond ? a : b` — the runtime `ternary` call; the cond
+  is the test-string (native-first) or a testArith call; branches
+  are pure values (eager evaluation is sound for the subset).
+  Literal conds fold (switch-case values, user bodies). Ternary in
+  an ARITH context refuses (lower to a temp).
+- **Dynamic array writes** `a[i] = v` in a loop — the runtime
+  `arrayStore` call (the baked `a[$i]` target would resolve the
+  subscript via the STORE, stale for lifted index vars; the arith
+  index arg is lowered natively by the core's `arith` arm).
+- **Dynamic heap indices** `p[i]` (read AND write) with a runtime
+  index — the mem-arena offset becomes a runtime arith call (the
+  arena/element-size seam was already runtime-side).
+
+Still refused (honest, refuse > guess): char ordering comparisons
+(`c < 'b'`), pointer advance on array-derived pointers (`q++` where
+`q = &a[1]`), `int a, b;` with pointer declarators.
+
+## v1 subset (the refusal wall the v2 idioms crossed)
+
 Yours (in THIS dir): the lexer, parser, emitter, tests. The v1 subset
 (t01–t18, all green): printf, int assignments (+=/-=), binary arith,
 comparisons, if/else, while, for (lowered to the equivalent while — the

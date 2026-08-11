@@ -1,0 +1,18 @@
+[package]
+name = "otranspilerl"
+version = "0.1.0"
+edition = "2021"
+description = "Unified transpiler library: statically links the debashl core + all backend renderers"
+
+[lib]
+name = "otranspilerl"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "otranspilerl-cli"
+path = "src/main.rs"
+
+[dependencies]
+debashl = { path = "../sh2perl" }
+
+[workspace]
