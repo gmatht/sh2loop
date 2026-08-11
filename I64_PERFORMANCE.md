@@ -107,16 +107,29 @@ dedicated wasm local.
 - **w_layout edge emission**: an unresolved edge target (label pos −1) ran
   the LEB loop on a negative `v` forever (arithmetic shift keeps −1) → heap
   corruption + compiler segfault. Now a loud REFUSE.
+- **i64 memory lvalue loads** (committed `6c5460b0`): the backend assumed
+  i64 register pairs are consecutive (r, r+1), but tccgen's `get_reg`
+  allocates the second word independently. `reg_classes[0]` carried a
+  spurious `RC_F(0)`, so `RC_RET(i64)` failed `RC2_TYPE`'s `rc == RC_IRET`
+  test and an i64 return's second word could land in any int register while
+  the epilog reads the fixed pair (0,1) — wrong hi word for `return p[0]`.
+  `gen_opl`/`TOK_UMULL` combined operands from `(a, a+1)` and stored the
+  split to `(d, d+1)` — with non-consecutive pairs those read/wrote the
+  wrong slots, and allocating `d2` without marking `d` busy on the vstack
+  returned the SAME slot for low and high (silently merging the stores).
+  Now: no `RC_F(0)` on reg 0; the actual `r2` of each operand is used;
+  a real second register is allocated for the high word; the shift count
+  (kept INT by tccgen) has a zero high word.
 
-Verified: pow3(n) n≤60, sumN(100000), 6000+ randomized i64 add/sub/mul/
-shift/bitwise checks against emcc -O0 (register operands), i64 params,
-carry/borrow across 2^32.
+Verified: pow3(n) n≤60, sumN(100000), 3000+ randomized i64 add/sub/mul/
+shift/bitwise/mixed checks against emcc, memory lvalue loads (ld4-6),
+loaded×loaded muls, i64 params/returns, carry/borrow across 2^32.
 
 ### Known remaining (pre-existing; all loud or documented, none silent)
 
-- i64 memory lvalue loads — hi word wrong (`ld4`/`ld6` style; the two-word
-  deref path is broken; the load+add case passes by register luck).
-- if/else with i64 statement bodies — returns 0 (branch edges unresolved).
+- if/else inside loops with i64 bodies — returns 0 (the pristine original
+  produces identical wrong results; the loop back-edge + branch label
+  mapping in w_layout).
 - 64-bit compares — REFUSE (unresolved label) or, in some shapes, wrong
   results; the underlying deferred-`cmp_r` design also corrupts 32-bit
   compares under register pressure (eager evaluation fixes it but perturbs
