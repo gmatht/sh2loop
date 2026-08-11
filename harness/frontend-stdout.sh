@@ -192,6 +192,7 @@ for f in "$dir"/*"$ext"; do
     powershell) limits=$native_limits_powershell ;;
   esac
   native_out=""
+  native_ran=0   # 1 when native_out came from an actual interpreter run (not a recorded limit)
   if [ -n "$limits" ]; then
     # line-based (the recorded expectations contain spaces — a
     # word-split `for entry in $limits` would shred them)
@@ -207,6 +208,7 @@ EOF
   fi
   if [ -z "$native_out" ]; then
     native_out=$(run_native "$f") || true
+    native_ran=1
   fi
   # 2. frontend emit
   if ! "$bin" --shir "$f" --raw > "$tmp/a1.json" 2>"$tmp/emit.err"; then
@@ -240,7 +242,22 @@ EOF
   fi
   # 2c. run transpiled JS
   trans_out=$(timeout 20 node "$runner" "$tmp/e.json" --source "$f" 2>/dev/null) || true
-  # 3. compare normalized stdout
+  # 3. compare normalized stdout. The EXECUTION step is the only
+  # nondeterministic link in the chain (emit + A1->ESTree are pure), and
+  # under concurrent-gate load (several frontends run their runners on one
+  # box) a node runner or native interpreter can be starved / timed out /
+  # OOM-killed for EXACTLY ONE test (go-sh t02_assign_str at 16:56:55,
+  # 1-in-36 gate runs, transpiled side empty). On mismatch, retry both
+  # sides once — a real deterministic regression fails the retry too and is
+  # still reported as DIFF/FAIL (same policy as the debashc relink retry
+  # above; recorded-limit natives are never re-run).
+  if [ "$(normalize "$native_out")" != "$(normalize "$trans_out")" ]; then
+    sleep 1
+    if [ "$native_ran" -eq 1 ]; then
+      native_out=$(run_native "$f") || true
+    fi
+    trans_out=$(timeout 20 node "$runner" "$tmp/e.json" --source "$f" 2>/dev/null) || true
+  fi
   if [ "$(normalize "$native_out")" = "$(normalize "$trans_out")" ]; then
     echo "OK   $bn (stdout match)"
   else
