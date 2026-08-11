@@ -70,9 +70,9 @@ cycle() {  # fe
     # escalate only when the status CHANGED to a FAIL-* (or a FAIL detail changed)
     if [ "$old" != "$st" ] && [[ "$st" == FAIL-* ]]; then
       local esc; esc=$(awk -F'\t' -v f="$fe2" -v b="$be" -v e="$ex" -v s="$st" '$1==f && $2==b && $3==e && $4==s {print "yes"}' "$TRIAGE/escalated.tsv" 2>/dev/null | tail -1)
-      [ -z "$esc" ] && escalate "$fe2" "$be" "$ex" "$st" "$det"
+      if [ -z "$esc" ]; then escalate "$fe2" "$be" "$ex" "$st" "$det"; fi
     fi
-  done
+  done || true
   # refresh the baseline for this frontend (latest status per pair)
   awk -F'\t' -v fe="$fe" '$1==fe {print $1"\t"$2"\t"$3"\t"$4}' "$TRIAGE/verdicts.tsv" 2>/dev/null \
     | awk -F'\t' '!seen[$1 FS $2 FS $3]++' > "$TRIAGE/.baseline.new"
@@ -97,7 +97,7 @@ while true; do
   fi
   for fe in "${FRONTENDS[@]}"; do
     bash "$WORKSPACE/setup_backends.sh" --wait >> "$LOG" 2>&1 || true
-    cycle "$fe"
+    cycle "$fe" || true
     sleep 60
   done
   sleep 600
