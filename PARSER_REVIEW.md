@@ -149,23 +149,28 @@ rust-frontend can refuse without losing anything it processes:
 modules, `Group`/`Verbatim`/`Infer`, `Lit::CStr`, and the bit-shift /
 bit-xor operator family (`Shl`, `Shr`, `BitXor`, `BitOr`, …).
 
-### 2.6 tree-sitter — planned, not in use: nothing to measure yet
+### 2.6 tree-sitter — now in use for the C++ frontend
 
-There is **zero tree-sitter code in the workspace** (no bindings in any
-go.mod, nothing in the Go module cache, no Rust `tree-sitter` crate
-use). It exists only as CPP_PLAN's specification for the C/C++
-frontend: tree-sitter-c/tree-sitter-cpp grammars + a shared Go walker,
-shipped as a self-contained wasm binary (the cgo/wasm constraint,
-CPP_PLAN §2). Until that lands, the C++ frontend's *actual* parser is
-the provisional hand-rolled tokenizer (keyword refusal + C desugar),
-which is what §1 measures: cpp-sh-go 6/13 EMIT, 6 REFUSE, 1 PARSE-ERR
-over its own testdata.
+**Status changed (2026-08-12):** tree-sitter is no longer planned-only.
+`frontends/cpp-sh-go/parser.go` adopts `tree-sitter-cpp` (via
+`smacker/go-tree-sitter`, cgo) as the C++ frontend's parser: the whole
+file parses (GLR error tolerance) and a whitelist walker refuses any
+NAMED node outside the expressible set — node-level refusal with kind
++ line (`template_declaration`, `class_specifier`,
+`qualified_identifier`, `reference_declarator`,
+`placeholder_type_specifier`, `try_statement`, `->`, syntax errors).
+The hand-rolled tokenizer is demoted to C-text reconstruction for the
+shared clib lowering; the desugar (bool/new/delete → C) is unchanged.
+Gate verified: 7/7 node-level refusals, 6/6 ingress + executed-stdout,
+C-invariant green. The wasm packaging (CPP_PLAN §2, browser C/C++
+source support) remains deferred — this is the native Go + cgo shape
+(CPP_PLAN Session 1).
 
-Measuring tree-sitter coverage (the same defined-vs-exercised
-analysis) is a follow-up that requires first adopting a binding
-(`smacker/go-tree-sitter` or the Rust `tree-sitter` crate) and the
-tree-sitter-c/cpp grammars — the grammar-node analysis can then reuse
-the `Rules.java` approach with node-kind strings instead of rule names.
+Measuring tree-sitter coverage (the defined-vs-exercised analysis) is
+a follow-up that needs a node-kind tracer; the grammar's node types
+are enumerable (428 kinds in tree-sitter-cpp's node-types.json), and
+the whitelist in parser.go is the empirical expressible set (45 kinds
+from the positive testdata + explicitly-expressible additions).
 
 ### 2.7 What this means (all parser technologies)
 
@@ -215,6 +220,6 @@ the `Rules.java` approach with node-kind strings instead of rule names.
    44-kind testdata corner; the measured 30 never-exercised kinds are
    the ready-made refuse list. No action needed — the v0.1 subset is
    consistent with the data.
-7. **tree-sitter**: nothing to do until the CPP_PLAN C/C++ grammar work
-   lands; the review provides the measurement method (Rules.java
-   pattern) for when it does.
+7. **tree-sitter**: adopted for cpp-sh-go (parser.go, tree-sitter-cpp
+   node-level refusal) — gate green. The wasm packaging (CPP_PLAN §2)
+   and a node-kind coverage tracer remain follow-ups.
