@@ -36,7 +36,7 @@ FT="$ROOT/frontends"
 WORKSPACE="$ROOT"
 
 DEFAULT_BACKEND_LANGS="perl js c python zig go rust sh java"
-DEFAULT_FRONTEND_LANGS="py-sh-go go-sh posix-sh-go perl-sh-go fish-sh-go zsh-sh-go c-sh-go cpp-sh-go"
+DEFAULT_FRONTEND_LANGS="py-sh-go go-sh posix-sh-go perl-sh-go fish-sh-go zsh-sh-go c-sh-go cpp-sh-go rust-frontend"
 
 # Active backends whose workers already run from the main checkout
 # (main_loop_rust.pl / main_loop_estree.pl); the per-worktree worker
@@ -327,7 +327,7 @@ do_build () {
   for lang in "${langs[@]}"; do
     # decide kind
     local kind="backend"
-    case "$lang" in py-sh|go-sh|posix-sh|busybox-ash|fish|zsh|perl-sh|cpp-sh|rust-sh|c-sh-go|cpp-sh-go) kind="frontend" ;; esac
+    case "$lang" in py-sh|go-sh|posix-sh|busybox-ash|fish|zsh|perl-sh|cpp-sh|rust-sh|c-sh-go|cpp-sh-go|rust-frontend) kind="frontend" ;; esac
     local cmd; cmd=$(build_cmd "$kind" "$lang")
     echo "  [$kind:$lang] build: $cmd"
     (
@@ -567,6 +567,38 @@ case "${1:-}" in
                   pi --mode json --provider opencode-go --model deepseek-v4-flash \
                      --thinking xhigh < /tmp/pi-fix-prompt-$$ >> "$fix_log" 2>&1 || true
                   rm -f /tmp/pi-fix-prompt-$$
+                  exit 0 ;;
+  --pi-coverage-example) # internal: invoked by a frontend worker after a
+                  # GREEN gate when its parser node coverage is incomplete
+                  # (worker-coverage-step.sh). pi creates ONE testdata
+                  # example exercising the uncovered node, scoped to
+                  # frontends/<name>/testdata/. The worker's gate validates
+                  # and commits (or discards) it.
+                  # Usage: setup_backends.sh --pi-coverage-example <name> <gap>
+                  shift; cov_name="$1"; cov_gap="$2"
+                  cov_dir="$FT/$cov_name"; cov_log="$WORKSPACE/loop-frontend-$cov_name.log"
+                  {
+                    cat <<EOF
+Your frontend's gate is GREEN, but its testdata examples do not yet cover every parser node.
+Uncovered parser node / construct: $cov_gap
+
+Create ONE new testdata example in $cov_dir/testdata/ that exercises this construct.
+
+Constraints:
+  - check the existing testdata/ files first — the construct must NOT already be covered
+  - the example must be a minimal, valid $cov_name program the frontend EXPRESSES (it must EMIT, not refuse)
+  - it must pass the gate: make test in $cov_dir (refusals + ingress acceptance + executed-stdout oracle)
+  - name it t<NN>_<description>.<ext> following the existing testdata numbering
+  - if the frontend REFUSES this construct by design (check FRONTEND.md / the parser source), do NOT create the example; exit 0
+
+Edit surface: frontends/$cov_name/testdata/ only (harness/* only if the oracle needs it).
+Shared core (DO NOT TOUCH): sh2perl/src/shir.rs, sh2perl/src/ir.rs, sh2perl/src/estree.rs, sh2perl/src/parser/
+EOF
+                  } > /tmp/pi-coverage-prompt-$$
+                  wait_for_ram 2048 0.5 30 600 || true
+                  pi --mode json --provider opencode-go --model deepseek-v4-flash \
+                     --thinking xhigh < /tmp/pi-coverage-prompt-$$ >> "$cov_log" 2>&1 || true
+                  rm -f /tmp/pi-coverage-prompt-$$
                   exit 0 ;;
   --pi-fix-c-requests) # internal: the c-sh-go worker implements pending
                   # c-requests/ (cpp-sh-go -> c-sh-go shared-lowering
