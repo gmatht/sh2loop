@@ -175,6 +175,9 @@ pub fn render(a1: &str, lang: &str) -> Result<String, String> {
     // restructure_goto_only; without it frontend A1 carrying C `goto`
     // reaches the renderers' Label/Goto arms instead of DoWhile/While).
     debashl::shir_passes::restructure_goto_only(&mut prog);
+    // rich nodes (C-style ForInit) → the shell-flavored A1 the renderers
+    // expect; a survivor means this pipeline forgot the strip.
+    debashl::shir_passes::strip_cfor(&mut prog);
     let target = match kind {
         "estree" => {
             debashl::shir::shir_to_estree_json(&prog).map_err(|e| format!("estree: {e}"))?
