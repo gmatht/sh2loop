@@ -31,6 +31,10 @@ case "$lang" in
   zsh)  ext=.zsh;  native=(zsh) ;;
   bat)  ext=.bat;  native=() ;;      # cmd.exe is Windows-only — native side
                                     # is the RECORDED expectations below
+  powershell) ext=.ps1; native=() ;;  # pwsh not installed on the fleet —
+                                    # native side is the RECORDED
+                                    # expectations below (bat precedent)
+  zig)  ext=.zig;   native=(zig run) ;;  # snap direct binary below
   *) echo "unknown lang: $lang"; exit 2 ;;
 esac
 
@@ -47,6 +51,17 @@ if [ "$lang" = go ]; then
     gobin=/snap/go/current/bin/go
   fi
 fi
+# Zig: prefer the direct snap binary (snap-confine fails in containers)
+# over the /snap/bin wrapper — same rationale as the go case above.
+zigbin=zig
+if [ "$lang" = zig ]; then
+  if [ -n "${ZIG:-}" ] && [ -x "$ZIG" ]; then
+    zigbin="$ZIG"
+  elif [ -x /snap/zig/current/bin/zig ]; then
+    zigbin=/snap/zig/current/bin/zig
+  fi
+  native=( "$zigbin" run )
+fi
 
 # Native-interpreter limitation list: tests the NATIVE interpreter cannot
 # run (a real language gap — e.g. fish has no heredocs at all) while the
@@ -55,6 +70,7 @@ fi
 # native run, so the transpiler path keeps real coverage. Format:
 #   "name.ext|expected-stdout-with-\\n-escapes" (one entry per line)
 native_limits_fish="t43_heredoc.fish|line1\nline2"
+native_limits_powershell=""
 native_limits_bat="t01_echo.bat|hello world\n
 t02_set.bat|hello world\n
 t03_arith.bat|x=14\n
@@ -106,7 +122,11 @@ t49_robocopy2.bat|top-ok\nsub-no\ndry-clean\ntxt-ok\nlog-filtered\nxd-top-ok\nsu
 
 run_native() {  # <file> -> stdout on stdout
   local f=$1
-  if [ "$lang" = c ]; then
+  if [ "$lang" = zig ]; then
+    # Zig's idiomatic std.debug.print writes to STDERR; the transpiled
+    # target emits stdout — the observable output (2>&1) is the gate.
+    (cd "$tmp" && timeout 20 "$zigbin" run "$f") < /dev/null 2>&1
+  elif [ "$lang" = c ]; then
     cp "$f" "$tmp/main.c"
     (cd "$tmp" && timeout 20 cc main.c -o main 2>/dev/null && timeout 20 ./main) < /dev/null 2>/dev/null
   elif [ "$lang" = cpp ]; then
@@ -161,6 +181,7 @@ for f in "$dir"/*"$ext"; do
   case "$lang" in
     fish) limits=$native_limits_fish ;;
     bat)  limits=$native_limits_bat ;;
+    powershell) limits=$native_limits_powershell ;;
   esac
   native_out=""
   if [ -n "$limits" ]; then

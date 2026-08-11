@@ -36,7 +36,7 @@ FT="$ROOT/frontends"
 WORKSPACE="$ROOT"
 
 DEFAULT_BACKEND_LANGS="perl js c python zig go rust sh java"
-DEFAULT_FRONTEND_LANGS="py-sh-go go-sh posix-sh-go perl-sh-go fish-sh-go zsh-sh-go c-sh-go cpp-sh-go rust-frontend"
+DEFAULT_FRONTEND_LANGS="py-sh-go go-sh posix-sh-go perl-sh-go fish-sh-go zsh-sh-go c-sh-go cpp-sh-go rust-frontend zig-sh-go powershell-sh-go"
 
 # Active backends whose workers already run from the main checkout
 # (main_loop_rust.pl / main_loop_estree.pl); the per-worktree worker
@@ -162,6 +162,8 @@ build_cmd() {
     frontend:py-sh)                 echo "python3 -c 'import ast; ast.parse(open(\"$FT/py-sh/pysh.py\").read())'" ;;
     frontend:go-sh)                 echo "go build -o /tmp/go-sh-build $FT/go-sh/" ;;
     frontend:cpp-sh-go)             echo "make -C $FT/cpp-sh-go build" ;;
+    frontend:zig-sh-go)             echo "make -C $FT/zig-sh-go build" ;;
+    frontend:powershell-sh-go)      echo "make -C $FT/powershell-sh-go build" ;;
     *) echo "echo 'no build for $kind:$lang' && true" ;;
   esac
 }

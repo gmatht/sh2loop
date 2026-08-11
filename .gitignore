@@ -16,3 +16,7 @@ frontends/bat-sh-go/refs/
 .gate-tmp/
 gate-reports/
 triage/
+
+# frontend worker loop logs / pid files (never commit)
+loop-*.log
+loop-*.pid
