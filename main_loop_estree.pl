@@ -667,11 +667,10 @@ sub submodule_changed_paths {
     my $wide = fix_surface_wide();
     for my $line (@out) {
         # porcelain format: "XY path" (X=index, Y=worktree; either may be a space)
-        # Skip UNTRACKED ("??") entries: stash/checkout pathspecs must only
-        # reference files git knows — an untracked WIP file (e.g. a leftover
-        # glsl backend) makes `git stash push -- <path>` fail with "pathspec
-        # did not match", wedging the loop (no commit, requests never resolve).
-        next if $line =~ /^\?\?/;
+        # UNTRACKED ("??") entries ARE included: scoped_commit stages them
+        # (git add handles new files — pi's new modules must land, or the
+        # build references files that never get committed). scoped_stash
+        # filters them out (git stash cannot take untracked pathspecs).
         my ($path) = $line =~ /^..\s+(.+)$/;
         next unless defined $path;
         $path =~ s/\s+$//;
@@ -688,13 +687,19 @@ sub root_changed_paths {
     my @out = `git status --porcelain harness/`;
     my @allowed;
     for my $line (@out) {
-        next if $line =~ /^\?\?/;   # untracked — cannot be stashed/reverted by pathspec
         my ($path) = $line =~ /^..\s+(.+)$/;
         next unless defined $path;
         $path =~ s/\s+$//;
         push @allowed, $path if $path =~ m{^harness/(estree-gen\.mjs|sh2-namespace\.mjs|estree-runner\.mjs|estree_gate\.pl|package\.json)$};
     }
     return @allowed;
+}
+
+# stash pathspecs must reference files git knows — untracked new files
+# (pi's new modules) cannot be stashed by pathspec and would fail the push.
+sub tracked_only {
+    my ($repo, @paths) = @_;
+    return grep { system('git', '-C', $repo, 'ls-files', '--error-unmatch', '--', $_) == 0 } @paths;
 }
 
 sub scoped_commit {
@@ -714,8 +719,12 @@ sub scoped_commit {
 }
 
 sub scoped_stash {
-    my @sub = submodule_changed_paths();
-    my @root = root_changed_paths();
+    # stash ONLY tracked files (untracked new modules can't be a stash
+    # pathspec); the stash reverts the modified references, and the
+    # orphaned untracked files stop breaking the build once nothing
+    # references them.
+    my @sub = tracked_only($sh2perl, submodule_changed_paths());
+    my @root = tracked_only($project_root, root_changed_paths());
     my $stashed = 0;
     if (@sub) {
         system('git', '-C', $sh2perl, 'stash', 'push', '-m', 'estree-loop regression', @sub);
