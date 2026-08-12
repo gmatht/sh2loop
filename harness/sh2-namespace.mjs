@@ -433,6 +433,8 @@ export const sh2 = {
   traps: new Map(),       // signal -> handler string (or closure)
   pending: [],            // background promises
   execAllowlist: null,    // Set of external binaries allowed to spawn, or null = unrestricted
+  cmdVResolved: null,     // Set of paths `command -v NAME` resolved (NAME was
+                          // a source word — the resolved path may be exec'd)
   bgCount: 0,
   lastBg: 0,
   // `set -e` / `set -u` / `set -o pipefail` (approximated: -u is accepted
@@ -803,17 +805,28 @@ export const sh2 = {
       process.exit(2);
     }
     if (this.execAllowlist && !this.execAllowlist.has(cmd)) {
-      // A parser-recovery artifact (e.g. a stray `}` after a subshell, or
-      // the quoted tail of a mangled DQS `$(...)`): the name is not a real
-      // word, so bash never runs it — no-op instead of a security error.
-      // Real command names are word-ish (`a-b`, `./x`, `a.b`); anything
-      // with quotes/parens/whitespace/backslashes can never be spawned as
-      // a binary, so no-opping it cannot weaken the allowlist.
-      if (!/^[A-Za-z0-9_.+@\/:.-]+$/.test(cmd)) {
-        this.lastExit = 0;
-        return true;
+      // A path resolved at runtime (`"$(command -v python3)"` →
+      // `/usr/bin/python3`): the allowlist holds SOURCE words, so the
+      // resolved path itself is never listed. The `command -v` builtin
+      // records its resolutions (cmdVResolved — the name it resolved was
+      // itself a source word), and a path-style command whose basename is
+      // a source word is allowed too (heredoc-binary-data.sh runs
+      // `"$INTERPRETER_UNDER_TEST" -E -`).
+      const base = cmd.includes('/') ? cmd.slice(cmd.lastIndexOf('/') + 1) : null;
+      if (!((this.cmdVResolved && this.cmdVResolved.has(cmd))
+        || (base && this.execAllowlist.has(base)))) {
+        // A parser-recovery artifact (e.g. a stray `}` after a subshell, or
+        // the quoted tail of a mangled DQS `$(...)`): the name is not a real
+        // word, so bash never runs it — no-op instead of a security error.
+        // Real command names are word-ish (`a-b`, `./x`, `a.b`); anything
+        // with quotes/parens/whitespace/backslashes can never be spawned as
+        // a binary, so no-opping it cannot weaken the allowlist.
+        if (!/^[A-Za-z0-9_.+@\/:.-]+$/.test(cmd)) {
+          this.lastExit = 0;
+          return true;
+        }
+        throw new Error(`security: command '${cmd}' not in the source allowlist`);
       }
-      throw new Error(`security: command '${cmd}' not in the source allowlist`);
     }
     const fd0 = this.fdTargets[0];
     const fd1 = this.fdTargets[1];
@@ -6232,7 +6245,15 @@ builtins.command = async function (args) {
     const name = args[1];
     if (this.functions.has(name)) { emit(this, name + '\n'); this.lastExit = 0; return true; }
     const bin = findBin(name);
-    if (bin) { emit(this, bin + '\n'); this.lastExit = 0; return true; }
+    if (bin) {
+      // Record the resolution: the caller may exec the path (`"$(command
+      // -v python3)"` → `/usr/bin/python3`); the allowlist holds source
+      // words, and the resolved path is never a source word, so _runProc
+      // consults this set too (heredoc-binary-data.sh).
+      if (!this.cmdVResolved) this.cmdVResolved = new Set();
+      this.cmdVResolved.add(bin);
+      emit(this, bin + '\n'); this.lastExit = 0; return true;
+    }
     this.lastExit = 1; // not found — silent, matches bash
     return false;
   }
