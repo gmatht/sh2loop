@@ -198,8 +198,8 @@ sub walk {
             # The arrow's body is part of the same tree, so every call
             # inside it is still checked below; the fold only fires for
             # await-free bodies, so the IIFE is pure-CPU (the *Sync rule).
-            my $is_iife = ref $obj eq 'HASH'
-                && ($obj->{type} // '') eq 'ArrowFunctionExpression';
+            my $is_iife = ref $callee eq 'HASH'
+                && ($callee->{type} // '') eq 'ArrowFunctionExpression';
             # direct calls on the sh2 runtime's own state fields — the
             # native special-var lowerings (`$@` → sh2.positional.join(' '),
             # `$#` → sh2.positional.length, `${@:1}` →
