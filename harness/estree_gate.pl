@@ -222,10 +222,11 @@ sub walk {
                         && ($obj->{property}{name} // '') =~ /^(functions|shoptState)$/)
                     # `sh2.exported.add(name)` — the native export lowering
                     # (the runtime builtin's exported-set write; the outer
-                    # prop is `add`)
+                    # prop is `add`); `sh2.assocNames.add(name)` — the bare
+                    # `declare -A map` lowering (the assoc-name registration)
                     || (($prop->{name} // '') eq 'add'
                         && ref $obj->{property} eq 'HASH'
-                        && ($obj->{property}{name} // '') eq 'exported'));
+                        && ($obj->{property}{name} // '') =~ /^(exported|assocNames)$/));
             # process.stdout.write — the native echo lowering (src/shir.rs
             # try_native_echo): a direct module-stdout write, no dispatch
             my $is_stdout_write = ref $obj eq 'HASH'
