@@ -60,6 +60,20 @@ Recommendations. The `echo-with-escaped-backtick*` pair is fixable only at
 the ORACLE level (their feature is stderr routing): keep, and make the gate
 compare stderr.
 
+**FIXED (2026-08-12)** — the C (workspace-mutable) and E
+(broken/vacuous) sets are repaired in the corpus (submodule aef921a):
+unset vars initialized, the undefined function defined, dangling heredoc
+closed, real fixtures supplied, and the three CWD-dependent tests made
+hermetic (mktemp dir + cd, never the mutable workspace). All 31 now
+produce deterministic non-empty bash output. The `echo-with-escaped-
+backtick*` pair now emits its message to stdout (where the gate can see
+it; the `exit 1` stays — stdout-only gates don't compare rc). The gzip
+trio (complex-command-substitution / double-paren-subshell /
+nested-subshell-paren) dropped their fd-racing structure for a
+deterministic nested-cmdsub over real gzip fixtures; the fd-redirect
+parse pin lives in parse-dollar-paren-pipe.sh. utf8-non-utf8-content.sh
+unchanged (passes; toolchain-sensitive).
+
 ## How "fails on most backends" was measured
 
 * Corpus: `sh2perl/examples/*.sh` (532) + `frontends/*/testdata/*.sh` (84) = 614.
