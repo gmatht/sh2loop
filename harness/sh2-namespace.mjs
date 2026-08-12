@@ -1737,12 +1737,14 @@ export const sh2 = {
     let body = String(pattern ?? '');
     try {
       if (fl.includes('F')) {
-        body = body.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        body = escapeRe(body);
       } else if (!fl.includes('E')) {
-        body = body
-          .replace(/\\+/g, '+').replace(/\\\?/g, '?')
-          .replace(/\\\(/g, '(').replace(/\\\)/g, ')')
-          .replace(/\\\|/g, '|').replace(/\\\{/g, '{').replace(/\\\}/g, '}');
+        // The shared BRE translator: `\+` → `+`, `\(` → `(`, bare
+        // `+ ? | ( ) { }` stay literals (GNU BRE), POSIX classes
+        // translate. (The old inline `.replace(/\\+/g, '+')` matched
+        // the backslash ALONE and produced `++` — an invalid regex that
+        // made `grep -o 'pattern[0-9]\+'` return nothing with exit 2.)
+        body = breToJs(body);
       }
       const re = new RegExp(body, fl.includes('i') ? 'gi' : 'g');
       const matches = s.match(re) || [];
