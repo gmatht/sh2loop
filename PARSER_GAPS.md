@@ -113,6 +113,118 @@ inventory, so observable output = the A1 they emit). A future external truth
 could be tree-sitter grammars (tree-sitter-zsh/fish/cmd) or a hand-written
 grammar like POSIX.g4.
 
+## Why each refusal (the reason categories)
+
+"By-design" covers four different reasons, and the honest label for each
+construct matters — a worker fixing it needs to know whether it's a
+lowering bug, a missing subset item, or an A1 extension request:
+
+1. **A1-EXTENSION (core request)** — the A1 shIR is shell-shaped
+   (string/array store, no type system, no concurrency, no
+   compile-time phase). A construct whose semantics *need* a type
+   system, struct member layout, goroutines/channels, exception
+   propagation, or a compile-time step can't be lowered with today's
+   nodes — **but the frontend can request the A1 be extended**: append
+   `core-requests/<fe>-<timestamp>.md` (NEED / WHY /
+   MINIMAL-CORE-CHANGE / FAILING-CASE, per `core-requests/README.md`)
+   and the estree worker (single owner of the shared core) implements
+   it. Proven: c-sh-go's c-mem-slice2 and c-multi-return requests
+   extended the A1/runtime (PLAN.md v20); two go-sh requests are
+   pending right now. The estree worker mediates conflicts and may
+   reject requests that don't serve the corpus.
+2. **SUBSET-NOT-IMPLEMENTED** — the subsets are corpus-driven: each
+   construct lands by pinning the core's exact A1 shape + a passing
+   example (GOOD_EXAMPLES.md). Constructs with no shell-corpus
+   counterpart were never pinned, so the parser refuses (fail-loud) or
+   chokes rather than half-parse. These are *frontend-implementable* —
+   no core change needed (the A1 already has the node: e.g.
+   `Break`/`Continue` exist and c-sh-go emits them; py/go/perl just
+   never wired them).
+3. **MIS-LOWERED (a bug, not a refusal)** — the frontend *parses* the
+   construct and exits 0 but emits the wrong shape; the executed-stdout
+   oracle fails. Recorded in `bugs-<lang>.txt`; the worker must fix the
+   lowering. Corrected during this audit: py `True`→`Str("1")`;
+   c-sh-go const/enum/typedef/volatile inits dropped; `__LINE__`;
+   perl number/q()/`$#` cluster.
+4. **NO-OP / LEXER-DETAIL** — `compilationUnit`/`single_input`/`eval_input`
+   (alternate start rules), `encoding_decl` (source-encoding comment),
+   abstract base classes (PPI::Element/Node/Token). Not constructs.
+
+### go-sh — 106 official-grammar rules, 39 unexercised
+
+| unexercised | category | why |
+|---|---|---|
+| `constDecl` | 2 | Go const is a compile-time typed binding; the store is runtime string vars — would need const-folding the frontend never implemented |
+| `typeDecl`/`typeSpec`/`aliasDecl`/`typeDef`/`typeParameters`/`typeParameterDecl`/`typeElement`/`typeTerm`/`typeArgs` | 1 | the type system + generics: the A1 store has no types; type decls have no runtime semantics, generics need call-site substitution |
+| `structType`/`fieldDecl`/`embeddedField` | 1 | struct layout + member access need member offsets the pointer/array model doesn't carry |
+| `interfaceType`/`methodSpec`/`functionType` | 1 | type-level abstractions with no runtime form |
+| `methodDecl`/`receiver` | 1 | a method binds a function to a *receiver type*; the function model has no receiver concept |
+| `pointerType` | 2 | the core's mem seam exists (c-sh-go uses sh2.mem) but go-sh never implemented pointer semantics |
+| `breakStmt`/`continueStmt` | 2 | **parser choke** (`expected assignment operator, got }`), not a clean refusal — the loop lowering (for→While/Range) never emitted Break/Continue, though the A1 has the nodes |
+| `gotoStmt`/`labeledStmt` | 2 | **parser choke**; Go's jump-into-block restrictions would need analysis; not implemented (contrast c-sh-go, which *did* land Goto/Label) |
+| `selectStmt`/`commClause`/`commCase`/`recvStmt`/`sendStmt`/`goStmt`/`channelType` | 1 | goroutines/channels/select are process-model semantics; the A1's `Background` is shell backgrounding, unrelated |
+| `typeSwitchStmt`/`typeSwitchGuard`/`typeCaseClause`/`typeSwitchCase`/`typeList`/`typeAssertion` | 1 | dispatch on *type* — needs the type system |
+| `deferStmt` | 1 | LIFO stack-unwind at scope exit — no A1 node, would need a runtime construct |
+| `fallthroughStmt` | 2 | Go switch fallthrough: go-sh's switch→if-chain lowering never implemented the keyword (c-sh-go's switch lowering merges fallthrough arms) |
+
+### py-sh-go — 119 official-grammar rules, 74 unexercised
+
+| unexercised | category | why |
+|---|---|---|
+| `classdef`/`decorator`/`decorators`/`decorated` | 1 | classes/instances/methods and higher-order wrapping — the A1 has `Function` (shell fn) but no class model |
+| `try_stmt`/`except_clause` | 1 | exceptions: the A1 has `Die` (exit-with-message) but no catch/propagation — shell has no try/catch; the closest analogue (trap-ERR) isn't in the A1 |
+| `lambda`/`lambdef`/`lambdef_nocond` | 2 | anonymous closures — the A1 has `Arrow` (lambda body) but py-sh-go's function model never implemented closures; shell has none |
+| `async_funcdef`/`async_stmt`/`yield`/`yield_expr`/`yield_arg`/`comp_iter`/`comp_for`/`comp_if` | 1 | generators/async — coroutine semantics, no A1 channel |
+| `break_stmt`/`continue_stmt` | 2 | clean refusal (`unsupported expression statement`) — the loop lowering never wired the (existing) A1 Break/Continue |
+| `import_from`/`import_as_name`/`import_as_names` | 2 | plain `import` IS exercised; `from x import y` and aliasing were never pinned |
+| `assert_stmt`/`raise_stmt`/`del_stmt`/`pass_stmt`/`nonlocal_stmt` | 2/1 | assert/raise = exception model; del = unset (the core's unset is a `Call`, not a stmt); pass = no-op (the parser refuses rather than drop — no Nop stmt); nonlocal = closure scoping |
+| `match_stmt` + the 30 `patterns` rules | 1 | Python 3.10 structural pattern matching — entirely new dispatch semantics |
+| `sliceop` (extended `a[1:2:3]`) | 1 | step slices: the shell param-slice idiom has no step; `a[1:3]` maps (t37/t66), `a[1:3:2]` can't |
+| `annassign`/`varargslist`/`vfpdef`/`tfpdef`/`star_expr`/`star_named_expressions`/`testlist_star_expr` | 2 | type annotations and `*args` splatting — no type system; the fnCall positional model doesn't splat |
+| `complex_number`/`signed_number`/`real_number`/`imaginary_number` | 1 | complex literals `1j` — no complex in the string store |
+| `single_input`/`eval_input`/`encoding_decl` | 4 | REPL/eval start rules + the encoding comment — not constructs |
+
+### c-sh-go — 117 official-grammar rules, 57 unexercised
+
+| unexercised | category | why |
+|---|---|---|
+| `designation`/`designatorList`/`designator`/`gnuArrayDesignator`/`gnuIdentifier` | 2 | designated inits `{[1]=5}`/`{.x=1}`: the array/struct init model is positional; designated addressing isn't implemented (refuses: `unexpected token in expression`) |
+| `asmDefinition`/`asmStatement`/`asmOperand`/`asmClobbers`/`asmQualifier`… | 1 | raw assembler — target-specific, and the estree runtime can't execute it |
+| `attributeDeclaration`/`attributeSpecifierSequence`/`attribute*`/`gnuAttribute*`/`gccDeclaratorExtension` | 1 | compiler directives (`__attribute__`, packed/aligned/noreturn) — no runtime meaning in the A1 |
+| `genericSelection`/`genericAssocList`/`genericAssociation` | 1 | C11 `_Generic` — compile-time type dispatch |
+| `staticAssertDeclaration` | 1 | `_Static_assert` — a compile-time check, no compile-time phase |
+| `atomicTypeSpecifier`/`typeofSpecifier`/`typeofSpecifierArgument`/`alignmentSpecifier`/`functionSpecifier`/`typeQualifierList`/`typeName`/`abstractDeclarator`/`directAbstractDeclarator`/`typedefName` | 1/2 | the C11 type surface beyond int/char/pointers; `const`/`volatile`/`enum`/`typedef` actually PARSE but mis-lower (bugs, recorded) — the rest refuse |
+| `enumSpecifier`/`enumTypeSpecifier`/`enumeratorList`/`enumerator`/`enumerationConstant` | 3 | enums parse but the init is silently dropped — lowering bug, not refusal |
+| `predefinedConstant` | 3 | `__LINE__`/`__FILE__` parse but lower as `getVar("__LINE__")` (unset) — bug |
+| `declarationList`/`identifierList` | 4 | pre-ANSI K&R function/declaration syntax — no modern need |
+| `exprList` | 4 | comma-expression contexts (generic/init) — no standalone construct |
+| `vcSpecificModifer` | 4 | MSVC `__declspec` — nonstandard |
+| `compilationUnit` | 4 | alternative start rule, not a construct |
+
+### perl-sh-go — 76 PPI classes, 50 unexercised (bases excluded)
+
+| unexercised | category | why |
+|---|---|---|
+| `Statement::Include` (`use`/`require`) | 2 | module loading: the A1 schema HAS a `Require` node — perl-sh-go just never implemented it (implementable) |
+| `Statement::Package` | 1 | namespace switching — the A1 has no namespace model |
+| `Token::QuoteLike::Words` (`qw()`) | 2 | **parser choke** (`expected (, got ident qw`) — the quote-like token family never landed |
+| `Token::Pod` | 2 | POD doc blocks — the parser skips `#` comments but never learned to skip `=pod`..`=cut` |
+| `Statement::Scheduled` (`BEGIN`/`END`) | 1 | compile-time phase — the A1 is a runtime statement sequence |
+| `Token::Label` | 2 | perl-sh-go never implemented goto/labels (contrast c-sh-go) |
+| `Token::Prototype` | 2 | prototypes change call-site argument semantics (scalar/list context) — the call model is fixed |
+| `Token::Attribute` | 4 | declaration metadata, no runtime meaning |
+| `Structure::Constructor` (`[]`/`{}` refs), `Token::Cast` (`@{...}`), `Token::ArrayIndex` (`$#a`), `Token::QuoteLike::Regexp` (`tr///`), `Token::Quote::Literal` (`q()`) | 3/2 | the reference model: perl references need a mem/pointer seam (the core has sh2.mem for C) that perl-sh-go never implemented — and where it *parses* (`q()`, `$#a`) it mis-lowers (bugs, recorded) |
+| `Token::Number::Float/Hex/Octal/Binary/Exp/Version` | 3 | number variants parse but mis-lower (1.5→concat, 0x1F→0, 077→77, 1e3→1) — bugs |
+| `Token::Quote::Single` | — | **closed**: t70 lands the `$`-free subset; `$`-containing single quotes mis-lower (bug) |
+
+### zsh / fish / bat
+No external grammar exists (grammars-v4 has none) — no per-rule refusal
+list. The A1-proxy gaps there are the same categories: shell-only A1
+nodes in non-shell frontends (CONTRACT), constructs lowered to other
+nodes (e.g. unary→`Bin`, do-while→`While`), or parser chokes on
+unimplemented subset items. A future external truth: tree-sitter
+zsh/fish/cmd grammars.
+
 ## Hand-off: bugs the workers should fix
 
 - **c-sh-go** (`frontends/coverage/bugs-c-sh-go.txt` does not exist yet —
@@ -120,6 +232,37 @@ grammar like POSIX.g4.
   `__LINE__`/`__FILE__` read as unset vars.
 - **perl-sh-go** (`bugs-perl-sh-go.txt`): number-literal cluster, `q()`,
   `$#array`, single-quote-`$` interpolation.
+- **py-sh-go** (`bugs-py-sh-go.txt`): `True`/`False` lower to `Str("1")`/
+  `Str("0")`.
+
+## Escalating the A1-EXTENSION items
+
+The category-1 rows are not blocked on the frontends — they're requests
+waiting to be filed. To make a construct expressible, append
+`core-requests/<fe>-<timestamp>.md`:
+
+```markdown
+# <fe>: <one-line summary>
+
+## NEED
+What the A1 must gain (node type + fields, serialization shape in
+shir_json.rs / shir_json_in.rs, deserializer support).
+
+## WHY
+The failing case / Unsupported reason that prompted this.
+
+## MINIMAL-CORE-CHANGE
+The smallest change to the core that satisfies NEED.
+
+## FAILING-CASE
+A minimal source snippet (in <fe>'s language) that currently fails.
+```
+
+The estree worker (`main_loop_estree.pl`) polls `core-requests/*.md`,
+mediates conflicts, and implements them — so e.g. Go's `select`/
+channels, Python's `try`/`except`, or C's designated initializers become
+*requestable* A1 extensions, not dead ends. The worker may reject a
+request that doesn't serve the corpus (that's the mediation).
 
 ## Related
 
