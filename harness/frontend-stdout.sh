@@ -13,11 +13,43 @@
 #
 # Usage: frontend-stdout.sh <lang> <bin> <testdata-dir> <debashc>
 #   lang: py|go|sh|pl|fish|zsh     bin: frontend binary (path as make sees it)
+# Torn-write guard: frontend pi sessions rewrite this shared script IN
+# PLACE (2026-08-12 13:13: rust-frontend adding run_estree while the
+# py-sh-go gate was mid-run; that gate parsed a torn mix — "line 270:
+# syntax error near unexpected token `same'" — AFTER its 74 tests had
+# already passed, because bash's lazy tail-read landed mid-line in the
+# new content). No reader can stop the in-place writer, but the reader
+# CAN stop reading torn bytes: re-exec from a parse-verified snapshot.
+# The snapshot (unique mktemp name) is never rewritten, so every later
+# lazy read is stable; a torn COPY is caught by `bash -n` and retried
+# while the writer settles (8 tries x 1s covers any realistic rewrite).
+if [ -z "${FS_SNAPSHOT:-}" ]; then
+  snap=""
+  for _try in 1 2 3 4 5 6 7 8; do
+    snap=$(mktemp "${TMPDIR:-/tmp}/frontend-stdout.XXXXXX") || exit 1
+    if cp "$0" "$snap" 2>/dev/null && bash -n "$snap" 2>/dev/null; then
+      break
+    fi
+    rm -f "$snap"
+    snap=""
+    sleep 1
+  done
+  if [ -n "$snap" ]; then
+    # Re-exec from the stable snapshot. FS_ORIG_ROOT keeps $root
+    # resolving to the REAL harness dir (dirname of the snapshot $0
+    # is /tmp, which would misplace estree-runner.mjs).
+    exec env FS_SNAPSHOT="$snap" FS_ORIG_ROOT="$(cd "$(dirname "$0")/.." && pwd)" \
+      bash "$snap" "$@"
+  fi
+  echo "frontend-stdout.sh: no parse-clean snapshot obtainable (concurrent rewrite of the harness script?)" >&2
+  exit 1
+fi
+
 set -u
 lang=$1; bin=$2; dir=$3; debashc=$4
-root=$(cd "$(dirname "$0")/.." && pwd)
+root=${FS_ORIG_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}
 runner="$root/harness/estree-runner.mjs"
-tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+tmp=$(mktemp -d); trap 'rm -rf "$tmp"; rm -f "${FS_SNAPSHOT:-}"' EXIT
 
 case "$lang" in
   py)   ext=.py;   native=(python3) ;;
