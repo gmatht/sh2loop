@@ -169,6 +169,21 @@ run_native() {  # <file> -> stdout on stdout
 
 normalize() { printf '%s' "$1" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
 
+run_estree() {  # <estree-json> <source-file> -> transpiled stdout
+  # The go native side runs in the per-run scratch dir (run_native); run
+  # the transpiled side in the same sandbox so relative-path file writes
+  # (t32_redirect.go) land in the per-run dir on BOTH sides — an absolute
+  # shared path (/tmp/f) collides across users and makes the transpiled
+  # writeFile throw EACCES while native Go discards the error (flaky
+  # DIFF). Other langs run both sides from the frontend dir; keep their
+  # CWD as-is.
+  if [ "$lang" = go ]; then
+    (cd "$tmp" && timeout 20 node "$runner" "$1" --source "$2" 2>/dev/null) || true
+  else
+    timeout 20 node "$runner" "$1" --source "$2" 2>/dev/null || true
+  fi
+}
+
 total=0; fails=0; skips=0
 for f in "$dir"/*"$ext"; do
   [ -f "$f" ] || continue
@@ -241,7 +256,7 @@ EOF
     fi
   fi
   # 2c. run transpiled JS
-  trans_out=$(timeout 20 node "$runner" "$tmp/e.json" --source "$f" 2>/dev/null) || true
+  trans_out=$(run_estree "$tmp/e.json" "$f")
   # 3. compare normalized stdout. The EXECUTION step is the only
   # nondeterministic link in the chain (emit + A1->ESTree are pure), and
   # under concurrent-gate load (several frontends run their runners on one
@@ -256,7 +271,7 @@ EOF
     if [ "$native_ran" -eq 1 ]; then
       native_out=$(run_native "$f") || true
     fi
-    trans_out=$(timeout 20 node "$runner" "$tmp/e.json" --source "$f" 2>/dev/null) || true
+    trans_out=$(run_estree "$tmp/e.json" "$f")
   fi
   if [ "$(normalize "$native_out")" = "$(normalize "$trans_out")" ]; then
     echo "OK   $bn (stdout match)"
