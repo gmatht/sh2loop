@@ -91,12 +91,17 @@ const moduleSrc =
   js +
   `\nawait sh2._finish();\n`;
 
-// Scratch dir for prog.mjs. NOT under os.tmpdir(): the corpus compares
-// against `bash` runs from the workspace root, and tests that list /tmp
-// (`ls /tmp | wc -l`) would count the runner's own scratch dir and skew
-// the comparison. The program's cwd is the inherited workspace root
-// regardless (no cwd option below), so this only changes /tmp's contents.
-const tmpDir = fs.mkdtempSync(path.join(import.meta.dirname, '.estree-run-'));
+// Scratch dir for prog.mjs — under os.tmpdir(), NOT in the workspace:
+// the corpus compares against `bash` runs from the workspace root, and
+// tests that walk the tree (`find . -name "*.sh"` in
+// 000__07_find_path_commands.sh) would see the scratch dir; worse, its
+// create/remove churn REORDERS the directory's readdir layout (ext4
+// htree), so the estree walk and the later bash reference walk the same
+// dir in a different order and the stdout comparison fails even though
+// no harness file was touched. /tmp is not listed by any corpus test
+// (only specific files are written there). The program's cwd is the
+// inherited workspace root regardless (no cwd option below).
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sh2estree-run-'));
 const modFile = path.join(tmpDir, 'prog.mjs');
 fs.writeFileSync(modFile, moduleSrc);
 
