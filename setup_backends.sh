@@ -635,9 +635,12 @@ EOF
                   # shared corpus (sh2perl/examples/*.sh + frontend testdata)
                   # through THIS backend and report PASS/FAIL.
                   #   js, perl -> the WORKTREE renderers (--shir-in-js /
-                  #          --shir-in-perl), held to the SAME gate as the
-                  #          scaffolds: stub-free render AND executed output
-                  #          matching bash.
+                  #          --shir-in-perl). perl renders perl text: the
+                  #          stub gate + executed equivalence apply. js
+                  #          renders the ESTree JSON contract (delegates to
+                  #          the core's shir_to_estree_json) and is executed
+                  #          through the harness's estree→js implementation
+                  #          (estree-runner.mjs + the real sh2.* runtime).
                   #   scaffolds (c go python rust zig sh java) -> the WORKTREE must
                   #          have a renderer: a --shir-in-<lang> flag wired
                   #          into its debashc (cli/src/lib.rs dispatch), or a
@@ -647,7 +650,7 @@ EOF
                   # Usage: setup_backends.sh --backend-gate <lang>
                   shift; g_lang="$1"
                   g_wt="$BT/$g_lang"
-                  g_bin="$SUB/target/debug/debashc"; g_flag=""; g_binmode=0; g_stubgate=0
+                  g_bin="$SUB/target/debug/debashc"; g_flag=""; g_binmode=0; g_stubgate=0; g_eq=0
                   case "$g_lang" in
                     js|perl)
                       # production backends: consume the SHARED core binary
@@ -693,13 +696,20 @@ EOF
                         fi
                         rm -f /tmp/gate_probe_$$
                       fi
-                      # js/perl face the SAME gate as the scaffolds: the
-                      # sh2.*/TODO stub check AND the executed-equivalence
-                      # check. Their sh2.* are the real runtime only on the
-                      # core's estree path — the worktree renderers emit
-                      # stubs (js: process.exit(2) shims) for the un-lowered
-                      # subset, so a render must be stub-free AND match bash.
-                      g_stubgate=1
+                      # perl: same gate as the scaffolds — the sh2.*/TODO
+                      # stub check AND executed equivalence (its render is
+                      # perl text; sh2.*/TODO markers are unfinished
+                      # lowering).
+                      # js: the renderer emits the ESTree JSON contract —
+                      # sh2.* in the JSON are the REAL runtime namespace,
+                      # not stubs, so the stub gate is OFF; equivalence
+                      # runs the JSON through estree-runner.mjs (the
+                      # harness's estree→js printer + sh2.* node runtime).
+                      if [ "$g_lang" = "js" ]; then
+                        g_stubgate=0; g_eq=1
+                      else
+                        g_stubgate=1; g_eq=1
+                      fi
                       ;;
                     *)
                       # scaffolds (c go python rust zig sh java): PER-WORKTREE target
@@ -738,17 +748,20 @@ EOF
                         exit 1
                       fi
                       # the sh2.*/TODO stub gate applies to every backend
-                      # (js/perl too — see the js|perl arm)
+                      # except js (its render is the ESTree JSON contract —
+                      # see the js|perl arm)
                       g_stubgate=1
+                      g_eq=1
                       rm -f /tmp/gate_probe_$$;;
                   esac
                   corpus=$(ls "$SUB"/examples/*.sh "$WORKSPACE"/frontends/*/testdata/*.sh 2>/dev/null)
                   # ── EQUIVALENCE gate (every backend with a toolchain) ──────
-                  # A render-clean file (exit 0 + no stubs) must ALSO match
-                  # bash's stdout when compiled+run — wrong-but-compiling code
-                  # no longer passes. The scaffolds AND js/perl are covered:
-                  # js/perl's worktree renderers emit stubs for the
-                  # un-lowered subset, so their renders must run AND match.
+                  # A render-clean file (exit 0; no stubs where the stub gate
+                  # applies) must ALSO match bash's stdout when compiled+run
+                  # — wrong-but-compiling code no longer passes. perl runs
+                  # its render under perl; js runs the emitted ESTree JSON
+                  # through estree-runner.mjs (the harness's estree→js + the
+                  # real sh2.* runtime); the scaffolds compile+run natively.
                   # STDERR IS IGNORED ON BOTH SIDES: the reference runs
                   # `bash file 2>/dev/null` and the translation runs with its
                   # stderr discarded too — only stdout is ever compared, so a
@@ -775,10 +788,10 @@ EOF
                     sh)     eq_tool="sh";         eq_ext="sh";;
                     java)   eq_tool="javac";      eq_ext="java";;
                     perl)   eq_tool="perl";       eq_ext="pl";;
-                    js)     eq_tool="node";       eq_ext="js";;
+                    js)     eq_tool="node";       eq_ext="json";;
                   esac
                   eq_gate=0; eq_pass=0; eq_fail=0
-                  if [ "$g_stubgate" = 1 ] && [ -n "$eq_tool" ] && command -v "$eq_tool" >/dev/null 2>&1; then
+                  if [ "$g_eq" = 1 ] && [ -n "$eq_tool" ] && command -v "$eq_tool" >/dev/null 2>&1; then
                     eq_gate=1
                   fi
                   pass=0; skip=0; fail=0; fails=""; stub_total=0; stub_files=0
@@ -801,10 +814,10 @@ EOF
                     # is UNFINISHED lowering — the file FAILS until the stubs
                     # are replaced with native code, so the failure-driven
                     # worker grinds them to zero instead of sleeping on a
-                    # green-but-stubby renderer. js/perl included: their
-                    # worktree renderers' sh2.* are stubs (the core's estree
-                    # path is the exception, and it is not what this gate
-                    # exercises).
+                    # green-but-stubby renderer. Off for js: its output is
+                    # the ESTree JSON contract, where sh2.* is the real
+                    # runtime namespace (enforced by the estree gate's
+                    # whitelist, not by this grep).
                     if [ "$g_stubgate" = 1 ]; then
                       s=$(printf '%s' "$g_out" | grep -cE "TODO\(unsupported\)|sh2[A-Za-z_]" || true)
                     else
@@ -833,7 +846,7 @@ EOF
                           sh)   timeout 15 sh -c '. /dev/fd/3' "$f" 3< /tmp/eq_$$.sh > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           java) javac -d /tmp /tmp/Sh2Program.java 2>/dev/null && timeout 15 java -cp /tmp Sh2Program > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           perl) timeout 15 perl /tmp/eq_$$.pl > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
-                          js)   timeout 15 node /tmp/eq_$$.js > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
+                          js)   timeout 20 node "$WORKSPACE/harness/estree-runner.mjs" /tmp/eq_$$.json --source "$f" > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                         esac
                         if [ "$eq_exit" = 0 ] \
                            && timeout 15 bash "$f" > /tmp/eq_$$_ref 2>/dev/null \
