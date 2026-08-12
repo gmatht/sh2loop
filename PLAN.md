@@ -12,6 +12,24 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v23: **`--true64` — bash arithmetic is true 64-bit, off by default**
+>   (core). The default bash lowering keeps JS Numbers — silently wrong
+>   past ±2^53 (verified: `x=9007199254740992; x=$((x+1))` prints
+>   …992). `--true64` runs `analyze_true64` (per-var ranges from
+>   `analyze_var_ranges`): provably inside ±2^53 → Number (~1 ns);
+>   self-RMW accumulator chains in loops (written only via plain
+>   single-target Assigns, no function-locals) → **BigInt64Array slots**
+>   (`__t64[k]`, V8's native int64 element arithmetic — ~1.8 ns/op,
+>   BinInt64.md §7); everything else out-of-range → **BigInt values**
+>   (Int64, the C-path lowering: BigInt reads, asIntN(64) wrap on
+>   assign). Arith leaf-wrapping (BigInt literals, non-slot BigInt
+>   reads) applied to IR arith AND test-string `$(( ))` operands;
+>   BigInt test operands use `Number()` for equality ops (`0n === 0` is
+>   false) and raw BigInt for relational; zero-divisor guards on div/mod
+>   (`BigInt % 0` throws where Number gives NaN). Verified: 2^53+1,
+>   2^63-1 loop with `n*3` (bash-exact 16677181699666569 vs the
+>   default's …668), accumulator loop with slots. Gate: c-sh-go 86/86,
+>   core tests green; default path unchanged (statics empty by default).
 > - v22: **typed integers in shIR — int / long long / unsigned / sizeof**
 >   (core + c-sh-go). F1/F2 of `docs/frontend-c-core-needs.md`, partially
 >   landed: `IrType` gains `Int32/Int64/UInt32/UInt64` (serialized as
