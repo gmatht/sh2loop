@@ -6186,8 +6186,12 @@ builtins.gzip = function (args) {
     }
     // compression of stdin (no -d): corpus-unreachable — approximate
     // with zlib (content round-trips; the .gz header bytes differ from
-    // GNU — documented assumption SH2_ASSUME_GZIP).
-    emit(this, zlib.gzipSync(data).toString('latin1'));
+    // GNU — documented assumption SH2_ASSUME_GZIP). The gzip stream is
+    // BINARY: emit it byte-marked (encodeRawBytes) so the file/capture
+    // fd plumbing keeps the raw bytes (the old latin1 text was
+    // re-encoded as UTF-8 at the output boundary and corrupted —
+    // double-paren-subshell.sh's `printf 'hi' | gzip > "$d/f1"`).
+    emit(this, encodeRawBytes(zlib.gzipSync(data)));
     this.lastExit = 0;
     return true;
   }
@@ -6265,6 +6269,22 @@ function normAssocKey(k) {
 // when markers are present, else null (caller writes the text as UTF-8).
 const BYTE_MAGIC = '\u0001SH2BYTE\u0001';
 const BYTE_RE = /\u0001SH2BYTE\u0001([0-9A-Fa-f]{2})\u0001/g;
+// The inverse: encode a Buffer as text with every byte >= 0x80 marked, so
+// binary output (gzip streams) survives the text-based fd plumbing and is
+// decoded back to the raw bytes at the output boundary (file write /
+// stdout / capture-then-write).
+function encodeRawBytes(buf) {
+  let out = '';
+  let run = '';
+  for (const b of buf) {
+    if (b < 0x80) run += String.fromCharCode(b);
+    else {
+      if (run) { out += run; run = ''; }
+      out += BYTE_MAGIC + b.toString(16).padStart(2, '0') + '\u0001';
+    }
+  }
+  return out + run;
+}
 function decodeRawBytes(text) {
   if (!text.includes(BYTE_MAGIC)) return null;
   const parts = [];
