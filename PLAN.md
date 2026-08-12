@@ -12,6 +12,28 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v22: **typed integers in shIR — int / long long / unsigned / sizeof**
+>   (core + c-sh-go). F1/F2 of `docs/frontend-c-core-needs.md`, partially
+>   landed: `IrType` gains `Int32/Int64/UInt32/UInt64` (serialized as
+>   `{"kind":"Int32"}` etc., additive — the Float precedent) and the Arith
+>   AST gains `Sizeof(IrType)` + `Cast { ty, arg }` nodes (JSON round-trip
+>   + unit tests; every backend handles them: sizeof folds to 4/8, casts
+>   are identity for widthless backends). The C frontend (c-sh-go) parses
+>   the full type-specifier sequence (`long long`, `unsigned [int]`,
+>   `unsigned long long`, `signed`), emits `var_types`, casts, and sizeof
+>   (integer-literal suffixes stripped at the lexer). The C-executed
+>   ESTree path lowers Int32/UInt32 with `| 0` / `Math.imul` / `>>> 0` and
+>   Int64/UInt64 with BigInt (`BigInt("N")` exact literals,
+>   `BigInt.asIntN/asUintN(64, …)`) per the BinInt64 benchmarks
+>   (`benchmarks/i64/BinInt64.md` — the typed-array i64 fast path is
+>   RMW-only, so general i64 expressions lower to BigInt rather than
+>   BigInt64Array element churn); the native printf fold gains `%lld`/
+>   `%llu`/`%ld` + `%u` (BigInt args bypass parseInt). Gate: c-sh-go
+>   79/79 → 80/80 (t31_types.c: sizeof, i64 beyond 2^32, %u/%llu, (int)
+>   narrowing — gcc == A1→ESTree→JS bit-exact). Core lib tests 236 pass;
+>   ESTree corpus unchanged (8 pre-existing failures; no new ones — no
+>   corpus file exercises the changed printf path). Still refused: typed
+>   pointers, i64 conditions, u32 division in conditions.
 > - v21: **c-sh-go v4 — the last refused rung, gate 74/74 → 79/79** (workspace
 >   only — no core changes; frontend main.go + harness/outparam_to_returns.py).
 >   The five documented refusals from v3, each pinned by a stdout example
