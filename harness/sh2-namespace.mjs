@@ -5849,7 +5849,7 @@ builtins.mv = function (args) {
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--') { operands.push(...args.slice(i + 1)); break; }
-    else if (/^-[finvtuT]+$/.test(a)) { /* accepted, no observable effect here */ }
+    else if (/^-[finvtuTZ]+$/.test(a)) { /* accepted, no observable effect here */ }
     else if (a.startsWith('-') && a.length > 1) {
       emitErr(this, `mv: invalid option -- '${a[1]}'\n`);
       this.lastExit = 1;
