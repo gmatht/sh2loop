@@ -33,12 +33,13 @@ produce bit-exact results (checked against a mod-2^64 reference). Single-threade
 - `BigInt64Array` is capped at signed 64-bit; arbitrary precision is plain-`BigInt` only
   (a 512-bit add measured 46–47 ns).
 - Signedness is chosen by array type, not per element: `BigInt64Array` is i64,
-  `BigUint64Array` is u64 (identical bit storage). **The native fast path is i64-only** —
-  `BigUint64Array` load→compute→store is 2–10× slower (§6).
+  `BigUint64Array` is u64 (identical bit storage). **Both get the native
+  element arithmetic — the early "i64-only fast path" claim was a
+  same-process measurement artifact (retracted in §6)**.
 - **u32 is fast**: it shares the machine-int32 domain with i32 (`|0`, `Math.imul`, `>>>`);
   only div/mod/cmp/shift and conversions to BigInt/print interpret the sign bit (§7).
-  Contrast: at 64 bits, choosing unsigned (`BigUint64Array`) costs 2–10×; at 32 bits,
-  `Uint32Array` is as fast as `Int32Array`.
+  Contrast: at 64 bits, `BigUint64Array` is as fast as `BigInt64Array`
+  for load→compute→store (§6); at 32 bits, `Uint32Array` is as fast as `Int32Array`.
 
 ## 1. Scenarios benchmarked
 
@@ -114,8 +115,7 @@ BigInt64Array div and **2.5×** faster than plain BigInt div.
 1. **Native int64 lowering.** While a value lives only in `BigInt64Array` elements, V8 can
    keep it as a raw 64-bit integer in a register and emit machine `add`/`imul`/`idiv`
    instructions. Observed ~1.0–1.4 ns/op is roughly one memory-to-memory integer op — no
-   `BigInt` object is ever allocated. (This path is i64-specific: `BigUint64Array` falls
-   back to BigInt materialization, §6.)
+   `BigInt` object is ever allocated. (`BigUint64Array` gets the same path — see §6.
 2. **Free wrap-around.** Storing wraps mod 2^64 natively, so "accumulator stays in range"
    costs nothing. Doing the same with plain BigInt (`& (2^64-1)`) costs ~28 ns extra
    (32.94 vs 5.27 for add) because BigInt bitwise ops go through slow builtins.
@@ -159,28 +159,23 @@ i[0] // -9223372036854775803n   (same bits, signed)
 u[0] //  9223372036854775813n   (unsigned)
 ```
 
-But the choice has a large performance consequence: the native fast path (§3) is
-**i64-only**. `BigUint64Array` load→compute→store falls back to BigInt object
-materialization (median of 9 trials, V8 13.6, linear-scaling verified):
+But the choice has a large performance consequence — or so the FIRST version of this benchmark claimed (a 2–10× BigUint64Array penalty). **That was a measurement artifact**: running i64 and u64 kernels of IDENTICAL shape in ONE process makes V8's optimized-code sharing mis-specialize whichever kernel did not get the first optimization, dropping it to the BigInt-materialization path. Real programs have one array type per hot loop, so the correct methodology is ONE CASE PER PROCESS. Measured that way (`bench_u64_vs_i64.mjs <case>`, best-of-25 trials):
 
-| op | variant | BigInt64Array | BigUint64Array | penalty |
-|----|---------|--------------:|---------------:|--------:|
-| add | load+store | 1.13 ns | 11.52 ns | 10.2× |
-| add | + read back BigInt | 6.24 ns | 30.23 ns | 4.8× |
-| mul | load+store | 1.47 ns | 11.08 ns | 7.5× |
-| mul | + read back BigInt | 9.52 ns | 25.61 ns | 2.7× |
-| div | load+store | 9.85 ns | 20.77 ns | 2.1× |
-| div | + read back BigInt | 12.86 ns | 32.24 ns | 2.5× |
+| op | BigInt64Array | BigUint64Array | u64 on BigInt64Array (asUintN on read) |
+|----|--------------:|---------------:|--------------------------------------:|
+| add (load+store) | 1.8 ns | 1.9 ns | 2.1 ns |
+| mul (load+store) | 2.4 ns | 2.6 ns | — (bit-identical to add) |
+| add + read back BigInt | ~15–60 ns | ~30–50 ns | 50 ns |
+| div (load+store) | — | ~130–175 ns | ~125–170 ns |
 
-Practical implications:
+(medians and best-of wobble with box load; the RMW rows are stable — both array types get V8's native int64 element arithmetic; the 10× §3/i64-only claim is RETRACTED.)
 
-- **Bit-pattern arithmetic** (add, sub, mul, and, or, xor — mod-2^64 two's-complement is
-  identical for both interpretations) can run on `BigInt64Array` at full speed even when
-  the values are conceptually unsigned; only the read-back interpretation differs
-  (values > 2^63-1 come back negative).
-- **u64-only operations** — unsigned division, unsigned comparison, logical right shift —
-  genuinely need `BigUint64Array`; accept the 2–10× penalty.
-- If all values stay < 2^63, signed vs unsigned is irrelevant: use `BigInt64Array`.
+Practical implications (updated):
+
+- **BigUint64Array is as fast as BigInt64Array for load→compute→store arithmetic** — use it directly for u64; the asUintN-reinterpret trick buys nothing.
+- u64-on-BigInt64Array IS bit-exact for add/sub/mul/and/or/xor (verified — mod-2^64 arithmetic is signedness-agnostic), and reads reinterpret with `BigInt.asUintN(64, x)`; it only makes sense if you need i64/u64 *mixed* in one array (both interpretations of the same bits).
+- **Readback is the real cost**: materializing the BigInt per iteration is 15–60 ns regardless of array type — the reason the transpiler's general i64 expressions use BigInt values, not array element churn.
+- Division is BigInt-bound either way (~130–175 ns) — no native u64 path.
 
 ## 7. u32: the fast machine-int lane (C `unsigned int`)
 
@@ -227,14 +222,15 @@ sign-interpreting op):
 So for the C backend: `int` and `unsigned int` share one `|0` lowering (add/sub/mul/
 bitwise are bit-identical); signedness only branches at promotion to i64, printing,
 and div/mod/cmp/shift. Contrast with the 64-bit lane (§6): at 32 bits, `Uint32Array`
-is as fast as `Int32Array` — the BigUint64Array penalty is an i64-only artifact.
+is as fast as `Int32Array` (and the same holds at 64 bits — the early "BigUint64Array
+penalty" was a measurement artifact).
 
 ## 8. When to use what
 
 | situation | choice |
 |---|---|
 | hot loop, values fit in i64, result stays in an array (e.g. hash/PRNG state, counters, wrap arithmetic) | **BigInt64Array** — fastest exact option, free wrap |
-| same, but needs u64 semantics (unsigned div/compare/shift) or values > 2^63 read back non-negative | **BigUint64Array** — 2–10× slower than i64 (§6); or keep bit patterns in `BigInt64Array` and interpret on read |
+| same, but needs u64 semantics (unsigned div/compare/shift) or values > 2^63 read back non-negative | **BigUint64Array** — same speed as `BigInt64Array` for load→compute→store (§6) |
 | hot loop, fractional values or 53-bit precision is enough | **Number / Float64Array** — fastest overall, division especially |
 | hot loop, C `unsigned int` / u32 semantics | **Numbers with u32 idioms** (`|0`, `Math.imul`, `>>>`, `((a>>>0)/(b>>>0))|0`) — ~1–7 ns/op; identical to i32 except at div/mod/cmp/shift and promotion/print (§7) |
 | arbitrary precision / values beyond 64 bits | **plain BigInt** (no array alternative) |
@@ -258,7 +254,7 @@ is as fast as `Int32Array` — the BigUint64Array penalty is an i64-only artifac
 ```
 node bench_int_vs_float.mjs   # int + float, single harness (this document's numbers)
 node bench_bigint_final.mjs   # int-only, larger case set incl. boundary isolation
-node bench_u64_vs_i64.mjs     # i64 vs u64 signedness penalty
+node bench_u64_vs_i64.mjs <case>  # i64 vs u64, ONE case per process (see the file header: the same-process form is an artifact)
 node u32bench.mjs             # u32 idioms + i32/u32 divergence points
 node verify_bigint.mjs        # semantics + linear-scaling verification
 node micro_bigint.mjs         # mechanism isolation (fast-path variants)
