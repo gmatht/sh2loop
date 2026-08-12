@@ -634,10 +634,10 @@ EOF
   --backend-gate) # internal: the backend worker's progress signal. Render the
                   # shared corpus (sh2perl/examples/*.sh + frontend testdata)
                   # through THIS backend and report PASS/FAIL.
-                  #   js, perl -> the CORE's production renderers (estree.rs /
-                  #          ir_to_perl live in the shared core — the estree/
-                  #          rust loops own them; this gate is a watchdog +
-                  #          escalates gaps via core-requests).
+                  #   js, perl -> the WORKTREE renderers (--shir-in-js /
+                  #          --shir-in-perl), held to the SAME gate as the
+                  #          scaffolds: stub-free render AND executed output
+                  #          matching bash.
                   #   scaffolds (c go python rust zig sh java) -> the WORKTREE must
                   #          have a renderer: a --shir-in-<lang> flag wired
                   #          into its debashc (cli/src/lib.rs dispatch), or a
@@ -693,6 +693,13 @@ EOF
                         fi
                         rm -f /tmp/gate_probe_$$
                       fi
+                      # js/perl face the SAME gate as the scaffolds: the
+                      # sh2.*/TODO stub check AND the executed-equivalence
+                      # check. Their sh2.* are the real runtime only on the
+                      # core's estree path — the worktree renderers emit
+                      # stubs (js: process.exit(2) shims) for the un-lowered
+                      # subset, so a render must be stub-free AND match bash.
+                      g_stubgate=1
                       ;;
                     *)
                       # scaffolds (c go python rust zig sh java): PER-WORKTREE target
@@ -730,18 +737,18 @@ EOF
                         echo "  [$g_lang] backend gate: NO RENDERER — wire --shir-in-$g_lang into the worktree's cli/src/lib.rs dispatch (mirroring --shir-in-perl) or add a ${g_lang}_backend bin (c's pattern). The gate lands with the renderer."
                         exit 1
                       fi
-                      # scaffolds only: the sh2.*/TODO stub gate applies
-                      # (js/perl's sh2.* are the REAL runtime — not stubs)
+                      # the sh2.*/TODO stub gate applies to every backend
+                      # (js/perl too — see the js|perl arm)
                       g_stubgate=1
                       rm -f /tmp/gate_probe_$$;;
                   esac
                   corpus=$(ls "$SUB"/examples/*.sh "$WORKSPACE"/frontends/*/testdata/*.sh 2>/dev/null)
-                  # ── EQUIVALENCE gate (scaffolds only) ──────────────────────
+                  # ── EQUIVALENCE gate (every backend with a toolchain) ──────
                   # A render-clean file (exit 0 + no stubs) must ALSO match
                   # bash's stdout when compiled+run — wrong-but-compiling code
-                  # no longer passes. Only for scaffolds with a toolchain
-                  # (js/perl have their own correctness gates — fail-estree /
-                  # ir_to_perl).
+                  # no longer passes. The scaffolds AND js/perl are covered:
+                  # js/perl's worktree renderers emit stubs for the
+                  # un-lowered subset, so their renders must run AND match.
                   # STDERR IS IGNORED ON BOTH SIDES: the reference runs
                   # `bash file 2>/dev/null` and the translation runs with its
                   # stderr discarded too — only stdout is ever compared, so a
@@ -767,6 +774,8 @@ EOF
                     zig)    eq_tool="zig";        eq_ext="zig";;
                     sh)     eq_tool="sh";         eq_ext="sh";;
                     java)   eq_tool="javac";      eq_ext="java";;
+                    perl)   eq_tool="perl";       eq_ext="pl";;
+                    js)     eq_tool="node";       eq_ext="js";;
                   esac
                   eq_gate=0; eq_pass=0; eq_fail=0
                   if [ "$g_stubgate" = 1 ] && [ -n "$eq_tool" ] && command -v "$eq_tool" >/dev/null 2>&1; then
@@ -787,13 +796,15 @@ EOF
                     else
                       if g_out=$(printf '%s' "$shir" | "$g_bin" "$g_flag" - 2>/dev/null); then ok=1; else ok=0; g_out=""; fi
                     fi
-                    # STUB GATE (scaffolds only): an emitted sh2.* stub call
+                    # STUB GATE: an emitted sh2.* stub call
                     # (sh2_exec()/sh2GetVar()/...) or TODO(unsupported) marker
                     # is UNFINISHED lowering — the file FAILS until the stubs
                     # are replaced with native code, so the failure-driven
                     # worker grinds them to zero instead of sleeping on a
-                    # green-but-stubby renderer. js/perl are exempt: their
-                    # sh2.* are the real runtime, not stubs.
+                    # green-but-stubby renderer. js/perl included: their
+                    # worktree renderers' sh2.* are stubs (the core's estree
+                    # path is the exception, and it is not what this gate
+                    # exercises).
                     if [ "$g_stubgate" = 1 ]; then
                       s=$(printf '%s' "$g_out" | grep -cE "TODO\(unsupported\)|sh2[A-Za-z_]" || true)
                     else
@@ -821,6 +832,8 @@ EOF
                           zig)  timeout 30 "$eq_tool" run /tmp/eq_$$.zig > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           sh)   timeout 15 sh -c '. /dev/fd/3' "$f" 3< /tmp/eq_$$.sh > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           java) javac -d /tmp /tmp/Sh2Program.java 2>/dev/null && timeout 15 java -cp /tmp Sh2Program > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
+                          perl) timeout 15 perl /tmp/eq_$$.pl > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
+                          js)   timeout 15 node /tmp/eq_$$.js > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                         esac
                         if [ "$eq_exit" = 0 ] \
                            && timeout 15 bash "$f" > /tmp/eq_$$_ref 2>/dev/null \
