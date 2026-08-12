@@ -233,7 +233,14 @@ run_native() {  # <file> -> stdout on stdout
     # /tmp path collides across users (a stale root-owned /tmp/f blocks
     # llm's open with EACCES — 2026-08-12 gate DIFF on t32_redirect.py:
     # native python crashed before print, transpiled echoed fine).
-    (cd "$tmp" && timeout 20 "${native[@]}" "$f") < /dev/null 2>/dev/null
+    # Resolve the source to an absolute path BEFORE cd'ing (make test
+    # passes the testdata dir relative to the frontend CWD): the gate's
+    # scratch dir is a different CWD, and a relative "testdata/x.py"
+    # would silently fail to open there (empty native stdout → 72
+    # spurious DIFFs; the zig branch has the same readlink-first
+    # pattern).
+    fabs=$(readlink -f "$f")
+    (cd "$tmp" && timeout 20 "${native[@]}" "$fabs") < /dev/null 2>/dev/null
   else
     timeout 20 "${native[@]}" "$f" < /dev/null 2>/dev/null
   fi
