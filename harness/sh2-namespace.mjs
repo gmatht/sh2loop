@@ -664,7 +664,6 @@ export const sh2 = {
   // producer stdout; materialize them to temp files (bash passes a
   // /dev/fd/N path).
   async exec(name, args = [], env = undefined) {
-    process.stderr.write("TRACE exec " + String(name) + "\n");
     if (env && typeof env === 'object') {
       // command-scoped env vars: VAR=x cmd
       for (const [k, v] of Object.entries(env)) process.env[k] = String(v);
@@ -1245,7 +1244,6 @@ export const sh2 = {
 
   // ── command substitution ───────────────────────────────────────────
   async capture(fn) {
-    process.stderr.write("TRACE capture\n");
     const saved = this.fdTargets[1];
     const savedStart = this.captureStart;
     this.fdTargets[1] = { kind: 'capture', buf: '' };
@@ -1280,7 +1278,6 @@ export const sh2 = {
   // the REAL sink, never into a live capture buffer (closer to bash's
   // fork than the async form's late-restore window).
   captureSync(fn) {
-    process.stderr.write("TRACE captureSync\n");
     const saved = this.fdTargets[1];
     const savedStart = this.captureStart;
     this.fdTargets[1] = { kind: 'capture', buf: '' };
@@ -1583,7 +1580,6 @@ export const sh2 = {
   },
 
   async redirect(fn, specs = []) {
-    process.stderr.write("TRACE redirect\n");
     const saved = { ...this.fdTargets };
     const persistent = specs.filter(s => s.persist);
     try {
@@ -1608,7 +1604,6 @@ export const sh2 = {
   // observe the mid-redirect fd table (bash: the redirect is installed
   // before the command forks, so background jobs never see it either).
   redirectSync(fn, specs = []) {
-    process.stderr.write("TRACE redirectSync\n");
     const saved = { ...this.fdTargets };
     const persistent = specs.filter(s => s.persist);
     try {
@@ -1624,7 +1619,6 @@ export const sh2 = {
 
   // ── pipelines ──────────────────────────────────────────────────────
   async pipeline(stages) {
-    process.stderr.write("TRACE pipeline\n");
     const saved = { ...this.fdTargets };
     let prev = null;
     const statuses = [];
@@ -1666,7 +1660,6 @@ export const sh2 = {
   // background job can interleave mid-pipeline (the async form's awaits
   // allowed exactly that — this is closer to bash's sequential pipes).
   pipelineSync(stages) {
-    process.stderr.write("TRACE pipelineSync\n");
     const saved = { ...this.fdTargets };
     let prev = null;
     const statuses = [];
@@ -2014,7 +2007,6 @@ export const sh2 = {
 
   // ── subshell / background / block ──────────────────────────────────
   async subshell(fn) {
-    process.stderr.write("TRACE subshell\n");
     const saved = {
       vars: this.vars, exported: this.exported, positional: this.positional,
       fdTargets: this.fdTargets, traps: this.traps, shoptState: this.shoptState,
@@ -2046,7 +2038,6 @@ export const sh2 = {
   // background microtask can observe the mid-subshell state (the async
   // form's await at the end of fn() allowed exactly that).
   subshellSync(fn) {
-    process.stderr.write("TRACE subshellSync\n");
     const saved = {
       vars: this.vars, exported: this.exported, positional: this.positional,
       fdTargets: this.fdTargets, traps: this.traps, shoptState: this.shoptState,
@@ -2851,7 +2842,6 @@ function isSignal(e, kind) { return e instanceof Signal && e.kind === kind; }
 const builtins = {};
 
 builtins.echo = function (args) {
-  process.stderr.write("TRACE echo " + JSON.stringify(args) + "\n");
   let text;
   if (args[0] === '-n') text = args.slice(1).join(' ');
   else if (args[0] === '-e') text = args.slice(1).join(' ').replace(/\\n/g, '\n').replace(/\\t/g, '\t');
@@ -2963,7 +2953,6 @@ builtins.unset = function (args) {
 };
 
 builtins.read = function (args, env) {
-  process.stderr.write("TRACE read " + JSON.stringify(args) + " ifs=" + (env&&env.IFS) + "\n");
   // bash flushes stdout before reading (prompt visibility — the harness
   // feeds stdin from a pipe/file, but the flush is harmless and matches
   // the stdio discipline).
@@ -3231,7 +3220,6 @@ builtins.readonly = function (args) {
 // sync back any variables it assigned (`eval "result=$((...))"` must leave
 // `result` visible to the rest of the program).
 builtins.eval = function (args) {
-  process.stderr.write("TRACE eval " + JSON.stringify(args) + "\n");
   const code = args.join(' ');
   _flushStdout();
   // Fast path: a STATIC eval string that parses as plain assignment(s)
@@ -3279,7 +3267,6 @@ builtins.eval = function (args) {
   // `eval cmp /dev/fd/5 -` hung exactly there. A string fd0 becomes the
   // input (EOF after it), a file fd0 an open read fd, inherit for the
   // script's own stdin, ignore for a closed fd.
-  process.stderr.write("TRACE eval fd0=" + JSON.stringify(this.fdTargets[0]) + " fd1=" + JSON.stringify(this.fdTargets[1]) + "\n");
   const efd0 = this.fdTargets[0];
   let syncInput;
   let syncStdio = ['pipe', 'pipe', 'pipe'];
@@ -3295,7 +3282,6 @@ builtins.eval = function (args) {
   } finally {
     if (typeof syncStdio[0] === 'number') { try { fs.closeSync(syncStdio[0]); } catch {} }
   }
-  process.stderr.write("TRACE eval spawn done status=" + r.status + "\n");
   if (!r.error && r.stdout) {
     const [out, ...rest] = String(r.stdout).split('__SH2_EVAL_END__\n');
     if (out) emit(this, out);  // the code's real output — via the fd-aware emit (handles redirects/captures)
