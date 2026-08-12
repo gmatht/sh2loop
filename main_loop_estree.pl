@@ -667,6 +667,11 @@ sub submodule_changed_paths {
     my $wide = fix_surface_wide();
     for my $line (@out) {
         # porcelain format: "XY path" (X=index, Y=worktree; either may be a space)
+        # Skip UNTRACKED ("??") entries: stash/checkout pathspecs must only
+        # reference files git knows — an untracked WIP file (e.g. a leftover
+        # glsl backend) makes `git stash push -- <path>` fail with "pathspec
+        # did not match", wedging the loop (no commit, requests never resolve).
+        next if $line =~ /^\?\?/;
         my ($path) = $line =~ /^..\s+(.+)$/;
         next unless defined $path;
         $path =~ s/\s+$//;
@@ -683,6 +688,7 @@ sub root_changed_paths {
     my @out = `git status --porcelain harness/`;
     my @allowed;
     for my $line (@out) {
+        next if $line =~ /^\?\?/;   # untracked — cannot be stashed/reverted by pathspec
         my ($path) = $line =~ /^..\s+(.+)$/;
         next unless defined $path;
         $path =~ s/\s+$//;
