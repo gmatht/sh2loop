@@ -208,6 +208,16 @@ run_native() {  # <file> -> stdout on stdout
       { printf 'package main\n\nimport (\n%b\n)\n\nfunc main() {\n' "$imports"; cat "$f"; printf '\n}\n'; } > "$tmp/main.go"
     fi
     (cd "$tmp" && timeout 20 "$gobin" run main.go) < /dev/null 2>/dev/null
+  elif [ "$lang" = py ]; then
+    # py-sh-go t32_redirect: the same per-run scratch-dir isolation as
+    # the go case above. The py parser only accepts a LITERAL path in
+    # with open(PATH, MODE), so a unique-per-run path is impossible in
+    # the source; instead both sides run in the gate's scratch dir and
+    # the test uses a relative target (the go-sh precedent). A fixed
+    # /tmp path collides across users (a stale root-owned /tmp/f blocks
+    # llm's open with EACCES — 2026-08-12 gate DIFF on t32_redirect.py:
+    # native python crashed before print, transpiled echoed fine).
+    (cd "$tmp" && timeout 20 "${native[@]}" "$f") < /dev/null 2>/dev/null
   else
     timeout 20 "${native[@]}" "$f" < /dev/null 2>/dev/null
   fi
@@ -221,9 +231,11 @@ run_estree() {  # <estree-json> <source-file> -> transpiled stdout
   # (t32_redirect.go) land in the per-run dir on BOTH sides — an absolute
   # shared path (/tmp/f) collides across users and makes the transpiled
   # writeFile throw EACCES while native Go discards the error (flaky
-  # DIFF). Other langs run both sides from the frontend dir; keep their
-  # CWD as-is.
-  if [ "$lang" = go ]; then
+  # DIFF). py-sh-go's t32_redirect.py needs the same isolation (literal
+  # path in with open(...); a stale root-owned /tmp/f crashes the native
+  # python side with EACCES before its print). Other langs run both sides
+  # from the frontend dir; keep their CWD as-is.
+  if [ "$lang" = go ] || [ "$lang" = py ]; then
     (cd "$tmp" && timeout 20 node "$runner" "$1" --source "$2" 2>/dev/null) || true
   else
     timeout 20 node "$runner" "$1" --source "$2" 2>/dev/null || true
