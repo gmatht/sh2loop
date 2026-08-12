@@ -2451,9 +2451,9 @@ export const sh2 = {
     const t = String(type ?? 'int');
     const sizes = {
       char: 1, 'signed char': 1, 'unsigned char': 1, 'short': 2, 'short int': 2,
-      int: 4, 'unsigned int': 4, long: 8, 'long int': 8, 'long long': 8,
-      float: 4, double: 8, 'void*': 8, ptr: 8, pointer: 8,
-      int8: 1, int16: 2, int32: 4, int64: 8,
+      int: 4, 'unsigned int': 4, 'unsigned': 4, long: 8, 'long int': 8, 'long long': 8,
+      'unsigned long': 8, 'unsigned long long': 8, float: 4, double: 8, 'void*': 8,
+      ptr: 8, pointer: 8, int8: 1, int16: 2, int32: 4, int64: 8, u32: 4, u64: 8,
     };
     return sizes[t] ?? 1;
   },
