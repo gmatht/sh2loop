@@ -462,7 +462,17 @@ case "${1:-}" in
                     # cold start still races (all workers pass an idle gate)
                     # but the steady-state iterations serialize on load.
                     bash "$WORKSPACE/setup_backends.sh" --wait >> "$LOG" 2>&1 || true
-                    if bash "$WORKSPACE/setup_backends.sh" --backend-gate "$rw_lang" >> "$LOG" 2>&1; then
+                    # HARD-SERIALIZE the build+test phase across ALL backend
+                    # workers: one cargo build at a time (a cold start races
+                    # the --wait gate — every worker passes an idle load —
+                    # and N concurrent builds thrash a small box; the flock
+                    # makes the heavy phase one-at-a-time regardless).
+                    (
+                      flock 9
+                      bash "$WORKSPACE/setup_backends.sh" --backend-gate "$rw_lang" >> "$LOG" 2>&1
+                    ) 9>"$WORKSPACE/.gate.lock"
+                    gate_rc=$?
+                    if [ $gate_rc -eq 0 ]; then
                       fail_count=0
                       changes=$(git -C "$WORKSPACE" status --porcelain 2>/dev/null \
                                 | awk '/^.. /{print $2}' \
