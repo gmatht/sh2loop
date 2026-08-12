@@ -192,6 +192,14 @@ sub walk {
                 && ($obj->{name} // '') eq 'Buffer'
                 && ref $prop eq 'HASH'
                 && ($prop->{name} // '') eq 'byteLength';
+            # an IIFE callee — the state-free subshell fold (src/shir.rs
+            # subshell_body_state_free): the sync arrow runs the body the
+            # subshellSync twin would run, without the state copy/restore.
+            # The arrow's body is part of the same tree, so every call
+            # inside it is still checked below; the fold only fires for
+            # await-free bodies, so the IIFE is pure-CPU (the *Sync rule).
+            my $is_iife = ref $obj eq 'HASH'
+                && ($obj->{type} // '') eq 'ArrowFunctionExpression';
             # direct calls on the sh2 runtime's own state fields — the
             # native special-var lowerings (`$@` → sh2.positional.join(' '),
             # `$#` → sh2.positional.length, `${@:1}` →
@@ -244,7 +252,7 @@ sub walk {
                 && ($obj->{name} // '') eq 'process'
                 && ref $prop eq 'HASH'
                 && ($prop->{name} // '') =~ /^(getuid|getgid|chdir|exit)$/;
-            if (!$is_sh2 && !$is_sh2_fs && !$is_native && !$is_math && !$is_number_member && !$is_array_member && !$is_promise_member && !$is_string_method && !$is_sh2_state && !$is_stdout_write && !$is_stderr_write && !$is_buffer && !$is_process_member) {
+            if (!$is_sh2 && !$is_sh2_fs && !$is_native && !$is_math && !$is_number_member && !$is_array_member && !$is_promise_member && !$is_string_method && !$is_sh2_state && !$is_stdout_write && !$is_stderr_write && !$is_buffer && !$is_process_member && !$is_iife) {
                 push @problems, "non-sh2 callee: " . ($cname || $type);
             } elsif (($is_sh2 || $is_sh2_fs) && !$whitelist{$cname}) {
                 push @problems, "callee not in sh2.* whitelist: $cname";
