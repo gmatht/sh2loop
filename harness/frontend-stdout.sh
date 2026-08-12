@@ -50,6 +50,22 @@ lang=$1; bin=$2; dir=$3; debashc=$4
 root=${FS_ORIG_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}
 runner="$root/harness/estree-runner.mjs"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"; rm -f "${FS_SNAPSHOT:-}"' EXIT
+# Oracle stability: target/debug/debashc is rebuilt CONCURRENTLY by the
+# estree worker (core changes) and by other gates' self-heal rules; a
+# relink mid-gate tears the shared binary and fails exactly one test with
+# a misleading "(A1 -> ESTree conversion)" (zsh-sh-go t71_var_name_mods
+# 2026-08-12 20:55:24, debashc relinked 4s earlier; fish-sh-go t40 18:04;
+# go-sh t02; estree worker log: "the binary is GONE", "binary was
+# replaced under me"). Snapshot + functionally verify ONCE at gate
+# start (harness/snapshot-debashc.sh); every conversion below then runs
+# the stable copy, so a concurrent relink can never corrupt a mid-gate
+# invocation. A genuinely unavailable oracle fails fast with a clear
+# message instead of a random per-test FAIL.
+snap="$tmp/debashc.snap"
+if ! "$root/harness/snapshot-debashc.sh" "$debashc" "$snap" 2>"$tmp/snap.err"; then
+  echo "frontend-stdout.sh: debashc oracle unavailable: $(head -c 200 "$tmp/snap.err" | tr '\n' ' ')" >&2
+  exit 1
+fi
 
 case "$lang" in
   py)   ext=.py;   native=(python3) ;;
@@ -299,16 +315,13 @@ EOF
     fi
     mv "$tmp/a1.t.json" "$tmp/a1.json"
   fi
-  # 2b. A1 -> ESTree. debashc is rebuilt by the estree worker whenever
-  # core changes land; a CONCURRENT cargo relink can briefly leave a
-  # truncated/invalid binary at target/debug/debashc, failing exactly one
-  # invocation while every other test passes (the fish-sh-go gate hit this
-  # on t40_nested_loop at 18:04:22-27). Retry once after the link usually
-  # finishes; a real deterministic regression fails the retry too and is
-  # still reported as FAIL.
-  if ! "$debashc" --shir-in-estree "$tmp/a1.json" > "$tmp/e.json" 2>/dev/null; then
+  # 2b. A1 -> ESTree. The gate-start snapshot (above) is already
+  # functionally verified, so this normally cannot fail; keep the retry
+  # as defense-in-depth for a pathological snapshot (a real deterministic
+  # regression fails the retry too and is still reported as FAIL).
+  if ! "$snap" --shir-in-estree "$tmp/a1.json" > "$tmp/e.json" 2>/dev/null; then
     sleep 3
-    if ! "$debashc" --shir-in-estree "$tmp/a1.json" > "$tmp/e.json" 2>/dev/null; then
+    if ! "$snap" --shir-in-estree "$tmp/a1.json" > "$tmp/e.json" 2>/dev/null; then
       echo "FAIL $bn (A1 -> ESTree conversion)"
       fails=$((fails+1)); continue
     fi
