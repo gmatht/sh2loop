@@ -601,10 +601,18 @@ Your frontend's gate is GREEN, but its testdata examples do not yet cover every 
 Uncovered parser construct: $cov_gap
 
 This may be an external-grammar rule (grammars-v4 / the POSIX subset /
-PPI) that no testdata example exercises — a real language construct, not
-an A1-emission node. Judge expressibility against the frontend subset
-(FRONTEND.md): if the frontend refuses it by design, do NOT create the
-example (exit 0); if the frontend can express it, create the example.
+PPI / tree-sitter node) that no testdata example exercises — a real
+language construct, not an A1-emission node. Judge expressibility against
+the frontend subset (FRONTEND.md) — THREE cases:
+  - the frontend can express it -> create ONE testdata example
+  - the frontend refuses it by design (the subset deliberately excludes
+    it) -> do NOT create the example; exit 0
+  - the construct is inexpressible because the A1 CONTRACT lacks a node /
+    field (not a subset refusal — the frontend could express it if shIR
+    had node X) -> do NOT create the example; APPEND a structured request
+    to core-requests/<name>-<YYYYMMDD-HHMMSS>.md per core-requests/README.md
+    (NEED / WHY / MINIMAL-CORE-CHANGE / FAILING-CASE) and exit 0. The
+    estree worker implements core requests.
 
 Create ONE new testdata example in $cov_dir/testdata/ that exercises this construct.
 
@@ -615,8 +623,11 @@ Constraints:
   - name it t<NN>_<description>.<ext> following the existing testdata numbering
   - if the frontend REFUSES this construct by design (check FRONTEND.md / the parser source), do NOT create the example; exit 0
 
-Edit surface: frontends/$cov_name/testdata/ only (harness/* only if the oracle needs it).
-Shared core (DO NOT TOUCH): sh2perl/src/shir.rs, sh2perl/src/ir.rs, sh2perl/src/estree.rs, sh2perl/src/parser/
+Edit surface: frontends/$cov_name/testdata/ (harness/* only if the oracle
+needs it) and core-requests/ (escalation only — see above).
+Shared core (DO NOT TOUCH): sh2perl/src/shir.rs, sh2perl/src/ir.rs,
+sh2perl/src/estree.rs, sh2perl/src/parser/ — core changes go through
+core-requests/, which the estree worker implements.
 EOF
                   } > /tmp/pi-coverage-prompt-$$
                   wait_for_ram 2048 0.5 30 600 || true
