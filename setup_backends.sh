@@ -582,7 +582,13 @@ case "${1:-}" in
                   {
                     cat <<EOF
 Your frontend's gate is GREEN, but its testdata examples do not yet cover every parser node.
-Uncovered parser node / construct: $cov_gap
+Uncovered parser construct: $cov_gap
+
+This may be an external-grammar rule (grammars-v4 / the POSIX subset /
+PPI) that no testdata example exercises — a real language construct, not
+an A1-emission node. Judge expressibility against the frontend subset
+(FRONTEND.md): if the frontend refuses it by design, do NOT create the
+example (exit 0); if the frontend can express it, create the example.
 
 Create ONE new testdata example in $cov_dir/testdata/ that exercises this construct.
 

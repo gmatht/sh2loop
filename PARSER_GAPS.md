@@ -22,6 +22,7 @@ Reproduce:
 ```sh
 bash frontends/coverage/antlr-coverage.sh          # sections 1–3
 perl frontends/coverage/ppi-coverage.pl frontends/perl-sh-go/testdata/*.pl
+bash frontends/coverage/rules-gap.sh <lang>        # the worker-loop gap list
 ```
 
 Both parse every testdata example with the external grammar and report the
@@ -32,6 +33,18 @@ see GOOD_EXAMPLES.md), and add an example for the expressible ones. A
 proposed example that fails the **oracle** (stdout mismatch) is a frontend
 **lowering bug**, recorded in `frontends/coverage/bugs-<lang>.txt` — never
 blessed, never silently dropped.
+
+### Wired into the worker loop
+
+The frontend workers' coverage hook (`worker-coverage-step.sh`) now asks pi
+for one example per **external-grammar rule gap first** (`rules-gap.sh`:
+grammars-v4 rules / POSIX subset / PPI classes, ledger- and noise-filtered),
+falling back to the A1-node proxy / syn kinds (`coverage-gap.sh`) where no
+external grammar exists (zsh/fish/bat/zig/powershell/cpp) or none is
+reported. So the fleet grinds toward *every expressible rule exercised*,
+with each by-design refusal or lowering bug ledgered once
+(`refused-<lang>.txt` / `bugs-<lang>.txt`) so the next cycle moves on. A pi
+failure (nonzero rc, no file) is NOT ledgered — the gap is retried.
 
 ## Status per frontend (2026-08-12)
 
@@ -268,7 +281,10 @@ request that doesn't serve the corpus (that's the mediation).
 
 - `frontends/coverage/README.md` — the coverage tool suite (parser-coverage,
   coverage-gap, antlr-coverage §1–3) and the results table.
+- `frontends/coverage/rules-gap.sh` — the worker-loop gap list: external-
+  grammar rule gaps per frontend (ledger- and noise-filtered), preferred
+  over the A1 proxy by `worker-coverage-step.sh`.
 - `frontends/coverage/coverage-gap.sh` — the A1-node proxy + syn-node
-  coverage (rust-frontend), the workers' per-cycle hook.
+  coverage (rust-frontend), the workers' fallback gap source.
 - `GOOD_EXAMPLES.md` (sh2perl) — how to write examples that pin a construct.
 - `frontends/plan-antlr-go.md` — why the fleet was supposed to be ANTLR.
