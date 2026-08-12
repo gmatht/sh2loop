@@ -3913,15 +3913,14 @@ builtins.ls = function (args) {
         entries.push([n, st]);
       } catch { /* vanished between readdir and stat */ }
     };
+    // GNU sorts `.`/`..` with the other names (C-locale byte order — a
+    // name like `"batcmd"` (0x22) sorts BEFORE the dot entries (0x2E), so
+    // pushing them first would misorder `ls -la | grep '^d'`); `-a` just
+    // includes them as regular entries (the push() lstat resolves `dir/.`
+    // and `dir/..` like the plain names).
     if (all) {
-      try {
-        const st = fs.lstatSync(d === '.' ? '.' : d);
-        entries.push(['.', st]);
-      } catch {}
-      try {
-        const st = fs.lstatSync(d === '.' ? '..' : `${d}/..`);
-        entries.push(['..', st]);
-      } catch {}
+      names.push('.');
+      names.push('..');
     }
     names.sort();
     for (const n of names) {
