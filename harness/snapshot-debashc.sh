@@ -28,7 +28,10 @@ cat > "$min" <<'EOF'
 {"contract_version":1,"imports":[],"requires":[],"stmt_lines":[],"stmts":[],"subs":[],"type":"Program","var_bash_env":[],"var_const":[],"var_lengths":[],"var_lifetimes":[],"var_nospace":[],"var_types":[]}
 EOF
 for _try in $(seq 1 30); do
-  if cp "$src" "$dst" 2>/dev/null && "$dst" --shir-in-estree "$min" > /dev/null 2>&1; then
+  # cp over a pre-existing destination PRESERVES the destination mode
+  # (a 644 source leaves a non-executable copy, failing every verify
+  # with "Permission denied"); force the exec bit explicitly.
+  if cp "$src" "$dst" 2>/dev/null && chmod +x "$dst" 2>/dev/null && "$dst" --shir-in-estree "$min" > /dev/null 2>&1; then
     rm -f "$min"
     exit 0
   fi
