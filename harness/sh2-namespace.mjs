@@ -1762,7 +1762,17 @@ export const sh2 = {
       const re = new RegExp(body, fl.includes('i') ? 'gi' : 'g');
       const matches = s.match(re) || [];
       this.lastExit = matches.length > 0 ? 0 : 1;
-      return matches.join('\n');   // grep -o: one match per line
+      const out = matches.join('\n');   // grep -o: one match per line
+      // The emitter's capture context (`matched=$(echo X | grep -o P)`
+      // → `sh2.captureSync(() => sh2.grepMatches(...))`) reads the fd-1
+      // buffer — write the matches into it. The value/statement contexts
+      // (a direct `process.stdout.write(String(sh2.grepMatches(...)))`)
+      // use the RETURN value, so emitting only into a capture avoids
+      // double-printing there.
+      if (this.fdTargets[1] && this.fdTargets[1].kind === 'capture') {
+        this.fdTargets[1].buf += out;
+      }
+      return out;
     } catch {
       this.lastExit = 2;
       return [];
