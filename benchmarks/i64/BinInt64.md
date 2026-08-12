@@ -230,6 +230,7 @@ penalty" was a measurement artifact).
 | situation | choice |
 |---|---|
 | hot loop, values fit in i64, result stays in an array (e.g. hash/PRNG state, counters, wrap arithmetic) | **BigInt64Array** — fastest exact option, free wrap |
+| bash script whose arithmetic can cross ±2^53 (and you can pass a flag) | **`debashc --true64`** — the implemented three-tier lowering (Number / BigInt64Array slots / BigInt values per var) — see `sh2perl/docs/true64.md` |
 | same, but needs u64 semantics (unsigned div/compare/shift) or values > 2^63 read back non-negative | **BigUint64Array** — same speed as `BigInt64Array` for load→compute→store (§6) |
 | hot loop, fractional values or 53-bit precision is enough | **Number / Float64Array** — fastest overall, division especially |
 | hot loop, C `unsigned int` / u32 semantics | **Numbers with u32 idioms** (`|0`, `Math.imul`, `>>>`, `((a>>>0)/(b>>>0))|0`) — ~1–7 ns/op; identical to i32 except at div/mod/cmp/shift and promotion/print (§7) |
