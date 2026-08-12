@@ -689,7 +689,19 @@ EOF
                       # production backends: consume the SHARED core binary
                       # (estree.rs / ir_to_perl live in the core) — the
                       # shared target is fine (only js/perl/main build it)
-                      if ! cargo build --manifest-path "$SUB/Cargo.toml" >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
+                      # the core owner (estree worker) edits src/ constantly
+                      # — mid-edit windows are TRANSIENT build breaks; retry
+                      # before giving up (this gate builds the shared
+                      # main-checkout debashc, which the estree worker churns).
+                      core_build_ok=0
+                      for try in 1 2 3; do
+                        if cargo build --manifest-path "$SUB/Cargo.toml" >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
+                          core_build_ok=1; break
+                        fi
+                        echo "  [$g_lang] backend gate: core build attempt $try FAILED (estree-worker churn) — retrying in 20s" >> "$WORKSPACE/loop-backend-$g_lang.log"
+                        sleep 20
+                      done
+                      if [ $core_build_ok -ne 1 ]; then
                         echo "  [$g_lang] backend gate: core build FAILED"; exit 1
                       fi
                       # js's + perl's renderers live in the WORKTREES
