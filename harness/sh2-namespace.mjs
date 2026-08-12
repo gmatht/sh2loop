@@ -7094,6 +7094,12 @@ function evalTest(ast, sh) {
         // `[[ ]]` uses pattern matching for ==; `[ ]` uses string equality.
         // Match bash semantics for both by glob-matching when the right side
         // contains glob metacharacters, else plain string equality.
+        // Extglob groups (@(a|b), !(a), *(a), +(a), ?(a)) count as pattern
+        // syntax: bash's `[[ == ]]` matches "as if the extglob shell option
+        // were enabled" (at-in-test.sh: `[[ "$x" = @(foo|bar) ]]` matches
+        // even with extglob off), and the pattern matcher falls back to
+        // literal equality for unterminated groups, so a false trigger is
+        // harmless.
         // `nocasematch` makes pattern comparison case-insensitive (bash).
         case '=': case '==': {
           const ci = sh.shoptState.get('nocasematch');
@@ -7102,14 +7108,14 @@ function evalTest(ast, sh) {
           // bash patterns are C strings: a NUL byte truncates the pattern
           // (`*$'\x00'*` matches everything — the pattern becomes `*`).
           const rPat = r2.split('\u0000')[0];
-          return /[*?[]/.test(rPat) ? globMatch(rPat, l2) : l2 === rPat;
+          return /[*?[]|[!@*+?]\(/.test(rPat) ? globMatch(rPat, l2) : l2 === rPat;
         }
         case '!=': {
           const ci = sh.shoptState.get('nocasematch');
           const l2 = ci ? l.toLowerCase() : l;
           const r2 = ci ? r.toLowerCase() : r;
           const rPat = r2.split('\u0000')[0];
-          return !(/[*?[]/.test(rPat) ? globMatch(rPat, l2) : l2 === rPat);
+          return !(/[*?[]|[!@*+?]\(/.test(rPat) ? globMatch(rPat, l2) : l2 === rPat);
         }
         case '-eq': return intEq(l, r, 0);
         case '-ne': return intEq(l, r, 1);
