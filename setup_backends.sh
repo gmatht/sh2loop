@@ -456,6 +456,12 @@ case "${1:-}" in
                         sleep 300; continue
                       fi
                     fi
+                    # CPU+RAM gate before the heavy phase (parity with the
+                    # frontend workers' per-iteration --wait): load <=
+                    # 1.5×nproc AND >= 2048MB RAM free before building. A
+                    # cold start still races (all workers pass an idle gate)
+                    # but the steady-state iterations serialize on load.
+                    bash "$WORKSPACE/setup_backends.sh" --wait >> "$LOG" 2>&1 || true
                     if bash "$WORKSPACE/setup_backends.sh" --backend-gate "$rw_lang" >> "$LOG" 2>&1; then
                       fail_count=0
                       changes=$(git -C "$WORKSPACE" status --porcelain 2>/dev/null \
