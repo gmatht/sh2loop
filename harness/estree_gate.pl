@@ -219,7 +219,13 @@ sub walk {
                     # map; the outer prop is `set`)
                     || (($prop->{name} // '') eq 'set'
                         && ref $obj->{property} eq 'HASH'
-                        && ($obj->{property}{name} // '') =~ /^(functions|shoptState)$/));
+                        && ($obj->{property}{name} // '') =~ /^(functions|shoptState)$/)
+                    # `sh2.exported.add(name)` — the native export lowering
+                    # (the runtime builtin's exported-set write; the outer
+                    # prop is `add`)
+                    || (($prop->{name} // '') eq 'add'
+                        && ref $obj->{property} eq 'HASH'
+                        && ($obj->{property}{name} // '') eq 'exported'));
             # process.stdout.write — the native echo lowering (src/shir.rs
             # try_native_echo): a direct module-stdout write, no dispatch
             my $is_stdout_write = ref $obj eq 'HASH'
