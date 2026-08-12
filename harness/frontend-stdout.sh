@@ -173,8 +173,22 @@ run_native() {  # <file> -> stdout on stdout
     cp "$f" "$tmp/main.cc"
     (cd "$tmp" && timeout 20 c++ main.cc -o main 2>/dev/null && timeout 20 ./main) < /dev/null 2>/dev/null
   elif [ "$lang" = rust ]; then
+    # rustc is the slowest native toolchain in the fleet, and the first
+    # compile of a gate run is the one most likely to be starved or
+    # OOM-killed by a concurrent worker's cargo build (2026-08-12
+    # 14:49: t01's native side returned empty on the first attempt AND
+    # on the 1s outer retry, while the transpiled side was correct and
+    # 19/20 other tests were green). Retry the compile+run with backoff
+    # and a longer compile timeout so one cold-start hiccup cannot fail
+    # the gate; a real regression fails every attempt and is still DIFF.
     cp "$f" "$tmp/main.rs"
-    (cd "$tmp" && timeout 20 rustc main.rs -o main 2>/dev/null && timeout 20 ./main) < /dev/null 2>/dev/null
+    out=""
+    for _try in 1 2 3; do
+      out=$( (cd "$tmp" && timeout 60 rustc main.rs -o main 2>/dev/null && timeout 20 ./main) < /dev/null 2>/dev/null ) && break
+      out=""
+      [ "$_try" -lt 3 ] && sleep 3
+    done
+    printf '%s' "$out"
   elif [ "$lang" = go ]; then
     if grep -q 'func main()' "$f"; then
       # already a full program (its own package main/import/func main) —
