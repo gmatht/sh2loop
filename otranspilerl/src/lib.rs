@@ -205,7 +205,7 @@ pub fn render(a1: &str, lang: &str) -> Result<String, String> {
                 color_out: true,
                 vert_out: false,
                 tex_size: 16,
-                max_view: 0, // generic render path: canvas unknown → no mediump
+                max_view: 800, // the sh2runtime device canvas is fixed 800×600 (mediump gate)
             },
         ),
         // A1 → GLSL ES 1.00 render VERTEX (the other MIMEcroft stage —
