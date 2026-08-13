@@ -66,6 +66,28 @@ if ! "$root/harness/snapshot-debashc.sh" "$debashc" "$snap" 2>"$tmp/snap.err"; t
   echo "frontend-stdout.sh: debashc oracle unavailable: $(head -c 200 "$tmp/snap.err" | tr '\n' ' ')" >&2
   exit 1
 fi
+# frontend binary: same tear class as debashc — the frontend's own gate
+# (`make test` = rm + rebuild, or an in-place `go build -o`) can remove
+# or replace $bin mid-run when a concurrent gate/coverage run overlaps
+# this one, so an emit can hit "No such file or directory" or exec a
+# partial binary (posix-sh-go t08-t11, 2026-08-13 15:17 — 4 consecutive
+# FAILs mid-phase, then recovery). Snapshot the binary once at gate
+# start; every emit below runs the stable copy, and a genuinely missing
+# binary fails fast with one clear message instead of a random per-test
+# FAIL. (The gate's build step runs before us, so a missing binary here
+# means a broken build, not a by-design refusal — the per-test
+# "(frontend emit: ...)" path below still classifies refusals.)
+binpath=$bin
+case "$bin" in
+  /*) ;;
+  *)  binpath="$(pwd)/$bin" ;;
+esac
+bin_snap="$tmp/frontend.snap"
+if ! cp "$binpath" "$bin_snap" 2>"$tmp/bin.err"; then
+  echo "frontend-stdout.sh: frontend binary unavailable ($binpath): $(head -c 200 "$tmp/bin.err" 2>/dev/null | tr '\n' ' ')" >&2
+  exit 1
+fi
+bin="$bin_snap"
 
 case "$lang" in
   py)   ext=.py;   native=(python3) ;;
