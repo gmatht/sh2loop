@@ -122,7 +122,8 @@ fi
 # native run, so the transpiler path keeps real coverage. Format:
 #   "name.ext|expected-stdout-with-\\n-escapes" (one entry per line)
 native_limits_fish="t43_heredoc.fish|line1\nline2"
-native_limits_powershell="t01_echo.ps1|hello powershell\n"
+native_limits_powershell="t01_echo.ps1|hello powershell\n
+t02_braced_variable.ps1|\na  b\n"
 native_limits_bat="t01_echo.bat|hello world\n
 t02_set.bat|hello world\n
 t03_arith.bat|x=14\n
