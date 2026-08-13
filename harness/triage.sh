@@ -147,8 +147,30 @@ native_out() {  # frontend example-file -> native stdout ("" = none: bat)
 }
 estree_ref_out() {  # a1-file -> the estree-proxy executed output
   local a1="$1"
-  "$DEBASHC" --shir-in-estree "$a1" > "$TRIAGE/.ref.estree.json" 2>/dev/null || return 1
-  timeout 30 node "$RUNNER" "$TRIAGE/.ref.estree.json" 2>/dev/null || true
+  if ! "$DEBASHC" --shir-in-estree "$a1" > "$TRIAGE/.ref.estree.json" 2>/dev/null; then
+    echo "__ESTREE_REF_FAIL__ core ingress/render failed"
+    return 0
+  fi
+  local err; err=$(mktemp "$TRIAGE/.referr.XXXXXX")
+  local out rc
+  out=$(timeout 30 node "$RUNNER" "$TRIAGE/.ref.estree.json" 2>"$err"); rc=$?
+  if [ $rc -eq 124 ]; then
+    rm -f "$err"; echo "__ESTREE_REF_FAIL__ reference timed out"; return 0
+  fi
+  # Runner/program crash signatures (the runner's own errors, the
+  # security allowlist refusal, node stack frames from a throw in the
+  # generated prog.mjs). A legit program writing to stderr does not
+  # contain these. Without this check a crashed reference yields EMPTY
+  # stdout, which the classifier reads as "estree matches native"
+  # (native is empty for bat and most non-sh frontends) and escalates
+  # the BACKEND as the diff — 2026-08-14 t49_robocopy2 (the runner
+  # refuses rsync: not in the source allowlist) filed a phantom perl
+  # core-request that way.
+  if grep -qE "estree-runner:|not in the source allowlist|prog\.mjs" "$err" 2>/dev/null; then
+    rm -f "$err"; echo "__ESTREE_REF_FAIL__ reference crashed"; return 0
+  fi
+  rm -f "$err"
+  printf '%s' "$out"
 }
 backend_out() {  # backend run-field rendered-file -> executed output
   local run="$1" rendered="$2"
@@ -209,6 +231,18 @@ classify_pair() {  # fe ex be a1-file native-out proxy-out
   local bo; bo=$(backend_out "$brun" "$work/rendered")
   local nnorm enorm bnorm
   nnorm=$(norm "$nout"); enorm=$(norm "$pout"); bnorm=$(norm "$bo")
+  # A crashed/unavailable estree reference makes the pair UNVERIFIABLE:
+  # claiming "estree matches native" from the empty reference capture
+  # would escalate the backend as the diff (the phantom 2026-08-14
+  # bat-sh-go/t49_robocopy2 → perl request). SKIP-ESTREE-REF is honest
+  # — the renderer may be right, but nothing can confirm it.
+  case "$enorm" in
+    __ESTREE_REF_FAIL__*)
+      record "$fe" "$be" "$ex" "SKIP-ESTREE-REF" "estree reference failed; pair unverifiable"
+      echo "SKIP-ESTREE-REF $fe/$ex/$be (estree reference failed)"
+      rm -rf "$work"; return
+      ;;
+  esac
   # bat has no native — the estree reference IS the oracle
   [ -z "$nnorm" ] && [ "$be" != estree ] && nnorm="$enorm"
   if [ "$bnorm" = "$nnorm" ]; then
@@ -311,7 +345,7 @@ sweep() {
 gen_report() {
   local generated; generated=$(NOWI)
   local total; total=$(wc -l < "$VTSV" 2>/dev/null || echo 0)
-  local statuses=(PASS PASS-RENDER FAIL-FRONTEND-EMIT FAIL-FRONTEND FAIL-BACKEND SKIP-REFUSE SKIP-UNWIRED)
+  local statuses=(PASS PASS-RENDER FAIL-FRONTEND-EMIT FAIL-FRONTEND FAIL-BACKEND SKIP-REFUSE SKIP-ESTREE-REF SKIP-UNWIRED)
   {
     echo "{"
     echo "  \"generated\": \"$generated\","
