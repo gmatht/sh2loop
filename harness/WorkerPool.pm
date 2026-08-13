@@ -116,8 +116,10 @@ sub _cgroup_setup {
         next unless -d $base;
         my $g = "$base/sh2gates";
         my $w = "$base/sh2workers";
-        $gates{$ctrl}   = $g if mkdir $g;
-        $workers{$ctrl} = $w if mkdir $w;
+        mkdir $g;   # ignore EEXIST — the cgroups persist across runs
+        mkdir $w;
+        $gates{$ctrl}   = $g if -d $g;
+        $workers{$ctrl} = $w if -d $w;
     }
     if (%gates || %workers) {
         _write("$gates{memory}/memory.limit_in_bytes", $mem_limit)     if $gates{memory};
@@ -140,7 +142,9 @@ sub _cgroup_setup {
         next unless $sc =~ /\bmemory\b/ && $sc =~ /\bcpu\b/ && $sc =~ /\bpids\b/;
         my $g = "$root/sh2gates";
         my $w = "$root/sh2workers";
-        my ($g_ok, $w_ok) = (mkdir $g, mkdir $w);
+        mkdir $g;   # ignore EEXIST — the cgroups persist across runs
+        mkdir $w;
+        my ($g_ok, $w_ok) = (-d $g, -d $w);
         next unless $g_ok || $w_ok;
         my $weight   = $ENV{SH2_GATE_CPU_WEIGHT}   // 50;
         my $wm_weight = $ENV{SH2_WORKER_CPU_WEIGHT} // 100;
