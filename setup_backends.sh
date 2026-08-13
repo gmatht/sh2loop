@@ -273,14 +273,14 @@ while true; do
   fi
   changes=\$(git -C "\$WORKSPACE" status --porcelain 2>/dev/null \
             | awk '/^.. /{print \$2}' \
-            | awk -v d="$dir" '\$0 ~ "^"d || \$0 ~ /^harness\//' \
+            | awk -v d="${dir#$WORKSPACE/}" '\$0 ~ "^"d"/" || \$0 ~ /^harness\//' \
             || true)
   if [ -n "\$changes" ]; then
     # heavy: wait for low load, then build (the --noop-gated prints
     # the build cmd for this scope; we then run it gated).
     bash "\$WORKSPACE/setup_backends.sh" --wait 2>>"\$LOG" || true
-    bash "\$WORKSPACE/setup_backends.sh" --noop-gated build frontend $lang 2>>"\$LOG" >/dev/null \
-      && eval "\$(bash "\$WORKSPACE/setup_backends.sh" --noop-gated build frontend $lang)" 2>>"\$LOG"
+    bash "\$WORKSPACE/setup_backends.sh" --noop-gated frontend $lang 2>>"\$LOG" >/dev/null \
+      && eval "\$(bash "\$WORKSPACE/setup_backends.sh" --noop-gated frontend $lang)" 2>>"\$LOG"
     git -C "\$WORKSPACE" add \$changes 2>>"\$LOG" || true
     git -C "\$WORKSPACE" commit -m "frontend $lang: build/fix" 2>>"\$LOG" || true
   fi
@@ -476,7 +476,7 @@ case "${1:-}" in
                       fail_count=0
                       changes=$(git -C "$WORKSPACE" status --porcelain 2>/dev/null \
                                 | awk '/^.. /{print $2}' \
-                                | awk -v d="$rw_dir" '$0 ~ "^"d || $0 ~ /^harness\//' || true)
+                                | awk -v d="${rw_dir#$WORKSPACE/}" '$0 ~ "^"d"/" || $0 ~ /^harness\//' || true)
                       if [ -n "$changes" ]; then
                         if grep -lE '^(<<<<<<<|=======|>>>>>>>)' $changes 2>/dev/null | grep -q .; then
                           echo "[$(date +%FT%T)] $rw_lang: conflict markers in staged files — NOT committing" >> "$LOG"
@@ -981,6 +981,88 @@ EOF
                   while [ -f "$t_reqdir/sleeping-$t_name" ]; do
                     sleep 60
                   done
+                  exit 0 ;;
+  --frontend-worker-once) # internal: ONE iteration of the <lang> frontend
+                  # worker loop (the deployed run_frontend_worker.sh body:
+                  # wait → make test → commit scope changes when green),
+                  # minus the lease yield, pi-fix and sleep. The triage
+                  # worker runs this when the frontend worker isn't running,
+                  # so its build/fix pipeline doesn't stall. Red gates go
+                  # through the triage escalation (no pi-fix from takeover).
+                  shift; fw_lang="$1"; fw_dir="$FT/$fw_lang"
+                  [ -d "$fw_dir" ] || { echo "[$fw_lang] no frontend dir — skip"; exit 0; }
+                  cd "$WORKSPACE" || exit 1
+                  fw_changes=$(git status --porcelain 2>/dev/null \
+                              | awk '/^.. /{print $2}' \
+                              | awk -v d="${fw_dir#$WORKSPACE/}" '$0 ~ "^"d"/" || $0 ~ /^harness\//' || true)
+                  if [ -z "$fw_changes" ]; then
+                    echo "[$(date +%FT%T)] frontend $fw_lang: worker not running, no scope changes — skipping"
+                    exit 0
+                  fi
+                  echo "[$(date +%FT%T)] frontend $fw_lang: worker not running, triage taking over (gate/commit)"
+                  bash "$WORKSPACE/setup_backends.sh" --wait 2>&1 || true
+                  rc=0
+                  if [ -f "$fw_dir/Makefile" ]; then
+                    ( cd "$fw_dir" && make test ) 2>&1 || rc=$?
+                  else
+                    # no Makefile gate — build only (the fixed arg order:
+                    # --noop-gated <kind=frontend> <lang>)
+                    bash "$WORKSPACE/setup_backends.sh" --noop-gated frontend "$fw_lang" 2>/dev/null >/dev/null \
+                      && eval "$(bash "$WORKSPACE/setup_backends.sh" --noop-gated frontend "$fw_lang")" 2>&1 || rc=$?
+                  fi
+                  if [ $rc -eq 0 ]; then
+                    git add $fw_changes 2>/dev/null || true
+                    git commit -m "frontend $fw_lang: gate green (triage takeover)" 2>/dev/null || true
+                  else
+                    echo "[$(date +%FT%T)] frontend $fw_lang: gate FAILED — leaving for triage escalation (no pi-fix from takeover)"
+                  fi
+                  exit 0 ;;
+  --backend-worker-once) # internal: ONE iteration of the <lang> backend
+                  # worker loop: lease-yield → wait → flock'd backend gate
+                  # → commit scoped changes when green. NO pi-fix / trap —
+                  # those belong to the long-running worker; red gates go
+                  # through the triage escalation. The triage worker runs
+                  # this when the backend worker isn't running.
+                  shift; bw_lang="$1"; bw_dir="$BT/$bw_lang"
+                  [ -d "$bw_dir" ] || { echo "[$bw_lang] no worktree — skip"; exit 0; }
+                  # a live lease means a desktop runs this slot — yield
+                  if [ -f "$WORKSPACE/.leases/$bw_lang" ]; then
+                    echo "[$(date +%FT%T)] backend $bw_lang: leased — skipping takeover"
+                    exit 0
+                  fi
+                  cd "$bw_dir" || exit 1
+                  bw_changes=$(git -C "$WORKSPACE" status --porcelain 2>/dev/null \
+                              | awk '/^.. /{print $2}' \
+                              | awk -v d="${bw_dir#$WORKSPACE/}" '$0 ~ "^"d"/" || $0 ~ /^harness\//' || true)
+                  if [ -z "$bw_changes" ]; then
+                    echo "[$(date +%FT%T)] backend $bw_lang: worker not running, no scope changes — skipping"
+                    exit 0
+                  fi
+                  echo "[$(date +%FT%T)] backend $bw_lang: worker not running, triage taking over (gate/commit)"
+                  bash "$WORKSPACE/setup_backends.sh" --wait 2>&1 || true
+                  ( flock 9
+                    bash "$WORKSPACE/setup_backends.sh" --backend-gate "$bw_lang" 2>&1
+                  ) 9>"$WORKSPACE/.gate.lock"
+                  rc=$?
+                  if [ $rc -eq 0 ]; then
+                    # never commit conflict markers
+                    if grep -lE '^(<<<<<<<|=======|>>>>>>>)' $bw_changes 2>/dev/null | grep -q .; then
+                      echo "[$(date +%FT%T)] backend $bw_lang: conflict markers — NOT committing"
+                    elif echo "$bw_changes" | grep -q '^harness/'; then
+                      # shared-infra edits must not regress the core corpus
+                      if (cd "$WORKSPACE" && perl fail-estree --gate >/dev/null 2>&1); then
+                        git -C "$WORKSPACE" add $bw_changes 2>/dev/null || true
+                        git -C "$WORKSPACE" commit -m "backend $bw_lang: gate pass (triage takeover)" 2>/dev/null || true
+                      else
+                        echo "[$(date +%FT%T)] backend $bw_lang: harness edits regress the core corpus — NOT committing"
+                      fi
+                    else
+                      git -C "$WORKSPACE" add $bw_changes 2>/dev/null || true
+                      git -C "$WORKSPACE" commit -m "backend $bw_lang: gate pass (triage takeover)" 2>/dev/null || true
+                    fi
+                  else
+                    echo "[$(date +%FT%T)] backend $bw_lang: gate FAILED — leaving for triage escalation (no pi-fix from takeover)"
+                  fi
                   exit 0 ;;
   --noop-gated)   # internal: print the gated build cmd and exit (for the
                   # frontend worker's self-test). Usage: setup_backends.sh --noop-gated <kind> <lang>

@@ -88,6 +88,34 @@ cycle() {  # fe
   echo "[$(date +%FT%T)] triage cycle done: $fe (report updated)" >> "$LOG"
 }
 
+# ── dead-worker takeover ────────────────────────────────────────────
+# If a frontend/backend worker isn't running (its supervisor pid in
+# loop-*.pid is dead or missing — the same check do_start_workers uses),
+# do its work here: build/gate/commit within scope, so the pipeline
+# doesn't stall until the worker is restarted. The triage sweep then
+# re-sweeps the fresh state.
+worker_alive() {  # pidfile
+  [ -f "$1" ] && kill -0 "$(cat "$1" 2>/dev/null)" 2>/dev/null
+}
+
+takeover_frontend() {  # fe
+  local fe="$1"
+  if ! worker_alive "$WORKSPACE/loop-frontend-$fe.pid"; then
+    echo "[$(date +%FT%T)] frontend $fe worker NOT running — triage taking over" >> "$LOG"
+    bash "$WORKSPACE/setup_backends.sh" --frontend-worker-once "$fe" >> "$LOG" 2>&1 || true
+  fi
+}
+
+takeover_backends() {
+  local be
+  for be in $(bash "$WORKSPACE/harness/triage.sh" --list-backends 2>/dev/null || true); do
+    if ! worker_alive "$WORKSPACE/sh2perl/backends/$be/loop-backend-$be.pid"; then
+      echo "[$(date +%FT%T)] backend $be worker NOT running — triage taking over" >> "$LOG"
+      bash "$WORKSPACE/setup_backends.sh" --backend-worker-once "$be" >> "$LOG" 2>&1 || true
+    fi
+  done
+}
+
 # rotate through the frontends; a lease defers to a desktop
 FRONTENDS=(c-sh-go cpp-sh-go bat-sh-go py-sh-go perl-sh-go posix-sh-go zsh-sh-go fish-sh-go)
 while true; do
@@ -97,6 +125,8 @@ while true; do
   fi
   for fe in "${FRONTENDS[@]}"; do
     bash "$WORKSPACE/setup_backends.sh" --wait >> "$LOG" 2>&1 || true
+    takeover_frontend "$fe"
+    takeover_backends
     cycle "$fe" || true
     sleep 60
   done

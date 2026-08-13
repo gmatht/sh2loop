@@ -315,6 +315,7 @@ gen_report() {
 
 # ── dispatch ────────────────────────────────────────────────────
 case "${1:-}" in
+  --list-backends) list_backends; exit 0 ;;
   --sweep) shift; sweep "$@" ;;
   --report) gen_report ;;
   --clear) # destructive: wipes the verdict store the worker + GUI read.
@@ -325,7 +326,7 @@ case "${1:-}" in
     fi
     rm -f "$VTSV" "$REPORT" "$MDREPORT"; echo "cleared $TRIAGE" ;;
   *)
-    [ $# -eq 3 ] || { echo "usage: triage.sh <frontend> <example> <backend> | --sweep [--random N] [fes...] [bes...] | --report | --clear" >&2; exit 2; }
+    [ $# -eq 3 ] || { echo "usage: triage.sh <frontend> <example> <backend> | --sweep [--random N] [fes...] [bes...] | --report | --clear | --list-backends" >&2; exit 2; }
     # a single pair: compute the row inline
     info=$(frontend_info "$1")
     example="$ROOT/frontends/$1/$(echo "$info" | cut -d'|' -f1)/$2"
