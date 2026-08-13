@@ -189,8 +189,16 @@ backend_out() {  # backend run-field rendered-file -> executed output
 norm() { printf '%s' "$1" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'; }
 
 record() {  # frontend backend example status detail
+  # Example keys are ALWAYS bare basenames (list_examples output). A
+  # dir-prefixed key ("testdata/t12_forf.bat") is a caller artifact —
+  # 2026-08-14 it poisoned triage/verdicts.tsv with rows the sweep's
+  # stale-refusal self-heal could never purge (different key), which the
+  # cycle change-diff re-escalated into a phantom --pi-fix-frontend
+  # session for bat-sh-go. Normalize at the write boundary so verdicts
+  # can never hold a prefixed key again.
+  local ex="$3"; ex="${ex##*/}"
   local det; det=$(printf '%s' "$5" | tr '\n\t' '  ')
-  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$det" "$(NOW)" >> "$VTSV"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$ex" "$4" "$det" "$(NOW)" >> "$VTSV"
 }
 
 # ── the classifier: everything row-constant is passed in ───────
@@ -310,7 +318,8 @@ sweep() {
     # the row: emit A1, native, and the estree-proxy ONCE per (frontend, example)
     if [ "$fe" != "$last_fe" ] || [ "$ex" != "$last_ex" ]; then
       last_fe="$fe"; last_ex="$ex"
-      local example="$ROOT/frontends/$fe/$(frontend_info "$fe" | cut -d'|' -f1)/$ex"
+      local fe_corpus; fe_corpus=$(frontend_info "$fe" | cut -d'|' -f1)
+      local example="$ROOT/frontends/$fe/$fe_corpus/$ex"
       a1f=$(mktemp -d "$TRIAGE/.row.XXXXXX")
       if emit_a1 "$fe" "$example" > "$a1f/a1.json" 2>/dev/null; then
         # STALE-REFUSAL SELF-HEAL (2026-08-14): a successful emit
@@ -321,9 +330,14 @@ sweep() {
         # the WHOLE verdict log, so a stale refusal re-escalates a
         # phantom --pi-fix-frontend session whenever the baseline no
         # longer matches. Drop them at the source: the emit that proves
-        # the frontend works.
-        awk -F'\t' -v fe="$fe" -v ex="$ex" \
-          '!($1==fe && $3==ex && $4=="FAIL-FRONTEND-EMIT")' "$VTSV" \
+        # the frontend works. The purge also drops legacy rows whose
+        # example key carries a corpus-dir prefix ("testdata/<ex>") —
+        # 2026-08-14 those bypassed this exact-key purge and the cycle
+        # diff re-escalated a phantom --pi-fix-frontend (bat-sh-go
+        # t12_forf.bat). record() now normalizes keys at the write
+        # boundary, so this covers any rows written before that fix.
+        awk -F'\t' -v fe="$fe" -v ex="$ex" -v cd="$fe_corpus" \
+          '!($1==fe && $3==ex && $4=="FAIL-FRONTEND-EMIT") && !($1==fe && $3==cd "/" ex && $4=="FAIL-FRONTEND-EMIT")' "$VTSV" \
           > "$VTSV.purge" 2>/dev/null && mv -f "$VTSV.purge" "$VTSV" \
           || rm -f "$VTSV.purge"
         nout=$(native_out "$fe" "$example")
