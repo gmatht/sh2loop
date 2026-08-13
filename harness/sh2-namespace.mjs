@@ -1748,6 +1748,30 @@ export const sh2 = {
     return String(haystack ?? '').includes(String(needle ?? ''));
   },
 
+  // Runtime type dispatch for typed frontends (core request
+  // go-sh-20260813-154009 — Go's `switch v := x.(type)`): the A1 store is
+  // untyped (strings), but LIFTED bindings hold native JS values (numbers
+  // for Int-typed vars, booleans, arrays). `typeOf` inspects the actual
+  // JS runtime value — typeof + Array.isArray — and returns the A1 type-
+  // name vocabulary ("string", "int", "float", "bool", "array", plus
+  // the JS typeof fallback for anything else). Store values are always
+  // strings → "string", so a frontend that keeps everything in the store
+  // (the minimal `var x any = "hi"` case) dispatches on the stored text.
+  // `isType(v, name)` is the type-assertion test twin (`sh2.isType(x,
+  // "int")`), so `Case`-pattern comparisons can test either shape.
+  typeOf(value) {
+    if (Array.isArray(value)) return 'array';
+    const t = typeof value;
+    if (t === 'number') return Number.isInteger(value) ? 'int' : 'float';
+    if (t === 'boolean') return 'bool';
+    if (t === 'string') return 'string';
+    return t; // 'object', 'undefined', 'bigint', 'function', ...
+  },
+
+  isType(value, name) {
+    return this.typeOf(value) === String(name ?? '');
+  },
+
   // The `echo ARGS | grep [FLAGS] PAT` pipeline lift (see src/shir.rs
   // try_native_echo_grep): a SYNC mini-grep over the echoed text with
   // exact GNU grep semantics for the supported flag set (v/i/n/c/o/q/x
