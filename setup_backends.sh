@@ -263,6 +263,9 @@ set -euo pipefail
 cd "\$(dirname "\$0")"
 WORKSPACE="$WORKSPACE"
 LOG="$WORKSPACE/loop-frontend-$lang.log"
+# Worker cgroup enrollment (harness/WorkerPool.pm): this frontend worker
+# runs inside sh2workers; best-effort (unprivileged WSL → cooperative).
+perl "\$WORKSPACE/harness/WorkerPool.pm" --enter-worker \$\$ >> "\$LOG" 2>&1 || true
 echo "[\$(date +%FT%T)] frontend $lang worker started (pid=\$\$, scope=$dir)" >> "\$LOG"
 while true; do
   # light ops (no load gate): git status, scope check
@@ -380,6 +383,11 @@ do_start_workers () {
     echo $! > "$dir/loop-backend-$lang.pid"
     echo "  [$lang] worker started (pid $(cat "$dir/loop-backend-$lang.pid")) — log: $WORKSPACE/loop-backend-$lang.log"
   done
+  do_start_frontend_workers
+}
+
+do_start_frontend_workers () {
+  echo "=== start-frontend-workers ==="
   for lang in $DEFAULT_FRONTEND_LANGS; do
     local dir="$FT/$lang"
     [ -d "$dir" ] || { echo "  [$lang] no frontend dir — skip (run --frontends first)"; continue; }
@@ -416,6 +424,7 @@ case "${1:-}" in
   --frontends)    MODE=frontends; shift ;;
   --build)        MODE=build; shift; SCOPE="${1:-all}"; shift || true ;;
   --start-workers) MODE=start-workers; shift ;;
+  --start-frontend-workers) MODE=start-frontend-workers; shift ;;
   --start-triage-worker) # the cross-product triage worker (frontend corpus ×
                   # backend). Rotates frontends, sweeps each through ALL
                   # backends, escalates NEW failures by class (frontend →
@@ -1092,6 +1101,7 @@ case "$MODE" in
   remove) LANGS="${*:-$DEFAULT_BACKEND_LANGS}"; for l in $LANGS; do remove_worktree "$l"; done ;;
   build)        do_build "$SCOPE" ;;
   start-workers) do_start_workers ;;
+  start-frontend-workers) do_start_frontend_workers ;;
 esac
 
 case "$MODE" in
