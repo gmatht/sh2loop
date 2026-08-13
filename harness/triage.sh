@@ -279,6 +279,19 @@ sweep() {
       local example="$ROOT/frontends/$fe/$(frontend_info "$fe" | cut -d'|' -f1)/$ex"
       a1f=$(mktemp -d "$TRIAGE/.row.XXXXXX")
       if emit_a1 "$fe" "$example" > "$a1f/a1.json" 2>/dev/null; then
+        # STALE-REFUSAL SELF-HEAL (2026-08-14): a successful emit
+        # supersedes every earlier FAIL-FRONTEND-EMIT row for this
+        # example — a refusal row can only be stale (an interrupted
+        # run, a mid-rebuild race like the 01:45:44 sweep that poisoned
+        # zsh-sh-go t16-t20). The triage worker's change-diff re-reads
+        # the WHOLE verdict log, so a stale refusal re-escalates a
+        # phantom --pi-fix-frontend session whenever the baseline no
+        # longer matches. Drop them at the source: the emit that proves
+        # the frontend works.
+        awk -F'\t' -v fe="$fe" -v ex="$ex" \
+          '!($1==fe && $3==ex && $4=="FAIL-FRONTEND-EMIT")' "$VTSV" \
+          > "$VTSV.purge" 2>/dev/null && mv -f "$VTSV.purge" "$VTSV" \
+          || rm -f "$VTSV.purge"
         nout=$(native_out "$fe" "$example")
         pout=$(estree_ref_out "$a1f/a1.json" || true)
       else
