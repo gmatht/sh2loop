@@ -1086,7 +1086,10 @@ export const sh2 = {
     this.positional = flat;
     let r;
     try {
-      r = fn();
+      // `fn(...flat)` — the flat args double as the JS params of a
+      // define'd `Lambda` arrow (core request py-sh-go-lambdef); the
+      // zero-param shell-function arrows ignore them.
+      r = fn(...flat);
     } catch (e) {
       // `return N` inside a loop body is a sh2.return Signal; the loop
       // rethrows it and the function call turns it into the return value.
@@ -1153,7 +1156,8 @@ export const sh2 = {
     this.positional = flat;
     let r;
     try {
-      r = fn();
+      // `fn(...flat)` — see fnCall (lambda params).
+      r = fn(...flat);
     } catch (e) {
       // `return N` inside a loop body is a sh2.return Signal; the loop
       // rethrows it and the function call turns it into the value.
@@ -2753,21 +2757,40 @@ export const sh2 = {
           return name === '@' ? [...sl] : sl.join(' ');
         }
         if (a === '@' || a === '*') return this.arrayItems(name); // ${arr[@]} — exec flattens; template literals join via sh2.join
+        // Extended slice step (core request py-sh-go-sliceop): the A1
+        // 5th arg is the optional STEP for `a[i:j:k]` (the frontend
+        // emits `param("slice", name, start, len, step)`). Only the
+        // ARRAY branches treat it as a step — a 5th arg on a scalar
+        // slice is the emitter's LIFTED-VALUE OVERRIDE (see `v` above;
+        // lifted names are never arrays), so the scalar branch stays the
+        // value override. Elements are off, off+step, off+2step, … <
+        // off+len — the filter's index is relative to the slice window
+        // (`.filter((_, i) => i % step === 0)`).
+        const stepOf = (s) => {
+          if (s === undefined || s === null || s === '') return null;
+          const t = String(s).trim();
+          if (!/^[1-9]\d*$/.test(t)) return null; // v1: positive ints only
+          return Number(t);
+        };
+        const step = stepOf(value);
+        const stepFilter = step === null ? null : (_, i) => i % step === 0;
         const am = /^([A-Za-z_][A-Za-z0-9_]*)\[@\]$/.exec(name);
         if (am) {                                             // ${arr[@]:off:len}
           const arr = this.arrays.get(am[1]) ?? [];
           const off = sliceOff(a);
-          const slice = b !== undefined && b !== null && b !== ''
+          let slice = b !== undefined && b !== null && b !== ''
             ? arr.slice(off, off + (Number(b) || 0))
             : arr.slice(off);
+          if (stepFilter) slice = slice.filter(stepFilter);
           return [...slice];
         }
         const arr = this.arrays.get(name);
         if (arr) {                                             // ${arr[@]:off:len}
           const off = sliceOff(a);
-          const slice = b !== undefined && b !== null && b !== ''
+          let slice = b !== undefined && b !== null && b !== ''
             ? arr.slice(off, off + (Number(b) || 0))
             : arr.slice(off);
+          if (stepFilter) slice = slice.filter(stepFilter);
           return [...slice];
         }
         const off = sliceOff(a);
