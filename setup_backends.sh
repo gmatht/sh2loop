@@ -480,11 +480,16 @@ case "${1:-}" in
                     # the --wait gate — every worker passes an idle load —
                     # and N concurrent builds thrash a small box; the flock
                     # makes the heavy phase one-at-a-time regardless).
-                    (
-                      flock 9
-                      bash "$WORKSPACE/setup_backends.sh" --backend-gate "$rw_lang" >> "$LOG" 2>&1
-                    ) 9>"$WORKSPACE/.gate.lock"
-                    gate_rc=$?
+                    # NOTE: the gate is an `if` CONDITION, not `cmd; rc=$?`
+                    # — under set -e the failing subshell would kill the
+                    # worker before the core-build-break branch can run.
+                    if ( flock 9
+                         bash "$WORKSPACE/setup_backends.sh" --backend-gate "$rw_lang" >> "$LOG" 2>&1
+                       ) 9>"$WORKSPACE/.gate.lock"; then
+                      gate_rc=0
+                    else
+                      gate_rc=$?
+                    fi
                     if [ $gate_rc -eq 0 ]; then
                       fail_count=0
                       changes=$(git -C "$WORKSPACE" status --porcelain 2>/dev/null \
@@ -1053,10 +1058,15 @@ EOF
                   fi
                   echo "[$(date +%FT%T)] backend $bw_lang: worker not running, triage taking over (gate/commit)"
                   bash "$WORKSPACE/setup_backends.sh" --wait 2>&1 || true
-                  ( flock 9
-                    bash "$WORKSPACE/setup_backends.sh" --backend-gate "$bw_lang" 2>&1
-                  ) 9>"$WORKSPACE/.gate.lock"
-                  rc=$?
+                  # `if` condition, not `cmd; rc=$?` — set -e would kill the
+                  # takeover on a failing gate before rc can be examined.
+                  if ( flock 9
+                       bash "$WORKSPACE/setup_backends.sh" --backend-gate "$bw_lang" 2>&1
+                     ) 9>"$WORKSPACE/.gate.lock"; then
+                    rc=0
+                  else
+                    rc=$?
+                  fi
                   if [ $rc -eq 0 ]; then
                     # never commit conflict markers
                     if grep -lE '^(<<<<<<<|=======|>>>>>>>)' $bw_changes 2>/dev/null | grep -q .; then
