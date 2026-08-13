@@ -494,6 +494,16 @@ case "${1:-}" in
                       fi
                       echo "[$(date +%FT%T)] $rw_lang: gate GREEN" >> "$LOG"
                     else
+                      if grep -q "core build FAILED" <(tail -50 "$LOG"); then
+                        # shared-CORE build break (the estree worker owns
+                        # src/ and edits it constantly) — NOT this backend's
+                        # renderer; pi cannot fix the core. Wait 5 min and
+                        # retry WITHOUT invoking pi (and without counting the
+                        # failure against the trap).
+                        echo "[$(date +%FT%T)] $rw_lang: shared-core build break (estree-worker WIP) — pi can't fix the core; waiting 5 min" >> "$LOG"
+                        sleep 300
+                        continue
+                      fi
                       fail_count=$((fail_count+1))
                       echo "[$(date +%FT%T)] $rw_lang: gate FAILED ($fail_count/3) — invoking pi (deepseek-v4-flash, scoped)" >> "$LOG"
                       bash "$WORKSPACE/setup_backends.sh" --pi-fix-backend "$rw_lang" 2>> "$LOG" || true
