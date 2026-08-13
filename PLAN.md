@@ -25,7 +25,13 @@ Covers three related work items:
 >   caps memory at 50% of RAM (SH2_GATE_MEM_FRAC), pids at 1024
 >   (SH2_GATE_PIDS_MAX, fork-bomb containment), and cpu.shares/weight at
 >   512/50 (SH2_GATE_CPU_SHARES/WEIGHT — half the default, so agents win
->   contention automatically). Env: SH2_NO_CGROUPS=1 disables enforcement;
+>   contention automatically). A second, sibling `sh2workers` cgroup bounds
+>   the long-running worker loops themselves (estree/perl/backend/frontend/
+>   triage + their pi sessions): memory 50% (SH2_WORKER_MEM_FRAC), pids
+>   2048 (SH2_WORKER_PIDS_MAX), DEFAULT cpu weight (1024/100 — the workers
+>   stay the priority class; the gates yield to them). The loops
+>   self-enroll at startup (`--enter-worker`); gates re-enroll into
+>   sh2gates. Env: SH2_NO_CGROUPS=1 disables enforcement;
 >   SH2_WORKER_RAM_MB (128), SH2_WORKER_CAP, SH2_TARGET_LOAD (0.9).
 > - v25: **`named_blocks` on the A1 `Function` node** (core request
 >   powershell-sh-go 20260813 — PowerShell begin/process/end blocks,

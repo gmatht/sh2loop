@@ -432,6 +432,10 @@ case "${1:-}" in
                   shift; rw_lang="$1"; rw_dir="$BT/$rw_lang"
                   export WORKSPACE LOG
                   LOG="$WORKSPACE/loop-backend-$rw_lang.log"
+                  # Worker cgroup enrollment (harness/WorkerPool.pm): this
+                  # backend worker's whole tree (builds, gates) runs inside
+                  # sh2workers. Best-effort: unprivileged WSL → cooperative.
+                  perl "$WORKSPACE/harness/WorkerPool.pm" --enter-worker $$ >> "$LOG" 2>&1 || true
                   cd "$rw_dir" || exit 1
                   fail_count=0
                   while true; do
