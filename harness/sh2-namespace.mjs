@@ -6679,13 +6679,20 @@ export function expandWord(sh, s) {
     if (k === '@' || k === '*') return sh.getVar(`${n}[${k}]`); // assoc-aware join
     return sh.arrayIndex(n, k);
   });
-  // ${name} / $name (including special params)
-  out = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, n) => sh.getVar(n));
+  // ${name} / $name (including special params). The BRACED form also
+  // accepts dotted member keys (`${s.X}` — go-sh structType, core request
+  // go-sh-structtype-20260814-054454): a struct member name is a store key
+  // (`getVar("s.X")`), and the braced form is the only safe text render
+  // for it — the BARE `$s.X` would expand `$s` and append `.X`, splitting
+  // the member (bash-faithful: `$s.X` IS `$s` + literal `.X`). Bash errors
+  // on a dotted braced name in any expansion position, so no corpus text
+  // can contain one; the dot addition is behavior-neutral for bash scripts.
+  out = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_.]*)\}/g, (_, n) => sh.getVar(n));
   out = out.replace(/\$([A-Za-z_][A-Za-z0-9_]*|\d+|[@#*?$0-])/g, (_, n) => sh.getVar(n));
   // ${name:-default} / ${name##pat} / ${name:off:len} / ${#name} ... —
   // innermost-first so nested defaults (`${a:-${b:-c}}`) expand correctly.
   for (;;) {
-    const next = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)([^{}]*)\}/g, (m, n, body) => {
+    const next = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_.]*)([^{}]*)\}/g, (m, n, body) => {
       const v = sh.getVar(n);
       if (body === '') return v;
       if (body === '#') return String(v.length); // ${#name} — length ONLY
