@@ -79,9 +79,10 @@ case "$lang" in
   zsh)  ext=.zsh;  native=(zsh) ;;
   bat)  ext=.bat;  native=() ;;      # cmd.exe is Windows-only — native side
                                     # is the RECORDED expectations below
-  powershell) ext=.ps1; native=() ;;  # pwsh not installed on the fleet —
-                                    # native side is the RECORDED
-                                    # expectations below (bat precedent)
+  powershell) ext=.ps1; native=(pwsh -NoProfile -File) ;;  # live pwsh oracle
+                                    # (2026-08-13; the /snap/bin wrapper
+                                    # re-execs through snap-confine, so the
+                                    # direct snap binary is preferred below)
   zig)  ext=.zig;   native=(zig run) ;;  # snap direct binary below
   *) echo "unknown lang: $lang"; exit 2 ;;
 esac
@@ -114,6 +115,18 @@ if [ "$lang" = zig ]; then
   fi
   native=( "$zigbin" run )
 fi
+# pwsh: the /snap/bin wrapper re-execs through snap-confine, which fails
+# in containerized workers (same rationale as the go/zig cases) — prefer
+# the direct snap binary, else a PWSH override, else PATH.
+pwshbin=pwsh
+if [ "$lang" = powershell ]; then
+  if [ -n "${PWSH:-}" ] && [ -x "$PWSH" ]; then
+    pwshbin="$PWSH"
+  elif [ -x /snap/powershell/current/opt/powershell/pwsh ]; then
+    pwshbin=/snap/powershell/current/opt/powershell/pwsh
+  fi
+  native=( "$pwshbin" -NoProfile -File )
+fi
 
 # Native-interpreter limitation list: tests the NATIVE interpreter cannot
 # run (a real language gap — e.g. fish has no heredocs at all) while the
@@ -122,9 +135,7 @@ fi
 # native run, so the transpiler path keeps real coverage. Format:
 #   "name.ext|expected-stdout-with-\\n-escapes" (one entry per line)
 native_limits_fish="t43_heredoc.fish|line1\nline2"
-native_limits_powershell="t01_echo.ps1|hello powershell\n
-t02_braced_variable.ps1|\na  b\n
-t03_cast.ps1|cast value\n"
+native_limits_powershell=""
 native_limits_bat="t01_echo.bat|hello world\n
 t02_set.bat|hello world\n
 t03_arith.bat|x=14\n
