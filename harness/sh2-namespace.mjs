@@ -566,12 +566,6 @@ export const sh2 = {
       // the read here via getVar (never the vars/env store).
       case 'EPOCHREALTIME': return (Date.now() / 1000).toFixed(6);
       case 'EPOCHSECONDS': return String(Math.floor(Date.now() / 1000));
-      // bash 5+ specials (core request estree-20260813-233001-epochrealtime-regression):
-      // $EPOCHREALTIME is seconds.microseconds (bash prints %s.%N with 6-digit
-      // precision), $EPOCHSECONDS the integer second count. The emitter routes
-      // the read here via getVar (never the vars/env store).
-      case 'EPOCHREALTIME': return (Date.now() / 1000).toFixed(6);
-      case 'EPOCHSECONDS': return String(Math.floor(Date.now() / 1000));
       default:
         if (/^[1-9]$/.test(name)) {
           const i = Number(name) - 1;
