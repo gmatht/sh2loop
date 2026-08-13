@@ -997,6 +997,40 @@ export const sh2 = {
     return r;
   },
 
+  // ── PowerShell named-block process input (v1 text approximation) ──
+  // Core-request powershell-sh-go: a PowerShell `process` block runs once
+  // PER PIPELINE INPUT ITEM. The v1 text approximation: input items are
+  // the LINES of the program's stdin, read lazily at the first call and
+  // cached. A function invoked with no pipeline input (stdin empty / at
+  // EOF) runs process ZERO times — PowerShell semantics (begin once, end
+  // once). Only emitted by transpiled named-block functions; no corpus
+  // program calls it. The synchronous read terminates at EOF (the
+  // harness runs node with a closed/empty stdin).
+  pipelineInputLines() {
+    if (this._psInputLines === undefined) {
+      let text = '';
+      try {
+        const buf = Buffer.alloc(65536);
+        for (;;) {
+          let n;
+          try {
+            n = fs.readSync(0, buf, 0, buf.length, null);
+          } catch {
+            n = 0;
+          }
+          if (n <= 0) break;
+          text += buf.toString('utf8', 0, n);
+        }
+      } catch {
+        text = '';
+      }
+      let lines = text.split('\n');
+      if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+      this._psInputLines = lines;
+    }
+    return this._psInputLines;
+  },
+
   // ── sync function dispatch ────────────────────────────────────────
   // The `f args...` script-function call lift (see src/shir.rs
   // fn_call_sync_set): the SYNC twin of exec()'s function-dispatch path —
