@@ -1776,6 +1776,50 @@ export const sh2 = {
     return this.typeOf(value) === String(name ?? '');
   },
 
+  // ── channels / select (core requests go-sh-commclause / ────────────
+  // go-sh-recvstmt): the A1 channel vocabulary for the go-sh frontend's
+  // `select`/`commClause`/`recvStmt`/`sendStmt` lowerings. A channel is a
+  // FIFO object `{ q: [...] }`; makeChan creates one, send pushes, recv
+  // shifts. v1 semantics are the NON-BLOCKING poll: recv on an empty
+  // channel returns undefined immediately (a Go recv outside a select
+  // would block — the frontend should only emit bare recv where a
+  // producer provably ran first), and `select` runs the FIRST ready comm
+  // clause in source order (recv ready = FIFO non-empty; send ready =
+  // FIFO open — always true while the channel is open), else the
+  // `default` body when present (Go: a select with no ready clause and
+  // no default BLOCKS — the non-blocking poll cannot express that; every
+  // corpus-reachable form has a default). The clause bodies are async
+  // arrows; the recv target binds via setVar.
+  makeChan() {
+    return { q: [] };
+  },
+  recv(ch) {
+    return ch && Array.isArray(ch.q) && ch.q.length ? ch.q.shift() : undefined;
+  },
+  send(ch, v) {
+    if (ch && Array.isArray(ch.q)) ch.q.push(v);
+    return true;
+  },
+  async select(clauses) {
+    const list = clauses ?? [];
+    for (const c of list) {
+      if (!c) continue;
+      if (c.comm === 'recv' && c.ch && Array.isArray(c.ch.q) && c.ch.q.length) {
+        const v = c.ch.q.shift();
+        if (c.target) this.setVar(c.target, v);
+        if (c.body) await c.body();
+        return;
+      }
+      if (c.comm === 'send' && c.ch && Array.isArray(c.ch.q)) {
+        c.ch.q.push(c.value);
+        if (c.body) await c.body();
+        return;
+      }
+    }
+    const def = list.find((c) => c && c.comm === 'default');
+    if (def && def.body) await def.body();
+  },
+
   // The `echo ARGS | grep [FLAGS] PAT` pipeline lift (see src/shir.rs
   // try_native_echo_grep): a SYNC mini-grep over the echoed text with
   // exact GNU grep semantics for the supported flag set (v/i/n/c/o/q/x
@@ -1834,7 +1878,7 @@ export const sh2 = {
     }
   },
 
-  // regexMatch(value, re) — the fish `string match -rq` lift (the A1
+  // regexMatch(re, value) — the fish `string match -rq` lift (the A1
   // `Regex` node in condition position, core request
   // fish-sh-go-20260813-192709): the emitter renders the pattern as a
   // JS regex literal, so `re` arrives as a native RegExp OBJECT — the
@@ -1843,7 +1887,7 @@ export const sh2 = {
   // the `=~` family records (evalTest's `new RegExp(r).test(l)`), minus
   // the test-string round-trip. A non-RegExp `re` (a bad emit) fails
   // like an invalid pattern (status 2).
-  regexMatch(value, re) {
+  regexMatch(re, value) {
     try {
       const ok = re instanceof RegExp ? re.test(String(value ?? '')) : false;
       this.lastExit = ok ? 0 : 1;
