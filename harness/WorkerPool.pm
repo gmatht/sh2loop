@@ -118,8 +118,11 @@ sub _cgroup_setup {
         my $w = "$base/sh2workers";
         mkdir $g;   # ignore EEXIST — the cgroups persist across runs
         mkdir $w;
-        $gates{$ctrl}   = $g if -d $g;
-        $workers{$ctrl} = $w if -d $w;
+        # cgroupfs mkdir "succeeds" on an EXISTING dir, so membership
+        # WRITABILITY (not -d) is the real test: an unprivileged run sees
+        # root-owned dirs as unwritable and correctly falls back.
+        $gates{$ctrl}   = $g if -d $g && -w "$g/tasks";
+        $workers{$ctrl} = $w if -d $w && -w "$w/tasks";
     }
     if (%gates || %workers) {
         _write("$gates{memory}/memory.limit_in_bytes", $mem_limit)     if $gates{memory};
@@ -144,7 +147,8 @@ sub _cgroup_setup {
         my $w = "$root/sh2workers";
         mkdir $g;   # ignore EEXIST — the cgroups persist across runs
         mkdir $w;
-        my ($g_ok, $w_ok) = (-d $g, -d $w);
+        my $g_ok = -d $g && -w "$g/cgroup.procs";
+        my $w_ok = -d $w && -w "$w/cgroup.procs";
         next unless $g_ok || $w_ok;
         my $weight   = $ENV{SH2_GATE_CPU_WEIGHT}   // 50;
         my $wm_weight = $ENV{SH2_WORKER_CPU_WEIGHT} // 100;
