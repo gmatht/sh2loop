@@ -98,7 +98,20 @@ native_out() {  # frontend example-file -> native stdout ("" = none: bat)
   local mode cmd
   IFS=':' read -r mode cmd <<<"$native"
   if [ "$mode" = run ]; then
-    ( cd "$ROOT/frontends/$fe" && timeout 20 "$cmd" "$f" ) < /dev/null 2>/dev/null || true
+    if [ "$cmd" = python3 ]; then
+      # py-sh-go: per-run scratch-dir isolation, mirroring the gate's py
+      # branch (frontend-stdout.sh, the t32_redirect precedent): testdata
+      # side-effect writes (open("f","w")) must not land in the frontend
+      # dir — 2026-08-13 the sweep polluted frontends/py-sh-go/f, which
+      # the worker/takeover commit filters would then commit as junk.
+      # Resolve the source to an absolute path BEFORE cd'ing.
+      local tmp; tmp=$(mktemp -d "$TRIAGE/.nat.XXXXXX")
+      local fabs; fabs=$(readlink -f "$f")
+      ( cd "$tmp" && timeout 20 "$cmd" "$fabs" ) < /dev/null 2>/dev/null || true
+      rm -rf "$tmp"
+    else
+      ( cd "$ROOT/frontends/$fe" && timeout 20 "$cmd" "$f" ) < /dev/null 2>/dev/null || true
+    fi
   elif [ "$mode" = go-wrap ]; then
     # Go-flavored sh: wrap into a runnable program (frontend-stdout's go mode)
     local tmp; tmp=$(mktemp -d "$TRIAGE/.nat.XXXXXX")
