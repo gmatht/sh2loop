@@ -12,6 +12,26 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v24: **`Try` statement node in the A1 contract** (core request
+>   py-sh-go 20260813 — Python try/except/else/finally, ESTree-path
+>   only). `IrStmt::Try { body, excepts, else_body, finally_body }` +
+>   `TryExcept { match_expr, as_name, body }`; serialized as
+>   `{"type":"Try", body, excepts:[{"type":"TryExcept", match:
+>   <expr|null>, as: <string|null>, body}], else, finally}` (empty
+>   arrays when absent; byte-identical round-trip through
+>   `--shir-in-estree`). The estree lowering emits standard
+>   TryStatement/CatchClause/ThrowStatement: except arms become an
+>   `e instanceof <match>` if/else-if ladder inside the single catch
+>   (bare except = terminal else, no match = rethrow), a signal guard
+>   (`!(e instanceof Error)` → rethrow) lets runtime BREAK/CONTINUE/
+>   RETURN control signals pass through a Try untouched, `as` binds via
+>   `sh2.setVar`, `else` becomes a post-try completion-flag block
+>   (`__sh2else` — Python else runs only when the try body completed
+>   WITHOUT raising; a handled exception skips it, and else-body
+>   exceptions are not caught by this statement's arms), `finally` the
+>   JS finalizer. All IR analyses/walkers and every backend handle the
+>   node (non-ESTree renderers refuse loudly). Gates: estree 521/521
+>   (0 failed), perl 319 (unchanged), cargo test --lib 246.
 > - v23: **`--true64` — bash arithmetic is true 64-bit, off by default**
 >   (core). The default bash lowering keeps JS Numbers — silently wrong
 >   past ±2^53 (verified: `x=9007199254740992; x=$((x+1))` prints
