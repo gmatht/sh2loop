@@ -187,8 +187,37 @@ pub extern "C" fn otranspilerl_glsl(input: *const u8, input_len: usize) -> *mut 
                 &prog,
                 &debashl::glsl_backend::ShGlslOptions {
                     es100: true,
-                    color_out: true,
+                color_out: true,
+                vert_out: false,
+                tex_size: 16,
+                max_view: 800,
+            },
+            );
+            alloc_string(&ok_json(&glsl))
+        }
+        Err(e) => alloc_string(&err_json(&format!("{e}"))),
+    }
+}
+
+/// `otranspilerl_glslv(input, input_len)` — shell → **GLSL ES 1.00 render
+/// VERTEX shader** (the other half of the MIMEcroft pipeline): the bash
+/// program becomes a vertex shader with the ap_*/ash_*/auv_*/ucp_*/
+/// ucy_*/uop_*/usc_*/ublk_*/uov input bridges and the vp_*/vc_*/vu_*
+/// outputs — `sh2glsl --vertex` in the shell.
+#[no_mangle]
+pub extern "C" fn otranspilerl_glslv(input: *const u8, input_len: usize) -> *mut u8 {
+    let input = take_input(input, input_len);
+    match debashl::Parser::new(&input).parse() {
+        Ok(commands) => {
+            let prog = debashl::shir::ast_to_ir_raw(&commands);
+            let glsl = debashl::glsl_backend::shir_to_glsl_opts(
+                &prog,
+                &debashl::glsl_backend::ShGlslOptions {
+                    es100: true,
+                    color_out: false,
+                    vert_out: true,
                     tex_size: 16,
+                    max_view: 800, // the sh2runtime device canvas is 800×600
                 },
             );
             alloc_string(&ok_json(&glsl))
