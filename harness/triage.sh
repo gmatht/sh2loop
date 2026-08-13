@@ -81,6 +81,20 @@ emit_a1() {  # frontend example-file -> A1 JSON on stdout (transformed)
   local info; info=$(frontend_info "$fe")
   IFS='|' read -r corpus ext bin native <<<"$info"
   local tmp; tmp=$(mktemp -d "$TRIAGE/.em.XXXXXX")
+  # A missing/stale frontend binary must never be mis-recorded as
+  # FAIL-FRONTEND-EMIT: the 2026-08-14 01:45:44 sweep raced the zsh-sh-go
+  # worker's mid-rebuild (pre-atomic `rm -f; go build`) and poisoned 45
+  # verdict rows for t16-t20, cascading useless --pi-fix-frontend
+  # invocations. Build on demand (all sweep frontends have a Makefile
+  # `build` target; the zsh-sh-go/cpp-sh-go ones publish atomically via
+  # PID-unique temp + mv, so this is safe against concurrent worker
+  # builds). A genuine build failure still surfaces as FAIL-FRONTEND-EMIT.
+  if [ ! -x "$ROOT/frontends/$fe/$bin" ] || \
+     [ -n "$(find "$ROOT/frontends/$fe" -maxdepth 1 -type f \
+              -newer "$ROOT/frontends/$fe/$bin" ! -name "$bin" ! -name '.*' \
+              -print -quit 2>/dev/null)" ]; then
+    ( cd "$ROOT/frontends/$fe" && make build >/dev/null 2>&1 ) || true
+  fi
   ( cd "$ROOT/frontends/$fe" && "$bin" --shir "$f" --raw 2>/dev/null ) > "$tmp/a1.json" || { rm -rf "$tmp"; return 1; }
   # c/cpp: the out-param transform (the frontend gates apply it before ingress)
   if [ "$ext" = c ] || [ "$ext" = cc ]; then
