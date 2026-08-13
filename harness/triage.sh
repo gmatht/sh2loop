@@ -205,7 +205,14 @@ list_examples() {
   IFS='|' read -r corpus ext bin native <<<"$info"
   local e; for e in ${ext//,/ }; do
     ls "$ROOT/frontends/$1/$corpus"/*."$e" 2>/dev/null
-  done | xargs -n1 basename
+  done | xargs -n1 basename | grep -vE '_refuse|_gap'
+  # *_refuse* / *_gap* files are REFUSAL PINS: the frontend must FAIL to
+  # emit them (each frontend gate asserts exactly that — the cpp gate's
+  # "refusals: *_refuse.cc must FAIL loudly"). Triage's cross-product
+  # tests the A1 a frontend EMITS; a refusal pin emits nothing, so its
+  # expected emit-failure is not a FAIL-FRONTEND-EMIT and must never be
+  # escalated as a broken frontend (the 2026-08-13 false pi-fix session
+  # came from exactly that). Same *_gap* convention as coverage-gap.sh.
 }
 
 sweep() {
