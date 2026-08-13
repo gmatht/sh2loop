@@ -12,6 +12,24 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v25: **`named_blocks` on the A1 `Function` node** (core request
+>   powershell-sh-go 20260813 — PowerShell begin/process/end blocks,
+>   ESTree-path only). `IrStmt::Function` gained
+>   `named_blocks: Vec<(String, Vec<IrStmt>)>`; serialized as
+>   `"named_blocks": {"begin": [stmt], "process": [stmt], ...}`
+>   (map key = `dynamicparam`/`begin`/`process`/`end`/`clean`; emitted
+>   ONLY when non-empty, so all existing emits and the frontends'
+>   byte-identical oracles stay byte-identical; unknown names REFUSE at
+>   ingress). The estree lowering wraps the define arrow in PowerShell
+>   execution order: dynamicparam → begin → process (once PER pipeline
+>   input item — v1 text approximation: one run per line of stdin via
+>   the new runtime helper `sh2.pipelineInputLines()`, gated in
+>   estree_gate.pl + sh2-namespace.json) → end → body (PowerShell's
+>   implicit end block) → clean. Named-block functions are excluded
+>   from the sync-call fixpoint (their arrow is always async; callers
+>   stay on the async path). Other backends render `body` and ignore
+>   the field. Gates: estree 521/521 (0 failed), perl 319 (unchanged),
+>   cargo test --lib 248.
 > - v24: **`Try` statement node in the A1 contract** (core request
 >   py-sh-go 20260813 — Python try/except/else/finally, ESTree-path
 >   only). `IrStmt::Try { body, excepts, else_body, finally_body }` +
