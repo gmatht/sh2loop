@@ -419,6 +419,8 @@ export const sh2 = {
   assocStore: new Map(), // assoc name -> Map(key, value)
   exported: new Set(),
   functions: new Map(),
+  chans: new Map(),     // channel handle -> {q: []} FIFO (go-sh select/commClause; core requests go-sh-commclause / go-sh-recvstmt)
+  _chanSeq: 0,
   lastExit: 0,
   pipeStatuses: [], // exit status per stage of the last pipeline (PIPESTATUS)
   positional: [],
@@ -1790,28 +1792,38 @@ export const sh2 = {
   // no default BLOCKS — the non-blocking poll cannot express that; every
   // corpus-reachable form has a default). The clause bodies are async
   // arrows; the recv target binds via setVar.
+  // Channels are HANDLE STRINGS in the A1 store (the store is
+  // string-typed): makeChan allocates a handle, registers the FIFO in
+  // `this.chans`, and returns the handle; recv/send/select resolve it.
+  // The handle survives setVar round-trips (the go-sh frontend stores
+  // `ch := make(chan int)` as a plain setVar).
   makeChan() {
-    return { q: [] };
+    const id = `__chan${++this._chanSeq}`;
+    this.chans.set(id, { q: [] });
+    return id;
   },
   recv(ch) {
-    return ch && Array.isArray(ch.q) && ch.q.length ? ch.q.shift() : undefined;
+    const c = this.chans.get(String(ch));
+    return c && c.q.length ? c.q.shift() : undefined;
   },
   send(ch, v) {
-    if (ch && Array.isArray(ch.q)) ch.q.push(v);
+    const c = this.chans.get(String(ch));
+    if (c) c.q.push(v);
     return true;
   },
   async select(clauses) {
     const list = clauses ?? [];
     for (const c of list) {
       if (!c) continue;
-      if (c.comm === 'recv' && c.ch && Array.isArray(c.ch.q) && c.ch.q.length) {
-        const v = c.ch.q.shift();
+      const chan = c.ch == null ? null : this.chans.get(String(c.ch));
+      if (c.comm === 'recv' && chan && chan.q.length) {
+        const v = chan.q.shift();
         if (c.target) this.setVar(c.target, v);
         if (c.body) await c.body();
         return;
       }
-      if (c.comm === 'send' && c.ch && Array.isArray(c.ch.q)) {
-        c.ch.q.push(c.value);
+      if (c.comm === 'send' && chan) {
+        chan.q.push(c.value);
         if (c.body) await c.body();
         return;
       }
