@@ -38,6 +38,8 @@ pub const TARGETS: &[(&str, &str)] = &[
     (".java", "java"),
     (".rs", "rust"),
     (".zig", "zig"),
+    (".glsl", "glsl"),
+    (".glslv", "glslv"),
     (".shir", "shir"),
 ];
 
@@ -167,7 +169,7 @@ pub fn render(a1: &str, lang: &str) -> Result<String, String> {
         .or_else(|| TARGETS.iter().find(|(_, k)| *k == lang))
         .map(|(_, k)| *k)
         .ok_or_else(|| {
-            format!("target {lang:?} not wired (known: js, pl, c, go, py, sh, java, rs, zig, shir)")
+            format!("target {lang:?} not wired (known: js, pl, c, go, py, sh, java, rs, zig, glsl, glslv, shir)")
         })?;
     let mut prog = debashl::shir_json_in::shir_json_to_ir(a1)?;
     // A1 ingress: restructure Label/Goto into structured flow (the shared
@@ -190,6 +192,35 @@ pub fn render(a1: &str, lang: &str) -> Result<String, String> {
         "java" => debashl::java_backend::shir_to_java(&prog)?,
         "rust" => debashl::rust_backend::shir_to_rust(&prog),
         "zig" => debashl::zig_backend::shir_to_zig(&prog),
+        // A1 → GLSL ES 1.00 render fragment — the same options the
+        // dedicated otranspilerl_glsl shell→shader entry uses (the
+        // MIMEcroft bridges: frag_x/frag_y/vcolor/uv/tex/crack, putb
+        // colour output), so frontend A1s render to shaders too. The
+        // backend is the pure-computation subset — process/file/external
+        // constructs render as /* TODO(unsupported) */ markers.
+        "glsl" => debashl::glsl_backend::shir_to_glsl_opts(
+            &prog,
+            &debashl::glsl_backend::ShGlslOptions {
+                es100: true,
+                color_out: true,
+                vert_out: false,
+                tex_size: 16,
+                max_view: 0, // generic render path: canvas unknown → no mediump
+            },
+        ),
+        // A1 → GLSL ES 1.00 render VERTEX (the other MIMEcroft stage —
+        // `sh2glsl --vertex`; the ap_*/ucp_*/ucy_*/… bridges and the
+        // vp_*/vc_*/vu_* outputs).
+        "glslv" => debashl::glsl_backend::shir_to_glsl_opts(
+            &prog,
+            &debashl::glsl_backend::ShGlslOptions {
+                es100: true,
+                color_out: false,
+                vert_out: true,
+                tex_size: 16,
+                max_view: 800, // the sh2runtime device canvas is 800×600
+            },
+        ),
         "shir" => return Ok(a1.to_string()),
         other => {
             return Err(format!("backend {other:?} not wired"));
