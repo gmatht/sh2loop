@@ -172,6 +172,31 @@ pub extern "C" fn otranspilerl_transpile(
     }
 }
 
+/// `otranspilerl_glsl(input, input_len)` — shell → **GLSL ES 1.00 render
+/// fragment** (the MIMEcroft shader pipeline): the bash program becomes a
+/// fragment shader with the frag_x/frag_y/vcolor/uv/tex/crack bridges
+/// (debashl::glsl_backend), so the browser compiles bash-authored
+/// shaders in-process — the `sh2glsl` command in the shell.
+#[no_mangle]
+pub extern "C" fn otranspilerl_glsl(input: *const u8, input_len: usize) -> *mut u8 {
+    let input = take_input(input, input_len);
+    match debashl::Parser::new(&input).parse() {
+        Ok(commands) => {
+            let prog = debashl::shir::ast_to_ir_raw(&commands);
+            let glsl = debashl::glsl_backend::shir_to_glsl_opts(
+                &prog,
+                &debashl::glsl_backend::ShGlslOptions {
+                    es100: true,
+                    color_out: true,
+                    tex_size: 16,
+                },
+            );
+            alloc_string(&ok_json(&glsl))
+        }
+        Err(e) => alloc_string(&err_json(&format!("{e}"))),
+    }
+}
+
 /// `otranspilerl_cli(args, args_len)` — the full CLI, args newline-joined.
 /// Returns `{"exit":N,"output":"...","stderr":"..."}`. File I/O follows
 /// WASI preopens; frontends/`--run` need a process-spawning host.
