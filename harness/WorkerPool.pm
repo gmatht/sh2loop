@@ -17,28 +17,42 @@
 #
 # CGROUP ENFORCEMENT (on by default; best-effort — falls back to the
 # cooperative accounting above when cgroups aren't writable, e.g. running
-# unprivileged in WSL). The gate process writes itself into the `sh2gates`
-# cgroup BEFORE forking workers; children inherit membership.
-#   - memory:  limited to SH2_GATE_MEM_FRAC (default 0.5) of box RAM —
-#              a runaway test can no longer OOM the box (it OOMs inside the
-#              gates cgroup instead, sparing the agents);
-#   - pids:    SH2_GATE_PIDS_MAX (default 1024) — fork-bomb containment;
-#   - cpu:     cpu.shares SH2_GATE_CPU_SHARES (v1, default 512) /
-#              cpu.weight SH2_GATE_CPU_WEIGHT (v2, default 50) — half the
-#              default weight, so under contention the agent windows (which
-#              stay OUTSIDE the cgroup) win CPU automatically.
+# unprivileged in WSL). TWO sibling cgroups under the controller root:
+#   - sh2gates    — the corpus test workers: the gate process writes
+#                   itself in BEFORE forking; children inherit membership.
+#       memory:  limited to SH2_GATE_MEM_FRAC (default 0.5) of box RAM —
+#                a runaway test can no longer OOM the box (it OOMs inside
+#                the gates cgroup instead, sparing the agents);
+#       pids:    SH2_GATE_PIDS_MAX (default 1024) — fork-bomb containment;
+#       cpu:     cpu.shares SH2_GATE_CPU_SHARES (v1, default 512) /
+#                cpu.weight SH2_GATE_CPU_WEIGHT (v2, default 50) — half
+#                the default weight, so under contention the worker loops
+#                (sh2workers) win CPU automatically;
+#   - sh2workers — the long-running worker loops (estree / perl / backend /
+#                frontend / triage + their pi sessions and builds): the
+#                loop self-enrolls at startup (enter_worker_cgroup).
+#       memory:  SH2_WORKER_MEM_FRAC (default 0.5) — a runaway worker or
+#                pi session can't OOM the box either;
+#       pids:    SH2_WORKER_PIDS_MAX (default 2048 — builds + node + pi
+#                spawn more than a gate run);
+#       cpu:     DEFAULT weight (1024/100) — the workers stay the priority
+#                class; the gates yield to them under contention.
 #
 # CLI (so bash gates use the same logic as the perl gates):
 #   perl WorkerPool.pm --status          print caps + cgroup status
 #   perl WorkerPool.pm --max-jobs [want] print the current dynamic budget
 #   perl WorkerPool.pm --enter [pid]     move pid (default $$) into sh2gates
+#   perl WorkerPool.pm --enter-worker [pid]
+#                                       move pid (default $$) into sh2workers
 #   perl WorkerPool.pm --release         drop this process's worker slots
 #
 # Env: SH2_NO_CGROUPS=1 disables cgroup enforcement (cooperative only);
 # SH2_WORKER_RAM_MB (128) est. RSS per test worker;
 # SH2_WORKER_CAP (global pool cap override); SH2_TARGET_LOAD (0.9);
 # SH2_GATE_MEM_FRAC (0.5); SH2_GATE_PIDS_MAX (1024);
-# SH2_GATE_CPU_SHARES (512, v1); SH2_GATE_CPU_WEIGHT (50, v2).
+# SH2_GATE_CPU_SHARES (512, v1); SH2_GATE_CPU_WEIGHT (50, v2);
+# SH2_WORKER_MEM_FRAC (0.5); SH2_WORKER_PIDS_MAX (2048);
+# SH2_WORKER_CPU_SHARES (1024, v1); SH2_WORKER_CPU_WEIGHT (100, v2).
 package WorkerPool;
 use strict;
 use warnings;
@@ -82,28 +96,37 @@ sub init {
 sub _cgroup_setup {
     my ($S) = @_;
     return if $ENV{SH2_NO_CGROUPS};
-    my $mem_frac  = $ENV{SH2_GATE_MEM_FRAC}   // 0.5;
-    my $pids_max  = $ENV{SH2_GATE_PIDS_MAX}   // 1024;
-    my $shares    = $ENV{SH2_GATE_CPU_SHARES} // 512;
-    my $mem_total = _meminfo()->{MemTotal} // 0;
-    my $mem_limit = int($mem_total * 1024 * $mem_frac);   # kB → bytes
+    my $mem_frac      = $ENV{SH2_GATE_MEM_FRAC}     // 0.5;
+    my $pids_max      = $ENV{SH2_GATE_PIDS_MAX}     // 1024;
+    my $shares        = $ENV{SH2_GATE_CPU_SHARES}   // 512;
+    my $wm_f          = $ENV{SH2_WORKER_MEM_FRAC}   // 0.5;
+    my $wm_pids       = $ENV{SH2_WORKER_PIDS_MAX}   // 2048;
+    my $wm_shares     = $ENV{SH2_WORKER_CPU_SHARES} // 1024;
+    my $mem_total     = _meminfo()->{MemTotal} // 0;
+    my $mem_limit     = int($mem_total * 1024 * $mem_frac);   # kB → bytes
+    my $wm_mem_limit  = int($mem_total * 1024 * $wm_f);
     my $min_bytes = 256 * 1024 * 1024;
-    $mem_limit = $min_bytes if $mem_limit < $min_bytes;
+    $mem_limit    = $min_bytes if $mem_limit    < $min_bytes;
+    $wm_mem_limit = $min_bytes if $wm_mem_limit < $min_bytes;
 
     # v1 first: per-controller trees /sys/fs/cgroup/{memory,cpu,pids}
-    my %dirs;
+    my (%gates, %workers);
     for my $ctrl (qw(memory cpu pids)) {
         my $base = "/sys/fs/cgroup/$ctrl";
         next unless -d $base;
-        my $dir = "$base/sh2gates";
-        next unless mkdir $dir;
-        $dirs{$ctrl} = $dir;
+        my $g = "$base/sh2gates";
+        my $w = "$base/sh2workers";
+        $gates{$ctrl}   = $g if mkdir $g;
+        $workers{$ctrl} = $w if mkdir $w;
     }
-    if (%dirs) {
-        _write("$dirs{memory}/memory.limit_in_bytes", $mem_limit) if $dirs{memory};
-        _write("$dirs{cpu}/cpu.shares", $shares)                 if $dirs{cpu};
-        _write("$dirs{pids}/pids.max", $pids_max)                if $dirs{pids};
-        return { type => 'v1', dirs => \%dirs };
+    if (%gates || %workers) {
+        _write("$gates{memory}/memory.limit_in_bytes", $mem_limit)     if $gates{memory};
+        _write("$gates{cpu}/cpu.shares", $shares)                     if $gates{cpu};
+        _write("$gates{pids}/pids.max", $pids_max)                    if $gates{pids};
+        _write("$workers{memory}/memory.limit_in_bytes", $wm_mem_limit) if $workers{memory};
+        _write("$workers{cpu}/cpu.shares", $wm_shares)                if $workers{cpu};
+        _write("$workers{pids}/pids.max", $wm_pids)                   if $workers{pids};
+        return { type => 'v1', gates => \%gates, workers => \%workers };
     }
 
     # v2 fallback: unified tree at /sys/fs/cgroup (pure v2) or
@@ -115,13 +138,20 @@ sub _cgroup_setup {
         next unless -f "$root/cgroup.controllers";
         my $sc = _read("$root/cgroup.subtree_control") // '';
         next unless $sc =~ /\bmemory\b/ && $sc =~ /\bcpu\b/ && $sc =~ /\bpids\b/;
-        my $dir = "$root/sh2gates";
-        next unless mkdir $dir;
-        my $weight = $ENV{SH2_GATE_CPU_WEIGHT} // 50;
-        _write("$dir/memory.max", $mem_limit);
-        _write("$dir/cpu.weight", $weight);
-        _write("$dir/pids.max", $pids_max);
-        return { type => 'v2', root => $root, dir => $dir };
+        my $g = "$root/sh2gates";
+        my $w = "$root/sh2workers";
+        my ($g_ok, $w_ok) = (mkdir $g, mkdir $w);
+        next unless $g_ok || $w_ok;
+        my $weight   = $ENV{SH2_GATE_CPU_WEIGHT}   // 50;
+        my $wm_weight = $ENV{SH2_WORKER_CPU_WEIGHT} // 100;
+        _write("$g/memory.max", $mem_limit)    if $g_ok;
+        _write("$g/cpu.weight", $weight)       if $g_ok;
+        _write("$g/pids.max", $pids_max)       if $g_ok;
+        _write("$w/memory.max", $wm_mem_limit) if $w_ok;
+        _write("$w/cpu.weight", $wm_weight)    if $w_ok;
+        _write("$w/pids.max", $wm_pids)        if $w_ok;
+        return { type => 'v2', root => $root, gates => ($g_ok ? $g : undef),
+                 workers => ($w_ok ? $w : undef) };
     }
     return;
 }
@@ -131,13 +161,30 @@ sub enter_cgroup {
     $pid //= $$;
     my $S = $STATE or return 0;
     my $cg = $S->{cgroup} or return 0;
+    return _enter_cg($cg, 'gates', $pid);
+}
+
+# Move into sh2workers — the long-running worker loops (estree/perl/
+# backend/frontend/triage + their pi sessions). Children inherit.
+sub enter_worker_cgroup {
+    my ($pid) = @_;
+    $pid //= $$;
+    my $S = $STATE or return 0;
+    my $cg = $S->{cgroup} or return 0;
+    return _enter_cg($cg, 'workers', $pid);
+}
+
+sub _enter_cg {
+    my ($cg, $which, $pid) = @_;
     my $moved = 0;
     if ($cg->{type} eq 'v1') {
-        for my $dir (values %{ $cg->{dirs} }) {
+        my $dirs = $cg->{$which} or return 0;
+        for my $dir (values %$dirs) {
             $moved++ if _append("$dir/tasks", "$pid\n");
         }
     } elsif ($cg->{type} eq 'v2') {
-        $moved++ if _append("$cg->{dir}/cgroup.procs", "$pid\n");
+        my $dir = $cg->{$which} or return 0;
+        $moved++ if _append("$dir/cgroup.procs", "$pid\n");
     }
     return $moved ? 1 : 0;
 }
@@ -212,7 +259,8 @@ sub status {
     my $S = $STATE or return 'not initialized';
     my $cg = $S->{cgroup}
         ? ($S->{cgroup}{type} eq 'v1'
-            ? 'v1(' . join(',', sort keys %{ $S->{cgroup}{dirs} }) . ')'
+            ? 'v1(gates=' . join(',', sort keys %{ $S->{cgroup}{gates} // {} })
+              . ' workers=' . join(',', sort keys %{ $S->{cgroup}{workers} // {} }) . ')'
             : 'v2')
         : 'none (cooperative fallback)';
     return "cap=$S->{cap} (cpu $S->{cpu_cap}, ram50%-cap $S->{ram_cap}) cgroup=$cg";
@@ -312,10 +360,16 @@ unless (caller) {
         my $ok = WorkerPool::enter_cgroup($pid);
         warn "WorkerPool: cgroup unavailable (cooperative mode)\n" unless $ok;
         print WorkerPool::status(), "\n";
+    } elsif ($cmd eq '--enter-worker') {
+        init(root => $root);
+        my $pid = defined $ARGV[0] ? $ARGV[0] + 0 : $$;
+        my $ok = WorkerPool::enter_worker_cgroup($pid);
+        warn "WorkerPool: cgroup unavailable (cooperative mode)\n" unless $ok;
+        print WorkerPool::status(), "\n";
     } elsif ($cmd eq '--release') {
         init(root => $root);
         WorkerPool::release();
     } else {
-        die "usage: $0 {--status|--max-jobs [want]|--enter [pid]|--release}\n";
+        die "usage: $0 {--status|--max-jobs [want]|--enter [pid]|--enter-worker [pid]|--release}\n";
     }
 }
