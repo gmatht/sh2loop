@@ -1613,11 +1613,20 @@ export const sh2 = {
   },
 
   // Standalone redirect (`>file` with no command): bash creates the
-  // (empty) file even when nothing writes to it.
+  // (empty) file even when nothing writes to it. fd-dup (`&N`) and
+  // close (`-` / `&-`) targets are NOT files — bash's `echo hi 2>&1`
+  // creates nothing (the dup is an fd-table operation, the close
+  // closes one) — so skip them exactly like _applyRedirectSpecs does.
+  // (Without the skip, an fd-dup spec in the program created a stray
+  // empty `&1` file in the gate's CWD — spotted 2026-08-14 when the
+  // powershell-sh-go t19 merging-redirection gate run left
+  // frontends/powershell-sh-go/&1 behind; the workspace root and
+  // sh2perl/ already carried the same litter.)
   _ensureRedirectFiles(specs) {
     for (const s of specs) {
       if (s.mode === 'w' || s.mode === 'a') {
         const t = expandWord(this, String(s.target));
+        if (/^&\d+$/.test(t) || t === '&-' || t === '-') continue;
         if (!fs.existsSync(t)) {
           try { fs.closeSync(fs.openSync(t, 'w')); } catch { /* unwritable target: bash reports, we ignore */ }
         }
