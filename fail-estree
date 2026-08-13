@@ -39,6 +39,23 @@ if (open my $fh, '<', '/proc/cpuinfo') {
 my $jobs = int($ncpus / 2);
 $jobs = 1 if $jobs < 1;
 
+# ── Worker allocation (harness/WorkerPool.pm): 50%-of-RAM ceiling, loadavg
+#    dynamic shrink, and cgroup enforcement (on by default; best-effort —
+#    falls back to cooperative accounting when cgroups aren't writable,
+#    e.g. unprivileged WSL). Shared across concurrent gates via .workers/
+#    slot files; the agent windows stay outside the pool (priority class).
+my $pool_ok = eval { require "$root/harness/WorkerPool.pm"; 1 };
+if ($pool_ok) {
+    WorkerPool::init(root => $root);
+    WorkerPool::enter_cgroup();   # before forking: workers inherit membership
+    $jobs = WorkerPool::acquire($jobs);
+}
+END { WorkerPool::release() if $pool_ok; }
+
+sub current_jobs {
+    return $pool_ok ? WorkerPool::max_jobs($jobs) : $jobs;
+}
+
 my ($do_gate, $do_metric) = (0, 0);
 my @prefix_args = ();
 for my $a (@ARGV) {
@@ -211,6 +228,9 @@ sub run_one_test {
 
 # ── main ────────────────────────────────────────────────────────────
 print "fail-estree: $total tests, $jobs parallel workers, ${timeout_per_test}s timeout\n";
+if ($pool_ok) {
+    print "Worker pool: $jobs workers (", WorkerPool::status(), ")\n";
+}
 print "Examples dir: $examples\n";
 print "----------------------------------------\n";
 
@@ -244,7 +264,7 @@ sub dispatch {
     $child_info{$pid} = { test_num => $test_num, test_name => basename($test_file), res_file => "$work_dir/result_$test_num.json" };
 }
 
-while ($next_idx < $total && scalar(keys %child_info) < $jobs) {
+while ($next_idx < $total && scalar(keys %child_info) < current_jobs()) {
     dispatch($next_idx);
     $next_idx++;
 }
@@ -278,8 +298,8 @@ while (scalar(keys %child_info) > 0) {
     push @estree_failures, sprintf("%s\t%s\t%s", $info->{test_name}, $result->{estree}, $result->{estree_reason});
     push @done_tests, $info->{test_name};
 
-    # refill
-    if ($next_idx < $total) { dispatch($next_idx); $next_idx++; }
+    # refill (dynamic: shrinks when loadavg rises)
+    if ($next_idx < $total && scalar(keys %child_info) < current_jobs()) { dispatch($next_idx); $next_idx++; }
 }
 
 print "----------------------------------------\n";

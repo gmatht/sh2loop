@@ -12,6 +12,21 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v26: **Worker allocation + cgroup enforcement for the gates**
+>   (`harness/WorkerPool.pm`, wired into `fail` / `fail-estree`; the GNU
+>   coreutils `gate` patch is staged for a root-owned apply). A gate's
+>   worker budget is `min(int(nproc/2), 50%-of-RAM ceiling, loadavg room
+>   (0.9·nproc − load1, dynamic), MemAvailable headroom, shared `.workers/`
+>   slot capacity)` — floored at 1 — so N concurrent agent-loop gates can't
+>   each spawn nproc/2 workers, and gates yield when the native windows
+>   (pi agents, which stay outside the pool) are busy. Cgroup enforcement
+>   on by default (best-effort; fails back to cooperative accounting when
+>   cgroups aren't writable, e.g. unprivileged WSL): the `sh2gates` cgroup
+>   caps memory at 50% of RAM (SH2_GATE_MEM_FRAC), pids at 1024
+>   (SH2_GATE_PIDS_MAX, fork-bomb containment), and cpu.shares/weight at
+>   512/50 (SH2_GATE_CPU_SHARES/WEIGHT — half the default, so agents win
+>   contention automatically). Env: SH2_NO_CGROUPS=1 disables enforcement;
+>   SH2_WORKER_RAM_MB (128), SH2_WORKER_CAP, SH2_TARGET_LOAD (0.9).
 > - v25: **`named_blocks` on the A1 `Function` node** (core request
 >   powershell-sh-go 20260813 — PowerShell begin/process/end blocks,
 >   ESTree-path only). `IrStmt::Function` gained
