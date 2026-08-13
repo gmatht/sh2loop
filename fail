@@ -26,6 +26,28 @@ if (open my $fh, '<', '/proc/cpuinfo') {
 my $jobs = int($ncpus / 2);
 $jobs = 1 if $jobs < 1;
 
+# ── Worker allocation (harness/WorkerPool.pm): 50%-of-RAM ceiling, loadavg
+#    dynamic shrink, and cgroup enforcement (on by default; best-effort —
+#    falls back to cooperative accounting when cgroups aren't writable,
+#    e.g. unprivileged WSL). The pool is SHARED across concurrent gates via
+#    .workers/ slot files, so N agent loops running gates simultaneously
+#    can't each spawn int(nproc/2) workers. The agent windows themselves
+#    stay outside the pool (they're the priority class).
+my $pool_ok = eval { require "$root/harness/WorkerPool.pm"; 1 };
+if ($pool_ok) {
+    WorkerPool::init(root => $root);
+    WorkerPool::enter_cgroup();   # before forking: workers inherit membership
+    $jobs = WorkerPool::acquire($jobs);
+}
+END { WorkerPool::release() if $pool_ok; }
+
+# Dynamic budget, recomputed per dispatch batch: loadavg can change
+# mid-run (agents waking up, sibling gates finishing); the cgroup weight +
+# this keep the gates yielding to the box's other work.
+sub current_jobs {
+    return $pool_ok ? WorkerPool::max_jobs($jobs) : $jobs;
+}
+
 my @all_tests = glob "$examples/*.sh";
 @all_tests = sort @all_tests;
 
@@ -226,6 +248,9 @@ sub run_one_test {
 # ── Main ────────────────────────────────────────────────────────────
 
 print "Running $total tests, $jobs parallel workers, ${timeout_per_test}s timeout each\n";
+if ($pool_ok) {
+    print "Worker pool: $jobs workers (", WorkerPool::status(), ")\n";
+}
 print "Examples dir: $examples\n";
 print "Debashc: $debashc\n";
 print "----------------------------------------\n";
@@ -276,7 +301,7 @@ sub dispatch {
 }
 
 # Dispatch initial batch
-while ($next_idx < $total && scalar(keys %child_info) < $jobs) {
+while ($next_idx < $total && scalar(keys %child_info) < current_jobs()) {
     dispatch($next_idx);
     $next_idx++;
 }
@@ -328,8 +353,8 @@ while (scalar(keys %child_info) > 0) {
         print_result($info);
     }
 
-    # Dispatch more work
-    while ($next_idx < $total && scalar(keys %child_info) < $jobs) {
+    # Dispatch more work (dynamic: shrinks when loadavg rises)
+    while ($next_idx < $total && scalar(keys %child_info) < current_jobs()) {
         dispatch($next_idx);
         $next_idx++;
     }

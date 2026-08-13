@@ -28,6 +28,12 @@ debashc="$root/sh2perl/target/debug/debashc"
 corpus="${CORPUS_DIR:-/var/tmp/coreutils-corpus}"
 timeout_per_test=20
 
+# Worker allocation + cgroup enforcement (harness/WorkerPool.pm): memory
+# capped at 50% of RAM, pids capped, cpu weighted below the agent windows.
+# Best-effort — falls back to cooperative mode when cgroups aren't writable.
+# Enroll THIS gate (children inherit), so a runaway test can't OOM the box.
+pool_status="$(perl "$root/harness/WorkerPool.pm" --enter $$ 2>/dev/null || true)"
+
 if [ ! -d "$corpus/tests" ]; then
     mkdir -p "$(dirname "$corpus")"
     git clone --depth 1 https://git.savannah.gnu.org/git/coreutils.git "$corpus"
@@ -41,6 +47,7 @@ if ! ( cd "$root/sh2perl" && cargo build --bin debashc 2>&1 | tail -1 ); then
     exit 2
 fi
 echo "coreutils corpus: $corpus @ $sha  ($total scripts)"
+[ -n "$pool_status" ] && echo "worker pool: $pool_status"
 echo
 
 tmp="$(mktemp -d)"

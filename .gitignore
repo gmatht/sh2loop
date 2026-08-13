@@ -20,3 +20,6 @@ triage/
 # frontend worker loop logs / pid files (never commit)
 loop-*.log
 loop-*.pid
+
+# worker-pool slot accounting (harness/WorkerPool.pm — runtime state)
+/.workers/
