@@ -1830,6 +1830,26 @@ export const sh2 = {
     }
   },
 
+  // regexMatch(value, re) — the fish `string match -rq` lift (the A1
+  // `Regex` node in condition position, core request
+  // fish-sh-go-20260813-192709): the emitter renders the pattern as a
+  // JS regex literal, so `re` arrives as a native RegExp OBJECT — the
+  // one runtime entry point that consumes a rendered regex literal.
+  // ERE search semantics, status 0 iff any match — the same decision
+  // the `=~` family records (evalTest's `new RegExp(r).test(l)`), minus
+  // the test-string round-trip. A non-RegExp `re` (a bad emit) fails
+  // like an invalid pattern (status 2).
+  regexMatch(value, re) {
+    try {
+      const ok = re instanceof RegExp ? re.test(String(value ?? '')) : false;
+      this.lastExit = ok ? 0 : 1;
+      return ok;
+    } catch {
+      this.lastExit = 2;
+      return false;
+    }
+  },
+
   grepText(text, args, captureMode) {
     const s = String(text ?? '');
     const { opts, patterns } = parseGrepArgs(args, false);
