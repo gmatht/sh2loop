@@ -695,7 +695,10 @@ EOF
                       # main-checkout debashc, which the estree worker churns).
                       core_build_ok=0
                       for try in 1 2 3; do
-                        if cargo build --manifest-path "$SUB/Cargo.toml" >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
+                        # --bin debashc only: the gate needs just the CLI;
+                        # building the whole workspace fails on the core
+                        # owner's in-flight extra bins (glsl_dump etc.).
+                        if cargo build --manifest-path "$SUB/Cargo.toml" --bin debashc >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
                           core_build_ok=1; break
                         fi
                         echo "  [$g_lang] backend gate: core build attempt $try FAILED (estree-worker churn) — retrying in 20s" >> "$WORKSPACE/loop-backend-$g_lang.log"
