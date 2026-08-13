@@ -59,6 +59,17 @@ $| = 1;
 STDERR->autoflush(1);
 
 my $project_root = $FindBin::RealBin;
+
+# Worker cgroup enrollment (harness/WorkerPool.pm): this loop's whole
+# process tree (pi sessions, cargo builds, gates) runs inside the
+# sh2workers cgroup — pids/memory bounded so a runaway can't OOM the box.
+# Best-effort: unprivileged WSL falls back to cooperative mode. The gates
+# this loop runs (fail-estree) re-enroll themselves into sh2gates.
+my $pool_ok = eval { require "$project_root/harness/WorkerPool.pm"; 1 };
+if ($pool_ok) {
+    WorkerPool::init(root => $project_root);
+    WorkerPool::enter_worker_cgroup();
+}
 my $sh2perl      = "$project_root/sh2perl";
 my $fail_estree  = "$project_root/fail-estree";
 my $results_file = "$project_root/.estree_failures.tsv";    # fail-estree writes this

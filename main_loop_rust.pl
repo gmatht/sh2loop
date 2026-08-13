@@ -17,6 +17,16 @@ STDERR->autoflush(1);
 
 my $snapshot_script = "$FindBin::RealBin/ensure_examples_snapshot.pl";
 my $project_root = $FindBin::RealBin;
+
+# Worker cgroup enrollment (harness/WorkerPool.pm): the perl worker's
+# process tree (pi, builds, gates) runs inside sh2workers; best-effort,
+# falls back to cooperative mode (unprivileged WSL). Gates re-enroll into
+# sh2gates themselves.
+my $pool_ok = eval { require "$project_root/harness/WorkerPool.pm"; 1 };
+if ($pool_ok) {
+    WorkerPool::init(root => $project_root);
+    WorkerPool::enter_worker_cgroup();
+}
 my $results_file = "$project_root/sh2perl/failing_tests.txt";
 my $history_log = "$project_root/sh2perl/fix_history.log";
 my $trusted_count_file = "$project_root/sh2perl/.last_trusted_count";

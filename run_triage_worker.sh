@@ -24,6 +24,10 @@ WORKSPACE="$(pwd)"
 TRIAGE="$WORKSPACE/triage"
 mkdir -p "$TRIAGE"
 LOG="$WORKSPACE/loop-triage-worker.log"
+# Worker cgroup enrollment (harness/WorkerPool.pm): the triage worker and
+# its sweep children (frontend binaries, backend renders) run inside the
+# sh2workers cgroup. Best-effort: unprivileged WSL → cooperative fallback.
+perl "$WORKSPACE/harness/WorkerPool.pm" --enter-worker $$ >> "$LOG" 2>&1 || true
 echo "[$(date +%FT%T)] triage worker started (pid=$$)" >> "$LOG"
 
 escalate() {  # fe be ex status detail
