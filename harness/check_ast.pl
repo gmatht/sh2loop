@@ -173,11 +173,19 @@ my @cases = (
         src  => 'echo --x="${X}"',
         check => sub {
             my $d = shift;
-            # ONE arg, the raw merged literal (the transform re-splits it so
-            # the expansion runs; pin the raw artifact shape here).
+            # ONE arg, the raw parse now carries the interpolation itself
+            # (bb5249d moved the LongOption re-split INTO the parser: the
+            # lexer merges `--x="${X}"` to raw text and
+            # parse_string_interpolation_from_literal scans it into parts,
+            # so the expansion runs with no transform dependence). Pin the
+            # current shape: the interpolation with the literal prefix and
+            # a live ParameterExpansion part — the old merged-literal
+            # artifact (`Literal("--x=${X}")` — expansion lost, printed
+            # as `\${X}`) is what parse-longoption-with-dollar.sh guards.
             return scalar(() = $d =~ /^WORD:/mg) == 1
-                && $d =~ /Literal\("--x=\$\{X\}"/
-                && $d !~ /ParameterExpansion/;
+                && $d =~ /StringInterpolation/
+                && $d =~ /Literal\("--x="/
+                && $d =~ /ParameterExpansion\(ParameterExpansion \{ variable: "X"/;
         },
     },
     # --- general mid-word `$`-fusion (fixed with the `$$` bug) ---------
