@@ -18,85 +18,473 @@
     }
   },
   "callees": {
-    "getVar":            { "purity": "Emulable", "async": false, "signature": "(name: str) -> str", "semantics": "Read shell variable/array/assoc/special-var from the runtime store; env fallback. Special: $? $$ $# $@ $* $0 $1..$9 $-, PWD, HOSTNAME, BASH_VERSION, IFS-keyed joins." },
-    "setVar":            { "purity": "Emulable", "async": false, "signature": "(name: str, value: str)", "semantics": "Write shell variable (string store). Attribute-aware: intVars (arith coercion), lcVars/ucVars (case), refVars (nameref), roVars." },
-    "setLastExit":       { "purity": "Control",  "async": false, "signature": "(v: int)", "semantics": "Write the $? register (sh2.lastExit). Bash-faithful: last command's exit status." },
-    "assign":            { "purity": "Emulable", "async": false, "signature": "(name: str, op: str, value: str)", "semantics": "Arithmetic assignment x+= / x++ / x-= / x-- via the arith evaluator; setVar semantics." },
-    "builtin":           { "purity": "Emulable", "async": false, "signature": "(name: str, args: [str], env?: {k:v}) -> int", "semantics": "Native builtin dispatch: echo, printf, cd, read, export, set, declare, :, test, shift, unset, ... (~30, harness/builtins.json). Sets $?." },
-    "exec":              { "purity": "Spawn",    "async": true,  "signature": "(name: str, args: [str], env?: {k:v}) -> int", "semantics": "External command: spawn or builtin. Subject to the exec allowlist (source-named binaries only). Sets $?." },
-    "capture":           { "purity": "Spawn",    "async": true,  "signature": "(fn: closure) -> str", "semantics": "Command substitution: run the closure, capture stdout, strip trailing newlines (shell semantics)." },
-    "captureWords":      { "purity": "Spawn",    "async": true,  "signature": "(fn: closure) -> [str]", "semantics": "Command substitution in word-splitting context (unquoted $(...)): capture + IFS-split into words." },
-    "pipeline":          { "purity": "Spawn",    "async": true,  "signature": "(stages: [closure]) -> int", "semantics": "Pipe stage stdout→next stdin sequentially; exit status = last stage (pipefail flag honored)." },
-    "redirect":          { "purity": "Spawn",    "async": true,  "signature": "(fn: closure, specs: [{fd, mode, target, interpolate?}]) -> int", "semantics": "Run fn with fd redirects: modes r/w/a/r+/heredoc/herestring. fd table semantics (exec 3>file)." },
-    "subshell":          { "purity": "Spawn",    "async": true,  "signature": "(fn: closure) -> int", "semantics": "Copy semantics: env/fd snapshot, run, discard. Not a real process; emulable everywhere." },
-    "background":        { "purity": "Spawn",    "async": true,  "signature": "(fn: closure)", "semantics": "Run asynchronously; tracked for $! and _finish() join." },
-    "test":              { "purity": "Emulable", "async": false, "signature": "(expr: str) -> int", "semantics": "Test expression parser/evaluator: unary flags (-f -d -e -s -x -w -r -n -z -L ...), bin ops (= != -eq -ne -lt -le -gt -ge < > =~ -nt -ot -ef), -a/-o, !, parens. File tests consult fs." },
-    "caseMatch":         { "purity": "PureCpu",  "async": false, "signature": "(value: str, patterns: [str]) -> int", "semantics": "Shell-glob dispatch: pattern list vs value (first match wins). POSIX fnmatch semantics incl. extglob and character classes." },
-    "param":             { "purity": "PureCpu",  "async": false, "signature": "(op: str, name: str, a?: str, b?: str, value?: str) -> str", "semantics": "Parameter expansion family: defaults :- :-= :+ :?, case mods ^ ^^ , ,, , length, prefix/suffix removal, substitution, slice, basename/dirname, ${!indirect}." },
-    "arith":             { "purity": "PureCpu",  "async": false, "signature": "(src: str) -> int", "semantics": "Bash arithmetic evaluator over a string expression. Integer only (i64). Bad/empty operand → 0 (bash quirk)." },
-    "arithEval":         { "purity": "PureCpu",  "async": false, "signature": "(fn: closure) -> int", "semantics": "Arithmetic evaluation of a deferred expression (assignment LHS RHS both evaluated)." },
-    "idiv":              { "purity": "PureCpu",  "async": false, "signature": "(a: int, b: int) -> int", "semantics": "Integer division, truncation toward zero. Zero divisor: throws → whole expansion aborts (bash 'division by 0')." },
-    "imod":              { "purity": "PureCpu",  "async": false, "signature": "(a: int, b: int) -> int", "semantics": "Integer modulo; sign follows dividend. Zero divisor: throws (bash semantics)." },
-    "bcSqrt":            { "purity": "PureCpu",  "async": false, "signature": "(x: str, scale?: int) -> str", "semantics": "Exact arbitrary-precision sqrt (bc -l tier, wasm bc core). C: spawn bc (only genuinely spawn-required family) or link a bignum." },
-    "contains":          { "purity": "PureCpu",  "async": false, "signature": "(haystack: str, needle: str) -> int", "semantics": "Native substring test — the grep-test idiom lift (echo X | grep P >/dev/null → String(X).includes(P))." },
-    "grepText":          { "purity": "Emulable", "async": false, "signature": "(text: str, args: [str], captureMode: int) -> str|int", "semantics": "In-memory grep over captured text (pattern families: literal, BRE-free) — native path for $(cmd | grep P)." },
-    "cutText":           { "purity": "PureCpu",  "async": false, "signature": "(text: str, args: [str], captureMode: int) -> str", "semantics": "In-memory cut -d -f / -c over captured text." },
-    "dirname":           { "purity": "PureCpu",  "async": false, "signature": "(x: str) -> str", "semantics": "POSIX dirname." },
-    "basename":          { "purity": "PureCpu",  "async": false, "signature": "(x: str, suffix?: str) -> str", "semantics": "POSIX basename with optional suffix strip." },
-    "join":              { "purity": "PureCpu",  "async": false, "signature": "(v: any) -> str", "semantics": "Array→space-joined string (String(v) fallback). The native sh2.join lowering." },
-    "listVar":           { "purity": "Emulable", "async": false, "signature": "(name: str) -> [str]", "semantics": "Array expansion to an argument list (unquoted ${arr[@]} in argv position)." },
-    "setArray":          { "purity": "Emulable", "async": false, "signature": "(name: str, elements: [str], isAssoc: bool)", "semantics": "declare -a / arr=(...) — array store write." },
-    "setArrayAppend":    { "purity": "Emulable", "async": false, "signature": "(name: str, elements: [str])", "semantics": "arr+=(...) — append to array store." },
-    "arrayItems":        { "purity": "Emulable", "async": false, "signature": "(name: str) -> [str]", "semantics": "${arr[@]} — all elements as a list." },
-    "arrayKeys":         { "purity": "Emulable", "async": false, "signature": "(name: str) -> [str]", "semantics": "${!arr[@]} — indices/keys." },
-    "arrayLen":          { "purity": "Emulable", "async": false, "signature": "(name: str) -> int", "semantics": "${#arr[@]} — element count." },
-    "arrayIndex":        { "purity": "Emulable", "async": false, "signature": "(name: str, key: str) -> str", "semantics": "${arr[i]} — element read by evaluated index/key." },
-    "fnCall":            { "purity": "Emulable", "async": false, "signature": "(name: str, args: [str]) -> int", "semantics": "Shell function invocation (positional args, $? semantics)." },
-    "define":            { "purity": "Emulable", "async": false, "signature": "(name: str, fn: closure)", "semantics": "Register a shell function body (closure) in the function table." },
-    "pipelineInputLines": { "purity": "Fs",       "async": false, "signature": "() -> [str]", "semantics": "PowerShell named-block v1 (core-request powershell-sh-go): the process block's per-input-item source — the LINES of the program's stdin, read synchronously at first call and cached. Emitted only inside named-block function wrappers; no corpus program calls it." },
-    "callDirect":        { "purity": "PureCpu",  "async": false, "signature": "(fn: binding, args: [any]) -> any", "semantics": "Call a native-direct function binding (NATIVE_DIRECT_FNS in the emitter) — the deepest native lowering." },
-    "callUndefined":     { "purity": "Spawn",    "async": false, "signature": "(name: str, args: [str])", "semantics": "Fallback for unknown callables (defensive; gated)." },
-    "typeOf":            { "purity": "PureCpu",  "async": false, "signature": "(v: any) -> str", "semantics": "Runtime type dispatch (core request go-sh-20260813-154009): typeof + Array.isArray over the actual JS runtime value -> A1 type-name vocabulary (string/int/float/bool/array, typeof fallback). Store values are strings -> \"string\"." },
-    "isType":            { "purity": "PureCpu",  "async": false, "signature": "(v: any, name: str) -> bool", "semantics": "Type-assertion test (core request go-sh-20260813-154009): typeOf(v) === name — lets A1 Case patterns compare against type names." },
-    "forLoopSync":       { "purity": "PureCpu",  "async": false, "signature": "(items: [str], bodyFn: closure)", "semantics": "Provably-sync for loop twin: no per-iteration promises. BREAK/CONTINUE/RETURN via signal register." },
-    "whileLoopSync":     { "purity": "PureCpu",  "async": false, "signature": "(condFn: closure, bodyFn: closure)", "semantics": "Provably-sync while loop twin (the one whitelisted *Sync: pure CPU by construction)." },
-    "forLoopBatch":      { "purity": "PureCpu",  "async": true,  "signature": "(items: [str], bodyFn: closure, batch: int)", "semantics": "Checkpointed for loop (sync-ok-loops batch_ok verdict): sync chunks of `batch` iterations with a setImmediate yield between chunks. Mirrors forLoopSync exactly (flatten, GLOB_MAGIC, signals, capture bound) minus the yield cadence. Await-legal contexts only." },
-    "whileLoopBatch":    { "purity": "PureCpu",  "async": true,  "signature": "(condFn: closure, bodyFn: closure, batch: int)", "semantics": "Checkpointed while loop twin of forLoopBatch: mirrors whileLoopSync exactly (lastExit, signals, capture bound) with a setImmediate yield every `batch` iterations." },
-    "cstyleForSync":     { "purity": "PureCpu",  "async": false, "signature": "(header: {init,test,update}, bodyFn: closure)", "semantics": "Provably-sync C-style for ((;;)) twin with native numeric header." },
-    "forLoop":           { "purity": "Emulable", "async": true,  "signature": "(items: [str], bodyFn: closure)", "semantics": "Async for loop (historical; superseded by forLoopSync when provably sync)." },
-    "whileLoop":         { "purity": "Emulable", "async": true,  "signature": "(condFn: closure, bodyFn: closure)", "semantics": "Async while loop (historical; superseded by whileLoopSync)." },
-    "block":             { "purity": "Emulable", "async": false, "signature": "(fn: closure)", "semantics": "Run a { ...; } statement group in expression position." },
-    "brace":             { "purity": "PureCpu",  "async": false, "signature": "(prefix: str, groups: [str], middles: [str], suffix: str) -> [str]", "semantics": "Brace expansion cross-product {a,b}{1..5}." },
-    "shopt":             { "purity": "Control",  "async": false, "signature": "(option: str, enable: bool)", "semantics": "Shell option state (shopt -s/-u)." },
-    "return":            { "purity": "Control",  "async": false, "signature": "(value?: int)", "semantics": "Return signal out of a captured function context." },
-    "break":             { "purity": "Control",  "async": false, "signature": "()", "semantics": "Break signal out of a captured loop context." },
-    "continue":          { "purity": "Control",  "async": false, "signature": "()", "semantics": "Continue signal out of a captured loop context." },
-    "guard":             { "purity": "PureCpu",  "async": false, "signature": "(v: any) -> bool", "semantics": "NaN guard for numeric tests: non-numeric operand → bash 'integer expression expected' → whole test false." },
-    "not":               { "purity": "PureCpu",  "async": false, "signature": "(v: int) -> int", "semantics": "Logical not (0/1)." },
-    "trimCapture":       { "purity": "PureCpu",  "async": false, "signature": "(s: str) -> str", "semantics": "Strip trailing newlines from captured stdout (shell command-substitution semantics)." },
-    "unsupported":       { "purity": "GateFlag", "async": false, "signature": "(what: str)", "semantics": "Emitter's unlowered-construct marker. Presence fails the structural gate — never appears in green output." }
+    "getVar": {
+      "purity": "Emulable",
+      "async": false,
+      "signature": "(name: str) -> str",
+      "semantics": "Read shell variable/array/assoc/special-var from the runtime store; env fallback. Special: $? $$ $# $@ $* $0 $1..$9 $-, PWD, HOSTNAME, BASH_VERSION, IFS-keyed joins."
+    },
+    "setVar": {
+      "purity": "Emulable",
+      "async": false,
+      "signature": "(name: str, value: str)",
+      "semantics": "Write shell variable (string store). Attribute-aware: intVars (arith coercion), lcVars/ucVars (case), refVars (nameref), roVars."
+    },
+    "setLastExit": {
+      "purity": "Control",
+      "async": false,
+      "signature": "(v: int)",
+      "semantics": "Write the $? register (sh2.lastExit). Bash-faithful: last command's exit status."
+    },
+    "assign": {
+      "purity": "Emulable",
+      "async": false,
+      "signature": "(name: str, op: str, value: str)",
+      "semantics": "Arithmetic assignment x+= / x++ / x-= / x-- via the arith evaluator; setVar semantics."
+    },
+    "builtin": {
+      "purity": "Emulable",
+      "async": false,
+      "signature": "(name: str, args: [str], env?: {k:v}) -> int",
+      "semantics": "Native builtin dispatch: echo, printf, cd, read, export, set, declare, :, test, shift, unset, ... (~30, harness/builtins.json). Sets $?."
+    },
+    "exec": {
+      "purity": "Spawn",
+      "async": true,
+      "signature": "(name: str, args: [str], env?: {k:v}) -> int",
+      "semantics": "External command: spawn or builtin. Subject to the exec allowlist (source-named binaries only). Sets $?."
+    },
+    "capture": {
+      "purity": "Spawn",
+      "async": true,
+      "signature": "(fn: closure) -> str",
+      "semantics": "Command substitution: run the closure, capture stdout, strip trailing newlines (shell semantics)."
+    },
+    "captureWords": {
+      "purity": "Spawn",
+      "async": true,
+      "signature": "(fn: closure) -> [str]",
+      "semantics": "Command substitution in word-splitting context (unquoted $(...)): capture + IFS-split into words."
+    },
+    "pipeline": {
+      "purity": "Spawn",
+      "async": true,
+      "signature": "(stages: [closure]) -> int",
+      "semantics": "Pipe stage stdout\u2192next stdin sequentially; exit status = last stage (pipefail flag honored)."
+    },
+    "redirect": {
+      "purity": "Spawn",
+      "async": true,
+      "signature": "(fn: closure, specs: [{fd, mode, target, interpolate?}]) -> int",
+      "semantics": "Run fn with fd redirects: modes r/w/a/r+/heredoc/herestring. fd table semantics (exec 3>file)."
+    },
+    "subshell": {
+      "purity": "Spawn",
+      "async": true,
+      "signature": "(fn: closure) -> int",
+      "semantics": "Copy semantics: env/fd snapshot, run, discard. Not a real process; emulable everywhere."
+    },
+    "background": {
+      "purity": "Spawn",
+      "async": true,
+      "signature": "(fn: closure)",
+      "semantics": "Run asynchronously; tracked for $! and _finish() join."
+    },
+    "test": {
+      "purity": "Emulable",
+      "async": false,
+      "signature": "(expr: str) -> int",
+      "semantics": "Test expression parser/evaluator: unary flags (-f -d -e -s -x -w -r -n -z -L ...), bin ops (= != -eq -ne -lt -le -gt -ge < > =~ -nt -ot -ef), -a/-o, !, parens. File tests consult fs."
+    },
+    "caseMatch": {
+      "purity": "PureCpu",
+      "async": false,
+      "signature": "(value: str, patterns: [str]) -> int",
+      "semantics": "Shell-glob dispatch: pattern list vs value (first match wins). POSIX fnmatch semantics incl. extglob and character classes."
+    },
+    "param": {
+      "purity": "PureCpu",
+      "async": false,
+      "signature": "(op: str, name: str, a?: str, b?: str, value?: str) -> str|array",
+      "semantics": "Parameter expansion family: defaults :- :-= :+ :?, case mods ^ ^^ , ,, , length, prefix/suffix removal, substitution, slice, basename/dirname, ${!indirect}. Extended slice (core request py-sh-go-sliceop): a 5th arg on the `slice` op is the optional STEP (positive int string) \u2014 `a[i:j:k]` lowers as start=i, len=j-i, step=k; the ARRAY branches return elements off, off+step, \u2026 < off+len (the scalar branch keeps the 5th arg as the lifted-value override)."
+    },
+    "arith": {
+      "purity": "PureCpu",
+      "async": false,
+      "signature": "(src: str) -> int",
+      "semantics": "Bash arithmetic evaluator over a string expression. Integer only (i64). Bad/empty operand \u2192 0 (bash quirk)."
+    },
+    "arithEval": {
+      "purity": "PureCpu",
+      "async": false,
+      "signature": "(fn: closure) -> int",
+      "semantics": "Arithmetic evaluation of a deferred expression (assignment LHS RHS both evaluated)."
+    },
+    "idiv": {
+      "purity": "PureCpu",
+      "async": false,
+      "signature": "(a: int, b: int) -> int",
+      "semantics": "Integer division, truncation toward zero. Zero divisor: throws \u2192 whole expansion aborts (bash 'division by 0')."
+    },
+    "imod": {
+      "purity": "PureCpu",
+      "async": false,
+      "signature": "(a: int, b: int) -> int",
+      "semantics": "Integer modulo; sign follows dividend. Zero divisor: throws (bash semantics)."
+    },
+    "bcSqrt": {
+      "purity": "PureCpu",
+      "async": false,
+      "signature": "(x: str, scale?: int) -> str",
+      "semantics": "Exact arbitrary-precision sqrt (bc -l tier, wasm bc core). C: spawn bc (only genuinely spawn-required family) or link a bignum."
+    },
+    "contains": {
+      "purity": "PureCpu",
+      "async": false,
+      "signature": "(haystack: str, needle: str) -> int",
+      "semantics": "Native substring test \u2014 the grep-test idiom lift (echo X | grep P >/dev/null \u2192 String(X).includes(P))."
+    },
+    "grepText": {
+      "purity": "Emulable",
+      "async": false,
+      "signature": "(text: str, args: [str], captureMode: int) -> str|int",
+      "semantics": "In-memory grep over captured text (pattern families: literal, BRE-free) \u2014 native path for $(cmd | grep P)."
+    },
+    "cutText": {
+      "purity": "PureCpu",
+      "async": false,
+      "signature": "(text: str, args: [str], captureMode: int) -> str",
+      "semantics": "In-memory cut -d -f / -c over captured text."
+    },
+    "dirname": {
+      "purity": "PureCpu",
+      "async": false,
+      "signature": "(x: str) -> str",
+      "semantics": "POSIX dirname."
+    },
+    "basename": {
+      "purity": "PureCpu",
+      "async": false,
+      "signature": "(x: str, suffix?: str) -> str",
+      "semantics": "POSIX basename with optional suffix strip."
+    },
+    "join": {
+      "purity": "PureCpu",
+      "async": false,
+      "signature": "(v: any) -> str",
+      "semantics": "Array\u2192space-joined string (String(v) fallback). The native sh2.join lowering."
+    },
+    "listVar": {
+      "purity": "Emulable",
+      "async": false,
+      "signature": "(name: str) -> [str]",
+      "semantics": "Array expansion to an argument list (unquoted ${arr[@]} in argv position)."
+    },
+    "setArray": {
+      "purity": "Emulable",
+      "async": false,
+      "signature": "(name: str, elements: [str], isAssoc: bool)",
+      "semantics": "declare -a / arr=(...) \u2014 array store write."
+    },
+    "setArrayAppend": {
+      "purity": "Emulable",
+      "async": false,
+      "signature": "(name: str, elements: [str])",
+      "semantics": "arr+=(...) \u2014 append to array store."
+    },
+    "arrayItems": {
+      "purity": "Emulable",
+      "async": false,
+      "signature": "(name: str) -> [str]",
+      "semantics": "${arr[@]} \u2014 all elements as a list."
+    },
+    "arrayKeys": {
+      "purity": "Emulable",
+      "async": false,
+      "signature": "(name: str) -> [str]",
+      "semantics": "${!arr[@]} \u2014 indices/keys."
+    },
+    "arrayLen": {
+      "purity": "Emulable",
+      "async": false,
+      "signature": "(name: str) -> int",
+      "semantics": "${#arr[@]} \u2014 element count."
+    },
+    "arrayIndex": {
+      "purity": "Emulable",
+      "async": false,
+      "signature": "(name: str, key: str) -> str",
+      "semantics": "${arr[i]} \u2014 element read by evaluated index/key."
+    },
+    "fnCall": {
+      "purity": "Emulable",
+      "async": false,
+      "signature": "(name: str, args: [str]) -> int",
+      "semantics": "Shell function invocation (positional args, $? semantics)."
+    },
+    "define": {
+      "purity": "Emulable",
+      "async": false,
+      "signature": "(name: str, fn: closure)",
+      "semantics": "Register a shell function body (closure) in the function table."
+    },
+    "pipelineInputLines": {
+      "purity": "Fs",
+      "async": false,
+      "signature": "() -> [str]",
+      "semantics": "PowerShell named-block v1 (core-request powershell-sh-go): the process block's per-input-item source \u2014 the LINES of the program's stdin, read synchronously at first call and cached. Emitted only inside named-block function wrappers; no corpus program calls it."
+    },
+    "callDirect": {
+      "purity": "PureCpu",
+      "async": false,
+      "signature": "(fn: binding, args: [any]) -> any",
+      "semantics": "Call a native-direct function binding (NATIVE_DIRECT_FNS in the emitter) \u2014 the deepest native lowering."
+    },
+    "callUndefined": {
+      "purity": "Spawn",
+      "async": false,
+      "signature": "(name: str, args: [str])",
+      "semantics": "Fallback for unknown callables (defensive; gated)."
+    },
+    "typeOf": {
+      "purity": "PureCpu",
+      "async": false,
+      "signature": "(v: any) -> str",
+      "semantics": "Runtime type dispatch (core request go-sh-20260813-154009): typeof + Array.isArray over the actual JS runtime value -> A1 type-name vocabulary (string/int/float/bool/array, typeof fallback). Store values are strings -> \"string\"."
+    },
+    "isType": {
+      "purity": "PureCpu",
+      "async": false,
+      "signature": "(v: any, name: str) -> bool",
+      "semantics": "Type-assertion test (core request go-sh-20260813-154009): typeOf(v) === name \u2014 lets A1 Case patterns compare against type names."
+    },
+    "forLoopSync": {
+      "purity": "PureCpu",
+      "async": false,
+      "signature": "(items: [str], bodyFn: closure)",
+      "semantics": "Provably-sync for loop twin: no per-iteration promises. BREAK/CONTINUE/RETURN via signal register."
+    },
+    "whileLoopSync": {
+      "purity": "PureCpu",
+      "async": false,
+      "signature": "(condFn: closure, bodyFn: closure)",
+      "semantics": "Provably-sync while loop twin (the one whitelisted *Sync: pure CPU by construction)."
+    },
+    "forLoopBatch": {
+      "purity": "PureCpu",
+      "async": true,
+      "signature": "(items: [str], bodyFn: closure, batch: int)",
+      "semantics": "Checkpointed for loop (sync-ok-loops batch_ok verdict): sync chunks of `batch` iterations with a setImmediate yield between chunks. Mirrors forLoopSync exactly (flatten, GLOB_MAGIC, signals, capture bound) minus the yield cadence. Await-legal contexts only."
+    },
+    "whileLoopBatch": {
+      "purity": "PureCpu",
+      "async": true,
+      "signature": "(condFn: closure, bodyFn: closure, batch: int)",
+      "semantics": "Checkpointed while loop twin of forLoopBatch: mirrors whileLoopSync exactly (lastExit, signals, capture bound) with a setImmediate yield every `batch` iterations."
+    },
+    "cstyleForSync": {
+      "purity": "PureCpu",
+      "async": false,
+      "signature": "(header: {init,test,update}, bodyFn: closure)",
+      "semantics": "Provably-sync C-style for ((;;)) twin with native numeric header."
+    },
+    "forLoop": {
+      "purity": "Emulable",
+      "async": true,
+      "signature": "(items: [str], bodyFn: closure)",
+      "semantics": "Async for loop (historical; superseded by forLoopSync when provably sync)."
+    },
+    "whileLoop": {
+      "purity": "Emulable",
+      "async": true,
+      "signature": "(condFn: closure, bodyFn: closure)",
+      "semantics": "Async while loop (historical; superseded by whileLoopSync)."
+    },
+    "block": {
+      "purity": "Emulable",
+      "async": false,
+      "signature": "(fn: closure)",
+      "semantics": "Run a { ...; } statement group in expression position."
+    },
+    "brace": {
+      "purity": "PureCpu",
+      "async": false,
+      "signature": "(prefix: str, groups: [str], middles: [str], suffix: str) -> [str]",
+      "semantics": "Brace expansion cross-product {a,b}{1..5}."
+    },
+    "shopt": {
+      "purity": "Control",
+      "async": false,
+      "signature": "(option: str, enable: bool)",
+      "semantics": "Shell option state (shopt -s/-u)."
+    },
+    "return": {
+      "purity": "Control",
+      "async": false,
+      "signature": "(value?: int)",
+      "semantics": "Return signal out of a captured function context."
+    },
+    "break": {
+      "purity": "Control",
+      "async": false,
+      "signature": "()",
+      "semantics": "Break signal out of a captured loop context."
+    },
+    "continue": {
+      "purity": "Control",
+      "async": false,
+      "signature": "()",
+      "semantics": "Continue signal out of a captured loop context."
+    },
+    "guard": {
+      "purity": "PureCpu",
+      "async": false,
+      "signature": "(v: any) -> bool",
+      "semantics": "NaN guard for numeric tests: non-numeric operand \u2192 bash 'integer expression expected' \u2192 whole test false."
+    },
+    "not": {
+      "purity": "PureCpu",
+      "async": false,
+      "signature": "(v: int) -> int",
+      "semantics": "Logical not (0/1)."
+    },
+    "trimCapture": {
+      "purity": "PureCpu",
+      "async": false,
+      "signature": "(s: str) -> str",
+      "semantics": "Strip trailing newlines from captured stdout (shell command-substitution semantics)."
+    },
+    "unsupported": {
+      "purity": "GateFlag",
+      "async": false,
+      "signature": "(what: str)",
+      "semantics": "Emitter's unlowered-construct marker. Presence fails the structural gate \u2014 never appears in green output."
+    },
+    "makeChan": {
+      "purity": "Emulable",
+      "async": false,
+      "signature": "() -> chan",
+      "semantics": "Create a channel FIFO (core requests go-sh-commclause / go-sh-recvstmt): `{q: []}` \u2014 the runtime's channel value. A1 whitelisted-helper form of Go's make(chan T)."
+    },
+    "recv": {
+      "purity": "Emulable",
+      "async": false,
+      "signature": "(ch: chan) -> any",
+      "semantics": "Blocking receive (core requests go-sh-commclause / go-sh-recvstmt): shift the FIFO head; undefined on an empty channel (v1 non-blocking poll \u2014 emit only where a producer provably ran)."
+    },
+    "send": {
+      "purity": "Emulable",
+      "async": false,
+      "signature": "(ch: chan, v: any) -> bool",
+      "semantics": "Send (core requests go-sh-commclause / go-sh-recvstmt): push v onto the channel FIFO."
+    },
+    "select": {
+      "purity": "Emulable",
+      "async": true,
+      "signature": "(clauses: [{comm: str, ch?: chan, target?: str, value?: any, body: closure}])",
+      "semantics": "Go-style select (core requests go-sh-commclause / go-sh-recvstmt): round-robin non-blocking poll over the comm clauses \u2014 first ready recv (FIFO non-empty, target bound via setVar) / send (FIFO open) wins; else the default body. A select with no ready clause and no default would block in Go \u2014 v1 cannot express that."
+    }
   },
   "special_objects": {
-    "sh2.fs":            { "purity": "Fs", "async": true, "members": ["readFile", "writeFile", "appendFile", "lstat", "unlink", "rm", "mkdir"], "semantics": "Pure-capture lowerings ($(cat f) → readFile, echo x > f → writeFile) and fs commands. node:fs/promises surface; POSIX equivalents for C. Async-only codegen (gate rejects *Sync fs calls)." },
-    "sh2.positional":    { "purity": "State", "async": false, "members": ["length", "slice", "join"], "semantics": "$# → positional.length, ${@:1} → positional.slice(...), $@ → positional.join(' '). Read-only array of positional params." },
-    "sh2.functions.set": { "purity": "State", "async": false, "semantics": "Function table registration (sh2.define lowering)." },
-    "sh2.shoptState.set": { "purity": "State", "async": false, "semantics": "shopt option table write." },
-    "sh2.lastExit":      { "purity": "State", "async": false, "semantics": "The $? register (read: member access; write: via setLastExit)." },
-    "sh2.errexit":       { "purity": "State", "async": false, "semantics": "set -e flag state." },
-    "sh2.cwd":           { "purity": "State", "async": false, "semantics": "Current working directory (cd builtin effect)." },
-    "sh2.argv":          { "purity": "State", "async": false, "semantics": "argv0/positional init surface." }
+    "sh2.fs": {
+      "purity": "Fs",
+      "async": true,
+      "members": [
+        "readFile",
+        "writeFile",
+        "appendFile",
+        "lstat",
+        "unlink",
+        "rm",
+        "mkdir"
+      ],
+      "semantics": "Pure-capture lowerings ($(cat f) \u2192 readFile, echo x > f \u2192 writeFile) and fs commands. node:fs/promises surface; POSIX equivalents for C. Async-only codegen (gate rejects *Sync fs calls)."
+    },
+    "sh2.positional": {
+      "purity": "State",
+      "async": false,
+      "members": [
+        "length",
+        "slice",
+        "join"
+      ],
+      "semantics": "$# \u2192 positional.length, ${@:1} \u2192 positional.slice(...), $@ \u2192 positional.join(' '). Read-only array of positional params."
+    },
+    "sh2.functions.set": {
+      "purity": "State",
+      "async": false,
+      "semantics": "Function table registration (sh2.define lowering)."
+    },
+    "sh2.shoptState.set": {
+      "purity": "State",
+      "async": false,
+      "semantics": "shopt option table write."
+    },
+    "sh2.lastExit": {
+      "purity": "State",
+      "async": false,
+      "semantics": "The $? register (read: member access; write: via setLastExit)."
+    },
+    "sh2.errexit": {
+      "purity": "State",
+      "async": false,
+      "semantics": "set -e flag state."
+    },
+    "sh2.cwd": {
+      "purity": "State",
+      "async": false,
+      "semantics": "Current working directory (cd builtin effect)."
+    },
+    "sh2.argv": {
+      "purity": "State",
+      "async": false,
+      "semantics": "argv0/positional init surface."
+    }
   },
   "native_js_surface": {
-    "String":            { "purity": "PureCpu", "semantics": "String coercion — C: (char*)(x). Gate-whitelisted." },
-    "Number":            { "purity": "PureCpu", "semantics": "Numeric coercion — C: strtoll. Gate-whitelisted." },
-    "parseInt":          { "purity": "PureCpu", "semantics": "Integer parse. Gate-whitelisted." },
-    "parseFloat":        { "purity": "PureCpu", "semantics": "Float parse (bc tiers). Gate-whitelisted." },
-    "Math.trunc":        { "purity": "PureCpu", "semantics": "Integer truncation — C: (long long)(x). Gate-whitelisted." },
-    "Math.floor":        { "purity": "PureCpu", "semantics": "Floor — C: floor(). Gate-whitelisted." },
-    "Math.ceil":         { "purity": "PureCpu", "semantics": "Ceil — C: ceil(). Gate-whitelisted." },
-    "Math.sqrt":         { "purity": "PureCpu", "semantics": "Sqrt — C: sqrt(). Gate-whitelisted." },
-    "Number.isNaN":      { "purity": "PureCpu", "semantics": "NaN guard (see sh2.guard). Gate-whitelisted." },
-    "Array.isArray":     { "purity": "PureCpu", "semantics": "The sh2.join helper's Array.isArray(v) ? v.join(' ') : String(v). Gate-whitelisted." },
-    "Promise.all":       { "purity": "Emulable", "semantics": "Per-path status aggregation in the rm/mkdir fs-command lift. Gate-whitelisted." }
+    "String": {
+      "purity": "PureCpu",
+      "semantics": "String coercion \u2014 C: (char*)(x). Gate-whitelisted."
+    },
+    "Number": {
+      "purity": "PureCpu",
+      "semantics": "Numeric coercion \u2014 C: strtoll. Gate-whitelisted."
+    },
+    "parseInt": {
+      "purity": "PureCpu",
+      "semantics": "Integer parse. Gate-whitelisted."
+    },
+    "parseFloat": {
+      "purity": "PureCpu",
+      "semantics": "Float parse (bc tiers). Gate-whitelisted."
+    },
+    "Math.trunc": {
+      "purity": "PureCpu",
+      "semantics": "Integer truncation \u2014 C: (long long)(x). Gate-whitelisted."
+    },
+    "Math.floor": {
+      "purity": "PureCpu",
+      "semantics": "Floor \u2014 C: floor(). Gate-whitelisted."
+    },
+    "Math.ceil": {
+      "purity": "PureCpu",
+      "semantics": "Ceil \u2014 C: ceil(). Gate-whitelisted."
+    },
+    "Math.sqrt": {
+      "purity": "PureCpu",
+      "semantics": "Sqrt \u2014 C: sqrt(). Gate-whitelisted."
+    },
+    "Number.isNaN": {
+      "purity": "PureCpu",
+      "semantics": "NaN guard (see sh2.guard). Gate-whitelisted."
+    },
+    "Array.isArray": {
+      "purity": "PureCpu",
+      "semantics": "The sh2.join helper's Array.isArray(v) ? v.join(' ') : String(v). Gate-whitelisted."
+    },
+    "Promise.all": {
+      "purity": "Emulable",
+      "semantics": "Per-path status aggregation in the rm/mkdir fs-command lift. Gate-whitelisted."
+    }
   }
 }

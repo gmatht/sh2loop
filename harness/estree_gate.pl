@@ -23,6 +23,7 @@ my %whitelist = map { $_ => 1 } qw(
     shopt return break continue unsupported
     typeOf isType
     pipelineInputLines
+    makeChan recv send select
     trimCapture dirname basename uname date readlink hostname whoami mktempValue split readFile writeFile appendFile lstat access unlink rm mkdir mkdtemp addrOf memLoad memStore
     memAlloc memFree ternary arrayStore memAdvance memTest line
     assocSet assocGet assocNames assocValues
