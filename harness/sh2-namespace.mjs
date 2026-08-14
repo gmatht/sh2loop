@@ -2915,7 +2915,12 @@ export const sh2 = {
   arithEval(f) {
     try {
       const v = f();
-      return Number.isFinite(v) ? String(v) : '';
+      // A BigInt result is a legitimate exact arith value (the i53
+      // escalation / `--true64` / C Int64 machinery renders pure BigInt
+      // arithmetic — `String(6n)` is "6", exact past 2^53). Only
+      // non-finite Numbers (NaN/±Infinity — the bash zero-divisor
+      // abort) map to the empty string.
+      return (typeof v === 'bigint' || Number.isFinite(v)) ? String(v) : '';
     } catch {
       return '';
     }
