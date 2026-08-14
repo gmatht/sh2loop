@@ -126,6 +126,10 @@ sub walk {
                 && (($callee->{name} // '') eq 'Number' || ($callee->{name} // '') eq 'String'
                     || ($callee->{name} // '') eq 'parseInt' || ($callee->{name} // '') eq 'parseFloat'
                     || ($callee->{name} // '') eq 'Promise'
+                    # the i53 escalation / `--true64` BigInt home
+                    # (src/shir.rs): `BigInt("9007199254740993")` exact
+                    # literals — a Number literal would round past 2^53
+                    || ($callee->{name} // '') eq 'BigInt'
                     # the native sleep lowering (`sleep 1` →
                     # `await new Promise(r => setTimeout(() => r(true), 1000))`,
                     # src/shir.rs try_native_sleep): setTimeout is the timer
@@ -150,6 +154,13 @@ sub walk {
                 # max — the native `${x##*[/\\]}` class-core strip (max of
                 # per-char lastIndexOf, src/shir.rs glob_class_chars)
                 && ($prop->{name} // '') =~ /^(trunc|floor|ceil|sqrt|max)$/;
+            # BigInt.asIntN(64, x) / BigInt.asUintN(64, x) — the i53
+            # escalation / `--true64` 64-bit wrap (bash int64 semantics)
+            my $is_bigint_member = ref $obj eq 'HASH'
+                && ($obj->{type} // '') eq 'Identifier'
+                && ($obj->{name} // '') eq 'BigInt'
+                && ref $prop eq 'HASH'
+                && ($prop->{name} // '') =~ /^(asIntN|asUintN)$/;
             # Number.isNaN — the NaN-guarded numeric test lowering (bash's
             # "integer expression expected" error → the whole test is false)
             my $is_number_member = ref $obj eq 'HASH'
@@ -262,7 +273,7 @@ sub walk {
                 && ($obj->{name} // '') eq 'process'
                 && ref $prop eq 'HASH'
                 && ($prop->{name} // '') =~ /^(getuid|getgid|chdir|exit)$/;
-            if (!$is_sh2 && !$is_sh2_fs && !$is_native && !$is_math && !$is_number_member && !$is_array_member && !$is_promise_member && !$is_string_method && !$is_sh2_state && !$is_stdout_write && !$is_stderr_write && !$is_buffer && !$is_process_member && !$is_iife) {
+            if (!$is_sh2 && !$is_sh2_fs && !$is_native && !$is_math && !$is_number_member && !$is_array_member && !$is_promise_member&& !$is_array_member && !$is_promise_member !$is_array_member && !$is_promise_member && !$is_bigint_member && !$is_string_method && !$is_sh2_state && !$is_stdout_write && !$is_stderr_write && !$is_buffer && !$is_process_member && !$is_iife) {
                 push @problems, "non-sh2 callee: " . ($cname || $type);
             } elsif (($is_sh2 || $is_sh2_fs) && !$whitelist{$cname}) {
                 push @problems, "callee not in sh2.* whitelist: $cname";
