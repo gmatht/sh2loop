@@ -1559,7 +1559,7 @@ export const sh2 = {
           return false;
         }
         this.fdTargets[fd] = { kind: 'file', target, readMode: true };
-      } else if (s.mode === 'w' || s.mode === 'a') {
+      } else if (s.mode === 'w' || s.mode === 'a' || s.mode === 'wc') {
         const t = expandWord(this, String(s.target));
         // `>/dev/null` (and `2>/dev/null`): the corpus's most common
         // write redirect — a char device that discards everything, so a
@@ -1624,7 +1624,7 @@ export const sh2 = {
   // sh2perl/ already carried the same litter.)
   _ensureRedirectFiles(specs) {
     for (const s of specs) {
-      if (s.mode === 'w' || s.mode === 'a') {
+      if (s.mode === 'w' || s.mode === 'a' || s.mode === 'wc') {
         const t = expandWord(this, String(s.target));
         if (/^&\d+$/.test(t) || t === '&-' || t === '-') continue;
         if (!fs.existsSync(t)) {
