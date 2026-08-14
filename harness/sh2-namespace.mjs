@@ -1604,7 +1604,10 @@ export const sh2 = {
             return false;
           }
         }
-        this.fdTargets[fd] = { kind: 'file', target: t, mode: s.mode };
+        // `wc` is the `>|` clobber-output mode — same open as `w` for the
+        // JS runtime (noclobber is a shell-level concept; Node fs is always
+        // clobber), so normalize before the flag reaches writeFileSync.
+        this.fdTargets[fd] = { kind: 'file', target: t, mode: s.mode === 'wc' ? 'w' : s.mode };
       } else {
         throw new Error(`redirect: unknown mode ${s.mode}`);
       }
