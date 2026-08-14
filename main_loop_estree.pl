@@ -877,9 +877,19 @@ if ($seed || !-e $estree_trusted_file) {
 # Green: commit (scoped) + move requests to done/ + WAKE the sleeping
 # workers (remove core-requests/sleeping-<lang>). Regressed: scoped_stash
 # (revert pi's changes), leave requests + markers (workers stay asleep).
+#
+# STALLED != DONE: a request that survives 3 cycles without implementation
+# is NOT retired — it moves to core-requests/stalled/ (never done/) and is
+# re-fed to pi every iteration, STALLED FIRST (before pending requests and
+# before any general estree/benchmark improvement). core-requests/
+# stalled-needs.tsv is regenerated each iteration so the backlog stays
+# visible to humans/agents. Only implemented/rejected requests reach done/.
 
 my $core_requests_dir = "$project_root/core-requests";
-my @core_pending = ();    # pending request files this iteration
+my $stalled_dir       = "$core_requests_dir/stalled";    # 3-cycle-cap requests — REVISITED, not retired
+my $stalled_report    = "$core_requests_dir/stalled-needs.tsv";  # human/agent-visible backlog report
+my $stalled_max       = $ENV{SH2_STALLED_MAX} // 15;      # stalled reqs folded per iteration (prompt hygiene)
+my @core_pending = ();    # pending request files this iteration (stalled first, then pending)
 my $core_block = '';      # mediation block appended to the iteration's pi prompt
 
 # Collect pending core-change requests (no pi invocation — the mediation is
@@ -891,9 +901,30 @@ sub collect_core_requests {
     @core_pending = ();
     $core_block = '';
     return '' unless -d $core_requests_dir;
-    opendir(my $dh, $core_requests_dir) or return '';
+    # NEWEST first (reverse filename order — the filename embeds the filing
+    # timestamp). Rationale: the freshest escalations are the LIVE blockers
+    # (the workers sleeping on core-requests/sleeping-<lang> wait for
+    # today's requests, not August's); the shared core has evolved massively
+    # since the Aug 6-7 filings (A1 contract, shir_passes, the frontend
+    # fleet), so old requests are often superseded. Oldest-first starved
+    # the newest under the stalled cap: the 15 oldest stalled (Aug 6-13)
+    # consumed the whole budget every iteration while 388/411 stalled
+    # (Aug 13-14) never reached the prompt. Within a class: newest first.
+    # Stalled still precedes pending (stalled = 3+ cycles unaddressed —
+    # revisit before fresh work), but the NEWEST stalled, not the oldest.
     my @reqs;
-    for my $f (sort readdir $dh) {
+    if (-d $stalled_dir) {
+        opendir(my $sdh, $stalled_dir) or return '';
+        for my $f (reverse sort readdir $sdh) {
+            next unless $f =~ /\.md$/;
+            push @reqs, "$stalled_dir/$f";
+            last if @reqs >= $stalled_max;
+        }
+        closedir $sdh;
+    }
+    my $n_stalled = scalar @reqs;
+    opendir(my $dh, $core_requests_dir) or return '';
+    for my $f (reverse sort readdir $dh) {
         next unless $f =~ /\.md$/;
         next if $f eq 'README.md';
         next if $f =~ /^sleeping-/;
@@ -902,13 +933,24 @@ sub collect_core_requests {
     closedir $dh;
     return '' unless @reqs;
     @core_pending = @reqs;
-    print "\ncore-requests: " . scalar(@reqs) . " pending — folded into the pi prompt (one pi per iteration).\n";
+    write_stalled_report();
+    print "\ncore-requests: " . scalar(@reqs) . " folded into the pi prompt — $n_stalled stalled (revisit FIRST), "
+        . (scalar(@reqs) - $n_stalled) . " pending (one pi per iteration).\n";
     print "  $_\n" for @reqs;
-    my $b = "\n\n--- PENDING CORE-CHANGE REQUESTS (mediate + implement; no corpus regression) ---\n";
-    $b .= "There are " . scalar(@reqs) . " pending core-change requests from sibling workers.\n";
+    my $b = "\n\n--- CORE-CHANGE REQUESTS (mediate + implement; no corpus regression) ---\n";
     $b .= "You are the SINGLE OWNER of the shared core (src/shir.rs, src/ir.rs, src/estree.rs,\n";
-    $b .= "src/parser/, harness/*). MEDIATE between the requests:\n";
-    $b .= "  - priority: oldest first (by filename timestamp);\n";
+    $b .= "src/parser/, harness/*).\n";
+    if ($n_stalled) {
+        $b .= "PRIORITY 1 — STALLED REQUESTS (the first $n_stalled files below): these waited >=3 cycles\n";
+        $b .= "  without implementation. REVISIT AND IMPLEMENT THEM BEFORE ANY OTHER WORK in this\n";
+        $b .= "  prompt — before the pending requests and before any general estree/benchmark\n";
+        $b .= "  improvement. A stalled request is NOT abandoned: it stays in core-requests/stalled/\n";
+        $b .= "  and is re-fed here every iteration until you implement or explicitly reject it.\n";
+    }
+    $b .= "MEDIATE between the requests:\n";
+    $b .= "  - priority within a class: NEWEST first (by filename timestamp) — the freshest\n";
+    $b .= "    escalations are the live blockers; old requests may be superseded by the\n";
+    $b .= "    shared core's evolution. Stalled (PRIORITY 1) still precedes pending.\n";
     $b .= "  - if two conflict, implement the one maximizing corpus coverage, note the rejection;\n";
     $b .= "  - implement each WITHOUT regressing the ESTree corpus (run ./fail-estree;\n";
     $b .= "    estree_failed must stay 0 / at the trusted baseline). If a request would regress,\n";
@@ -916,10 +958,11 @@ sub collect_core_requests {
     $b .= "  - FOR EVERY request: either implement it, or APPEND a line to the\n";
     $b .= "    file of the form '## OUTCOME: rejected: <one-line reason>' (only that\n";
     $b .= "    exact marker counts — a bare mention is ignored). A request WITHOUT an\n";
-    $b .= "    outcome marker is treated as UNTOUCHED and STAYS PENDING for the next\n";
-    $b .= "    iteration — it does NOT move to done/. Only requests you actually\n";
-    $b .= "    addressed (implemented, or explicitly rejected with a reason in the file)\n";
-    $b .= "    are finalized.\n\n";
+    $b .= "    outcome marker is treated as UNTOUCHED: pending requests stay pending (they\n";
+    $b .= "    accumulate a stall counter and move to core-requests/stalled/ after 3 cycles);\n";
+    $b .= "    stalled requests stay in core-requests/stalled/ and are re-fed next iteration.\n";
+    $b .= "    Only requests you actually addressed (implemented, or explicitly rejected with\n";
+    $b .= "    a reason in the file) are finalized.\n\n";
     for my $r (@reqs) {
         my $txt = eval { local $/; open my $fh, '<', $r; <$fh> };
         $txt = "(unreadable request)" unless defined $txt;
@@ -927,6 +970,33 @@ sub collect_core_requests {
     }
     $core_block = $b;
     return $b;
+}
+
+# Regenerate core-requests/stalled-needs.tsv — the human/agent-visible
+# backlog report. The loop itself never forgets stalled requests (it re-feds
+# them every iteration); this file exists so whoever else is watching can see
+# what is waiting and for how long.
+sub write_stalled_report {
+    my @rows;
+    if (-d $stalled_dir && opendir(my $sdh, $stalled_dir)) {
+        for my $f (sort readdir $sdh) {
+            next unless $f =~ /^(.+)-\d{8}(?:-\d{6})?(?:-.*)?\.md$/;
+            my $title = '';
+            if (open my $fh, '<', "$stalled_dir/$f") {
+                my $l = <$fh>; chomp $l;
+                ($title = $l) =~ s/^#\s*//;
+                close $fh;
+            }
+            push @rows, "$1\t$f\t$title";
+        }
+        closedir $sdh;
+    }
+    if (open my $fh, '>', $stalled_report) {
+        print $fh "# stalled core-requests — revisited (stalled-first) before general estree work\n";
+        print $fh "# lang\tfilename\ttitle\n";
+        print $fh "$_\n" for @rows;
+        close $fh;
+    }
 }
 
 # Finalize implemented core requests once the corpus is green: commit the
@@ -1059,6 +1129,8 @@ sub process_core_transforms {
 
 sub finalize_core_requests {
     return unless @core_pending;
+    mkdir "$core_requests_dir/done";   # finalize targets — survive a wiped done/ or stalled/
+    mkdir $stalled_dir;
     my @sub = submodule_changed_paths();
     my @root = root_changed_paths();
     if (@sub || @root) {
@@ -1070,16 +1142,18 @@ sub finalize_core_requests {
     # implemented -> done/ + WAKE the trapped worker (the fix landed);
     # rejected -> done/ with the reason RECORDED but NO wake (a rejected
     # request re-files uselessly — the -b loop; the rejection is the record);
-    # untouched -> STAYS PENDING, with a stall cap: after 3 consecutive
-    # cycles without implementation it auto-moves to done/ as 'stalled'
-    # (no wake) so the queue cannot grow with pi-ignored requests.
+    # untouched pending -> STAYS PENDING with a stall counter: after 3
+    # consecutive cycles it moves to core-requests/stalled/ (NOT done/ — a
+    # stalled request is debt the loop revisits, not a finished job) and is
+    # re-fed to pi (stalled first) every iteration from then on;
+    # untouched stalled -> STAYS in stalled/ (no counter — already there).
     my @impl      = grep { request_outcome($_) eq 'implemented' } @core_pending;
     my @rejected  = grep { request_outcome($_) eq 'rejected' } @core_pending;
     my @untouched = grep { request_outcome($_) eq '' } @core_pending;
     for my $r (@impl) {
         my $bn = (split /\//, $r)[-1];
         system('mv', $r, "$core_requests_dir/done/$bn");
-        if (my ($lang) = $bn =~ /^(.+)-\d{8}-\d{6}\.md$/) {
+        if (my ($lang) = $bn =~ /^(.+)-\d{8}-\d{6}(?:-.*)?\.md$/) {
             my $marker = "$core_requests_dir/sleeping-$lang";
             if (-f $marker) {
                 unlink $marker;
@@ -1093,19 +1167,25 @@ sub finalize_core_requests {
         print "  rejected (worker stays asleep): $bn\n";
     }
     for my $r (@untouched) {
+        my $bn = (split /\//, $r)[-1];
+        if ($r =~ m{^\Q$stalled_dir\E/}) {
+            # already stalled: stays put, revisited (stalled-first) next iteration
+            print "  kept in stalled/ (revisit next iteration): $bn\n";
+            next;
+        }
         my $n = 0;
         if (open my $cf, '<', "$r.stall") { $n = <$cf>; close $cf; }
         $n++;
-        my $bn = (split /\//, $r)[-1];
         if ($n >= 3) {
-            system('mv', "$r.stall", "$core_requests_dir/done/$bn.stall") if -f "$r.stall";
-            system('mv', $r, "$core_requests_dir/done/$bn");
-            print "  STALLED (pending 3 cycles, no implementation): $bn\n";
+            system('mv', "$r.stall", "$stalled_dir/$bn.stall") if -f "$r.stall";
+            system('mv', $r, "$stalled_dir/$bn");
+            print "  STALLED (pending 3 cycles, no implementation) -> stalled/ (will revisit): $bn\n";
         } else {
             open my $cf, '>', "$r.stall"; print $cf $n; close $cf;
             print "  kept pending (cycle $n/3): $bn\n";
         }
     }
+    write_stalled_report();
     log_decision('core-request', scalar(@impl), scalar(@rejected) + scalar(@untouched), 'impl/rejected/pending');
     @core_pending = ();
 }
