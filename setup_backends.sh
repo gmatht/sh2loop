@@ -957,6 +957,29 @@ EOF
                           printf '%s' "$g_out" > /tmp/eq_$$.$eq_ext
                         fi
                         eq_exit=1
+                        # HERMETIC equivalence CWD (perl): the workspace root
+                        # is churned by concurrent workers (logs, scratch
+                        # .txt/.log/.dat appearing mid-gate), so corpus files
+                        # that glob or ls the CWD (064_hard_to_generate.sh's
+                        # `for file in *.{txt,log,dat}`) flake between the two
+                        # sides. Run BOTH sides from an empty per-file scratch
+                        # dir — the comparison stays bash-vs-translation in an
+                        # identical, stable file set (the corpus is hermetic:
+                        # scripts that read relative files create them first
+                        # or fail identically on both sides). The scratch
+                        # lives in the WORKSPACE, not /tmp: /tmp is churn
+                        # central (mktemp storms — 11k entries), and `cd ..` /
+                        # `ls -la` scripts (046_cd..sh, 062_hard_to_lex.sh)
+                        # would read /tmp's churning `..` link count and
+                        # entries; /home/llm is quiet. perl-only for now: the
+                        # other backends' rc-0 contract + their green corpus
+                        # were verified from the root CWD; the harness owner
+                        # can extend the pattern once their gates adopt the
+                        # same semantics.
+                        eq_scratch=""
+                        if [ "$g_lang" = "perl" ]; then
+                          eq_scratch=$(mktemp -d "$WORKSPACE/.eq_scratch_$$.XXXXXX")
+                        fi
                         case "$g_lang" in
                           c)    cc /tmp/eq_$$.c -o /tmp/eq_$$_bin 2>/dev/null && timeout 15 /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           go)   timeout 30 "$eq_tool" run /tmp/eq_$$.go > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
@@ -974,11 +997,15 @@ EOF
                                 # substitutions) pass when the translation
                                 # reproduces the code — the old rc=0-on-both-sides
                                 # rule made them unpassable for every backend.
-                                timeout 15 perl -M5.010 -e '$0 = shift @ARGV; my $__f = shift @ARGV; do $__f' "$f" /tmp/eq_$$.pl > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
+                                (cd "$eq_scratch" && timeout 15 perl -M5.010 -e '$0 = shift @ARGV; my $__f = shift @ARGV; do $__f' "$f" /tmp/eq_$$.pl) > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
                           js)   timeout 20 node "$WORKSPACE/harness/estree-runner.mjs" /tmp/eq_$$.json --source "$f" > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                         esac
                         bash_rc=0
-                        timeout 15 bash "$f" > /tmp/eq_$$_ref 2>/dev/null || bash_rc=$?
+                        if [ -n "$eq_scratch" ]; then
+                          (cd "$eq_scratch" && timeout 15 bash "$f") > /tmp/eq_$$_ref 2>/dev/null || bash_rc=$?
+                        else
+                          timeout 15 bash "$f" > /tmp/eq_$$_ref 2>/dev/null || bash_rc=$?
+                        fi
                         # stdout diff + exit-code verdict. perl: the codes must
                         # MATCH (bash's final status is the last command's —
                         # scripts legitimately exit nonzero; a faithful
@@ -998,6 +1025,7 @@ EOF
                           fail=$((fail+1)); eq_fail=$((eq_fail+1)); fails="$f $fails"
                         fi
                         rm -f /tmp/eq_$$_bin /tmp/eq_$$_out /tmp/eq_$$_ref /tmp/eq_$$.$eq_ext /tmp/Sh2Program.class /tmp/Sh2Program.java
+                        [ -n "$eq_scratch" ] && rm -rf "$eq_scratch"
                       else
                         pass=$((pass+1))
                       fi
