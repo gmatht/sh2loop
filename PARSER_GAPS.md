@@ -46,6 +46,19 @@ with each by-design refusal or lowering bug ledgered once
 (`refused-<lang>.txt` / `bugs-<lang>.txt`) so the next cycle moves on. A pi
 failure (nonzero rc, no file) is NOT ledgered — the gap is retried.
 
+### Refused-refresh: the ledgers shrink as the frontends grow
+
+A by-design refusal is only legitimate while the frontend's subset boundary
+is static — and the frontends grow every cycle. At the idle point (fresh
+gaps exhausted) `worker-coverage-step.sh` now re-proposes ledgered refusals
+against the CURRENT frontend, rate-limited (one per `REFUSE_REFRESH_INTERVAL`,
+default 1 day) and cursor-rotated (see `frontends/coverage/REFUSED-REFRESH.md`
+for the design and the outcome table). A re-check that now EMITs drops the
+entry from `refused-<lang>.txt`; a still-refusal keeps it; an escalation or
+an oracle mismatch migrates it (refused → core-pending / bugs). So the
+refused lists are a *current* subset boundary, not a graveyard: `wc -l
+frontends/coverage/refused-<lang>.txt` is the shrink metric.
+
 ## Status per frontend (2026-08-12)
 
 ### posix-sh-go — 22/22 rules, 80/80 parse-clean, ZERO gaps

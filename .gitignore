@@ -25,3 +25,6 @@ loop-*.pid
 frontends/coverage/ts-node-gap/ts-node-gap
 frontends/coverage/ts-node-gap/obj/
 frontends/coverage/ts-node-gap/libgrammars.a
+# refused-refresh worker state (REFUSED-REFRESH.md — runtime stamps/cursors)
+frontends/coverage/refused-refresh-stamp-*.txt
+frontends/coverage/refused-refresh-cursor-*.txt

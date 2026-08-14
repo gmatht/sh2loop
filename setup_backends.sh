@@ -642,13 +642,31 @@ case "${1:-}" in
                   # example exercising the uncovered node, scoped to
                   # frontends/<name>/testdata/. The worker's gate validates
                   # and commits (or discards) it.
-                  # Usage: setup_backends.sh --pi-coverage-example <name> <gap>
-                  shift; cov_name="$1"; cov_gap="$2"
+                  # Usage: setup_backends.sh --pi-coverage-example <name> <gap> [refresh]
+                  shift; cov_name="$1"; cov_gap="$2"; cov_refresh="${3:-0}"
                   cov_dir="$FT/$cov_name"; cov_log="$WORKSPACE/loop-frontend-$cov_name.log"
+                  refresh_note=""
+                  if [ "$cov_refresh" = 1 ]; then
+                    refresh_note="$(cat <<'RNOTE'
+
+RE-CHECK of a previously-refused construct: this was ledgered in
+frontends/coverage/refused-<name>.txt as outside the subset, but the
+frontend has grown since that judgment. RE-JUDGE against the CURRENT
+frontend (FRONTEND.md / the parser source):
+  - if it now EXPRESSES -> create ONE testdata example (this removes it
+    from the refused ledger — the goal)
+  - if it still refuses by design -> do NOT create the example; exit 0
+    (it stays refused)
+  - if it is an A1-contract gap -> escalate per below (the entry migrates
+    from refused to core-pending)
+RNOTE
+)"
+                  fi
                   {
                     cat <<EOF
 Your frontend's gate is GREEN, but its testdata examples do not yet cover every parser node.
 Uncovered parser construct: $cov_gap
+$refresh_note
 
 This may be an external-grammar rule (grammars-v4 / the POSIX subset /
 PPI / tree-sitter node) that no testdata example exercises — a real
