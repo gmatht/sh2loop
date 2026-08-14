@@ -513,13 +513,35 @@ case "${1:-}" in
                       echo "[$(date +%FT%T)] $rw_lang: gate GREEN" >> "$LOG"
                     else
                       if grep -q "core build FAILED" <(tail -50 "$LOG"); then
-                        # shared-CORE build break (the estree worker owns
-                        # src/ and edits it constantly) — NOT this backend's
-                        # renderer; pi cannot fix the core. Wait 5 min and
-                        # retry WITHOUT invoking pi (and without counting the
-                        # failure against the trap).
-                        echo "[$(date +%FT%T)] $rw_lang: shared-core build break (estree-worker WIP) — pi can't fix the core; waiting 5 min" >> "$LOG"
-                        sleep 300
+                        # shared-CORE build break — the estree worker owns
+                        # the core and edits it constantly. Build only
+                        # against a HEALTHY SNAPSHOT: wait until the core
+                        # tree (src/ + Cargo.toml) is CLEAN — then the tree
+                        # IS committed HEAD, which the estree worker's
+                        # widened commit gate verified. Never grind against
+                        # mid-edit WIP on a timer.
+                        if [ -n "$(git -C "$SUB" status --porcelain -- src/ Cargo.toml 2>/dev/null)" ]; then
+                          echo "[$(date +%FT%T)] $rw_lang: core mid-edit (estree-worker WIP) — waiting for a clean core snapshot" >> "$LOG"
+                          core_waited=0
+                          while [ "$core_waited" -lt 3600 ]; do
+                            if [ -z "$(git -C "$SUB" status --porcelain -- src/ Cargo.toml 2>/dev/null)" ]; then
+                              echo "[$(date +%FT%T)] $rw_lang: core tree clean — retrying the gate" >> "$LOG"
+                              break
+                            fi
+                            sleep 60
+                            core_waited=$((core_waited + 60))
+                          done
+                          if [ "$core_waited" -ge 3600 ]; then
+                            echo "[$(date +%FT%T)] $rw_lang: core still dirty after 1h — trapping to a core-request" >> "$LOG"
+                            bash "$WORKSPACE/setup_backends.sh" --worker-trapped "$rw_lang" backend >> "$LOG" 2>&1 || true
+                          fi
+                        else
+                          # tree clean but the build still fails = COMMITTED
+                          # HEAD is broken (a widened-gate gap) — the estree
+                          # worker must fix it; trap to a core-request.
+                          echo "[$(date +%FT%T)] $rw_lang: COMMITTED core build break — trapping to a core-request" >> "$LOG"
+                          bash "$WORKSPACE/setup_backends.sh" --worker-trapped "$rw_lang" backend >> "$LOG" 2>&1 || true
+                        fi
                         continue
                       fi
                       fail_count=$((fail_count+1))
