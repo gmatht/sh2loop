@@ -100,7 +100,13 @@ case "$lang" in
   fish) ext=.fish; native=(fish) ;;
   zsh)  ext=.zsh;  native=(zsh) ;;
   bat)  ext=.bat;  native=() ;;      # cmd.exe is Windows-only — native side
-                                    # is the RECORDED expectations below
+                                    # is the RECORDED expectations below.
+                                    # On a WSL box the real interpreter is
+                                    # reachable at the standard mount path:
+                                    # prefer the LIVE cmd.exe oracle over the
+                                    # record (CRLF staging in run_native).
+                                    # cmdbin is set below; the record stays
+                                    # the fallback when cmd.exe is absent.
   powershell) ext=.ps1; native=(pwsh -NoProfile -File) ;;  # live pwsh oracle
                                     # (2026-08-13; the /snap/bin wrapper
                                     # re-execs through snap-confine, so the
@@ -148,6 +154,15 @@ if [ "$lang" = powershell ]; then
     pwshbin=/snap/powershell/current/opt/powershell/pwsh
   fi
   native=( "$pwshbin" -NoProfile -File )
+fi
+# cmd.exe live oracle for batch (WSL interop): the Windows interpreter at
+# the standard WSL mount path. When present, the bat tests run through REAL
+# cmd.exe instead of the recorded expectations — the strongest form of the
+# cmd reference (capture-refs.sh --wsl stages the same run). Empty when
+# cmd.exe is unreachable (non-WSL box) — the record is used then.
+cmdbin=""
+if [ "$lang" = bat ] && [ -x /mnt/c/Windows/System32/cmd.exe ]; then
+  cmdbin=/mnt/c/Windows/System32/cmd.exe
 fi
 
 # Native-interpreter limitation list: tests the NATIVE interpreter cannot
@@ -205,6 +220,10 @@ t46_forftok.bat|got a-b\ntriple x-y-z\n
 t47_exitval.bat|before\n
 t48_robocopy.bat|one\ntwo\npurged\ngone\ndone\n
 t49_robocopy2.bat|top-ok\nsub-no\ndry-clean\ntxt-ok\nlog-filtered\nxd-top-ok\nsub-excluded\nxf-top-ok\nskip-excluded\nlog-copy-ok\nlog-written\nmoved-ok\nsrc-moved\ndone\n
+t50_conjunction.bat|one\ntwo\ncaught\nfour\na\nb\nc\ndone\n
+t51_shift.bat|arg one\narg two\narg three\ndone\n
+t52_pipeline.bat|beta\npipe-end\n
+t53_renpattern.bat|one\ntwo\n
 "
 
 run_native() {  # <file> -> stdout on stdout
@@ -276,6 +295,20 @@ run_native() {  # <file> -> stdout on stdout
     # pattern).
     fabs=$(readlink -f "$f")
     (cd "$tmp" && timeout 20 "${native[@]}" "$fabs") < /dev/null 2>/dev/null
+  elif [ "$lang" = bat ]; then
+    # cmd.exe REQUIRES CRLF batch files (LF-only files fail with "(echo was
+    # unexpected at this time.") — stage a CRLF copy, then run via WSL
+    # interop (`cmd /c call` — the call keeps the batch from aborting on
+    # exit /b, mirroring refs/capture.cmd). cmd.exe inherits the harness
+    # CWD (translated), so the batch's relative file ops land where the
+    # transpiled side runs them; its CRLF stdout is normalized later.
+    # Empty when cmd.exe is absent — the recorded limits cover that case.
+    if [ -n "$cmdbin" ]; then
+      fabs=$(readlink -f "$f")
+      crlf="$tmp/$(basename "$f")"
+      sed 's/$/\r/' "$fabs" > "$crlf"
+      timeout 20 "$cmdbin" /c "call \"$crlf\"" < /dev/null 2>/dev/null
+    fi
   else
     timeout 20 "${native[@]}" "$f" < /dev/null 2>/dev/null
   fi
@@ -328,7 +361,10 @@ for f in "$dir"/*"$ext"; do
   limits=""
   case "$lang" in
     fish) limits=$native_limits_fish ;;
-    bat)  limits=$native_limits_bat ;;
+    bat)  limits=$native_limits_bat
+          # live cmd.exe oracle — prefer the REAL interpreter over the record
+          [ -n "$cmdbin" ] && limits=""
+          ;;
     powershell) limits=$native_limits_powershell ;;
   esac
   native_out=""
