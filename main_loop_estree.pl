@@ -141,6 +141,13 @@ sub run_fail_estree {
             $output .= $buf;
         }
     }
+    # a hung metric child would block `close` below (Perl's close on a
+    # pipe waits for the child — do_wait forever); reap the tree first
+    if (time() >= $deadline) {
+        print STDERR "[estree loop] fail-estree --metric exceeded 1800s — reaping\n";
+        kill_tree($pid);
+        $timed_out = 1;
+    }
     close $fh;
     my $exit_code = $? >> 8;
     if ($timed_out) { waitpid($pid, 0); }
@@ -651,12 +658,70 @@ sub invoke_pi {
             }
         }
     }
+    # the select loop exits on EOF (pi finished) or the 3600s budget.
+    # On a BUDGET hit, kill the pi process TREE before `close` — Perl's
+    # close on the pipe waits for the child, so a wedged pi (or its own
+    # unbounded child probe — the 2026-08-14 incident: a
+    # SIZE=100000000000000000 loop froze the whole estree loop 4.5h,
+    # log stale from 19:17 until a manual kill) would block the worker
+    # in do_wait forever.
+    if (time() >= $deadline) {
+        print "\n\e[33m(pi exceeded its 3600s budget — reaping the pi process tree)\e[0m\n";
+        kill_tree($pi_pid);
+    }
     close $pi_fh;
     print "\n(pi finished)\n";
     # Return the accumulated full text so callers (the dedicated
     # core-request round) can parse per-request DECISION lines. Truthy
     # for the existing boolean callers (non-empty on success).
     return $full;
+}
+
+# ── process-tree reaper (watchdog) ──────────────────────────────────
+# kill_tree(ROOT): TERM then KILL the root process AND every descendant
+# (BFS over /proc ppid links). Used on a budget hit so the worker's
+# `close $fh` cannot freeze the loop on a wedged child, and so a pi
+# agent's runaway GRANDCHILDREN (an unbounded `while` probe, a stuck
+# node runner) are not left reparented and burning CPU after pi itself
+# dies.
+sub kill_tree {
+    my ($root) = @_;
+    return unless defined $root && $root > 0;
+    my %alive = ($root => 1);
+    for (1 .. 3) {
+        my %next = %alive;
+        opendir my $dh, '/proc' or last;
+        while (my $e = readdir $dh) {
+            next unless $e =~ /^\d+$/;
+            next if $alive{$e};
+            my $line = '';
+            if (open my $fh, '<', "/proc/$e/stat") {
+                $line = <$fh>;
+                close $fh;
+            }
+            next if $line eq '';
+            # /proc/PID/stat: "pid (comm) state ppid ..." — comm may
+            # contain spaces/parens, so split after the LAST ')'
+            my $i = rindex($line, ')');
+            next if $i < 0;
+            my $rest = substr($line, $i + 1);
+            next unless $rest =~ /^\s*\S\s+(\d+)/;
+            $next{$e} = 1 if $alive{$1};
+        }
+        closedir $dh;
+        last if scalar(keys %next) == scalar(keys %alive);
+        %alive = %next;
+    }
+    kill 'TERM', keys %alive;
+    sleep 2;
+    my @stubborn = grep { kill(0, $_) } keys %alive;
+    kill 'KILL', @stubborn if @stubborn;
+    # reap the root (WNOHANG poll) so a subsequent `close` returns at once
+    for (1 .. 40) {
+        last if waitpid($root, 1) > 0;
+        last unless kill(0, $root);
+        select undef, undef, undef, 0.25;
+    }
 }
 
 # ── scoped git operations (never add -A) ─────────────────────────────
