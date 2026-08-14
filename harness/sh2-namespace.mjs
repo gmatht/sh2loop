@@ -7660,16 +7660,56 @@ export function evalArith(src, sh) {
   const s = arithExpand(sh, String(src));
   if (s.trim() === '') return 0; // `$(( $1 ))` with $1 unset → `$(( ))` → 0
   let pos = 0;
+  // zsh/mathfunc arithmetic functions (the deterministic subset the
+  // frontend fleet's zsh corpus exercises — sqrt/hypot/fmod/int/…;
+  // int() truncates toward zero). bash has no arithmetic calls — a
+  // `name(` there is a syntax error (the arith() wrapper maps the
+  // throw to the abort marker / status 1), so this arm only fires for
+  // zsh-emitted expressions.
+  const arithFuncs = {
+    abs: a => Math.abs(a[0]),
+    fabs: a => Math.abs(a[0]),
+    int: a => Math.trunc(a[0]),
+    ceil: a => Math.ceil(a[0]),
+    floor: a => Math.floor(a[0]),
+    sqrt: a => Math.sqrt(a[0]),
+    cbrt: a => Math.cbrt(a[0]),
+    exp: a => Math.exp(a[0]),
+    log: a => Math.log(a[0]),
+    log10: a => Math.log10(a[0]),
+    log2: a => Math.log2(a[0]),
+    sin: a => Math.sin(a[0]),
+    cos: a => Math.cos(a[0]),
+    tan: a => Math.tan(a[0]),
+    asin: a => Math.asin(a[0]),
+    acos: a => Math.acos(a[0]),
+    atan: a => Math.atan(a[0]),
+    atan2: a => Math.atan2(a[0], a[1]),
+    sinh: a => Math.sinh(a[0]),
+    cosh: a => Math.cosh(a[0]),
+    tanh: a => Math.tanh(a[0]),
+    asinh: a => Math.asinh(a[0]),
+    acosh: a => Math.acosh(a[0]),
+    atanh: a => Math.atanh(a[0]),
+    hypot: a => Math.hypot(...a),
+    fmod: a => a[0] % a[1],
+    copysign: a => (a[1] < 0 || Object.is(a[1], -0)) ? -Math.abs(a[0]) : Math.abs(a[0]),
+    rint: a => Math.round(a[0]),
+  };
   function peek() { return s[pos]; }
   function ws() { while (/\s/.test(s[pos] ?? '')) pos++; }
   function num() {
     ws();
     let start = pos;
     if (s[pos] === '-') pos++;
-    while (/[0-9a-fA-FxX]/.test(s[pos] ?? '')) pos++;
+    while (/[0-9a-fA-FxX.]/.test(s[pos] ?? '')) pos++;
     const raw = s.slice(start, pos);
-    if (raw === '' || raw === '-') throw new Error(`arith: expected number near '${s.slice(pos)}'`);
-    const v = parseInt(raw.replace(/^0[xX]/, '0x'), 0);
+    if (raw === '' || raw === '-' || raw === '.') throw new Error(`arith: expected number near '${s.slice(pos)}'`);
+    // decimal literals (zsh float math like `int(3.7)`) parse as JS
+    // floats; hex stays parseInt. `3.` (zsh's float output shape) → 3.
+    const v = /[.]/.test(raw) && !/^0[xX]/.test(raw)
+      ? parseFloat(raw)
+      : parseInt(raw.replace(/^0[xX]/, '0x'), 0);
     if (Number.isNaN(v)) throw new Error(`arith: expected number near '${raw}'`);
     return v;
   }
@@ -7738,6 +7778,29 @@ export function evalArith(src, sh) {
       pos += cs[0].length;
       const out = shellCapture(cs[1]);
       return Number(String(out).trim()) || 0;
+    }
+    // function call: `name(args...)` (tree-sitter-zsh
+    // `_arithmetic_call_expression`). zsh math functions in (( )) and
+    // $(( )) reach the runner through `exec let` / sh2.arith; an
+    // unknown name throws like any arith error (zsh: "unknown
+    // function").
+    const fm = s.slice(pos).match(/^([A-Za-z_][A-Za-z0-9_]*)\s*\(/);
+    if (fm) {
+      pos += fm[0].length - 1; // rewind to '(' (the regex consumed it)
+      pos++; // consume '('
+      const args = [];
+      for (;;) {
+        ws();
+        if (s[pos] === ')') { pos++; break; }
+        args.push(ternary());
+        ws();
+        if (s[pos] === ',') { pos++; continue; }
+        if (s[pos] === ')') { pos++; break; }
+        throw new Error(`arith: expected ',' or ')' near '${s.slice(pos)}'`);
+      }
+      const fn = arithFuncs[fm[1]];
+      if (!fn) throw new Error(`arith: unknown function: ${fm[1]}`);
+      return fn(args);
     }
     // variable name?
     let m = s.slice(pos).match(/^([A-Za-z_][A-Za-z0-9_]*)/);
