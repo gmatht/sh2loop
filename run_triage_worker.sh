@@ -64,9 +64,17 @@ cycle() {  # fe
   echo "[$(date +%FT%T)] triage cycle: $fe × all backends" >> "$LOG"
   # the sweep recomputes everything (the point) and appends verdicts
   bash "$WORKSPACE/harness/triage.sh" --sweep "$fe" >> "$LOG" 2>&1 || true
-  # diff the NEW verdict rows (epoch > baseline) against the baseline;
-  # escalate status changes to a FAIL-* that weren't escalated before.
-  local new_rows; new_rows=$(awk -F'\t' -v fe="$fe" '$1==fe' "$TRIAGE/verdicts.tsv" 2>/dev/null || true)
+  # diff the NEW verdict rows against the baseline; escalate status
+  # changes to a FAIL-* that weren't escalated before. ONLY the LATEST
+  # row per (frontend, backend, example) may be diffed: verdicts.tsv is
+  # append-only, and walking the WHOLE history re-escalates stale FAIL
+  # rows forever (a pair that later PASSes drops its escalation record,
+  # so the next cycle re-files the old row — the 2026-08-14 18:04/18:08/
+  # 18:11 duplicate core-request floods, all 'var_types not a string'
+  # verdicts from the 10:57 sweep). tac reverses so !seen keeps the
+  # newest row per pair; rows superseded by a later verdict never
+  # escalate.
+  local new_rows; new_rows=$(tac "$TRIAGE/verdicts.tsv" 2>/dev/null | awk -F'\t' -v fe="$fe" '$1==fe && !seen[$1 FS $2 FS $3]++' || true)
   local fe2 be ex st det ep
   echo "$new_rows" | while IFS=$'\t' read -r fe2 be ex st det ep; do
     [ -z "$fe2" ] && continue
