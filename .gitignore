@@ -16,13 +16,12 @@ frontends/bat-sh-go/refs/
 .gate-tmp/
 gate-reports/
 triage/
-
 # frontend worker loop logs / pid files (never commit)
 loop-*.log
 loop-*.pid
-
 # worker-pool slot accounting (harness/WorkerPool.pm — runtime state)
 /.workers/
-
 # ts-node-gap detector build artifact (rebuilt on demand by ts-node-gap.sh)
 frontends/coverage/ts-node-gap/ts-node-gap
+frontends/coverage/ts-node-gap/obj/
+frontends/coverage/ts-node-gap/libgrammars.a
