@@ -1495,7 +1495,16 @@ export const sh2 = {
   // default): the whole value is one field — even when empty (zsh
   // iterates once with the empty string; bash iterates zero times).
   split(s) {
-    if (this.lang === 'zsh') return [String(s ?? '')];
+    if (this.lang === 'zsh') {
+      // zsh never field-splits unquoted expansions (SH_WORD_SPLIT off),
+      // so a SCALAR stays one field — even when empty. An ARRAY value
+      // (the `(f)`/`(s:)` flag splits) is already word-separated: zsh
+      // unquoted array expansion DROPS empty elements (`printf '<%s>\n'
+      // ${(f)x}` with a trailing-newline value prints no empty line;
+      // `${(f)unset}` prints one `<>` — an empty ARRAY of zero words).
+      if (Array.isArray(s)) return s.filter(w => w !== '');
+      return [String(s ?? '')];
+    }
     const text = String(s ?? '');
     // Custom IFS (core request frontends-ifs 20260806): a NON-whitespace
     // IFS (`IFS=, for w in $x` / `IFS=: read`) splits on the separator
@@ -2699,6 +2708,16 @@ export const sh2 = {
     // skipped. Everything else (extras processing: expandWord/evalArith,
     // the glob engines, the `:=`/`:?` side effects) is unchanged.
     const v = value !== undefined ? String(value) : this.getVar(name);
+    // zsh `${(flags)var}` — the flag prefix rides the extra param args
+    // (core request zsh-sh-go-20260815-000728): `param("", name, flags`
+    // `[, sep])`. Real bash rejects `${(...` (bad substitution), so the
+    // empty-op-with-flag shape is zsh-unambiguous (bash `param("",
+    // name)` never carries a third arg).
+    if (this.lang === 'zsh'
+        && (op === '' || op == null)
+        && a !== undefined && a !== null && String(a) !== '') {
+      return this.zshParamFlags(name, a, b, value);
+    }
     if (op === 'len') return String(v.length); // ${#name}
     // `${x:off:len}` offsets may be arithmetic expressions (`${x:j:1}`)
     const sliceOff = (s) => {
@@ -2874,6 +2893,135 @@ export const sh2 = {
       case '': return v;
       default: throw new Error(`sh2.param: unknown op ${op}`);
     }
+  },
+
+  // zsh `${(flags)var}` parameter-expansion flags (core request
+  // zsh-sh-go-20260815-000728): the A1 carries them as extra param args
+  // — `param("", name, flags[, sep])`; `sep` is the s/j separator or the
+  // subscript search pattern. Semantics verified against zsh 5.9:
+  //  - prefix flags: `t` (type), `f` (split \n), `s:` (split sep),
+  //    `j:` (join sep), `k` (assoc keys / array elements), `U`/`L` (case)
+  //  - subscript search (pattern in the sep slot): `[(i)pat]` 1-based
+  //    index of first match (n+1 if none), `[(I)pat]` last (0 if none),
+  //    `[(r)pat]` value of first match, `[(k)pat]` first match value.
+  zshParamFlags(name, flags, sep, value) {
+    const flagStr = String(flags ?? '');
+    const raw = () => (value !== undefined ? value : this.getVar(name));
+    const assoc = this.assocNames.has(name);
+    const arr = this.arrays.get(name);
+    const isArr = assoc || arr !== undefined;
+    const readArr = () => (assoc ? this.assocValues(name) : arr ?? []);
+    const sepStr = sep !== undefined && sep !== null && sep !== '' ? String(sep) : undefined;
+    // A flag applied AFTER an array-producing one chains off the current
+    // value (`${(fU)x}` uppercases each split element); the first flag
+    // reads the variable.
+    const src = () => (out !== undefined ? out : raw());
+    // zsh `(f)`/`(s:)` split: keep empty fields BETWEEN separators, drop
+    // the TRAILING one (`x=$'a\nb\n'` → (a b); `y=''` → () zero fields).
+    const splitFlag = (v, s) => {
+      const text = String(v);
+      const parts = text.split(s);
+      if (text.endsWith(s)) parts.pop();
+      return parts;
+    };
+    // subscript search helpers — pattern in the sep slot.
+    const firstIdx = (list, pat, fromEnd) => {
+      let hit = -1;
+      for (let i = 0; i < list.length; i++) {
+        if (globMatch(pat, String(list[i]))) {
+          hit = i;
+          if (!fromEnd) break;
+        }
+      }
+      return hit;
+    };
+    let out;
+    for (const f of flagStr) {
+      switch (f) {
+        case 't': // `${(t)x}` — "scalar" / "array" / "association"; UNSET → ""
+          if (assoc) out = 'association';
+          else if (arr !== undefined) out = 'array';
+          else if (value !== undefined || name in this.vars) out = 'scalar';
+          else out = '';
+          break;
+        case 'f': // split on newlines → array
+          out = splitFlag(raw(), '\n');
+          break;
+        case 's': // `${(s:sep:)x}` — split on sep → array
+          out = splitFlag(raw(), sepStr ?? '\n');
+          break;
+        case 'j': { // `${(j:sep:)arr}` — join; scalar → itself
+          const s = out !== undefined ? out : isArr ? readArr() : raw();
+          out = Array.isArray(s) ? s.join(sepStr ?? ' ') : String(s);
+          break;
+        }
+        case 'U': {
+          const s = src();
+          out = Array.isArray(s) ? s.map(x => String(x).toUpperCase()) : String(s).toUpperCase();
+          break;
+        }
+        case 'L': {
+          const s = src();
+          out = Array.isArray(s) ? s.map(x => String(x).toLowerCase()) : String(s).toLowerCase();
+          break;
+        }
+        case 'k': // prefix: assoc keys; array → the elements themselves
+          out = assoc ? this.assocKeys(name) : isArr ? [...readArr()] : [String(raw())];
+          break;
+        case 'i': // subscript search — first match, 1-based (n+1 if none)
+        case 'I': { // subscript search — last match (0 if none)
+          const pat = sepStr ?? '';
+          if (assoc) {
+            // zsh 5.9: (i)/(I) match the pattern against the KEYS and
+            // return the matching key ("" if none).
+            const keys = this.assocKeys(name);
+            const hit = firstIdx(keys, pat, f === 'I');
+            out = hit >= 0 ? keys[hit] : '';
+          } else if (arr !== undefined) {
+            const hit = firstIdx(arr, pat, f === 'I');
+            out = hit >= 0 ? String(hit + 1) : (f === 'i' ? String(arr.length + 1) : '0');
+          } else {
+            out = '';
+          }
+          break;
+        }
+        case 'r': { // subscript search — value of the first match
+          const pat = sepStr ?? '';
+          if (assoc) {
+            // (r) matches the pattern against the VALUES.
+            const vals = this.assocValues(name);
+            const hit = firstIdx(vals, pat, false);
+            out = hit >= 0 ? vals[hit] : '';
+          } else if (arr !== undefined) {
+            const hit = firstIdx(arr, pat, false);
+            out = hit >= 0 ? String(arr[hit]) : '';
+          } else {
+            out = '';
+          }
+          break;
+        }
+        default:
+          // unknown flag: best-effort plain value (never the unset "")
+          out = out === undefined ? String(raw()) : out;
+      }
+    }
+    // subscript `(k)` — flag and pattern both ride the args, so it is
+    // decoded AFTER the loop (the prefix `(k)` never carries a pattern,
+    // so a pattern in the sep slot is the subscript form).
+    if (flagStr.includes('k') && sepStr !== undefined) {
+      const pat = sepStr;
+      if (assoc) {
+        // zsh 5.9 empirical: an EXACT key returns the element value
+        // (plain lookup); a glob pattern returns nothing.
+        out = /[*?[]/.test(pat) ? [] : [this.assocGet(name, pat)];
+      } else if (arr !== undefined) {
+        const hit = firstIdx(arr, pat, false);
+        out = hit >= 0 ? [String(arr[hit])] : [];
+      } else {
+        out = [];
+      }
+    }
+    return out;
   },
 
   arith(src) {
