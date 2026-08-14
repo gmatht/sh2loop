@@ -925,8 +925,12 @@ EOF
                     if [ "$ok" = 1 ] && [ "$s" -eq 0 ]; then
                       if [ "$eq_gate" = 1 ]; then
                         # EQUIVALENCE: compile+run the render, diff its stdout
-                        # against `bash "$f"`. A mismatch = wrong lowering the
-                        # worker must fix (the gate's new correctness oracle).
+                        # against `bash "$f"` and compare exit codes (perl:
+                        # equality — a faithful translation reproduces bash's
+                        # final status, which is legitimately nonzero for many
+                        # scripts; other backends: rc 0 on both sides, the old
+                        # contract). A mismatch = wrong lowering the worker must
+                        # fix (the gate's correctness oracle).
                         # java: javac requires the public class in a file named
                         # Sh2Program.java — write there (serial gate, no clash).
                         if [ "$g_lang" = java ]; then
@@ -943,11 +947,33 @@ EOF
                           zig)  timeout 30 "$eq_tool" run /tmp/eq_$$.zig > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           sh)   timeout 15 sh -c '. /dev/fd/3' "$f" 3< /tmp/eq_$$.sh > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           java) javac -d /tmp /tmp/Sh2Program.java 2>/dev/null && timeout 15 java -cp /tmp Sh2Program > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
-                          perl) timeout 15 perl /tmp/eq_$$.pl > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
+                          perl) # argv0 = the source path (what `bash "$f"` sees) so
+                                # $0-dependent stdout agrees with bash — the exact
+                                # mirror of fail-estree's perl runner. The REAL exit
+                                # code is captured (not collapsed to 0/1): the check
+                                # below compares it to bash's, so scripts that exit
+                                # nonzero BY DESIGN (exit 1/3, short-circuits, bad
+                                # substitutions) pass when the translation
+                                # reproduces the code — the old rc=0-on-both-sides
+                                # rule made them unpassable for every backend.
+                                timeout 15 perl -M5.010 -e '$0 = shift @ARGV; my $__f = shift @ARGV; do $__f' "$f" /tmp/eq_$$.pl > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
                           js)   timeout 20 node "$WORKSPACE/harness/estree-runner.mjs" /tmp/eq_$$.json --source "$f" > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                         esac
-                        if [ "$eq_exit" = 0 ] \
-                           && timeout 15 bash "$f" > /tmp/eq_$$_ref 2>/dev/null \
+                        bash_rc=0
+                        timeout 15 bash "$f" > /tmp/eq_$$_ref 2>/dev/null || bash_rc=$?
+                        # stdout diff + exit-code verdict. perl: the codes must
+                        # MATCH (bash's final status is the last command's —
+                        # scripts legitimately exit nonzero; a faithful
+                        # translation reproduces the code). other backends: the
+                        # old contract (translation rc 0 AND reference rc 0)
+                        # stays — their arms collapse rc to 0/1, so equality
+                        # would false-pass a compile/run failure against a
+                        # nonzero-exit reference. A 124 (timeout) on EITHER side
+                        # is a fail, never a pass (both sides empty would
+                        # otherwise "match").
+                        if [ "$eq_exit" != 124 ] && [ "$bash_rc" != 124 ] \
+                           && { { [ "$g_lang" = "perl" ] && [ "$eq_exit" = "$bash_rc" ]; } \
+                                || { [ "$g_lang" != "perl" ] && [ "$eq_exit" = 0 ] && [ "$bash_rc" = 0 ]; }; } \
                            && diff -q /tmp/eq_$$_out /tmp/eq_$$_ref >/dev/null 2>&1; then
                           pass=$((pass+1)); eq_pass=$((eq_pass+1))
                         else
