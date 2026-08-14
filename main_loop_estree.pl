@@ -718,6 +718,20 @@ sub scoped_commit {
     my @sub = submodule_changed_paths();
     my @root = root_changed_paths();
     if (@sub) {
+        # FULL-WORKSPACE BUILD GATE: the corpus gate (fail-estree) only
+        # builds --bin debashc, but the backend workers build the WHOLE
+        # workspace (debashl + its bins: glsl_dump, dump_*, ...). Commit
+        # core changes only when the full build passes, so committed HEAD
+        # is healthy for every consumer (2026-08-14: HEAD was committed
+        # with a broken glsl_dump E0063 and the backend gates ground on
+        # it for hours). On failure the WIP stays uncommitted in the tree.
+        my $build_out = `cd '$sh2perl' && cargo build --manifest-path Cargo.toml 2>&1`;
+        if ($? != 0) {
+            print "\nFULL-WORKSPACE BUILD FAILED — NOT committing (fail-estree only builds debashc; the backend gates need the whole workspace). WIP left in the tree:\n";
+            print substr($build_out, -500);
+            print "\n";
+            return;
+        }
         system('git', '-C', $sh2perl, 'add', @sub);
         system('git', '-C', $sh2perl, 'commit', '-m', $msg);
         system('git', '-C', $project_root, 'add', 'sh2perl'); # bump gitlink
