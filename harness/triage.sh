@@ -336,8 +336,16 @@ sweep() {
         # diff re-escalated a phantom --pi-fix-frontend (bat-sh-go
         # t12_forf.bat). record() now normalizes keys at the write
         # boundary, so this covers any rows written before that fix.
+        # The 2026-08-14 10:59 batch showed the SUFFIX variant: ad-hoc
+        # sweep callers recorded "<ex>." (a trailing sentence-period)
+        # keys, e.g. cpp-sh-go/t04_comment.cc. — a key that neither
+        # this purge's exact match nor record()'s prefix normalization
+        # touched, so the cycle diff re-escalated 12 phantom
+        # --pi-fix-frontend sessions for cpp-sh-go. Purge those too:
+        # the successful emit proves the frontend works regardless of
+        # the key artifact.
         awk -F'\t' -v fe="$fe" -v ex="$ex" -v cd="$fe_corpus" \
-          '!($1==fe && $3==ex && $4=="FAIL-FRONTEND-EMIT") && !($1==fe && $3==cd "/" ex && $4=="FAIL-FRONTEND-EMIT")' "$VTSV" \
+          '!($1==fe && $3==ex && $4=="FAIL-FRONTEND-EMIT") && !($1==fe && $3==cd "/" ex && $4=="FAIL-FRONTEND-EMIT") && !($1==fe && $3==ex "." && $4=="FAIL-FRONTEND-EMIT")' "$VTSV" \
           > "$VTSV.purge" 2>/dev/null && mv -f "$VTSV.purge" "$VTSV" \
           || rm -f "$VTSV.purge"
         nout=$(native_out "$fe" "$example")
