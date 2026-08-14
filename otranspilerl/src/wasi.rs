@@ -189,7 +189,7 @@ pub extern "C" fn otranspilerl_glsl(input: *const u8, input_len: usize) -> *mut 
                     es100: true,
                 color_out: true,
                 vert_out: false,
-                tex_size: 16,
+                tex_size: 32,
                 max_view: 800,
             },
             );
@@ -216,7 +216,7 @@ pub extern "C" fn otranspilerl_glslv(input: *const u8, input_len: usize) -> *mut
                     es100: true,
                     color_out: false,
                     vert_out: true,
-                    tex_size: 16,
+                    tex_size: 32,
                     max_view: 800, // the sh2runtime device canvas is 800×600
                 },
             );
