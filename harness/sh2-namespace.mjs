@@ -2908,7 +2908,9 @@ export const sh2 = {
     const flagStr = String(flags ?? '');
     const raw = () => (value !== undefined ? value : this.getVar(name));
     const assoc = this.assocNames.has(name);
-    const arr = this.arrays.get(name);
+    // The runtime-store array; a native-lifted array arrives as the
+    // emitter's value-override arg (an actual JS array) and wins.
+    const arr = Array.isArray(value) ? value : this.arrays.get(name);
     const isArr = assoc || arr !== undefined;
     const readArr = () => (assoc ? this.assocValues(name) : arr ?? []);
     const sepStr = sep !== undefined && sep !== null && sep !== '' ? String(sep) : undefined;
