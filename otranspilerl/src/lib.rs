@@ -204,7 +204,7 @@ pub fn render(a1: &str, lang: &str) -> Result<String, String> {
                 es100: true,
                 color_out: true,
                 vert_out: false,
-                tex_size: 16,
+                tex_size: 32,
                 max_view: 800, // the sh2runtime device canvas is fixed 800×600 (mediump gate)
             },
         ),
@@ -217,7 +217,7 @@ pub fn render(a1: &str, lang: &str) -> Result<String, String> {
                 es100: true,
                 color_out: false,
                 vert_out: true,
-                tex_size: 16,
+                tex_size: 32,
                 max_view: 800, // the sh2runtime device canvas is 800×600
             },
         ),
