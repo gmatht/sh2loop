@@ -301,15 +301,24 @@ run_estree() {  # <estree-json> <source-file> -> transpiled stdout
 }
 
 total=0; fails=0; skips=0
+# Cache this verdict to .frontend_gate.tsv (lang<TAB>file<TAB>PASS|FAIL|SKIP)
+# — the otranspiler GUI's sync-backend-gates.sh consumes it to colour the
+# per-frontend example buttons + source pills. Appends only; the GUI keeps
+# the LAST row per (lang,file), so concurrent worker gates just refresh it.
+# One short line per verdict — a torn write across concurrent appends is
+# impossible for writes < PIPE_BUF under O_APPEND.
+record() {  # status bn
+  printf '%s\t%s\t%s\n' "$lang" "$bn" "$1" >> "$root/.frontend_gate.tsv" 2>/dev/null || true
+}
 for f in "$dir"/*"$ext"; do
   [ -f "$f" ] || continue
   bn=$(basename "$f"); total=$((total+1))
   # refusal pins (*_refuse.*) are the frontend's negative tests — the
   # emit MUST fail, so they are exercised by the frontend's own gate
   # (make test), never compared here.
-  case "$bn" in *_refuse*) echo "SKIP $bn (refusal pin — asserted failing by the frontend gate)"; skips=$((skips+1)); continue ;; esac
+  case "$bn" in *_refuse*) record SKIP; echo "SKIP $bn (refusal pin — asserted failing by the frontend gate)"; skips=$((skips+1)); continue ;; esac
   if [ "$lang" != go ] && [ "$lang" != bat ] && [ "$lang" != powershell ] && ! command -v "${native[0]}" >/dev/null 2>&1; then
-    echo "SKIP $bn (native interpreter '${native[0]}' not installed)"
+    record SKIP; echo "SKIP $bn (native interpreter '${native[0]}' not installed)"
     skips=$((skips+1)); continue
   fi
   # 1. native execution (capture stdout even on nonzero exit). A test on
@@ -343,7 +352,7 @@ EOF
   fi
   # 2. frontend emit
   if ! "$bin" --shir "$f" --raw > "$tmp/a1.json" 2>"$tmp/emit.err"; then
-    echo "FAIL $bn (frontend emit: $(head -c 200 "$tmp/emit.err" 2>/dev/null | tr '\n' ' '))"
+    record FAIL; echo "FAIL $bn (frontend emit: $(head -c 200 "$tmp/emit.err" 2>/dev/null | tr '\n' ' '))"
     fails=$((fails+1)); continue
   fi
   # 2a. out-parameter elimination (the C frontend's out-param channel):
@@ -352,7 +361,7 @@ EOF
   # out-params (multi-return A1, core request c-multi-return).
   if [ "$lang" = c ]; then
     if ! python3 "$root/harness/outparam_to_returns.py" < "$tmp/a1.json" > "$tmp/a1.t.json" 2>/dev/null; then
-      echo "FAIL $bn (outparam transform)"
+      record FAIL; echo "FAIL $bn (outparam transform)"
       fails=$((fails+1)); continue
     fi
     mv "$tmp/a1.t.json" "$tmp/a1.json"
@@ -365,7 +374,7 @@ EOF
     sleep 3
     if ! "$snap" --shir-in-estree "$tmp/a1.json" > "$tmp/e.json" 2>/dev/null; then
       echo "FAIL $bn (A1 -> ESTree conversion)"
-      fails=$((fails+1)); continue
+      record FAIL; fails=$((fails+1)); continue
     fi
   fi
   # 2c. run transpiled JS
@@ -387,9 +396,9 @@ EOF
     trans_out=$(run_estree "$tmp/e.json" "$f")
   fi
   if [ "$(normalize "$native_out")" = "$(normalize "$trans_out")" ]; then
-    echo "OK   $bn (stdout match)"
+    record PASS; echo "OK   $bn (stdout match)"
   else
-    echo "DIFF $bn (stdout mismatch)"
+    record FAIL; echo "DIFF $bn (stdout mismatch)"
     diff <(printf '%s\n' "$native_out") <(printf '%s\n' "$trans_out") \
       | head -6 | sed 's/^/     /'
     fails=$((fails+1))
