@@ -667,6 +667,16 @@ sub invoke_pi {
                 if (($msg->{stopReason} // '') eq 'error') {
                     print STDERR "\n*** pi ERROR (stopReason=error): " . $err . "\n";
                     $full .= "[pi error] $err\n";
+                    # Fixed-window plan-quota errors (the monthly
+                    # GoUsageLimitError) PAUSE the extension's automatic
+                    # rotation (its keys may share the workspace quota),
+                    # which leaves the worker stuck on the dead key. Re-arm
+                    # it worker-side: advance the keyring to the NEXT
+                    # account (the equivalent of `/opencode next`) so the
+                    # next pi round tries an independent key.
+                    if ($err =~ /GoUsageLimitError|Monthly usage limit|usage limit reached|resets? in/i) {
+                        opencode_next_key();
+                    }
                 }
             }
         }
@@ -706,6 +716,40 @@ sub invoke_pi {
     # core-request round) can parse per-request DECISION lines. Truthy
     # for the existing boolean callers (non-empty on success).
     return $full;
+}
+
+# ── opencode-go key rotation (worker-side /opencode next) ────────────
+# The pi-opencode-go-rotation extension pauses AUTOMATIC rotation on
+# fixed-window plan-quota errors (GoUsageLimitError — its keys may share
+# the workspace quota), which leaves the worker stuck on the dead key
+# forever (2026-08-15: 187+ silent rounds). This re-arms it: advance
+# ~/.pi/agent/opencode-keys.json to the NEXT key and clear its cooldown —
+# exactly what `/opencode next` does — so the next pi round tries an
+# independent account. All fields preserved; file written 0600.
+sub opencode_next_key {
+    my $keys_file = "$ENV{HOME}/.pi/agent/opencode-keys.json";
+    return unless -f $keys_file;
+    my $txt = eval { local $/; open my $fh, '<', $keys_file or die; <$fh> };
+    return unless defined $txt;
+    my $cfg = eval { JSON::PP::decode_json($txt) };
+    return unless ref $cfg eq 'HASH' && ref $cfg->{keys} eq 'ARRAY';
+    my @keys = @{ $cfg->{keys} };
+    return unless @keys > 1;
+    my $n = scalar @keys;
+    my $cur = (defined $cfg->{activeKeyIndex} && $cfg->{activeKeyIndex} =~ /^\d+$/) ? $cfg->{activeKeyIndex} : 0;
+    my $next = ($cur + 1) % $n;
+    $cfg->{activeKeyIndex} = $next;
+    $cfg->{cooldowns} = {} unless ref $cfg->{cooldowns} eq 'HASH';
+    delete $cfg->{cooldowns}{"$next"};
+    my $json = eval { JSON::PP::encode_json($cfg) };
+    return unless defined $json;
+    if (open my $fh, '>', $keys_file) {
+        print $fh $json;
+        close $fh;
+        chmod 0600, $keys_file;
+        my $name = $cfg->{keys}[$next]{name} // "key-" . ($next + 1);
+        print STDERR "[opencode] rotated active key $cur -> $next ($name) — next pi round uses this account\n";
+    }
 }
 
 # ── process-tree reaper (watchdog) ──────────────────────────────────
