@@ -520,7 +520,7 @@ case "${1:-}" in
     # garbage (the reference then fails → SKIP-ESTREE-REF)
     example="$(fe_abs "$1" "$(echo "$info" | cut -d'|' -f1)")/$2"
     a1f=$(mktemp -d "$TRIAGE/.row.XXXXXX")
-    if emit_a1 "$1" "$example" > "$a1f/a1.json" 2>/dev/null; then
+    if emit_a1 "$1" "$example" > "$a1f/a1.json" 2>"$a1f/emit.err"; then
       nout=$(native_out "$1" "$example")
       pout=$(estree_ref_out "$a1f/a1.json" "$example" || true)
       classify_pair "$1" "$2" "$3" "$a1f/a1.json" "$nout" "$pout"
