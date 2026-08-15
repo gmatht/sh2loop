@@ -344,6 +344,62 @@ function grepSelect(out, content, opts, matchRe, gRe, prefix, byteOffset, color)
   return selected;
 }
 
+// bash `cmd &` / `(cmd) &` fork: the job is a SUBSHELL — it runs on a copy
+// of the shell state; its mutations are isolated and discarded at exit
+// (copy-on-write containers; nothing is restored INTO the parent because
+// the parent never shares the clone). The emitted body takes the shell as
+// a parameter (`sh2.background((sh2) => body)` — shir.rs lowering;
+// estree-gen/astring prints the param), so the body's sh2.* calls AND its
+// native-store accesses (`sh2.vars.x`, lifted-var stores) all bind the
+// CLONE. Documented limitation: USER-FUNCTION bodies (`f &`) are shared
+// closures whose internal `sh2` references bind the MODULE instance — a
+// function's state writes still touch the parent. The worker path (a
+// fresh module instance per job) is the fix for that case.
+function cloneShellForJob(shell) {
+  const c = Object.create(sh2); // methods via the prototype; state shadowed below
+  c.vars = { ...shell.vars };
+  c.arrays = new Map([...shell.arrays].map(([k, v]) => [k, [...v]]));
+  c.assocNames = new Set(shell.assocNames);
+  c.assocStore = new Map([...shell.assocStore].map(([k, v]) => [k, new Map(v)]));
+  c.exported = new Set(shell.exported);
+  c.functions = shell.functions; // shared closures — see the limitation note
+  c.chans = new Map([...shell.chans].map(([k, v]) => [k, { q: [...v.q] }]));
+  c._chanSeq = shell._chanSeq;
+  c.lastExit = shell.lastExit;
+  c.pipeStatuses = [...shell.pipeStatuses];
+  c.positional = [...shell.positional];
+  c.argv0 = shell.argv0;
+  c.cwd = shell.cwd;
+  c.fdTargets = { ...shell.fdTargets };
+  c.shoptState = new Map(shell.shoptState);
+  c.traps = new Map(); // bash: background (subshell) jobs reset parent traps
+  c.pending = [];      // the job's own `&` children wait on the clone
+  c.bgCount = 0;
+  c.lastBg = 0;
+  c.errexit = shell.errexit;
+  c.nounset = shell.nounset;
+  c.pipefail = shell.pipefail;
+  c.intVars = new Set(shell.intVars);
+  c.lcVars = new Set(shell.lcVars);
+  c.ucVars = new Set(shell.ucVars);
+  c.roVars = new Set(shell.roVars);
+  c.refVars = new Map(shell.refVars);
+  c.readBufs = new Map(shell.readBufs);
+  c.readBufSeq = shell.readBufSeq;
+  c.lang = shell.lang;
+  c.execAllowlist = shell.execAllowlist;
+  c.cmdVResolved = shell.cmdVResolved ? new Set(shell.cmdVResolved) : null;
+  // C-frontend mem arena / wasm: shared scratch — a real fork would copy
+  // the arena memory; no corpus background case touches it (worker-path
+  // nicety).
+  c.memArena = shell.memArena;
+  c.memSeq = shell.memSeq;
+  c.memElemSize = shell.memElemSize;
+  c._memPos = shell._memPos;
+  c._wasm = shell._wasm;
+  return c;
+}
+
 export const sh2 = {
   // node:fs/promises — the native readFile/writeFile surface the emitter's
   // pure-capture lowerings (`$(cat f)`, `$(sort f)`, `$(wc -l < f)`) call
