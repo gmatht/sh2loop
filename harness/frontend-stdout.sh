@@ -327,13 +327,18 @@ run_estree() {  # <estree-json> <source-file> -> transpiled stdout
   # python side with EACCES before its print). Other langs run both sides
   # from the frontend dir; keep their CWD as-is.
   if [ "$lang" = go ] || [ "$lang" = py ]; then
-    (cd "$tmp" && timeout 20 node "$runner" "$1" --source "$2" 2>/dev/null) || true
+    (cd "$tmp" && timeout 20 node "$runner" "$1" --source "$2" 2>"$tmp/estree.err") || true
   else
-    timeout 20 node "$runner" "$1" --source "$2" 2>/dev/null || true
+    timeout 20 node "$runner" "$1" --source "$2" 2>"$tmp/estree.err" || true
   fi
+  # node's stderr (JS runtime errors, OOM kills, missing modules) is kept
+  # in $tmp/estree.err per test; the DIFF branch surfaces it when the
+  # transpiled side produced NOTHING, so an empty stdout is diagnosable.
 }
 
 total=0; fails=0; skips=0
+compare_phase() {  # one pass over all tests; returns 0 iff every test passed
+  total=0; fails=0; skips=0
 # Cache this verdict to .frontend_gate.tsv (lang<TAB>file<TAB>PASS|FAIL|SKIP)
 # — the otranspiler GUI's sync-backend-gates.sh consumes it to colour the
 # per-frontend example buttons + source pills. Appends only; the GUI keeps
@@ -437,8 +442,39 @@ EOF
     record FAIL; echo "DIFF $bn (stdout mismatch)"
     diff <(printf '%s\n' "$native_out") <(printf '%s\n' "$trans_out") \
       | head -6 | sed 's/^/     /'
+    # Empty transpiled stdout + a node stderr capture = the runner died
+    # before printing anything ("Killed" OOM, "FATAL ERROR: ...",
+    # "Cannot find module"). Show it: an all-empty DIFF row is otherwise
+    # indistinguishable from a real regression (c-sh-go 2026-08-15
+    # 17:23 gate: every test DIFFed empty while the estree worker's
+    # concurrent cargo rebuild of debashc starved/OOM-killed node).
+    if [ -z "$(normalize "$trans_out")" ] && [ -s "$tmp/estree.err" ]; then
+      sed 's/^/     [estree stderr] /' "$tmp/estree.err" | head -5
+    fi
     fails=$((fails+1))
   fi
 done
 echo "--- frontend-stdout [$lang]: $((total-fails-skips))/$total match, $fails FAIL, $skips SKIP"
 [ "$fails" -eq 0 ]
+}
+
+# System-wide transient guard (c-sh-go 2026-08-15 17:23 gate FAIL): the
+# estree worker's concurrent `cargo build` of the shared debashc oracle
+# (a multi-GB rustc) starved/OOM-killed EVERY node execution in the phase
+# — 0/103 transpiled runs produced output, so the per-test retry (above)
+# could not help: the whole window was affected and every test DIFFed
+# with EMPTY transpiled stdout. A deterministic regression is unaffected
+# (it fails the retry too, and the gate still FAILs); this only rescues
+# genuine system-wide transients, exactly like the snapshot/retry layers
+# already in place for torn binaries. The retry re-runs the ENTIRE phase
+# (native + transpiled) after a 45s backoff that lets a concurrent relink
+# finish.
+if ! compare_phase; then
+  if [ "$total" -gt 0 ] && [ "$fails" -eq "$total" ]; then
+    echo "frontend-stdout.sh: ALL $total tests failed — likely a system-wide transient (concurrent core rebuild starving node?); retrying the whole phase once after 45s" >&2
+    sleep 45
+    compare_phase
+  else
+    false   # partial failure: a real regression — do NOT mask it with a retry
+  fi
+fi
