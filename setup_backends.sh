@@ -910,7 +910,25 @@ EOF
                   if [ "$g_eq" = 1 ] && [ -n "$eq_tool" ] && command -v "$eq_tool" >/dev/null 2>&1; then
                     eq_gate=1
                   fi
-                  pass=0; skip=0; fail=0; fails=""; stub_total=0; stub_files=0
+                  pass=0; skip=0; fail=0; fails=""; stub_total=0; stub_files=0; al_count=0
+                  # sh backend blessed-fail allowlist (AGENTS.md guardrail: a
+                  # failing test may be allowlisted ONLY for a KNOWN RUNTIME
+                  # LIMITATION, never to hide a transpiler bug). Entries are
+                  # per-file with a documented reason + unblock condition —
+                  # see $BT/sh/gate-allowlist.txt. A file whose precondition
+                  # no longer holds is counted as a REAL fail, never masked.
+                  sh_allowlist="$BT/sh/gate-allowlist.txt"
+                  sh_allowlisted() { # $1 = basename -> 0 (no) / 1 (yes, skip)
+                    [ "$g_lang" = sh ] && [ -f "$sh_allowlist" ] || return 1
+                    grep -q "^$1|" "$sh_allowlist" || return 1
+                    # conditional entries: the allowlist applies only while
+                    # the documented environment squatter is present
+                    case "$1" in
+                      cat-dash-stdin.sh)
+                        [ -e /tmp/out.txt ] && [ ! -w /tmp/out.txt ] || return 1;;
+                    esac
+                    return 0
+                  }
                   for f in $corpus; do
                     # shIR emit from the CORE (the A1 contract source of truth):
                     # if the core emits nothing (rc!=0 or empty JSON — the 4
@@ -1046,7 +1064,11 @@ EOF
                            && diff -q /tmp/eq_$$_out /tmp/eq_$$_ref >/dev/null 2>&1; then
                           pass=$((pass+1)); eq_pass=$((eq_pass+1))
                         else
-                          fail=$((fail+1)); eq_fail=$((eq_fail+1)); fails="$f $fails"
+                          if sh_allowlisted "$(basename "$f")"; then
+                            skip=$((skip+1)); al_count=$((al_count+1))
+                          else
+                            fail=$((fail+1)); eq_fail=$((eq_fail+1)); fails="$f $fails"
+                          fi
                         fi
                         # the cleanup must never kill the gate under set -e: a
                         # root-owned leftover in /tmp (operator artifacts like
@@ -1062,7 +1084,7 @@ EOF
                       fails="$f $fails"
                     fi
                   done
-                  echo "  [$g_lang] backend gate: $pass/$((pass+skip+fail)) corpus render OK, $fail fail ($stub_files stubs, $eq_fail equiv), $skip skip — $stub_total stubs emitted${eq_gate:+; equiv: $eq_pass pass vs bash}"
+                  echo "  [$g_lang] backend gate: $pass/$((pass+skip+fail)) corpus render OK, $fail fail ($stub_files stubs, $eq_fail equiv), $skip skip ($al_count allowlisted) — $stub_total stubs emitted${eq_gate:+; equiv: $eq_pass pass vs bash}"
                   # CHIMERA gate (sh only): the bash-free WSL sandbox (BSD
                   # shell + busybox toolchain, no bash/perl/GNU coreutils). A
                   # test PASSES only if it passes under BOTH Ubuntu (dash,
