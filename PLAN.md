@@ -1352,19 +1352,39 @@ fragment and skips debashc entirely for backticks containing Perl vars
   refusals). CLI hook: `debashc parse --perl-embed` (`PURIFY_SCOPE` env =
   host membership list, manual testing).
 
+### Stage 2 (landed, this revision)
+
+- **otranspilerl `--embed-perl`**: `render_embed(a1, EmbedOpts)` +
+  CLI flags `--embed-perl` / `--scope-vars a,b,c` / `--backtick` /
+  `--english` (fragment on stdout; `REQUIRED`/`REFUSE` on stderr so stdout
+  stays splice-clean — the future purify caller gates on them). 5 CLI tests
+  in `otranspilerl/src/lib.rs`.
+- **Carp injection**: command emulations call `carp`/`croak` on error
+  paths; the embed renderer now prepends `use Carp;` when the fragment
+  references them (the standalone preamble's import, owned by the renderer
+  instead of purify's regex). +1 sh2perl test (`embed_injects_carp`).
+- Verified end-to-end through `otranspilerl-cli`: 11/11 smoke matrix vs
+  bash (host-scope reads, copy-in non-leak, `${s%?}` loop, pipelines,
+  `${a}${b}`, `||` fallbacks) with the SAME scope list on both sides;
+  out-of-scope names correctly render as bash-unset. `cargo test --lib`
+  303/301 (glsl = pre-existing WIP; the concurrent agent's estree work is
+  in the tree and compiles).
+- **Known inherited limitation (not embed-specific)**: `$(…)` in the middle
+  of a double-quoted string with an emulable inner command hits a
+  pre-existing `shir_to_perl` capture-path bug (`bash -c 'sub { … }'`)
+  that reproduces via standalone `file --perl`; documented in
+  embed-contract.md §7.
+
 ### Remaining (ordered)
 
-1. otranspilerl surface: `--embed-perl` render mode + literal-source snippet
-   input; `EmbedConstruct::System`/`Popen` profiles (var-visibility rules in
-   embed-contract.md §2).
-2. purify.pl backtick swap: PPI-harvest per-site `host_scope` → embed
-   renderer → drop the regex patches one at a time (each pinned by a
-   fixture); Bug 3 (Perl vars in backticks) via the marker protocol, not
-   the skip.
-3. shIR verdict upgrade: `required_host_bindings` from
+1. purify.pl backtick swap: PPI-harvest per-site `host_scope` →
+   `otranspilerl-cli --embed-perl` → drop the regex patches one at a time
+   (each pinned by a fixture); Bug 3 (Perl vars in backticks) via the
+   marker protocol, not the skip.
+2. shIR verdict upgrade: `required_host_bindings` from
    `var_lifetimes[].escapes` + lift sets (PassContext) instead of the
    read/write sets.
-4. Generic profile: per-host-language construct finders (scanner table →
+3. Generic profile: per-host-language construct finders (scanner table →
    frontend scan mode) + the construct-shaped fragment API
    (`--embed=<lang> --construct=system|backtick|popen`); preservation gate
    per host language; purify-twice byte-identity gate (red today).
