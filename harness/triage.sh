@@ -69,14 +69,14 @@ sh2perl|$ROOT/sh2perl/examples|sh|$ROOT/sh2perl/target/debug/debashc|run:bash
 "
 # backend: debashc-bin|flag|run("" = render-only)|label
 BACKENDS="
-js|$ROOT/sh2perl/backends/js/target/debug/debashc|--shir-in-js||scaffold
+js|$ROOT/sh2perl/backends/js/target/debug/debashc|--shir-in-js|run:node:js|production
 perl|$ROOT/sh2perl/backends/perl/target/debug/debashc|--shir-in-perl|run:perl|production
 sh|$ROOT/sh2perl/backends/sh/target/debug/debashc|--shir-in-sh|run:bash|production
-c|$ROOT/sh2perl/backends/c/target/debug/debashc|--shir-in-c||scaffold
-go|$ROOT/sh2perl/backends/go/target/debug/debashc|--shir-in-go||scaffold
-python|$ROOT/sh2perl/backends/python/target/debug/debashc|--shir-in-python||scaffold
-java|$ROOT/sh2perl/backends/java/target/debug/debashc|--shir-in-java||scaffold
-rust|$ROOT/sh2perl/backends/rust/target/debug/debashc|--shir-in-rust||scaffold
+c|$ROOT/sh2perl/backends/c/target/debug/debashc|--shir-in-c|compile:cc:c|production
+go|$ROOT/sh2perl/backends/go/target/debug/debashc|--shir-in-go|compile:go:go|production
+python|$ROOT/sh2perl/backends/python/target/debug/debashc|--shir-in-python|run:python3:py|production
+java|$ROOT/sh2perl/backends/java/target/debug/debashc|--shir-in-java|run:java:java|production
+rust|$ROOT/sh2perl/backends/rust/target/debug/debashc|--shir-in-rust|compile:rustc:rs|production
 zig|$ROOT/sh2perl/backends/zig/target/debug/debashc|--shir-in-zig||scaffold
 "
 
@@ -200,16 +200,30 @@ estree_ref_out() {  # a1-file -> the estree-proxy executed output
   printf '%s' "$out"
 }
 backend_out() {  # backend run-field rendered-file -> executed output
+  # run-field format: mode:cmd[:ext] — `run:perl`, `compile:cc:c`,
+  # `run:java:java` … The ext is needed when the toolchain keys on the
+  # filename (cc needs .c, go build .go, rustc .rs, node .js, java
+  # single-file launch needs the file named after its PUBLIC CLASS).
   local run="$1" rendered="$2"
   [ -z "$run" ] && { echo ""; return 0; }
-  local mode cmd
-  IFS=':' read -r mode cmd <<<"$run"
+  local mode cmd ext
+  IFS=':' read -r mode cmd ext <<<"$run"
   if [ "$mode" = run ]; then
-    timeout 20 "$cmd" "$rendered" 2>/dev/null || true
+    if [ -n "$ext" ]; then
+      local tmp; tmp=$(mktemp -d "$TRIAGE/.be.XXXXXX")
+      local fname="main"
+      local cls; cls=$(grep -oE 'public class [A-Za-z_][A-Za-z0-9_]*' "$rendered" 2>/dev/null | head -1 | awk '{print $3}')
+      [ -n "$cls" ] && fname="$cls"
+      cp "$rendered" "$tmp/$fname.$ext"
+      ( cd "$tmp" && timeout 30 "$cmd" "$fname.$ext" ) < /dev/null 2>/dev/null || true
+      rm -rf "$tmp"
+      return 0
+    fi
+    timeout 30 "$cmd" "$rendered" 2>/dev/null || true
   else
     local tmp; tmp=$(mktemp -d "$TRIAGE/.be.XXXXXX")
-    ( cd "$tmp" && cp "$rendered" main.b && timeout 20 "$cmd" main.b -o main 2>/dev/null \
-      && timeout 20 ./main ) < /dev/null 2>/dev/null || true
+    ( cd "$tmp" && cp "$rendered" "main.${ext:-b}" && timeout 30 "$cmd" "main.${ext:-b}" -o main 2>/dev/null \
+      && timeout 30 ./main ) < /dev/null 2>/dev/null || true
     rm -rf "$tmp"
   fi
 }
