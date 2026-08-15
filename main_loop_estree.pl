@@ -654,9 +654,23 @@ sub invoke_pi {
                         my $name = $msg->{name} // '?';
                         print "\n\e[33m>>> tool: $name\e[0m\n";
                     }
+                } elsif ($type eq 'message_end') {
+                # SURFACE FAILURES (2026-08-15: the opencode-go provider
+                # hit its monthly quota — every pi call died with a 429
+                # GoUsageLimitError and the worker logged NOTHING between
+                # 'Invoking pi' and '(pi finished)'. The stalled queue was
+                # silently untouched for 187 rounds. Print the stopReason
+                # + errorMessage so a dead provider is visible in one line
+                # instead of looking like 'pi said nothing'.)
+                my $msg = $event->{message} // {};
+                my $err = $msg->{errorMessage} // '';
+                if (($msg->{stopReason} // '') eq 'error') {
+                    print STDERR "\n*** pi ERROR (stopReason=error): " . $err . "\n";
+                    $full .= "[pi error] $err\n";
                 }
             }
         }
+    }
     }
     # the select loop exits on EOF (pi finished) or the 3600s budget.
     # On a BUDGET hit, kill the pi process TREE before `close` — Perl's
@@ -671,6 +685,23 @@ sub invoke_pi {
     }
     close $pi_fh;
     print "\n(pi finished)\n";
+    # Bounded final-reply echo: the deltas above streamed live, but a clean
+    # bounded block makes the round's conclusion greppable (the DECISION
+    # lines live here — or the reason they are absent, e.g. the provider
+    # error surfaced above). Never echo unbounded: the transcripts ate GBs
+    # of log + cgroup page cache (2026-08-14/15).
+    my @reply_lines = split /\n/, $full;
+    if (@reply_lines > 80) {
+        print "--- pi final reply (first 20 / last 60 of " . scalar(@reply_lines) . " lines) ---\n";
+        print "  $_\n" for @reply_lines[0 .. 19];
+        print "  ... elided " . (scalar(@reply_lines) - 80) . " lines ...\n";
+        print "  $_\n" for @reply_lines[-60 .. -1];
+        print "--- end pi final reply ---\n";
+    } elsif (@reply_lines) {
+        print "--- pi final reply ---\n";
+        print "  $_\n" for @reply_lines;
+        print "--- end pi final reply ---\n";
+    }
     # Return the accumulated full text so callers (the dedicated
     # core-request round) can parse per-request DECISION lines. Truthy
     # for the existing boolean callers (non-empty on success).
@@ -1149,6 +1180,7 @@ sub finalize_core_requests {
     # untouched stalled -> STAYS in stalled/ (no counter — already there).
     my @impl      = grep { request_outcome($_) eq 'implemented' } @core_pending;
     my @rejected  = grep { request_outcome($_) eq 'rejected' } @core_pending;
+    my @progress  = grep { request_outcome($_) eq 'progress' } @core_pending;
     my @untouched = grep { request_outcome($_) eq '' } @core_pending;
     for my $r (@impl) {
         my $bn = (split /\//, $r)[-1];
@@ -1165,6 +1197,20 @@ sub finalize_core_requests {
         my $bn = (split /\//, $r)[-1];
         system('mv', $r, "$core_requests_dir/done/$bn");
         print "  rejected (worker stays asleep): $bn\n";
+    }
+    for my $r (@progress) {
+        my $bn = (split /\//, $r)[-1];
+        # partial work with a ## PROGRESS: handoff note (written by the loop
+        # from the pi's DECISION line): stays out of done/ — another round
+        # (or a human) continues from the note. A pending request that made
+        # progress keeps its place: reset the 3-cycle stall counter so it
+        # does not move to stalled/ while actively worked.
+        if ($r =~ m{^\Q$stalled_dir\E/}) {
+            print "  progress noted, stays stalled/ (next round continues from the note): $bn\n";
+        } else {
+            unlink "$r.stall" if -f "$r.stall";
+            print "  progress noted, stays pending (stall counter reset): $bn\n";
+        }
     }
     for my $r (@untouched) {
         my $bn = (split /\//, $r)[-1];
@@ -1186,7 +1232,7 @@ sub finalize_core_requests {
         }
     }
     write_stalled_report();
-    log_decision('core-request', scalar(@impl), scalar(@rejected) + scalar(@untouched), 'impl/rejected/pending');
+    log_decision('core-request', scalar(@impl), scalar(@rejected) + scalar(@untouched) + scalar(@progress), 'impl/rejected/pending/progress');
     @core_pending = ();
 }
 
@@ -1198,6 +1244,7 @@ sub request_outcome {
     local $/; my $txt = <$fh>; close $fh;
     if ($txt =~ /^## OUTCOME:\s*implemented/m) { return 'implemented'; }
     if ($txt =~ /^## OUTCOME:\s*rejected/m)    { return 'rejected'; }
+    if ($txt =~ /^## PROGRESS:/m)                { return 'progress'; }
     return '';
 }
 
@@ -1209,17 +1256,24 @@ sub request_outcome {
 sub build_core_request_prompt {
     my ($summary) = @_;
     my $p = "You are the SINGLE OWNER of the shared sh2perl core.\n";
-    $p .= "THIS ROUND IS DEDICATED TO MEDIATING PENDING CORE-REQUESTS from sibling workers\n";
-    $p .= "(the sh/c/go/python/... frontends and backends are blocked on them; trapped\n";
-    $p .= "workers sleep until their request lands). Do NOT do your own improvement work\n";
-    $p .= "— tiny estree lowerings (sh2.* call-site reductions) can wait until the\n";
-    $p .= "core-request queue is empty.\n\n";
+    $p .= "THIS ROUND IS PURELY THE CORE-REQUESTS BELOW — nothing else exists to do\n";
+    $p .= "this round. Your ENTIRE deliverable is one line per request below:\n";
+    $p .= "implement it, make PROGRESS on it, or reject it — nothing more, nothing\n";
+    $p .= "else. Do not start any other work.\n\n";
     $p .= "Current corpus verdict (informational): estree " . ($summary->{estree_passed} // '?') . "/" . ($summary->{total} // '?') . " pass.\n\n";
     $p .= "MANDATORY PER-REQUEST ACCOUNTABILITY (the queue is no longer silently stalling):\n";
     $p .= "For EVERY request below you MUST emit, in your final reply to this prompt, a single line of the form:\n";
-    $p .= "  [core-request <filename.md>] DECISION: implemented | rejected | untouched — <one-line reason>\n";
-    $p .= "The DECISION line is REQUIRED for every request — an in-file '## OUTCOME:' marker alone is NOT sufficient and is treated as a contract violation. The 'reason' is MANDATORY for 'untouched' (state what you need to make progress — e.g. 'waiting on an upstream core change', 'too large for one round, see partial work in <file>', 'conflicts with <other-request>, proposing reject'). The loop scans your reply for these lines and prints a per-request table; missing lines surface as warnings so the situation is visible (and the stall cap is still the safety net).\n\n";
-    $p .= "In-file outcomes (the existing contract) still apply where you DO land work: APPEND '## OUTCOME: implemented' to the request file on implementation, or '## OUTCOME: rejected: <reason>' on rejection. The DECISION line is the per-round log signal; the in-file marker is the finalize signal.\n";
+    $p .= "  [core-request <filename.md>] DECISION: implemented | rejected | progress | untouched — <one-line reason>\n";
+    $p .= "The DECISION line is REQUIRED for every request — an in-file '## OUTCOME:' marker alone is NOT sufficient and is treated as a contract violation.\n";
+    $p .= "- implemented: the fix landed and the corpus is green.\n";
+    $p .= "- rejected: won't implement — one-line reason (superseded, conflicts, out of scope...).\n";
+    $p .= "- progress: TOO LARGE FOR ONE ROUND — you did the tractable part and another session should continue. The loop appends your reason to the\n";
+    $p .= "  request file as a '## PROGRESS:' handoff note; the NEXT round's pi continues from it. Say exactly what you did and what remains. Do NOT\n";
+    $p .= "  write OUTCOME markers for progress — the loop records the note from your DECISION line.\n";
+    $p .= "- untouched: no work this round — reason MANDATORY (state what you need to make progress — e.g. 'waiting on an upstream core change',\n";
+    $p .= "  'conflicts with <other-request>, proposing reject').\n";
+    $p .= "The loop scans your reply for these lines and prints a per-request table; missing lines surface as warnings so the situation is visible (and the stall cap is still the safety net).\n\n";
+    $p .= "In-file outcomes (the existing contract) still apply where you DO land full work: APPEND '## OUTCOME: implemented' to the request file on implementation, or '## OUTCOME: rejected: <reason>' on rejection. The DECISION line is the per-round log signal; the in-file marker is the finalize signal.\n";
     $p .= "Regression rules (unchanged): ./fail-estree must stay green at the trusted baseline; determinism (cargo test --lib) and the structural gate must stay green; PERL pass count must not drop. If implementing would regress, the right call is 'untouched' WITH a reason (e.g. 'would regress tXX; needs a shir_passes fix first'), not a silent leave.\n";
     $p .= "If two requests conflict, implement the one maximizing corpus coverage and reject the other — the DECISION line carries the reason.\n";
     $p .= "Scope: shared core (src/shir.rs, src/ir.rs, src/estree.rs, src/parser/, shir_json.rs, shir_json_in.rs), src/transforms/ compile-ins (core-requests/transforms/), harness/*. Commit scoped changes when green.\n";
@@ -1243,7 +1297,7 @@ sub parse_pi_decisions {
     while ($text =~ m{
         \[\s*core-request\s+([\w.-]+\.md)\s*\]\s*
         DECISION\s*:\s*
-        (implemented|rejected|untouched)\s*
+        (implemented|rejected|untouched|progress)\s*
         [-–—]\s*
         ( [^\n\r]* )
     }gix) {
@@ -1459,6 +1513,23 @@ while (1) {
             my $violations = print_mediation_table($decisions, [map { my $p=$_; $p =~ s{.*/}{}; $p } @core_pending]);
             if ($violations) {
                 log_decision('core-request-violation', $violations, scalar(@core_pending), 'missing-decision');
+            }
+            # progress handoff: the pi emitted 'DECISION: progress — <what's
+            # done / what remains>' for some requests — write the note into
+            # the request file NOW so the NEXT round's pi (or a human)
+            # continues from it. The note is the loop's pen, not pi's: pi
+            # does not write OUTCOME markers for progress (per the prompt).
+            for my $r (@core_pending) {
+                my $bn = (split /\//, $r)[-1];
+                my $d = $decisions->{$bn} // $decisions->{$r};
+                next unless $d && $d->{state} eq 'progress';
+                my $reason = $d->{reason} // 'partial work done';
+                $reason =~ s/^\s+|\s+$//g;
+                next if $reason eq '';
+                open my $pf, '>>', $r or next;
+                print $pf "\n## PROGRESS: $reason\n";
+                close $pf;
+                print "  [core-request $bn] progress handoff note appended (next round continues from it)\n";
             }
             sleep 3;
             next;
