@@ -230,8 +230,19 @@ backend_out() {  # backend run-field rendered-file -> executed output
     timeout 30 "$cmd" "$rendered" 2>/dev/null || true
   else
     local tmp; tmp=$(mktemp -d "$TRIAGE/.be.XXXXXX")
-    ( cd "$tmp" && cp "$rendered" "main.${ext:-b}" && timeout 30 "$cmd" "main.${ext:-b}" -o main 2>/dev/null \
-      && timeout 30 ./main ) < /dev/null 2>/dev/null || true
+    # go's toolchain is subcommand-driven: `go main.go -o main` is an
+    # "unknown command" error, so every executed go cell came back EMPTY
+    # and triage mis-filed FAIL-BACKEND go requests for every pair
+    # (2026-08-15, alongside the t70/t71 FAIL-FRONTEND sweep — the core
+    # rounds rejected the resulting triage-go requests as out-of-scope).
+    # Build then run (mirrors frontend-stdout's `go run` path).
+    if [ "$cmd" = go ]; then
+      ( cd "$tmp" && cp "$rendered" "main.${ext:-go}" && timeout 30 "$cmd" build -o main "main.${ext:-go}" 2>/dev/null \
+        && timeout 30 ./main ) < /dev/null 2>/dev/null || true
+    else
+      ( cd "$tmp" && cp "$rendered" "main.${ext:-b}" && timeout 30 "$cmd" "main.${ext:-b}" -o main 2>/dev/null \
+        && timeout 30 ./main ) < /dev/null 2>/dev/null || true
+    fi
     rm -rf "$tmp"
   fi
 }
