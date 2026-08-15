@@ -361,7 +361,15 @@ print "\nESTree failure reasons:\n";
 for my $r (sort { $reason_count{$b} <=> $reason_count{$a} } keys %reason_count) {
     printf "  %6d  %s\n", $reason_count{$r}, $r;
 }
-open my $ofh, '>', "$root/.estree_failures.tsv" or warn "write failures tsv: $!";
-print $ofh join("\n", @estree_failures), "\n";
-close $ofh;
-print "\n(full per-test list in .estree_failures.tsv)\n";
+# Full runs only: prefix/solo runs are partial views and must not clobber
+# .estree_failures.tsv (the same rule as the metric tsv below — the loop
+# and humans diff against the full-run state; a solo run used to wipe the
+# full-run failure list mid-investigation).
+if (!@prefix_args) {
+    open my $ofh, '>', "$root/.estree_failures.tsv" or warn "write failures tsv: $!";
+    print $ofh join("\n", @estree_failures), "\n";
+    close $ofh;
+    print "\n(full per-test list in .estree_failures.tsv)\n";
+} else {
+    print "\n(per-test list not written for prefix runs — full runs only)\n";
+}
