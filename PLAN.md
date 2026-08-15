@@ -1397,6 +1397,25 @@ fragment and skips debashc entirely for backticks containing Perl vars
   emulation gaps that reproduce via standalone `file --perl` (printf `\n`
   escapes, `mkdir -m`, env-assign echo) — not embed-profile bugs. Purified
   output byte-deterministic 3/3.
+- **Corpus 33/33 (this revision).** The inherited gaps were fixed in the
+  shared renderer, all verified against real GNU/coreutils behavior:
+  capture fallback fed the emulated `sub { }` body to bash -c → rebuild the
+  SHELL TEXT (`stmts_to_shell_cmd`) and refuse non-expressible closures;
+  printf CYCLES the format (chunked by placeholder count, dynamic `%*d`
+  width for wc); tail clamps to available lines and refuses `-c`;
+  mkdir skips `-m MODE`; basename refuses extra suffixes; wc matches GNU
+  width digits(max)+1 and multi-file → real bash; `2>&1` dup fixed in the
+  bash-text rebuild AND the Perl select-fallback (no more `2>>&1` /
+  file-named-`&1`); `>>` append no longer rebuilds as `>` (overwrite);
+  subshell pipeline stages rebuild as `( … )` groups and join with `;`;
+  env-prefix Object emits `$ENV{K}=V` only for the bash-child path (bash
+  expands args BEFORE the assignment) and env-style names allow digits
+  (`VAR1` → `$ENV{VAR1}`, not a local); `$ls_success`/`$main_exit_code`
+  status writes dropped in fragments; purify's `__bt` wrapper reaps via
+  `close` (not waitpid) so `$?` matches bash backtick semantics;
+  otranspilerl gained `--literal` so single-word snippets aren't mistaken
+  for filenames. All: `cargo test --lib` 303/301 (glsl pre-existing WIP),
+  embed_* 8/8, otranspilerl 5/5, purify output byte-deterministic 3/3.
 
 ### Remaining (ordered)
 
