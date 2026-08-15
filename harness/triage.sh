@@ -172,8 +172,9 @@ native_out() {  # frontend example-file -> native stdout ("" = none: bat)
     rm -rf "$tmp"
   fi
 }
-estree_ref_out() {  # a1-file -> the estree-proxy executed output
+estree_ref_out() {  # a1-file [source-file] -> the estree-proxy executed output
   local a1="$1"
+  local src="${2:-}"
   # the ref scratch is PID-unique: .ref.estree.json is shared by every
   # pair, so a manual triage run WHILE the worker sweeps corrupts the
   # other's reference (both write the same file — the worker's sweep was
@@ -187,7 +188,18 @@ estree_ref_out() {  # a1-file -> the estree-proxy executed output
   fi
   local err; err=$(mktemp "$TRIAGE/.referr.XXXXXX")
   local out rc
-  out=$(timeout 30 node "$RUNNER" "$refout" 2>"$err"); rc=$?
+  # Pass the SOURCE through --source so the runner's security allowlist
+  # (every word token in the source) admits the corpus's own external
+  # commands — without it the frontend corpora's estree reference can
+  # never run a single external binary (empty allowlist → the first
+  # rsync/grep/find spawn crashes the reference and every such pair
+  # records SKIP-ESTREE-REF, e.g. bat-sh-go t49_robocopy2 which lowered
+  # robocopy to rsync). Same trust model as the fail-estree gate.
+  if [ -n "$src" ]; then
+    out=$(timeout 30 node "$RUNNER" "$refout" --source "$src" 2>"$err"); rc=$?
+  else
+    out=$(timeout 30 node "$RUNNER" "$refout" 2>"$err"); rc=$?
+  fi
   rm -f "$refout"
   if [ $rc -eq 124 ]; then
     rm -f "$err"; echo "__ESTREE_REF_FAIL__ reference timed out"; return 0
@@ -409,7 +421,7 @@ sweep() {
           > "$VTSV.purge" 2>/dev/null && mv -f "$VTSV.purge" "$VTSV" \
           || rm -f "$VTSV.purge"
         nout=$(native_out "$fe" "$example")
-        pout=$(estree_ref_out "$a1f/a1.json" || true)
+        pout=$(estree_ref_out "$a1f/a1.json" "$example" || true)
       else
         nout=""; pout=""
       fi
@@ -500,7 +512,7 @@ case "${1:-}" in
     a1f=$(mktemp -d "$TRIAGE/.row.XXXXXX")
     if emit_a1 "$1" "$example" > "$a1f/a1.json" 2>/dev/null; then
       nout=$(native_out "$1" "$example")
-      pout=$(estree_ref_out "$a1f/a1.json" || true)
+      pout=$(estree_ref_out "$a1f/a1.json" "$example" || true)
       classify_pair "$1" "$2" "$3" "$a1f/a1.json" "$nout" "$pout"
     else
       record "$1" "$3" "$2" "FAIL-FRONTEND-EMIT" "frontend refused the example"
