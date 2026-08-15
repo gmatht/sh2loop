@@ -35,6 +35,10 @@ estree worker can reproduce it.
   iteration (it is the single owner of the shared core).
 - It passes ALL pending requests to ONE `pi` invocation (opencode-go +
   deepseek-v4-flash, automatic key rotation), instructing it to:
+  - **revisit STALLED requests first** — requests in
+    `core-requests/stalled/` (they waited ≥3 cycles) are folded in
+    before pending ones and before any general estree/benchmark
+    improvement, up to `SH2_STALLED_MAX` (default 15) per iteration;
   - **mediate between conflicting requests** (oldest first; if two are
     truly incompatible, implement the one that maximizes corpus
     coverage and note the rejection);
@@ -47,6 +51,20 @@ estree worker can reproduce it.
     every request to `core-requests/done/`.
   - regressed: `scoped_stash` (reverts pi's changes), leaves the
     requests in place, and logs the regression — the corpus gate wins.
+
+## Stalled (≠ done)
+
+A request that survives **3 consecutive cycles** without implementation
+(or explicit rejection) is moved to `core-requests/stalled/` — NOT `done/`.
+Stalled is a status, not a verdict:
+
+- the estree worker **revisits** stalled requests every iteration,
+  stalled-first (see above), until pi implements or rejects them;
+- an implemented or rejected stalled request moves to `done/` like any
+  other;
+- `core-requests/stalled-needs.tsv` is regenerated each iteration — one
+  row per stalled request (lang, filename, title) — so the backlog stays
+  visible to humans/agents.
 
 ## Trapped workers (sleep until estree wakes them)
 
@@ -68,3 +86,5 @@ The estree worker **wakes it**: after processing a request batch GREEN
 
 `core-requests/done/<lang>-<ts>.md` = implemented (or rejected, with the
 mediation note in the file).
+`core-requests/stalled/<lang>-<ts>.md` = still open; waiting to be
+implemented (revisited stalled-first each iteration).
