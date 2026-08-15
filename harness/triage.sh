@@ -61,6 +61,11 @@ go-sh|testdata|sh,go|./go-sh|go-wrap
 powershell-sh-go|testdata|ps1|./powershell-sh-go|run:pwsh
 rust-frontend|testdata|rs|./rust-frontend|compile:rustc
 zig-sh-go|testdata|zig|./zig-sh-go|run:zig
+# sh2perl — the SHARED sh corpus (bash → A1 via the core debashc),
+# swept through every backend so the GUI's sh→X buttons get a verdict
+# for targets with no backend pass set. The corpus + emit bin are
+# ABSOLUTE paths (fe_abs/fe_cd_dir below handle them).
+sh2perl|$ROOT/sh2perl/examples|sh|$ROOT/sh2perl/target/debug/debashc|run:bash
 "
 # backend: debashc-bin|flag|run("" = render-only)|label
 BACKENDS="
@@ -76,6 +81,21 @@ zig|$ROOT/sh2perl/backends/zig/target/debug/debashc|--shir-in-zig||scaffold
 "
 
 frontend_info() { echo "$FRONTENDS" | awk -F'|' -v n="$1" '$1==n {print $2"|"$3"|"$4"|"$5}'; }
+
+# Absolute-path helpers for the shared-sh-corpus frontend (sh2perl): its
+# corpus dir and emit binary live OUTSIDE frontends/<fe>, so the corpus/
+# bin fields are absolute for it. fe_abs resolves a field to a path;
+# fe_cd_dir is the dir native runs cd into (the frontend's own dir for
+# the others, the shared corpus dir for sh2perl).
+fe_abs() {  # fe field-value -> absolute
+  [ "${2:0:1}" = "/" ] && { printf '%s' "$2"; return; }
+  printf '%s/frontends/%s/%s' "$ROOT" "$1" "$2"
+}
+fe_cd_dir() {  # fe -> the working dir for native runs
+  local info; info=$(frontend_info "$1")
+  IFS='|' read -r corpus ext bin native <<<"$info"
+  if [ "${corpus:0:1}" = "/" ]; then printf '%s' "$corpus"; else printf '%s/frontends/%s' "$ROOT" "$1"; fi
+}
 backend_info() { echo "$BACKENDS" | awk -F'|' -v n="$1" '$1==n {print $2"|"$3"|"$4"|"$5}'; }
 
 # ── the row primitives (computed ONCE per example, passed to each cell) ──
@@ -84,6 +104,7 @@ emit_a1() {  # frontend example-file -> A1 JSON on stdout (transformed)
   local info; info=$(frontend_info "$fe")
   IFS='|' read -r corpus ext bin native <<<"$info"
   local tmp; tmp=$(mktemp -d "$TRIAGE/.em.XXXXXX")
+  local absbin; absbin=$(fe_abs "$fe" "$bin")
   # A missing/stale frontend binary must never be mis-recorded as
   # FAIL-FRONTEND-EMIT: the 2026-08-14 01:45:44 sweep raced the zsh-sh-go
   # worker's mid-rebuild (pre-atomic `rm -f; go build`) and poisoned 45
@@ -92,13 +113,16 @@ emit_a1() {  # frontend example-file -> A1 JSON on stdout (transformed)
   # `build` target; the zsh-sh-go/cpp-sh-go ones publish atomically via
   # PID-unique temp + mv, so this is safe against concurrent worker
   # builds). A genuine build failure still surfaces as FAIL-FRONTEND-EMIT.
-  if [ ! -x "$ROOT/frontends/$fe/$bin" ] || \
-     [ -n "$(find "$ROOT/frontends/$fe" -maxdepth 1 -type f \
-              -newer "$ROOT/frontends/$fe/$bin" ! -name "$bin" ! -name '.*' \
-              -print -quit 2>/dev/null)" ]; then
+  # The sh2perl "frontend" is the core debashc itself (absolute bin) —
+  # no per-frontend build/cd.
+  if [ "${bin:0:1}" != "/" ] && \
+     { [ ! -x "$absbin" ] || \
+       [ -n "$(find "$ROOT/frontends/$fe" -maxdepth 1 -type f \
+                -newer "$absbin" ! -name "$bin" ! -name '.*' \
+                -print -quit 2>/dev/null)" ]; }; then
     ( cd "$ROOT/frontends/$fe" && make build >/dev/null 2>&1 ) || true
   fi
-  ( cd "$ROOT/frontends/$fe" && "$bin" --shir "$f" --raw 2>/dev/null ) > "$tmp/a1.json" || { rm -rf "$tmp"; return 1; }
+  ( "$absbin" --shir "$f" --raw 2>/dev/null ) > "$tmp/a1.json" || { rm -rf "$tmp"; return 1; }
   # c/cpp: the out-param transform (the frontend gates apply it before ingress)
   if [ "$ext" = c ] || [ "$ext" = cc ]; then
     python3 "$ROOT/harness/outparam_to_returns.py" < "$tmp/a1.json" > "$tmp/a1b.json" 2>/dev/null \
@@ -127,7 +151,7 @@ native_out() {  # frontend example-file -> native stdout ("" = none: bat)
       ( cd "$tmp" && timeout 20 "$cmd" "$fabs" ) < /dev/null 2>/dev/null || true
       rm -rf "$tmp"
     else
-      ( cd "$ROOT/frontends/$fe" && timeout 20 "$cmd" "$f" ) < /dev/null 2>/dev/null || true
+      ( cd "$(fe_cd_dir "$fe")" && timeout 20 "$cmd" "$f" ) < /dev/null 2>/dev/null || true
     fi
   elif [ "$mode" = go-wrap ]; then
     # Go-flavored sh: wrap into a runnable program (frontend-stdout's go mode)
@@ -276,7 +300,7 @@ list_examples() {
   local info; info=$(frontend_info "$1")
   IFS='|' read -r corpus ext bin native <<<"$info"
   local e; for e in ${ext//,/ }; do
-    ls "$ROOT/frontends/$1/$corpus"/*."$e" 2>/dev/null
+    ls "$(fe_abs "$1" "$corpus")"/*."$e" 2>/dev/null
   done | xargs -n1 basename | grep -vE '_refuse|_gap'
   # *_refuse* / *_gap* files are REFUSAL PINS: the frontend must FAIL to
   # emit them (each frontend gate asserts exactly that — the cpp gate's
