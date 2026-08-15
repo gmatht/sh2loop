@@ -101,6 +101,17 @@ summary=$(cat /tmp/chimera_summary.$$ 2>/dev/null)
 grep '^FAIL' /tmp/chimera_fails.$$ > "$GATE/chimera_fails.txt" 2>/dev/null || true
 rm -f /tmp/chimera_summary.$$ /tmp/chimera_fails.$$
 
+# 3b. sandbox-deployment check: a runnable sh-gate ALWAYS prints
+#     "sh-gate: N pass, N fail" on stdout. No summary = the sandbox
+#     itself failed to start (broken WSL distro attach — e.g. the
+#     missing-disk ERROR_FILE_NOT_FOUND, or sudo down), NOT a renderer
+#     verdict. Report deployment-missing (exit 2, the same contract as a
+#     missing sh-gate binary) so the caller can skip instead of RED.
+if ! printf '%s' "$summary" | grep -qE 'sh-gate: [0-9]+ pass, [0-9]+ fail'; then
+  echo "  [sh] chimera gate: no sh-gate summary (sandbox failed to start — WSL deployment broken?) — skipped" >&2
+  exit 2
+fi
+
 # 4. classify the failures: no-pcre (the sandbox lacks the runtime/tool —
 #    fixed by adding perl + PCRE tooling to the chimera distro, e.g. pcregrep
 #    as the grep -P fallback; NOT the worker's renderer) vs bad-translation
