@@ -1,9 +1,12 @@
 # go-sh dog-food: contract boundaries (TRANSLATE_ONE_APPLICATION classification)
 
 Mined from our own Go frontend (`frontends/go-sh/go-sh.go`) while growing
-the Go idiom ladder. Four constructs the shell-flavored A1 cannot express;
+the Go idiom ladder. Nine constructs the shell-flavored A1 cannot express;
 each is a shared-core/contract change, NOT a frontend fix (Refuse > guess
 in the playbook). Classified (a)/(d) — the frontend must not fork the core.
+§7–§9 added by the idiom-triage pass that landed the join/sprintf/
+interface_type frontend gaps (templates/go: join, sort_pkg, sprintf,
+interface_type, str_upper, filepath).
 
 ## 1. NEED — index+value range `for i, s := range arr`
 
@@ -84,7 +87,10 @@ contract is command-oriented).
 ## MINIMAL-CORE-CHANGE
 
 None — declared boundary. The frontend refuses loudly (today:
-`expected assignment operator, got "pair"`).
+`type decls are outside the subset (v2) — struct/interface types have
+no A1 shape` — the parseTopLevel `type` case added for the interface_type
+frontend gap only erases EMPTY `interface{}` decls; every other type
+decl falls to this refusal).
 
 ## FAILING-CASE
 
@@ -174,3 +180,128 @@ Either (i) a `stringSplit(s, delim)` PureCpu primitive (the runtime renders `Str
 fmt.Println(strings.Split("a,b,c", ","))
 ```
 go-sh: `unsupported call "strings.Split" in word position (v2)`.
+
+---
+
+## 7. NEED — in-place slice sort (`sort.Strings` / `sort.Slice`, 24 uses)
+
+`sort.Strings(names)` (c-sh-go main.go:657, posix-sh-go analysis.go ×6)
+sorts a `[]string` IN PLACE; `sort.Slice(userDefs, func(i, j int) bool {…})`
+(c-sh-go main.go:5044) sorts with a comparator CLOSURE.
+
+## WHY
+
+The A1 has no in-place array-mutation primitive for reordering a stored
+array. The shell's `sort` command is a line-oriented text filter
+(`printf '%s\n' "${a[@]}" | sort` would need a capture+split round-trip,
+mangles elements containing spaces, and inherits locale-dependent
+ordering — a guessed composite, not a shape); `sort.Slice` needs a
+first-class func VALUE (boundary §2). Both app forms are therefore
+unreachable without a contract change.
+
+## MINIMAL-CORE-CHANGE
+
+None proposed — declared boundary (same class as §2/§3; DOGFOOD.md lists
+`sort` with structs/methods/interfaces as no-A1-shape). A sort-array
+primitive (`sh2.sortArray(name)` or a `sortArray` A1 Call) would be a
+separate design.
+
+## FAILING-CASE
+
+```go
+a := []string{"b", "a", "c"}
+sort.Strings(a)
+fmt.Println(a)
+```
+go-sh: `unsupported call sort.Strings (v2)` — the probe
+(templates/go/sort_pkg.go) stays red, documented.
+
+---
+
+## 8. NEED — custom-separator array join (`strings.Join(arr, sep)` with
+sep ≠ " ", 26 uses)
+
+The app's dominant join form is `strings.Join(bodyLines, "\n")`
+(bat-sh-go bat.go:172, fish-sh-go fish-sh-go.go:276) — a NEWLINE
+separator. The A1 `join` func joins arrays with a SPACE only
+(`join(param("slice", name, "@", ""))` — the runtime's `.join(" ")`).
+
+## WHY
+
+The `join` Call takes no separator argument — the space join IS the
+contract's shape (`"${arr[@]}"` in the shell lowers to the same
+space-joined value). A `\n` join would need a separator-carrying join
+form (or an IFS-style parameter), which the runtime/core do not have.
+
+## MINIMAL-CORE-CHANGE
+
+Either (i) a separator arg on the `join` call (or a `joinSep(s, sep)`
+PureCpu primitive — the runtime renders `arr.join(sep)`, exactly Go's
+strings.Join), or (ii) declare the boundary and keep the refusal. (i) is
+cheap and matches the app's actual usage.
+
+## FAILING-CASE
+
+```go
+a := []string{"x", "y"}
+fmt.Println(strings.Join(a, "\n"))
+```
+go-sh: `strings.Join needs (arr[lo:hi]|arr, " ") (v2)`.
+
+NOTE (landed): the SPACE-separator forms are NOT a boundary — the
+triage pass extended the frontend to lower `strings.Join(arr, " ")` on a
+FULL array to `join(param("slice", arr, "@", ""))` (the `${arr[@]}`
+shape; probe templates/go/join.go green). Only non-space separators
+remain here.
+
+---
+
+## 9. NEED — path ops on VARIABLES (`filepath.Dir/Ext(path)`, 6 uses)
+
+`switch filepath.Ext(path)` (busybox main.go:63) — the path is a RUNTIME
+VALUE, not a literal. The frontend folds `filepath.Dir("lit")` /
+`filepath.Ext("lit")` at emit time with exact Go stdlib semantics (t55)
+and refuses var args.
+
+## WHY
+
+No A1 param op matches Go's filepath semantics on a store value:
+`${path##*.}` (the natural Ext lowering) strips the longest prefix
+ending in a dot ANYWHERE in the path — `/a/b.c/d` → `c/d`, where Go's
+filepath.Ext gives `""` (verified against bash) — and `dirname`/`basename`
+diverge on trailing slashes (`filepath.Dir("a/b/")` = `a/b` vs `dirname`
+= `a`). The runtime's zsh-gated `:e`/`:h`/`:t` param modifiers exist but
+are zsh-mode-only, and are the same semantics family, not Go's.
+
+## MINIMAL-CORE-CHANGE
+
+None proposed — declared boundary. A `pathExt`/`pathDir` PureCpu
+primitive (runtime `String(p).slice(...)`, Go-exact) would be a separate
+design; the app's switch-on-Ext would then need the switch-expression
+path too.
+
+## FAILING-CASE
+
+```go
+path := "main.go"
+fmt.Println(filepath.Ext(path))
+```
+go-sh: `filepath.Ext needs a string literal (v2)` — the probe
+(templates/go/filepath.go) stays red, documented.
+
+---
+
+## 10. Variant notes (probes green; variants refused)
+
+- `strings.ToUpper(sliceExpr)` — the c-sh-go form `strings.ToUpper(kw[:1])`
+  (main.go:3738): the frontend's `strings.ToUpper` var case lowers to the
+  `param("^^", name)` op, whose args are NAMES — a slice EXPRESSION has no
+  param-op shape (same position-value class as §4). Plain-var ToUpper is
+  green (templates/go/str_upper.go — the `${s^^}` UppercaseAll op).
+- `fmt.Sprintf` verb set — the frontend's var-arg Sprintf lowering
+  (templates/go/sprintf.go, green) delegates the format to the runtime
+  `printf` builtin exactly like the fmt.Printf statement path (t46): the
+  bash-printf verb set. Go-only verbs (`%v`, `%t`, `%q`) print literally
+  on that path — the app's `%t`/`%v` uses also hit the §2/§3 boundaries
+  (struct fields, variadics) first and stay refused via the literal-format
+  gate.
