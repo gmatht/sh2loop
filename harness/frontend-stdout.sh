@@ -338,7 +338,7 @@ run_estree() {  # <estree-json> <source-file> -> transpiled stdout
 
 total=0; fails=0; skips=0
 compare_phase() {  # one pass over all tests; returns 0 iff every test passed
-  total=0; fails=0; skips=0
+  total=0; fails=0; skips=0; empty_fails=0
 # Cache this verdict to .frontend_gate.tsv (lang<TAB>file<TAB>PASS|FAIL|SKIP)
 # — the otranspiler GUI's sync-backend-gates.sh consumes it to colour the
 # per-frontend example buttons + source pills. Appends only; the GUI keeps
@@ -470,8 +470,14 @@ EOF
     # indistinguishable from a real regression (c-sh-go 2026-08-15
     # 17:23 gate: every test DIFFed empty while the estree worker's
     # concurrent cargo rebuild of debashc starved/OOM-killed node).
-    if [ -z "$(normalize "$trans_out")" ] && [ -s "$tmp/estree.err" ]; then
-      sed 's/^/     [estree stderr] /' "$tmp/estree.err" | head -5
+    # empty_fails feeds the system-wide transient guard below: a broken
+    # or starved shared oracle makes the transpiled side produce NOTHING
+    # for (nearly) every test — the "no output at all" signature.
+    if [ -z "$(normalize "$trans_out")" ]; then
+      empty_fails=$((empty_fails+1))
+      if [ -s "$tmp/estree.err" ]; then
+        sed 's/^/     [estree stderr] /' "$tmp/estree.err" | head -5
+      fi
     fi
     fails=$((fails+1))
   fi
@@ -492,8 +498,20 @@ echo "--- frontend-stdout [$lang]: $((total-fails-skips))/$total match, $fails F
 # (native + transpiled) after a 45s backoff that lets a concurrent relink
 # finish.
 if ! compare_phase; then
-  if [ "$total" -gt 0 ] && [ "$fails" -eq "$total" ]; then
-    echo "frontend-stdout.sh: ALL $total tests failed — likely a system-wide transient (concurrent core rebuild starving node?); retrying the whole phase once after 45s" >&2
+  # Fire on the full class of broken-oracle signatures, not just 100%
+  # failure: (a) every test failed, or (b) >=90% failed AND every one of
+  # those failures had EMPTY transpiled stdout — a lone lucky early pass
+  # must not dodge the guard (go-sh 2026-08-15 17:28:43: 86/87 DIFFed
+  # empty while the estree worker held src/estree.rs mid-edit; the one
+  # early pass kept the strict ALL-failed guard from firing, so the gate
+  # FAILed and the worker spuriously invoked pi; fish-sh-go 17:27:56 was
+  # the same incident window at 0/80). Empty transpiled output is what
+  # distinguishes a starved/broken shared oracle from a frontend
+  # regression; a real deterministic regression fails the retry too and
+  # is still reported as FAIL (identical policy to the ALL-failed case).
+  if [ "$total" -gt 0 ] && { [ "$fails" -eq "$total" ] || \
+       { [ "$empty_fails" -ge $((total * 9 / 10)) ] && [ "$empty_fails" -eq "$fails" ]; }; }; then
+    echo "frontend-stdout.sh: $fails/$total tests failed ($empty_fails with empty transpiled stdout) — likely a system-wide transient (concurrent core rebuild starving node?); retrying the whole phase once after 45s" >&2
     sleep 45
     compare_phase
   else
