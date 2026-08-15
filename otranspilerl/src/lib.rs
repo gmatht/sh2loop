@@ -161,6 +161,60 @@ pub fn shell_to_shir(content: &str) -> String {
 /// `shir`, or the backend kind `estree`/`perl`/`python`/`rust`); a leading
 /// dot is tolerated. `shir` returns the A1 unchanged. Dispatches through
 /// the `TARGETS` table (ext → backend kind) exactly like the Go wrapper.
+/// Embed-profile options (the purify design, PLAN §10): render a shell
+/// snippet as an embeddable Perl FRAGMENT — statements only, no preamble,
+/// host-scope reuse, analysis-driven refusals. The host text outside the
+/// construct's span is never touched by this API (the harvester/splice
+/// engine owns it); the fragment + `required_host_bindings` + `refusals`
+/// are the entire contract (docs/embed-contract.md).
+#[derive(Default, Clone, Debug)]
+pub struct EmbedOpts {
+    /// Names the host program declares in the enclosing scope (the
+    /// harvester's membership list).
+    pub host_scope: Vec<String>,
+    /// Backtick semantics: preserve trailing newlines (Perl `qx` doesn't
+    /// strip; bash `$()` does).
+    pub backtick: bool,
+    /// Emit English.pm names instead of normalizing to `$/`/`$!`/`$@`.
+    pub english: bool,
+}
+
+/// A1 → embeddable Perl fragment (same ingress as `render`: A1 in, the
+/// shared restructure/strip passes, then the embed renderer). Returns the
+/// full `EmbedResult` — the CLI prints the fragment on stdout and the
+/// bindings/refusals on stderr, so stdout stays splice-clean.
+pub fn render_embed(a1: &str, opts: &EmbedOpts) -> Result<debashl::ir::EmbedResult, String> {
+    let mut prog = debashl::shir_json_in::shir_json_to_ir(a1)?;
+    debashl::shir_passes::restructure_goto_only(&mut prog);
+    debashl::shir_passes::strip_cfor(&mut prog);
+    Ok(debashl::ir::shir_to_perl_embed(
+        &prog,
+        &debashl::ir::EmbedCtx {
+            host_scope: opts.host_scope.clone(),
+            backtick_newlines: opts.backtick,
+            english_names: opts.english,
+        },
+    ))
+}
+
+/// Render a shell snippet to an embeddable Perl fragment, given a snippet
+/// A1 JSON string (`render_embed` does the full pipeline from A1).
+/// The sh→js compile pipeline: shell source → the estree AFTER the
+/// moved estreeToJs head passes (the wasm's prefix — the JS side
+/// continues at pass #5). Returns `{"estree": <estree JSON>}` — the
+/// same shape the current `transpile` returns, but with the head passes
+/// already applied in-process (no JS-side re-run).
+pub fn compile(src: &str, _opts: &str) -> Result<String, String> {
+    let (commands, lines) = debashl::Parser::new(src)
+        .parse_with_lines()
+        .map_err(|e| format!("parse: {e}"))?;
+    let prog = debashl::shir::ast_to_ir_with_lines(&commands, &lines);
+    let estree = debashl::shir::shir_to_estree_compiled(&prog);
+    // the estree JSON embeds directly into the envelope (estree_to_json
+    // is a complete JSON object)
+    Ok(format!("{{\"estree\":{}}}", debashl::estree::estree_to_json(&estree)))
+}
+
 pub fn render(a1: &str, lang: &str) -> Result<String, String> {
     let lang = lang.strip_prefix('.').unwrap_or(lang);
     let kind = TARGETS
@@ -287,7 +341,14 @@ const USAGE: &str = "otranspiler <input> [<output>] [flags]
   --source-lang L   force the source language
   --target L        force the target language
   --run             JS target: execute via the estree runner
-  --shir            output the raw A1 contract (same as output ext .shir)";
+  --shir            output the raw A1 contract (same as output ext .shir)
+  --embed-perl      Perl target: render an EMBEDDABLE fragment (purify design,
+                    PLAN §10) — no preamble/exit; fragment on stdout,
+                    REQUIRED/REFUSE diagnostics on stderr
+  --scope-vars a,b,c  embed: names the host program declares in the
+                    enclosing scope (reused as bare `$x`)
+  --backtick        embed: Perl-qx semantics (preserve trailing newlines)
+  --english         embed: emit English.pm names instead of $/ $! $@";
 
 /// Run the full CLI for an explicitly-located workspace root, writing to
 /// the provided stdout/stderr sinks. Returns the process exit code.
@@ -300,6 +361,8 @@ pub fn cli_at(
     let mut force_src = String::new();
     let mut force_tgt = String::new();
     let mut do_run = false;
+    let mut embed = false;
+    let mut embed_opts = EmbedOpts::default();
     let mut positional: Vec<String> = Vec::new();
 
     let mut i = 0;
@@ -312,6 +375,29 @@ pub fn cli_at(
             }
             "--run" => do_run = true,
             "--shir" => force_tgt = "shir".into(),
+            "--embed-perl" => {
+                embed = true;
+                force_tgt = "perl".into();
+            }
+            "--scope-vars" => {
+                if i + 1 < args.len() {
+                    embed_opts.host_scope = args[i + 1]
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    i += 1;
+                }
+            }
+            s if s.starts_with("--scope-vars=") => {
+                embed_opts.host_scope = s["--scope-vars=".len()..]
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+            }
+            "--backtick" => embed_opts.backtick = true,
+            "--english" => embed_opts.english = true,
             "--source-lang" => {
                 if i + 1 < args.len() {
                     force_src = args[i + 1].clone();
@@ -356,6 +442,37 @@ pub fn cli_at(
     } else {
         force_tgt.clone()
     };
+
+    if embed {
+        // embed profile: snippet A1 → embeddable Perl fragment. Fragment on
+        // stdout (splice-clean); REQUIRED/REFUSE diagnostics on stderr so
+        // the caller (harvester/splice engine) can gate and fall back.
+        let a1 = match shir_from(root, &input, &src_lang) {
+            Ok(a1) => a1,
+            Err(e) => {
+                let _ = writeln!(stderr, "otranspiler: {e}");
+                return 1;
+            }
+        };
+        let res = match render_embed(&a1, &embed_opts) {
+            Ok(res) => res,
+            Err(e) => {
+                let _ = writeln!(stderr, "otranspiler: {e}");
+                return 1;
+            }
+        };
+        for r in &res.refusals {
+            let _ = writeln!(stderr, "REFUSE: {r}");
+        }
+        if !res.required_host_bindings.is_empty() {
+            let _ = writeln!(
+                stderr,
+                "REQUIRED: {}",
+                res.required_host_bindings.join(",")
+            );
+        }
+        return write_out(stdout, stderr, &output, res.fragment.as_bytes());
+    }
 
     if tgt_lang == "shir" {
         // emit the neutral A1: run the frontend (or pass .shir input through)
@@ -480,4 +597,91 @@ pub fn cli_captured(root: &Path, args: &[String]) -> (i32, String, String) {
         String::from_utf8_lossy(&out).into_owned(),
         String::from_utf8_lossy(&err).into_owned(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn root() -> PathBuf {
+        workspace_root().expect("workspace root (sh2perl + frontends present)")
+    }
+
+    fn embed(args: &[&str]) -> (i32, String, String) {
+        cli_captured(&root(), &args.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn embed_fragment_has_no_preamble() {
+        let (code, out, err) = embed(&["--embed-perl", "echo hi; x=5; echo $x"]);
+        assert_eq!(code, 0, "stderr: {err}");
+        for banned in [
+            "#!/usr/bin/env perl",
+            "use strict",
+            "use warnings",
+            "use Carp",
+            "use English",
+            "exit $main_exit_code",
+            "my $main_exit_code",
+        ] {
+            assert!(!out.contains(banned), "fragment must not contain {banned:?}: {out}");
+        }
+        assert!(out.contains("do {"), "fragment wrapped in a do-block: {out}");
+    }
+
+    #[test]
+    fn embed_bindings_gate_on_stderr() {
+        // host-scope read: bare `$x` reuse, required binding reported
+        let (code, out, err) = embed(&["--embed-perl", "--scope-vars", "x", "echo $x"]);
+        assert_eq!(code, 0, "stderr: {err}");
+        assert!(err.contains("REQUIRED: x"), "stderr: {err}");
+        assert!(!out.contains("my $x"), "host-scope read must not be declared: {out}");
+        // without scope: local `my $x = '';`, nothing required
+        let (_, out2, err2) = embed(&["--embed-perl", "echo $x"]);
+        assert!(out2.contains("my $x = '';"), "local decl: {out2}");
+        assert!(!err2.contains("REQUIRED"), "stderr: {err2}");
+    }
+
+    #[test]
+    fn embed_refusal_on_stderr() {
+        // `exit 3` would terminate the host — refused, fallback eligible
+        let (code, out, err) = embed(&["--embed-perl", "exit 3"]);
+        assert_eq!(code, 0, "refusal is a verdict, not an error; stderr: {err}");
+        assert!(err.contains("REFUSE"), "stderr: {err}");
+        assert!(out.contains("exit"), "fragment still emitted for inspection: {out}");
+    }
+
+    #[test]
+    fn embed_deterministic_across_runs() {
+        let args = &["--embed-perl", "--scope-vars", "x", "x=$((x+1)); echo $x"];
+        let (_, a, _) = embed(args);
+        let (_, b, _) = embed(args);
+        assert_eq!(a, b, "embed output must be byte-stable");
+    }
+
+    #[test]
+    fn embed_english_and_backtick_flags() {
+        // --english keeps English.pm names ($INPUT_RECORD_SEPARATOR/$OS_ERROR
+        // in the cat emulation); the default normalizes to $/ / $!
+        let snip = "y=$(cat /etc/hostname); echo $y";
+        let (_, out_en, _) = embed(&["--embed-perl", "--english", snip]);
+        let (_, out_def, _) = embed(&["--embed-perl", snip]);
+        assert!(
+            out_en.contains("$INPUT_RECORD_SEPARATOR") && out_en.contains("$OS_ERROR"),
+            "--english keeps English.pm names: {out_en}"
+        );
+        assert!(
+            out_def.contains("local $/") && out_def.contains("$!"),
+            "default normalizes: {out_def}"
+        );
+        // --backtick preserves trailing newlines (drops the chomp the
+        // standalone $() semantics apply); default strips them
+        let snip2 = "x=$(echo hi); echo $x";
+        let (_, out_bt, _) = embed(&["--embed-perl", "--backtick", snip2]);
+        let (_, out_nb, _) = embed(&["--embed-perl", snip2]);
+        assert!(
+            !out_bt.contains("chomp $_r;") && out_nb.contains("chomp $_r;"),
+            "--backtick must drop the command-substitution chomp: {out_bt} / {out_nb}"
+        );
+    }
 }
