@@ -1,0 +1,471 @@
+# stalled core-requests — revisited (stalled-first) before general estree work
+# lang	filename	title
+array-flatten-positional	array-flatten-positional-20260806-b.md	> RESEND (re-filing). The 21:07/23:06 finalize moved the original to
+assoc-arrays	assoc-arrays-20260806-b.md	> RESEND (this is a re-filing). The 23:06 finalize moved the original to
+c	c-20260807-153616.md	c: TRAPPED (build fails repeatedly)
+c-dynamic-subscripts	c-dynamic-subscripts-20260806-b.md	> RESEND (re-filing). The 21:07/23:06 finalize moved the original to
+c-sh-go-float-arith	c-sh-go-float-arith-20260807.md	c-sh-go: float arithmetic in the runtime (`sh2.floatArith`)
+cpp-sh-go	cpp-sh-go-20260813-005817.md	cpp-sh-go: TRAPPED (build fails repeatedly)
+estree	estree-20260813-182431-inline-pure-fns.md	estree: inline pure leaf functions — kill the per-call async fnCall dispatch
+estree	estree-20260813-182432-split-elide-typed-args.md	estree: extend the no-op field-split elision to fnCall/exec arguments
+estree	estree-20260813-182433-lastexit-test-liveness.md	estree: lastExit-write liveness for [ ]-test conditions (drop the _g/lastExit dance)
+estree	estree-20260813-182434-const-fold-arith.md	estree: constant folding over the A1 (arith + const pool) and native $(( )) elision
+estree	estree-20260813-182435-dce-dead-vars.md	estree: dead-store elimination for never-read variables (drop setVar/store syncs)
+estree	estree-20260813-182436-loop-index-srr.md	estree: loop-invariant hoisting + index strength reduction in For/While bodies
+estree	estree-20260813-182437-typed-lowering-var-types.md	estree: typed lowering — consume var_types (numeric lift + native int arrays) for the JS backend
+estree	estree-20260813-182438-a1-array-param-key-bug.md	estree: CORRECTNESS — A1-path array reads emit store-key "$gi" instead of the JS param value
+estree	estree-20260813-182439-a1-array-local-lift-key-bug.md	estree: CORRECTNESS — A1-path arrayIndex store-key also breaks FUNCTION-LOCAL lifted vars (extends …-a1-array-param-key-bug)
+estree	estree-20260813-182440-strip-dead-env-fallback.md	estree: strip the dead `?? (sh2.env.x ?? "")` fallback tail on store reads
+estree	estree-20260813-182441-loop-status-interproc.md	estree: interprocedural loop-status deadness — elide the __sh2_loop_ran/__sh2_loop_last tracking
+estree	estree-20260813-182442-case-lookup-table.md	estree: pure-int case → const lookup table (hardness/texture_of/block_color/mime_tex_of)
+estree	estree-20260813-182443-writefile-status-liveness.md	estree: fs.writeFile status-liveness — drop the .then((r) => lastExit=0, true) when $? is dead
+estree	estree-20260813-183713-a1-ssa-const-copy-prop.md	estree: shared A1-level optimizer — single-def (SSA-style) const/copy propagation + dead-store elimination
+estree	estree-20260813-184909-string-accumulator.md	estree: string-accumulator transform — `v="$v$seg"` in a loop → chunk array + join at reads
+estree	estree-20260813-201235-hoist-pure-loop-invariants.md	estree: hoist loop-invariant PURE function calls out of inner loops
+estree	estree-20260813-235901-a1-loop-scan-hang.md	estree: A1 path — the radar-base scan (hud_build_static) loops forever in the full game
+estree	estree-20260814-020001-lift-interpolate-arg-desync.md	estree: A1 lift analysis misses `$var` in Interpolate exec args — store writes desync (player teleports to (0,0))
+estree	estree-20260814-175715-a1-loop-var-int64-bigint-mix.md	estree: A1 int64 loop-var typing leaks BigInt into mixed arithmetic (browser TypeError)
+estree	estree-20260814-175716-a1-loop-var-array-ref-literal-key.md	estree: A1 array refs with loop-var indexes collapse to literal-string var names
+estree	estree-20260814-175717-a1-undeclared-array-vanish.md	estree: A1 undeclared arrays — writes vanish (lift needs the `arr=()` declaration)
+estree	estree-20260814-181510-a1-inline-small-readonly-fns.md	estree: A1 should inline the small read-only bash functions (render hot path)
+estree	estree-20260814-183415-a1-sync-direct-await-syntaxerror.md	estree: A1 types a direct-call function sync but still emits `await` — SyntaxError
+estree	estree-20260814-183507-a1-loop-var-int64-bigint-mix.md	estree: A1 int64 loop-var typing leaks BigInt into mixed arithmetic (browser TypeError)
+estree	estree-20260815-010438-dead-runtime-machinery.md	estree: dead runtime-machinery elimination for hot scripts (native-array `$var` indexes, arithEval wrapper, test-chain status deadness)
+estree	estree-20260815-022113-direct-shell-fn-calls.md	estree: rewrite normalized shell-function call sites to direct JS calls (texture-generator hot path)
+extglob-nocasematch	extglob-nocasematch-20260806-b.md	> RESEND (this is a re-filing). The 23:06 finalize moved the original to
+fish-sh-go	fish-sh-go-20260806-145000-b.md	> RESEND (re-filing). The 21:07/23:06 finalize moved the original to
+fish-sh-go	fish-sh-go-20260806-150200-b.md	> RESEND (re-filing). The 21:07/23:06 finalize moved the original to
+fish-sh-go	fish-sh-go-20260806-181309-b.md	> RESEND (re-filing). The 21:07/23:06 finalize moved the original to
+fish-sh-go	fish-sh-go-20260813-192709.md	fish-sh-go: the A1 `Regex` expr node is Perl-only in the ESTree renderer — fish `string match -r` (regex matching) is inexpressible end-to-end
+frontends-assoc-arrays	frontends-assoc-arrays-20260806-b.md	> RESEND (re-filing). The 21:07/23:06 finalize moved the original to
+frontends-ifs	frontends-ifs-20260806-b.md	> RESEND (re-filing). The 21:07/23:06 finalize moved the original to
+frontends-string-op-table	frontends-string-op-table-20260806-b.md	> RESEND (re-filing). The 21:07/23:06 finalize moved the original to
+frontends-test-grammar	frontends-test-grammar-20260806-b.md	> RESEND (re-filing). The 21:07/23:06 finalize moved the original to
+go-sh	go-sh-20260814-132037.md	go-sh: ESTree renderer cannot execute the A1 `Index` expr node (round-trip gap)
+go-sh-commclause	go-sh-commclause-20260813-204112.md	go-sh: A1 contract has no channel/select vocabulary — Go commClause is inexpressible
+go-sh-recvstmt	go-sh-recvstmt-20260813-222018.md	go-sh: A1 contract has no channel receive — Go recvStmt is inexpressible
+parse-gaps	parse-gaps-20260806-b.md	> RESEND (this is a re-filing). The 23:06 finalize moved the original to
+perl	perl-20260814-184931.md	perl: top-level `--shir`/`--shir-raw` arms still decode lossily — the gate's emit path
+perl-gen-hang-typeset-cmdsub	perl-gen-hang-typeset-cmdsub-20260807.md	core: ir_to_perl infinite-loops on typeset-cmdsub.sh (the perl-generator hang class)
+perl-shir-process-sub	perl-shir-process-sub-20260806-3.md	> RESEND (this is a re-filing). The 23:06 finalize moved the original to
+posix-sh-go	posix-sh-go-20260806-174619-b.md	> RESEND (re-filing). The 21:07/23:06 finalize moved the original to
+posix-sh-go	posix-sh-go-20260813-001245.md	posix-sh-go: shell declaration builtins never lower to the A1 `Declare` node — no frontend can cover it
+posix-sh-go	posix-sh-go-20260813-002308.md	posix-sh-go: shell `continue` never lowers to the A1 `Continue` node — no frontend can cover it
+posix-sh-go	posix-sh-go-20260813-003404.md	posix-sh-go: A1 node `Declare` still uncovered — re-escalation (companion of posix-sh-go-20260813-001245.md, still pending)
+posix-sh-go	posix-sh-go-20260813-191413.md	posix-sh-go: const_fold_arith folds loop-carried variables from the stale pre-loop pool (while-loop increments collapse to a constant → infinite loop in generated JS)
+posix-sh-go	posix-sh-go-20260814-141705.md	posix-sh-go: WIP of estree-20260814-020001 (uncommitted M src/shir.rs) strips A1 `var_types` verdicts — vars read via mixed quoted Interpolates vanish from the contract output
+posix-sh-go	posix-sh-go-20260815-0200-pipeline-capture-leak.md	posix-sh-go: pipeline inside a capture leaks to real stdout — the native-echo-pipe fold skips the ECHO_SINK_DEPTH gate
+py-sh-go	py-sh-go-20260806-144303-b.md	> RESEND (re-filing). The 21:07/23:06 finalize moved the original to
+py-sh-go	py-sh-go-20260814-125405.md	py-sh-go: ESTree renderer cannot execute the A1 `Index` expr node (round-trip gap)
+py-sh-go	py-sh-go-20260814-141651-range-loop-interpolate-var.md	py-sh-go: For-Range loop var read inside an Interpolate exec arg prints empty (store-sync-elim rewrite misses the native store read)
+py-sh-go	py-sh-go-20260814-203400-arraycomp-iife-return-mangled.md	py-sh-go: fix_control_flow mangles the ArrayComp IIFE's value return — every comprehension crashes the ESTree oracle
+py-sh-go	py-sh-go-20260814-204800-arraycomp-iife-return-mangled.md	py-sh-go: STILL failing — fix_control_flow mangles the ArrayComp IIFE's value return (t80_comp_if DIFF, gate re-failed 20:40)
+py-sh-go-comp-if	py-sh-go-comp-if-20260813-215131.md	py-sh-go: A1 contract has no comprehension node — the comp_if filter is inexpressible
+py-sh-go-comp-iter	py-sh-go-comp-iter-20260813-200803.md	py-sh-go: A1 contract has no comprehension node — Python comp_iter is inexpressible
+py-sh-go-lambdef	py-sh-go-lambdef-20260813-192707.md	py-sh-go: A1 contract has no lambda node — Python lambdef is inexpressible
+py-sh-go-lambdef	py-sh-go-lambdef-20260813-220859.md	py-sh-go: A1 contract still has no lambda node — Python lambdef remains inexpressible
+py-sh-go-sliceop	py-sh-go-sliceop-20260813-194705.md	py-sh-go: A1 contract has no slice-step shape — Python sliceop is inexpressible
+py-sh-go-sliceop	py-sh-go-sliceop-20260813-222910.md	py-sh-go: A1 slice helper has no step field — Python sliceop (extended a[i:j:k] slices) is inexpressible
+py-sh-go-sliceop	py-sh-go-sliceop-20260814-001712.md	py-sh-go: sliceop still inexpressible — A1 step field landed (done/ py-sh-go-sliceop-20260813-222910) but the frontend-side emit arm it deferred never landed; the frontend still refuses a[i:j:k]
+py-sh-go-star-expr	py-sh-go-star-expr-20260813-193834.md	py-sh-go: A1 contract has no starred-expression shape — Python star_expr is inexpressible
+py-sh-go-star-expr	py-sh-go-star-expr-20260813-221910.md	py-sh-go: A1 contract has no starred-expression shape — Python star_expr is inexpressible
+sh	sh-20260807-130936.md	sh: process substitution <(...) is silently dropped — emit process-in + a temp-file materialization transform
+sh	sh-20260807-140906-arith-forms.md	sh: bash-shaped arithmetic forms (let / (( )) / c-style-for headers) are exec-string blobs — add a shared transform that parses them into structured IR
+sh	sh-20260807-141820-grep-to-case.md	sh: lift test-position grep to POSIX case — `echo X | grep P && A || B` becomes a pure-shell `case` (no grep dependency)
+sh	sh-20260807-162101-renderer-arith-case.md	sh renderer: (1) the new IR shapes from arith_forms + grep_to_case, AND (2) the recursive `bash -c` → POSIX lowering (static-link default with subshell wrap; `--no-subshell` and `--posix-sh-c` opt-outs)
+sh	sh-20260814-140334.md	sh: parser drops the >| clobber flag (parse-redirect-clobber red)
+sh	sh-20260815-115501-utf8-toplevel-shir-arm.md	sh: top-level `--shir` arm still emits U+FFFD — utf8-non-utf8-content red in the sh gate
+sh-utf8	sh-utf8-20260814-140334.md	sh: invalid-UTF8 source breaks the whole parse (utf8-non-utf8-content red)
+triage-c	triage-c-20260813-175011.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260813-175012.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260813-175013.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260813-175014.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260813-175015.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260813-175016.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260813-175018.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260813-175020.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260813-180554.md	triage: c backend can't render what the cpp-sh-go frontend emits
+triage-c	triage-c-20260813-180555.md	triage: c backend can't render what the cpp-sh-go frontend emits
+triage-c	triage-c-20260813-180556.md	triage: c backend can't render what the cpp-sh-go frontend emits
+triage-c	triage-c-20260813-180728.md	triage: c backend can't render what the bat-sh-go frontend emits
+triage-c	triage-c-20260813-185409.md	triage: c backend can't render what the py-sh-go frontend emits
+triage-c	triage-c-20260813-191936.md	triage: c backend can't render what the posix-sh-go frontend emits
+triage-c	triage-c-20260813-191937.md	triage: c backend can't render what the posix-sh-go frontend emits
+triage-c	triage-c-20260813-201535.md	triage: c backend can't render what the zsh-sh-go frontend emits
+triage-c	triage-c-20260814-135247.md	triage: c backend can't render what the posix-sh-go frontend emits
+triage-c	triage-c-20260814-135248.md	triage: c backend can't render what the posix-sh-go frontend emits
+triage-c	triage-c-20260814-135940.md	triage: c backend can't render what the zsh-sh-go frontend emits
+triage-c	triage-c-20260814-142515.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260814-142519.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260814-142520.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260814-142521.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260814-142523.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260814-142526.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260814-142527.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260814-142528.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260814-142530.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260814-142531.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260814-142532.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260814-142537.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260814-142538.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260814-142539.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260814-142540.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260814-142541.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260814-142542.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260814-142543.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260814-142544.md	triage: c backend can't render what the c-sh-go frontend emits
+triage-c	triage-c-20260814-143044.md	triage: c backend can't render what the cpp-sh-go frontend emits
+triage-c	triage-c-20260814-144657.md	triage: c backend can't render what the posix-sh-go frontend emits
+triage-c	triage-c-20260814-145053.md	triage: c backend can't render what the zsh-sh-go frontend emits
+triage-c	triage-c-20260814-145054.md	triage: c backend can't render what the zsh-sh-go frontend emits
+triage-java	triage-java-20260813-175011.md	triage: java backend can't render what the c-sh-go frontend emits
+triage-java	triage-java-20260813-175012.md	triage: java backend can't render what the c-sh-go frontend emits
+triage-java	triage-java-20260813-175013.md	triage: java backend can't render what the c-sh-go frontend emits
+triage-java	triage-java-20260813-175014.md	triage: java backend can't render what the c-sh-go frontend emits
+triage-java	triage-java-20260813-175015.md	triage: java backend can't render what the c-sh-go frontend emits
+triage-java	triage-java-20260813-175016.md	triage: java backend can't render what the c-sh-go frontend emits
+triage-java	triage-java-20260813-175018.md	triage: java backend can't render what the c-sh-go frontend emits
+triage-java	triage-java-20260813-175020.md	triage: java backend can't render what the c-sh-go frontend emits
+triage-java	triage-java-20260813-180554.md	triage: java backend can't render what the cpp-sh-go frontend emits
+triage-java	triage-java-20260813-180555.md	triage: java backend can't render what the cpp-sh-go frontend emits
+triage-java	triage-java-20260813-180556.md	triage: java backend can't render what the cpp-sh-go frontend emits
+triage-java	triage-java-20260813-180728.md	triage: java backend can't render what the bat-sh-go frontend emits
+triage-java	triage-java-20260813-185409.md	triage: java backend can't render what the py-sh-go frontend emits
+triage-java	triage-java-20260813-191936.md	triage: java backend can't render what the posix-sh-go frontend emits
+triage-java	triage-java-20260813-191937.md	triage: java backend can't render what the posix-sh-go frontend emits
+triage-java	triage-java-20260813-201535.md	triage: java backend can't render what the zsh-sh-go frontend emits
+triage-java	triage-java-20260814-135247.md	triage: java backend can't render what the posix-sh-go frontend emits
+triage-java	triage-java-20260814-135248.md	triage: java backend can't render what the posix-sh-go frontend emits
+triage-java	triage-java-20260814-135940.md	triage: java backend can't render what the zsh-sh-go frontend emits
+triage-java	triage-java-20260814-142515.md	triage: java backend can't render what the c-sh-go frontend emits
+triage-java	triage-java-20260814-142519.md	triage: java backend can't render what the c-sh-go frontend emits
+triage-java	triage-java-20260814-142520.md	triage: java backend can't render what the c-sh-go frontend emits
+triage-java	triage-java-20260814-142521.md	triage: java backend can't render what the c-sh-go frontend emits
+triage-java	triage-java-20260814-142523.md	triage: java backend can't render what the c-sh-go frontend emits
+triage-java	triage-java-20260814-142526.md	triage: java backend can't render what the c-sh-go frontend emits
+triage-java	triage-java-20260814-142527.md	triage: java backend can't render what the c-sh-go frontend emits
+triage-java	triage-java-20260814-142528.md	triage: java backend can't render what the c-sh-go frontend emits
+triage-java	triage-java-20260814-142530.md	triage: java backend can't render what the c-sh-go frontend emits
+triage-java	triage-java-20260814-142531.md	triage: java backend can't render what the c-sh-go frontend emits
+triage-java	triage-java-20260814-142532.md	triage: java backend can't render what the c-sh-go frontend emits
+triage-java	triage-java-20260814-142537.md	triage: java backend can't render what the c-sh-go frontend emits
+triage-java	triage-java-20260814-142539.md	triage: java backend can't render what the c-sh-go frontend emits
+triage-java	triage-java-20260814-142540.md	triage: java backend can't render what the c-sh-go frontend emits
+triage-java	triage-java-20260814-142541.md	triage: java backend can't render what the c-sh-go frontend emits
+triage-java	triage-java-20260814-142542.md	triage: java backend can't render what the c-sh-go frontend emits
+triage-java	triage-java-20260814-142543.md	triage: java backend can't render what the c-sh-go frontend emits
+triage-java	triage-java-20260814-142544.md	triage: java backend can't render what the c-sh-go frontend emits
+triage-java	triage-java-20260814-143044.md	triage: java backend can't render what the cpp-sh-go frontend emits
+triage-java	triage-java-20260814-144657.md	triage: java backend can't render what the posix-sh-go frontend emits
+triage-java	triage-java-20260814-145053.md	triage: java backend can't render what the zsh-sh-go frontend emits
+triage-java	triage-java-20260814-145054.md	triage: java backend can't render what the zsh-sh-go frontend emits
+triage-js	triage-js-20260813-175011.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260813-175012.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260813-175013.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260813-175014.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260813-175015.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260813-175016.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260813-175018.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260813-175020.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260813-180554.md	triage: js backend can't render what the cpp-sh-go frontend emits
+triage-js	triage-js-20260813-180555.md	triage: js backend can't render what the cpp-sh-go frontend emits
+triage-js	triage-js-20260813-180556.md	triage: js backend can't render what the cpp-sh-go frontend emits
+triage-js	triage-js-20260813-180727.md	triage: js backend can't render what the bat-sh-go frontend emits
+triage-js	triage-js-20260813-180728.md	triage: js backend can't render what the bat-sh-go frontend emits
+triage-js	triage-js-20260813-185409.md	triage: js backend can't render what the py-sh-go frontend emits
+triage-js	triage-js-20260813-191936.md	triage: js backend can't render what the posix-sh-go frontend emits
+triage-js	triage-js-20260813-201535.md	triage: js backend can't render what the zsh-sh-go frontend emits
+triage-js	triage-js-20260814-135247.md	triage: js backend can't render what the posix-sh-go frontend emits
+triage-js	triage-js-20260814-135940.md	triage: js backend can't render what the zsh-sh-go frontend emits
+triage-js	triage-js-20260814-142515.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260814-142519.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260814-142520.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260814-142521.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260814-142523.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260814-142526.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260814-142527.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260814-142528.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260814-142530.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260814-142531.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260814-142532.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260814-142537.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260814-142538.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260814-142539.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260814-142540.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260814-142541.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260814-142542.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260814-142543.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260814-142544.md	triage: js backend can't render what the c-sh-go frontend emits
+triage-js	triage-js-20260814-143044.md	triage: js backend can't render what the cpp-sh-go frontend emits
+triage-js	triage-js-20260814-144657.md	triage: js backend can't render what the posix-sh-go frontend emits
+triage-js	triage-js-20260814-145053.md	triage: js backend can't render what the zsh-sh-go frontend emits
+triage-js	triage-js-20260814-145054.md	triage: js backend can't render what the zsh-sh-go frontend emits
+triage-perl	triage-perl-20260813-175011.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260813-175012.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260813-175013.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260813-175014.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260813-175015.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260813-175016.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260813-175018.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260813-175020.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260813-175156.md	triage: perl backend can't render what the cpp-sh-go frontend emits
+triage-perl	triage-perl-20260813-180554.md	triage: perl backend can't render what the cpp-sh-go frontend emits
+triage-perl	triage-perl-20260813-180555.md	triage: perl backend can't render what the cpp-sh-go frontend emits
+triage-perl	triage-perl-20260813-180556.md	triage: perl backend can't render what the cpp-sh-go frontend emits
+triage-perl	triage-perl-20260813-180727.md	triage: perl backend can't render what the bat-sh-go frontend emits
+triage-perl	triage-perl-20260813-180728.md	triage: perl backend can't render what the bat-sh-go frontend emits
+triage-perl	triage-perl-20260813-180729.md	triage: perl backend can't render what the bat-sh-go frontend emits
+triage-perl	triage-perl-20260813-181019.md	triage: perl backend can't render what the py-sh-go frontend emits
+triage-perl	triage-perl-20260813-181020.md	triage: perl backend can't render what the py-sh-go frontend emits
+triage-perl	triage-perl-20260813-185408.md	triage: perl backend can't render what the py-sh-go frontend emits
+triage-perl	triage-perl-20260813-185409.md	triage: perl backend can't render what the py-sh-go frontend emits
+triage-perl	triage-perl-20260813-185636.md	triage: perl backend can't render what the perl-sh-go frontend emits
+triage-perl	triage-perl-20260813-185638.md	triage: perl backend can't render what the perl-sh-go frontend emits
+triage-perl	triage-perl-20260813-190041.md	triage: perl backend can't render what the posix-sh-go frontend emits
+triage-perl	triage-perl-20260813-190042.md	triage: perl backend can't render what the posix-sh-go frontend emits
+triage-perl	triage-perl-20260813-190043.md	triage: perl backend can't render what the posix-sh-go frontend emits
+triage-perl	triage-perl-20260813-191932.md	triage: perl backend can't render what the posix-sh-go frontend emits
+triage-perl	triage-perl-20260813-191933.md	triage: perl backend can't render what the posix-sh-go frontend emits
+triage-perl	triage-perl-20260813-191936.md	triage: perl backend can't render what the posix-sh-go frontend emits
+triage-perl	triage-perl-20260813-191938.md	triage: perl backend can't render what the posix-sh-go frontend emits
+triage-perl	triage-perl-20260813-192348.md	triage: perl backend can't render what the zsh-sh-go frontend emits
+triage-perl	triage-perl-20260813-192349.md	triage: perl backend can't render what the zsh-sh-go frontend emits
+triage-perl	triage-perl-20260813-192350.md	triage: perl backend can't render what the zsh-sh-go frontend emits
+triage-perl	triage-perl-20260813-192351.md	triage: perl backend can't render what the zsh-sh-go frontend emits
+triage-perl	triage-perl-20260813-192352.md	triage: perl backend can't render what the zsh-sh-go frontend emits
+triage-perl	triage-perl-20260813-201533.md	triage: perl backend can't render what the zsh-sh-go frontend emits
+triage-perl	triage-perl-20260813-201535.md	triage: perl backend can't render what the zsh-sh-go frontend emits
+triage-perl	triage-perl-20260813-201537.md	triage: perl backend can't render what the zsh-sh-go frontend emits
+triage-perl	triage-perl-20260814-135247.md	triage: perl backend can't render what the posix-sh-go frontend emits
+triage-perl	triage-perl-20260814-135248.md	triage: perl backend can't render what the posix-sh-go frontend emits
+triage-perl	triage-perl-20260814-135324.md	triage: perl backend can't render what the posix-sh-go frontend emits
+triage-perl	triage-perl-20260814-135325.md	triage: perl backend can't render what the posix-sh-go frontend emits
+triage-perl	triage-perl-20260814-135940.md	triage: perl backend can't render what the zsh-sh-go frontend emits
+triage-perl	triage-perl-20260814-140023.md	triage: perl backend can't render what the zsh-sh-go frontend emits
+triage-perl	triage-perl-20260814-140030.md	triage: perl backend can't render what the zsh-sh-go frontend emits
+triage-perl	triage-perl-20260814-140055.md	triage: perl backend can't render what the zsh-sh-go frontend emits
+triage-perl	triage-perl-20260814-142515.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260814-142519.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260814-142520.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260814-142521.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260814-142523.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260814-142526.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260814-142527.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260814-142528.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260814-142530.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260814-142531.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260814-142532.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260814-142537.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260814-142538.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260814-142539.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260814-142540.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260814-142541.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260814-142542.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260814-142544.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260814-142814.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260814-143044.md	triage: perl backend can't render what the cpp-sh-go frontend emits
+triage-perl	triage-perl-20260814-143332.md	triage: perl backend can't render what the bat-sh-go frontend emits
+triage-perl	triage-perl-20260814-143333.md	triage: perl backend can't render what the bat-sh-go frontend emits
+triage-perl	triage-perl-20260814-143338.md	triage: perl backend can't render what the bat-sh-go frontend emits
+triage-perl	triage-perl-20260814-143910.md	triage: perl backend can't render what the py-sh-go frontend emits
+triage-perl	triage-perl-20260814-144318.md	triage: perl backend can't render what the perl-sh-go frontend emits
+triage-perl	triage-perl-20260814-144320.md	triage: perl backend can't render what the perl-sh-go frontend emits
+triage-perl	triage-perl-20260814-144322.md	triage: perl backend can't render what the perl-sh-go frontend emits
+triage-perl	triage-perl-20260814-144327.md	triage: perl backend can't render what the perl-sh-go frontend emits
+triage-perl	triage-perl-20260814-144657.md	triage: perl backend can't render what the posix-sh-go frontend emits
+triage-perl	triage-perl-20260814-144726.md	triage: perl backend can't render what the posix-sh-go frontend emits
+triage-perl	triage-perl-20260814-144727.md	triage: perl backend can't render what the posix-sh-go frontend emits
+triage-perl	triage-perl-20260814-144833.md	triage: perl backend can't render what the posix-sh-go frontend emits
+triage-perl	triage-perl-20260814-145054.md	triage: perl backend can't render what the zsh-sh-go frontend emits
+triage-perl	triage-perl-20260814-145118.md	triage: perl backend can't render what the zsh-sh-go frontend emits
+triage-perl	triage-perl-20260814-145121.md	triage: perl backend can't render what the zsh-sh-go frontend emits
+triage-perl	triage-perl-20260814-145146.md	triage: perl backend can't render what the zsh-sh-go frontend emits
+triage-perl	triage-perl-20260814-184048.md	triage: perl backend can't render what the c-sh-go frontend emits
+triage-perl	triage-perl-20260814-192052.md	triage: perl backend can't render what the zsh-sh-go frontend emits
+triage-perl	triage-perl-20260814-212235.md	triage: perl backend can't render what the bat-sh-go frontend emits
+triage-perl	triage-perl-20260814-212236.md	triage: perl backend can't render what the bat-sh-go frontend emits
+triage-python	triage-python-20260813-175011.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260813-175012.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260813-175013.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260813-175014.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260813-175015.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260813-175016.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260813-175018.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260813-175020.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260813-180554.md	triage: python backend can't render what the cpp-sh-go frontend emits
+triage-python	triage-python-20260813-180555.md	triage: python backend can't render what the cpp-sh-go frontend emits
+triage-python	triage-python-20260813-180556.md	triage: python backend can't render what the cpp-sh-go frontend emits
+triage-python	triage-python-20260813-180728.md	triage: python backend can't render what the bat-sh-go frontend emits
+triage-python	triage-python-20260813-185409.md	triage: python backend can't render what the py-sh-go frontend emits
+triage-python	triage-python-20260813-191936.md	triage: python backend can't render what the posix-sh-go frontend emits
+triage-python	triage-python-20260813-191937.md	triage: python backend can't render what the posix-sh-go frontend emits
+triage-python	triage-python-20260813-201535.md	triage: python backend can't render what the zsh-sh-go frontend emits
+triage-python	triage-python-20260814-135247.md	triage: python backend can't render what the posix-sh-go frontend emits
+triage-python	triage-python-20260814-135248.md	triage: python backend can't render what the posix-sh-go frontend emits
+triage-python	triage-python-20260814-135940.md	triage: python backend can't render what the zsh-sh-go frontend emits
+triage-python	triage-python-20260814-142515.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260814-142519.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260814-142520.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260814-142521.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260814-142523.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260814-142526.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260814-142527.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260814-142528.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260814-142529.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260814-142530.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260814-142531.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260814-142532.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260814-142537.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260814-142538.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260814-142539.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260814-142540.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260814-142541.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260814-142542.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260814-142543.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260814-142544.md	triage: python backend can't render what the c-sh-go frontend emits
+triage-python	triage-python-20260814-143044.md	triage: python backend can't render what the cpp-sh-go frontend emits
+triage-python	triage-python-20260814-144657.md	triage: python backend can't render what the posix-sh-go frontend emits
+triage-python	triage-python-20260814-145053.md	triage: python backend can't render what the zsh-sh-go frontend emits
+triage-python	triage-python-20260814-145054.md	triage: python backend can't render what the zsh-sh-go frontend emits
+triage-sh	triage-sh-20260813-175011.md	triage: sh backend can't render what the c-sh-go frontend emits
+triage-sh	triage-sh-20260813-175012.md	triage: sh backend can't render what the c-sh-go frontend emits
+triage-sh	triage-sh-20260813-175013.md	triage: sh backend can't render what the c-sh-go frontend emits
+triage-sh	triage-sh-20260813-175014.md	triage: sh backend can't render what the c-sh-go frontend emits
+triage-sh	triage-sh-20260813-175015.md	triage: sh backend can't render what the c-sh-go frontend emits
+triage-sh	triage-sh-20260813-175018.md	triage: sh backend can't render what the c-sh-go frontend emits
+triage-sh	triage-sh-20260813-175020.md	triage: sh backend can't render what the c-sh-go frontend emits
+triage-sh	triage-sh-20260813-175156.md	triage: sh backend can't render what the cpp-sh-go frontend emits
+triage-sh	triage-sh-20260813-180555.md	triage: sh backend can't render what the cpp-sh-go frontend emits
+triage-sh	triage-sh-20260813-180556.md	triage: sh backend can't render what the cpp-sh-go frontend emits
+triage-sh	triage-sh-20260813-180727.md	triage: sh backend can't render what the bat-sh-go frontend emits
+triage-sh	triage-sh-20260813-180728.md	triage: sh backend can't render what the bat-sh-go frontend emits
+triage-sh	triage-sh-20260813-180729.md	triage: sh backend can't render what the bat-sh-go frontend emits
+triage-sh	triage-sh-20260813-181018.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260813-181019.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260813-181020.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260813-185051.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260813-185403.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260813-185408.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260813-185409.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260813-185634.md	triage: sh backend can't render what the perl-sh-go frontend emits
+triage-sh	triage-sh-20260813-185635.md	triage: sh backend can't render what the perl-sh-go frontend emits
+triage-sh	triage-sh-20260813-185636.md	triage: sh backend can't render what the perl-sh-go frontend emits
+triage-sh	triage-sh-20260813-185637.md	triage: sh backend can't render what the perl-sh-go frontend emits
+triage-sh	triage-sh-20260813-185638.md	triage: sh backend can't render what the perl-sh-go frontend emits
+triage-sh	triage-sh-20260813-185643.md	triage: sh backend can't render what the perl-sh-go frontend emits
+triage-sh	triage-sh-20260813-190041.md	triage: sh backend can't render what the posix-sh-go frontend emits
+triage-sh	triage-sh-20260813-190042.md	triage: sh backend can't render what the posix-sh-go frontend emits
+triage-sh	triage-sh-20260813-190043.md	triage: sh backend can't render what the posix-sh-go frontend emits
+triage-sh	triage-sh-20260813-191933.md	triage: sh backend can't render what the posix-sh-go frontend emits
+triage-sh	triage-sh-20260813-191938.md	triage: sh backend can't render what the posix-sh-go frontend emits
+triage-sh	triage-sh-20260813-191939.md	triage: sh backend can't render what the posix-sh-go frontend emits
+triage-sh	triage-sh-20260813-192349.md	triage: sh backend can't render what the zsh-sh-go frontend emits
+triage-sh	triage-sh-20260813-192350.md	triage: sh backend can't render what the zsh-sh-go frontend emits
+triage-sh	triage-sh-20260813-192351.md	triage: sh backend can't render what the zsh-sh-go frontend emits
+triage-sh	triage-sh-20260813-192352.md	triage: sh backend can't render what the zsh-sh-go frontend emits
+triage-sh	triage-sh-20260813-201532.md	triage: sh backend can't render what the zsh-sh-go frontend emits
+triage-sh	triage-sh-20260813-201533.md	triage: sh backend can't render what the zsh-sh-go frontend emits
+triage-sh	triage-sh-20260813-201534.md	triage: sh backend can't render what the zsh-sh-go frontend emits
+triage-sh	triage-sh-20260813-201537.md	triage: sh backend can't render what the zsh-sh-go frontend emits
+triage-sh	triage-sh-20260814-135938.md	triage: sh backend can't render what the zsh-sh-go frontend emits
+triage-sh	triage-sh-20260814-142515.md	triage: sh backend can't render what the c-sh-go frontend emits
+triage-sh	triage-sh-20260814-142519.md	triage: sh backend can't render what the c-sh-go frontend emits
+triage-sh	triage-sh-20260814-142520.md	triage: sh backend can't render what the c-sh-go frontend emits
+triage-sh	triage-sh-20260814-142521.md	triage: sh backend can't render what the c-sh-go frontend emits
+triage-sh	triage-sh-20260814-142526.md	triage: sh backend can't render what the c-sh-go frontend emits
+triage-sh	triage-sh-20260814-142528.md	triage: sh backend can't render what the c-sh-go frontend emits
+triage-sh	triage-sh-20260814-142537.md	triage: sh backend can't render what the c-sh-go frontend emits
+triage-sh	triage-sh-20260814-142539.md	triage: sh backend can't render what the c-sh-go frontend emits
+triage-sh	triage-sh-20260814-142542.md	triage: sh backend can't render what the c-sh-go frontend emits
+triage-sh	triage-sh-20260814-143044.md	triage: sh backend can't render what the cpp-sh-go frontend emits
+triage-sh	triage-sh-20260814-145052.md	triage: sh backend can't render what the zsh-sh-go frontend emits
+triage-sh	triage-sh-20260814-184050.md	triage: sh backend can't render what the c-sh-go frontend emits
+triage-sh	triage-sh-20260814-184634.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260814-184637.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260814-184638.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260814-184639.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260814-191442.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260814-191444.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260814-191446.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260814-194447.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260814-194449.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260814-194450.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260814-202054.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260814-202100.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260814-202104.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260814-212537.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260814-212542.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260814-212544.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260814-220412.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260814-220417.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260814-220418.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260814-220419.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260814-224532.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260814-224537.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260814-224538.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260814-224540.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260814-233859.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260814-233904.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260814-233906.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-002018.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-002023.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-002025.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-011626.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-011631.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-011632.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-015928.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-015933.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-015934.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-023815.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-023817.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-023818.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-031750.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-031752.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-031755.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-040204.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-040206.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-040207.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-044239.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-044241.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-044242.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-052218.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-052220.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-052221.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-060229.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-060231.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-064339.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-064341.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-064342.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-072548.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-072552.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-072554.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-080859.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-080901.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-080902.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-085248.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-085250.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-085251.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-093902.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-093904.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-093905.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-103037.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-103040.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-103041.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-113907.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-113910.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-113911.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-123746.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-123749.md	triage: sh backend can't render what the py-sh-go frontend emits
+triage-sh	triage-sh-20260815-123750.md	triage: sh backend can't render what the py-sh-go frontend emits
+typed-node-ir	typed-node-ir-20260806-b.md	> RESEND (this is a re-filing). The 23:06 finalize moved the original to
+zsh-sh-go	zsh-sh-go-20260813-003026.md	zsh-sh-go: shell `continue` never lowers to the A1 `Continue` node — no frontend can cover it
+zsh-sh-go	zsh-sh-go-20260814-134501.md	zsh-sh-go: i53-escalated Arith Assign RHS never BigInt-wrapped → ESTree path throws (t48_accum, t85_cstyle_for)
+zsh-sh-go	zsh-sh-go-20260814-183409.md	zsh-sh-go: A1 contract has no node/field for zsh parameter-expansion flags (`${(flags)var}`)
+zsh-sh-go	zsh-sh-go-20260814-193615.md	zsh-sh-go: A1 contract has no node/field for zsh parameter-expansion flag SEPARATORS (`(f:sep:)` / `(f.sep.)`)
+zsh-sh-go	zsh-sh-go-20260814-200005.md	zsh-sh-go: A1 has no correct lowering for the translated string `$"..."` (ts node `translated_string`) — the core's DollarDoubleQuotedString arm leaks the quotes
+zsh-sh-go	zsh-sh-go-20260814-225040.md	zsh-sh-go: the A1 Break node is never produced by the shell parser (`break` lowers to an opaque `call("break")`)
+zsh-sh-go	zsh-sh-go-20260814-230503.md	zsh-sh-go: the A1 Capture node is never produced by the shell parser (`$(...)`/backticks lower to the opaque `call("capture")`)
+zsh-sh-go	zsh-sh-go-20260815-000728.md	zsh-sh-go: RE-OPEN — A1 contract still has no node/field for zsh parameter-expansion flags (`${(flags)var}`, ts node `flag`)
+zsh-sh-go	zsh-sh-go-20260815-001515.md	zsh-sh-go: RE-OPEN — A1 contract still has no node/field for zsh parameter-expansion flag SEPARATORS (ts node `separator`)
+zsh-sh-go	zsh-sh-go-20260815-003454.md	zsh-sh-go: RE-OPEN — A1 still has no correct lowering for the translated string `$"..."` (ts node `translated_string`); the done/ request is unimplemented
+zsh-sh-go	zsh-sh-go-20260815-015459.md	zsh-sh-go: the A1 Break node is never produced by the shell parser (`break` lowers to an opaque `call("break")`)
