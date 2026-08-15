@@ -12,6 +12,22 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v28: **Embed profile — purify inside the transpiler (Stage 1 landed):**
+>   the shIR renderer gains `shir_to_perl_embed` (`src/ir.rs`), rendering a
+>   shell snippet as an embeddable Perl fragment — statements only, `do { … }`
+>   wrapper (bash-subshell copy-in semantics; a same-scope `my $x = $x;` would
+>   mask-REUSE the host lexical and leak writes — verified), host-scope reuse
+>   via the `required_host_bindings ⊆ host_scope` gate, analysis-driven
+>   refusals (exit/function/background/preamble-var deps) replacing
+>   purify.pl's regex rejections. Verified 30/30 byte-deterministic (the
+>   legacy `parse --inline` Generator is hash-order flaky) and byte-equal vs
+>   bash on host-read/copy-in-non-leak/status-mirror probes. CLI hook
+>   `parse --perl-embed` (`PURIFY_SCOPE` env). `cargo test --lib` 300/301
+>   (glsl = pre-existing WIP). Spec: `sh2perl/docs/embed-contract.md`;
+>   record schema `embed_block` in `frontends/shir-contract/schema.json`.
+>   Remaining: otranspilerl `--embed-perl`, purify.pl backtick swap + Bug 3
+>   marker protocol, PassContext verdict upgrade (escapes/lifts), generic
+>   per-language profile + preservation gate. Full design: §10.
 > - v27: **`&` background jobs get copy-at-fork semantics (JS backend); the
 >   webworker path is designed but parked** (2026-08-15; submodule
 >   5e56ff2/72b7c61, workspace commit below). Bash `cmd &` FORKS — the job
@@ -1231,7 +1247,6 @@ information the Perl IR lacks — it would be a rename, not an architecture.
 ---
 
 ## 9. Worker improvement mode (M8)
-
 Once the ESTree corpus is green, the fix loop has nothing to fix — so instead
 of idling, `main_loop_estree.pl` prompts the worker to find the **cheapest
 correct lowering** for every remaining `sh2.*` call site, subprocess spawn,
@@ -1261,7 +1276,6 @@ per-iteration promises), `echo X | grep P >/dev/null 2>/dev/null` →
 `String(X).includes(P)` (test-position IR lift).
 
 ### 9.2 Mechanics
-
 - **Metric as awareness, not score:** `fail-estree --metric` tallies sh2.*
   call sites per callee across the corpus (baseline 5,107 total; ~1,200
   lowerable: getVar 512, setVar 253, param 197, test 129, caseMatch 42,
@@ -1288,3 +1302,74 @@ per-iteration promises), `echo X | grep P >/dev/null 2>/dev/null` →
   blocking I/O. When unsure of a lowering's correctness, keep the runtime
   call — a good idea that can't be proven on the corpus is dropped, not
   force-fit.
+
+## 10. Embed profile: purify inside the transpiler (proposal + Stage 1)
+
+Replace `system("")` / backtick-like constructs in a HOST program with
+host-native fragments — purify, generalized to any language. The core never
+parses the host text: a per-language **harvester** finds construct spans +
+harvests context (scope names, imports, construct semantics), and the core
+renders each shell snippet as a **fragment** given that context. Design
+thread: (a) preservation = "output equals input with only the marked spans
+replaced" (mechanically gated); (b) context = A1 shIR markup for the snippet
+(read/write sets → v2: `var_lifetimes[].escapes` + lift sets) + a thin
+host-side membership sidecar; (c) spec in `sh2perl/docs/embed-contract.md`,
+record schema in `frontends/shir-contract/schema.json` (`embed_block`).
+
+**Why:** purify.pl's live path is `debashc parse --inline` — the legacy
+`Generator`, whose HashSet-ordered emission is **nondeterministic run-to-run**
+(verified 30/30 differing outputs; purify output is nondeterministic and the
+purify CI job exercises it). purify then applies ~10 regex/PPI patches to each
+fragment and skips debashc entirely for backticks containing Perl vars
+(FIX.md Bug 3). All of that is context the transpiler never received.
+
+### Stage 1 (landed, this revision)
+
+- `shir_to_perl_embed(prog, ctx) -> EmbedResult { fragment,
+  required_host_bindings, refusals }` (`src/ir.rs`): statements only — no
+  shebang/pragmas/imports/preamble/exit; `do { … }` wrapper (load-bearing:
+  a same-scope `my $x = $x;` copy-in would mask-REUSE the host lexical and
+  leak writes — verified; inside the block it's a fresh lexical, bash
+  subshell semantics). Decl rules: read-only∧host → bare `$x` reuse;
+  read-only∧¬host → `my $x = '';`; written∧host → `my $x = $x;` copy-in;
+  written∧¬host → `my $x;`. Rewrites: `$main_exit_code = $CHILD_ERROR =
+  X;` → `$CHILD_ERROR = X;`; drop `chomp $_r;` under backtick-newlines;
+  English.pm names → `$/`/`$!`/`$@`; prepend `our $CHILD_ERROR = 0;` when
+  referenced. Refusals (analysis-driven, replacing purify's regex
+  rejections): `exit` (would kill the host), function defs, background
+  jobs, `$__argc`/`$__nocasematch`/`$main_exit_code` residue, `say`.
+- **Bindings gate:** `required_host_bindings ⊆ host_scope` — a bare `$x`
+  for a name the caller didn't list is a hard failure.
+- **Determinism:** 30/30 byte-identical across processes (Vec-based
+  first-seen decl order, fixed-string rewrites).
+- Verified vs bash: host-scope read (`hostval`), copy-in non-leak
+  (`6` / `after: 5` — bash subshell semantics), external command status
+  mirror, local-var case — all byte-equal; the legacy inline path was
+  30/30 flaky on the same inputs.
+- `cargo test --lib` 300/301 (the glsl failure is the pre-existing in-flight
+  worker WIP). New tests: `embed_*` ×7 (determinism, bindings gate,
+  copy-in, no-preamble, main_exit collapse, English normalization,
+  refusals). CLI hook: `debashc parse --perl-embed` (`PURIFY_SCOPE` env =
+  host membership list, manual testing).
+
+### Remaining (ordered)
+
+1. otranspilerl surface: `--embed-perl` render mode + literal-source snippet
+   input; `EmbedConstruct::System`/`Popen` profiles (var-visibility rules in
+   embed-contract.md §2).
+2. purify.pl backtick swap: PPI-harvest per-site `host_scope` → embed
+   renderer → drop the regex patches one at a time (each pinned by a
+   fixture); Bug 3 (Perl vars in backticks) via the marker protocol, not
+   the skip.
+3. shIR verdict upgrade: `required_host_bindings` from
+   `var_lifetimes[].escapes` + lift sets (PassContext) instead of the
+   read/write sets.
+4. Generic profile: per-host-language construct finders (scanner table →
+   frontend scan mode) + the construct-shaped fragment API
+   (`--embed=<lang> --construct=system|backtick|popen`); preservation gate
+   per host language; purify-twice byte-identity gate (red today).
+
+Open questions: status-tracker strategy (declare-local vs reuse-enclosing),
+`__bt` wrapper home (renderer vs purify), scope-var precision (file-wide v1
+vs per-site), function-def refusals v1 (vs render-as-host-sub), Int64
+boundary conversion, per-fragment `#line`.
