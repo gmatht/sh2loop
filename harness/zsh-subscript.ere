@@ -5,6 +5,14 @@
 # patterns match (executed-stdout is the semantic anchor). Length forms
 # (`${#x}`, `${#a[@]}`) deliberately do NOT match: no subscript, and they
 # stay byte-compared. One alternative per line.
+# zsh `:modifier` forms (`${x:l}`/`${x:u}`/`${x:t}`/`${x:h}`) — the core's
+# bash parse reads `${x:l}` as a SLICE (bash semantics), while the
+# frontend emits the zsh-correct unambiguous op (`^^`/`,,`/basename/
+# dirname). Same waiver rationale: the core cannot parse the zsh form
+# faithfully, so byte-equality is skipped and executed-stdout anchors.
+# The pattern requires the modifier immediately before `}` — `${x:l:5}`
+# (a real slice) and `${x:2}` (numeric offset) stay byte-compared.
 \$[A-Za-z_][A-Za-z0-9_]*\[
 \$\{[A-Za-z_][A-Za-z0-9_]*\[
 (^|[[:space:]])[A-Za-z_][A-Za-z0-9_]*\[
+\$\{[A-Za-z_][A-Za-z0-9_]*(:(l|u|t|h))\}
