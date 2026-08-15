@@ -205,9 +205,13 @@ pub fn render_embed(a1: &str, opts: &EmbedOpts) -> Result<debashl::ir::EmbedResu
 /// same shape the current `transpile` returns, but with the head passes
 /// already applied in-process (no JS-side re-run).
 pub fn compile(src: &str, _opts: &str) -> Result<String, String> {
-    let (commands, lines) = debashl::Parser::new(src)
-        .parse_with_lines()
-        .map_err(|e| format!("parse: {e}"))?;
+    // a parse failure degrades to the empty program — the same behavior
+    // the transpile path has (shell_to_shir's Err arm), so a broken
+    // script compiles to the empty JS instead of erroring.
+    let (commands, lines) = match debashl::Parser::new(src).parse_with_lines() {
+        Ok(p) => p,
+        Err(_) => (Vec::new(), Vec::new()),
+    };
     let prog = debashl::shir::ast_to_ir_with_lines(&commands, &lines);
     let estree = debashl::shir::shir_to_estree_compiled(&prog);
     // the estree JSON embeds directly into the envelope (estree_to_json
@@ -345,6 +349,9 @@ const USAGE: &str = "otranspiler <input> [<output>] [flags]
   --embed-perl      Perl target: render an EMBEDDABLE fragment (purify design,
                     PLAN §10) — no preamble/exit; fragment on stdout,
                     REQUIRED/REFUSE diagnostics on stderr
+  --literal         treat <input> as literal source text, never as a filename
+                    (single-word snippets like `ls` would otherwise hit the
+                    file heuristic)
   --scope-vars a,b,c  embed: names the host program declares in the
                     enclosing scope (reused as bare `$x`)
   --backtick        embed: Perl-qx semantics (preserve trailing newlines)
@@ -362,6 +369,7 @@ pub fn cli_at(
     let mut force_tgt = String::new();
     let mut do_run = false;
     let mut embed = false;
+    let mut literal = false;
     let mut embed_opts = EmbedOpts::default();
     let mut positional: Vec<String> = Vec::new();
 
@@ -379,6 +387,7 @@ pub fn cli_at(
                 embed = true;
                 force_tgt = "perl".into();
             }
+            "--literal" => literal = true,
             "--scope-vars" => {
                 if i + 1 < args.len() {
                     embed_opts.host_scope = args[i + 1]
@@ -447,7 +456,12 @@ pub fn cli_at(
         // embed profile: snippet A1 → embeddable Perl fragment. Fragment on
         // stdout (splice-clean); REQUIRED/REFUSE diagnostics on stderr so
         // the caller (harvester/splice engine) can gate and fall back.
-        let a1 = match shir_from(root, &input, &src_lang) {
+        let a1 = if literal {
+            Ok(shell_to_shir(&input))
+        } else {
+            shir_from(root, &input, &src_lang)
+        };
+        let a1 = match a1 {
             Ok(a1) => a1,
             Err(e) => {
                 let _ = writeln!(stderr, "otranspiler: {e}");
