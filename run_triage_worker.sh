@@ -118,6 +118,21 @@ takeover_frontend() {  # fe
   fi
 }
 
+# refresh the otranspiler GUI's gate.json from the fresh verdicts and
+# commit it (the repo is root-owned; sudo). The GUI reads ONLY this
+# file for the example-button colours — without this, the buttons stay
+# grey until someone re-runs sync-backend-gates.sh by hand, while the
+# workers keep refreshing triage/report.json + .frontend_gate.tsv.
+sync_gui_gate() {
+  local repo=/root/src/sh2runtime
+  [ -d "$repo" ] || { echo "[$(date +%FT%T)] sync_gui_gate: repo $repo missing" >> "$LOG"; return 0; }
+  sudo bash "$repo/sync-backend-gates.sh" >> "$LOG" 2>&1 || true
+  sudo git -C "$repo" add www/examples/gate.json www/otranspiler.html >> "$LOG" 2>&1 || true
+  if ! sudo git -C "$repo" diff --cached --quiet; then
+    sudo git -C "$repo" commit -m "gate.json: re-sync from the cross-validation workers" >> "$LOG" 2>&1 || true
+  fi
+}
+
 takeover_backends() {
   local be
   for be in $(bash "$WORKSPACE/harness/triage.sh" --list-backends 2>/dev/null || true); do
@@ -129,7 +144,7 @@ takeover_backends() {
 }
 
 # rotate through the frontends; a lease defers to a desktop
-FRONTENDS=(c-sh-go cpp-sh-go bat-sh-go py-sh-go perl-sh-go posix-sh-go zsh-sh-go fish-sh-go)
+FRONTENDS=(c-sh-go cpp-sh-go bat-sh-go py-sh-go perl-sh-go posix-sh-go zsh-sh-go fish-sh-go go-sh powershell-sh-go rust-frontend zig-sh-go)
 while true; do
   if [ -f "$WORKSPACE/.leases/triage" ]; then
     echo "[$(date +%FT%T)] triage: leased to $(cut -d' ' -f1 "$WORKSPACE/.leases/triage") — yielding" >> "$LOG"
@@ -140,6 +155,7 @@ while true; do
     takeover_frontend "$fe"
     takeover_backends
     cycle "$fe" || true
+    sync_gui_gate
     sleep 60
   done
   sleep 600
