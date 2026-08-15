@@ -2762,6 +2762,17 @@ export const sh2 = {
     delete (this.memArena ?? {})[Number(m[1])];
   },
 
+  // `$"..."` — the bash/zsh translated string (core request
+  // zsh-sh-go-20260814-200005 + re-filing 20260815-003454): the core
+  // lowers it as `sh2.translate(<content>)` with the content parts
+  // (Str/Interpolate). Neither bash nor this zsh build has a gettext
+  // catalog, so the observable difference is the leading `$`: bash
+  // prints the content, zsh prints `$` + content (zsh 5.9, verified).
+  translate(content) {
+    const s = String(content ?? '');
+    return this.lang === 'zsh' ? '$' + s : s;
+  },
+
   // ── parameter expansion / arithmetic / brace expansion ─────────────
   param(op, name, a, b, value) {
     // `value` — the emitter's value-override for LIFTED variables: their
