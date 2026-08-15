@@ -1375,12 +1375,36 @@ fragment and skips debashc entirely for backticks containing Perl vars
   that reproduces via standalone `file --perl`; documented in
   embed-contract.md §7.
 
+### Stage 3 (landed, this revision)
+
+- **purify.pl backtick swap (opt-in `PURIFY_EMBED=1`)** — the backtick
+  path now prefers `otranspilerl-cli --embed-perl --backtick
+  --scope-vars <file-wide my/our harvest>`; REFUSE degrades to the legacy
+  path (or the exec fallback), so the swap is A/B-testable and safe to
+  leave on.
+- **The capture wrapper is load-bearing**: the fragment is print-oriented
+  (statements); a backtick replacement must be an EXPRESSION evaluating to
+  the captured stdout. purify wraps it in `__bt(do { … })` and runs it in a
+  FORKED CHILD with stdout on a pipe (`open '-|'`) — external commands fork
+  grandchildren that inherit the pipe fd 1 (a `local *STDOUT` scalar/file
+  capture does NOT rebind fd 1; verified `wc -l` leaked to real stdout),
+  and the fork gives true bash-subshell semantics (fragment writes can't
+  touch the host). Fragment preamble (`our $CHILD_ERROR = 0;` / `use …;`)
+  is extracted and injected at file level (a `use` inside the
+  `__bt(do{…})` expression is a syntax error).
+- **Corpus A/B (examples.impurl, 33 purify-relevant files): legacy 8/33 →
+  embed 22/33.** The 11 remaining failures are INHERITED shIR renderer
+  emulation gaps that reproduce via standalone `file --perl` (printf `\n`
+  escapes, `mkdir -m`, env-assign echo) — not embed-profile bugs. Purified
+  output byte-deterministic 3/3.
+
 ### Remaining (ordered)
 
-1. purify.pl backtick swap: PPI-harvest per-site `host_scope` →
-   `otranspilerl-cli --embed-perl` → drop the regex patches one at a time
-   (each pinned by a fixture); Bug 3 (Perl vars in backticks) via the
-   marker protocol, not the skip.
+1. purify.pl: flip `PURIFY_EMBED` to default-on once the inherited
+   emulation gaps shrink further; per-site scope (PPI visibility instead
+   of file-wide); Bug 3 (Perl vars in backticks) via the marker protocol;
+   then retire the legacy `--inline` path's regex patches one at a time
+   (each pinned by a fixture).
 2. shIR verdict upgrade: `required_host_bindings` from
    `var_lifetimes[].escapes` + lift sets (PassContext) instead of the
    read/write sets.
