@@ -85,8 +85,16 @@ cycle() {  # fe
       if [ -z "$esc" ]; then escalate "$fe2" "$be" "$ex" "$st" "$det"; fi
     fi
   done || true
-  # refresh the baseline for this frontend (latest status per pair)
+  # refresh the baseline for this frontend (latest status per pair):
+  # verdicts.tsv is append-only, so !seen WITHOUT tac keeps the OLDEST
+  # row per pair — a stale status (e.g. an early PASS-RENDER epoch) then
+  # re-escalates every cycle: the diff sees a "status change" to FAIL-*,
+  # and the clear-escalation step drops the record because the stale
+  # baseline still says non-FAIL (observed 2026-08-15: zsh-sh-go
+  # t70_var_case_mods re-escalated --pi-fix-frontend every ~3 min for
+  # c/go/python/rust). tac reverses so the first-seen row is the newest.
   awk -F'\t' -v fe="$fe" '$1==fe {print $1"\t"$2"\t"$3"\t"$4}' "$TRIAGE/verdicts.tsv" 2>/dev/null \
+    | tac \
     | awk -F'\t' '!seen[$1 FS $2 FS $3]++' > "$TRIAGE/.baseline.new"
   if [ -f "$TRIAGE/baseline.tsv" ]; then
     awk -F'\t' -v fe="$fe" '$1!=fe' "$TRIAGE/baseline.tsv" >> "$TRIAGE/.baseline.new"
