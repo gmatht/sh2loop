@@ -144,7 +144,7 @@ takeover_backends() {
 }
 
 # rotate through the frontends; a lease defers to a desktop
-FRONTENDS=(c-sh-go cpp-sh-go bat-sh-go py-sh-go perl-sh-go posix-sh-go zsh-sh-go fish-sh-go go-sh powershell-sh-go rust-frontend zig-sh-go)
+FRONTENDS=(c-sh-go cpp-sh-go bat-sh-go py-sh-go perl-sh-go posix-sh-go zsh-sh-go fish-sh-go go-sh powershell-sh-go rust-frontend zig-sh-go sh2perl)
 while true; do
   if [ -f "$WORKSPACE/.leases/triage" ]; then
     echo "[$(date +%FT%T)] triage: leased to $(cut -d' ' -f1 "$WORKSPACE/.leases/triage") — yielding" >> "$LOG"
