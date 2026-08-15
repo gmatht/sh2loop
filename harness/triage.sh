@@ -481,7 +481,11 @@ case "${1:-}" in
     [ $# -eq 3 ] || { echo "usage: triage.sh <frontend> <example> <backend> | --sweep [--random N] [fes...] [bes...] | --report | --clear | --list-backends" >&2; exit 2; }
     # a single pair: compute the row inline
     info=$(frontend_info "$1")
-    example="$ROOT/frontends/$1/$(echo "$info" | cut -d'|' -f1)/$2"
+    # the corpus dir may be ABSOLUTE for the shared-sh frontend (sh2perl)
+    # — fe_abs resolves it; the naive frontends/$1/<corpus>/ join would
+    # glue an absolute path onto frontends/sh2perl/ and the A1 would be
+    # garbage (the reference then fails → SKIP-ESTREE-REF)
+    example="$(fe_abs "$1" "$(echo "$info" | cut -d'|' -f1)")/$2"
     a1f=$(mktemp -d "$TRIAGE/.row.XXXXXX")
     if emit_a1 "$1" "$example" > "$a1f/a1.json" 2>/dev/null; then
       nout=$(native_out "$1" "$example")
