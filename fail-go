@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+# fail-go — Go→JS / Go→Rust end-to-end gate (TRANSLATE_ONE_APPLICATION dog-food).
+#
+# For every Go source file (default: frontends/go-sh/testdata/*.go — the
+# frontend's corpus ladder), the oracle is the SOURCE's native behavior
+# (`go run` of the program; snippets are wrapped with package main + a
+# detected-imports stub, mirroring translate_one_application.sh run_native):
+#
+#   JS  : go-sh --shir --raw → debashc --shir-in-estree → estree-runner.mjs
+#   Rust: go-sh --shir --raw → otranspilerl --target rust → rustc → run
+#
+# A test passes only on its own verdict (oracle == translated stdout),
+# never by render success alone. No failing-test allowlist: a red probe is
+# the pipeline's gap signal (the TRANSLATE_ONE_APPLICATION fix loop).
+#
+# Usage: ./fail-go [--gate] [--rust] [--app FILE.go] [PREFIX]
+#   default    report per-file {file, oracle, js, rust, reason}
+#   --gate     exit 1 on any failure (js unless --rust; both with --rust)
+#   --rust     also (or only) run the rust target
+#   --app FILE run a single app (the dog-food integration test) + the corpus
+#   PREFIX     filename prefix filter (like ./fail)
+set -u
+
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+GOSH="$ROOT/frontends/go-sh/go-sh"
+DEBASHC="$ROOT/sh2perl/target/debug/debashc"
+OTRANS="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
+RUNNER="$ROOT/harness/estree-runner.mjs"
+CORPUS="$ROOT/frontends/go-sh/testdata"
+TIMEOUT=15
+JOBS="$(nproc 2>/dev/null || echo 4)"
+
+GATE=0; RUST=0; APP=""; PREFIX=""
+for a in "$@"; do
+  case "$a" in
+    --gate) GATE=1 ;;
+    --rust) RUST=1 ;;
+    --app) APP="${2:-}" ;;
+    -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) [ -z "$PREFIX" ] && PREFIX="$a" ;;
+  esac
+done
+[ -n "$APP" ] && shift 2
+
+# ── helpers ──────────────────────────────────────────────────────────
+wrap_go() { # file -> wrapped program on stdout (if it needs wrapping)
+  local f="$1" imports=""
+  grep -q 'func main(' "$f" && { cat "$f"; return; }
+  grep -q 'fmt\.'       "$f" && imports="$imports\n\t\"fmt\""
+  grep -q 'strings\.'   "$f" && imports="$imports\n\t\"strings\""
+  grep -q 'bufio\.'     "$f" && imports="$imports\n\t\"bufio\""
+  grep -qE 'os\.(Getenv|WriteFile|Setenv|Stat|Stdin|Stdout)' "$f" \
+    && imports="$imports\n\t\"os\""
+  grep -q 'exec\.'      "$f" && imports="$imports\n\t\"os/exec\""
+  grep -q 'strconv\.'   "$f" && imports="$imports\n\t\"strconv\""
+  grep -q 'filepath\.'  "$f" && imports="$imports\n\t\"path/filepath\""
+  grep -q 'bytes\.'     "$f" && imports="$imports\n\t\"bytes\""
+  grep -q 'sort\.'      "$f" && imports="$imports\n\t\"sort\""
+  grep -q 'time\.'      "$f" && imports="$imports\n\t\"time\""
+  { printf 'package main\n\nimport (\n%b\n)\n\nfunc main() {\n' "$imports"; cat "$f"; printf '\n}\n'; }
+}
+
+one() { # file -> "file\toracle\tjs\trust\treason" (tab-separated)
+  local f="$1" bn wrp orc js jsrc rs rsrc o= J= R= reason=""
+  bn=$(basename "$f")
+  wrp=$(wrap_go "$f")
+  tmp=$(mktemp -d)
+  printf '%s\n' "$wrp" > "$tmp/main.go"
+  o=$(cd "$tmp" && timeout "$TIMEOUT" go run main.go </dev/null 2>/dev/null); orc=$?
+  o=$(printf '%s' "$o" | tr '\n' '\036')   # record separator, keep exact bytes-ish
+  # ── JS target ──
+  a1=$(timeout "$TIMEOUT" "$GOSH" --shir "$f" --raw 2>/dev/null); jrc=$?
+  if [ $jrc -ne 0 ]; then J="EMIT-FAIL"; reason="frontend cannot parse/lower";
+  elif [ -z "$a1" ]; then J="REFUSE";
+  else
+    e=$(printf '%s' "$a1" | "$DEBASHC" --shir-in-estree - 2>/dev/null); jrc=$?
+    if [ $jrc -ne 0 ]; then J="TARGET-ERR"; reason="A1->estree failed";
+    else
+      J=$(cd "$tmp" && timeout "$TIMEOUT" node "$RUNNER" /dev/stdin --source "$f" <<<"$e" 2>/dev/null | tr '\n' '\036'); jrc=$?
+      [ $jrc -ge 128 ] && { J="CRASH"; reason="js crashed (rc $jrc)"; }
+    fi
+  fi
+  # ── Rust target ──
+  if [ "$RUST" = 1 ]; then
+    if [ $jrc -eq 0 ] && [ -n "$a1" ]; then
+      rs=$(printf '%s' "$a1" | "$OTRANS" - - --target rust 2>/dev/null); rsrc=$?
+      if [ $rsrc -ne 0 ]; then R="TARGET-ERR";
+      else
+        printf '%s\n' "$rs" > "$tmp/main.rs"
+        if (cd "$tmp" && timeout "$TIMEOUT" rustc -o main.rsbin main.rs 2>/dev/null); then
+          R=$(cd "$tmp" && timeout "$TIMEOUT" ./main.rsbin </dev/null 2>/dev/null | tr '\n' '\036'); rsrc=$?
+          [ $rsrc -ge 128 ] && R="CRASH"
+        else R="RUST-COMPILE-FAIL"; fi
+      fi
+    else R="n/a"; fi
+  else R="n/a"; fi
+  # ── verdicts vs the oracle ──
+  # normalize: command substitution strips the oracle's trailing newline,
+  # but the JS/Rust pipes converted it to a record separator first — strip
+  # a trailing separator from both sides before comparing.
+  o="${o%$'\036'}"; J="${J%$'\036'}"; R="${R%$'\036'}"
+  if [ "$o" = "$J" ]; then Jv=PASS; else [ "$J" = "EMIT-FAIL" -o "$J" = "REFUSE" -o "$J" = "TARGET-ERR" -o "$J" = "CRASH" ] && Jv="$J" || Jv=MISMATCH; fi
+  if [ "$o" = "$R" ]; then Rv=PASS; else [ "$R" = "EMIT-FAIL" -o "$R" = "TARGET-ERR" -o "$R" = "RUST-COMPILE-FAIL" -o "$R" = "CRASH" -o "$R" = "n/a" ] && Rv="$R" || Rv=MISMATCH; fi
+  rm -rf "$tmp"
+  printf '%s\t%s\t%s\t%s\t%s\n' "$bn" "$Jv" "$Rv" "$orc" "$reason"
+}
+
+# ── gather files ─────────────────────────────────────────────────────
+files=()
+if [ -n "$APP" ]; then
+  [ -f "$APP" ] || { echo "fail-go: no such app: $APP" >&2; exit 2; }
+  files+=("$APP")
+fi
+for f in "$CORPUS"/*.go; do
+  [ -f "$f" ] || continue
+  bn=$(basename "$f")
+  [ -n "$PREFIX" ] && [[ "$bn" == "$PREFIX"* ]] || [ -z "$PREFIX" ] || continue
+  files+=("$f")
+done
+
+export -f one wrap_go
+export GOSH DEBASHC OTRANS RUNNER TIMEOUT RUST
+# ── run ──────────────────────────────────────────────────────────────
+tmpd=$(mktemp -d)
+printf '%s\n' "${files[@]}" | xargs -P "$JOBS" -I{} bash -c 'one "$1"' _ {} > "$tmpd/out.tsv" 2>/dev/null
+
+js_pass=0; js_fail=0; rs_pass=0; rs_fail=0; total=0
+while IFS=$'\t' read -r bn Jv Rv orc reason; do
+  total=$((total+1))
+  [ "$Jv" = PASS ] && js_pass=$((js_pass+1)) || js_fail=$((js_fail+1))
+  if [ "$RUST" = 1 ]; then [ "$Rv" = PASS ] && rs_pass=$((rs_pass+1)) || rs_fail=$((rs_fail+1)); fi
+  if [ "$Jv" != PASS ] || { [ "$RUST" = 1 ] && [ "$Rv" != PASS ] && [ "$Rv" != n/a ]; }; then
+    printf '  %-28s js=%-12s rust=%-16s %s\n' "$bn" "$Jv" "$Rv" "$reason"
+  fi
+done < "$tmpd/out.tsv"
+echo "=== fail-go: $js_pass/$total js pass, ${rs_pass}/$total rust pass ==="
+rm -rf "$tmpd"
+[ "$GATE" = 1 ] && { [ "$js_fail" -gt 0 ] || { [ "$RUST" = 1 ] && [ "$rs_fail" -gt 0 ]; }; } && exit 1
+exit 0
