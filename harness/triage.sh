@@ -59,7 +59,7 @@ zsh-sh-go|testdata|zsh|./zsh-sh-go|run:zsh
 fish-sh-go|testdata|fish|./fish-sh-go|run:fish
 go-sh|testdata|sh,go|./go-sh|go-wrap
 powershell-sh-go|testdata|ps1|./powershell-sh-go|run:pwsh
-rust-frontend|testdata|rs|./rust-frontend|compile:rustc
+rust-frontend|testdata|rs|./target/debug/rust-frontend|compile:rustc
 zig-sh-go|testdata|zig|./zig-sh-go|run:zig
 # sh2perl — the SHARED sh corpus (bash → A1 via the core debashc),
 # swept through every backend so the GUI's sh→X buttons get a verdict
