@@ -986,7 +986,19 @@ EOF
                           python) timeout 15 python3 /tmp/eq_$$.py > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           rust) rustc /tmp/eq_$$.rs -o /tmp/eq_$$_bin 2>/dev/null && timeout 15 /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           zig)  timeout 30 "$eq_tool" run /tmp/eq_$$.zig > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
-                          sh)   timeout 15 sh -c '. /dev/fd/3' "$f" 3< /tmp/eq_$$.sh > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
+                          sh)   # argv0 = the source path (what `bash "$f"` sees),
+                                # mirroring the perl arm below. The REAL exit
+                                # code is captured (not collapsed to 0/1): the
+                                # verdict compares it to bash's, so scripts
+                                # that exit nonzero BY DESIGN (exit 1/3,
+                                # short-circuits) pass when the translation
+                                # reproduces the code — the old rc=0-on-both-
+                                # sides rule made them unpassable (the perl
+                                # arm adopted this first; the sh renders are
+                                # stdout- AND rc-identical to bash on the
+                                # whole corpus — verified per-file). A 124
+                                # (timeout) is caught by the guard below.
+                                timeout 15 sh -c '. /dev/fd/3' "$f" 3< /tmp/eq_$$.sh > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
                           java) javac -d /tmp /tmp/Sh2Program.java 2>/dev/null && timeout 15 java -cp /tmp Sh2Program > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           perl) # argv0 = the source path (what `bash "$f"` sees) so
                                 # $0-dependent stdout agrees with bash — the exact
@@ -1017,14 +1029,17 @@ EOF
                         # is a fail, never a pass (both sides empty would
                         # otherwise "match").
                         if [ "$eq_exit" != 124 ] && [ "$bash_rc" != 124 ] \
-                           && { { [ "$g_lang" = "perl" ] && [ "$eq_exit" = "$bash_rc" ]; } \
-                                || { [ "$g_lang" != "perl" ] && [ "$eq_exit" = 0 ] && [ "$bash_rc" = 0 ]; }; } \
+                           && { { { [ "$g_lang" = "perl" ] || [ "$g_lang" = "sh" ]; } && [ "$eq_exit" = "$bash_rc" ]; } \
+                                || { [ "$g_lang" != "perl" ] && [ "$g_lang" != "sh" ] && [ "$eq_exit" = 0 ] && [ "$bash_rc" = 0 ]; }; } \
                            && diff -q /tmp/eq_$$_out /tmp/eq_$$_ref >/dev/null 2>&1; then
                           pass=$((pass+1)); eq_pass=$((eq_pass+1))
                         else
                           fail=$((fail+1)); eq_fail=$((eq_fail+1)); fails="$f $fails"
                         fi
-                        rm -f /tmp/eq_$$_bin /tmp/eq_$$_out /tmp/eq_$$_ref /tmp/eq_$$.$eq_ext /tmp/Sh2Program.class /tmp/Sh2Program.java
+                        # the cleanup must never kill the gate under set -e: a
+                        # root-owned leftover in /tmp (operator artifacts like
+                        # /tmp/Sh2Program.java) makes rm exit 1.
+                        rm -f /tmp/eq_$$_bin /tmp/eq_$$_out /tmp/eq_$$_ref /tmp/eq_$$.$eq_ext /tmp/Sh2Program.class /tmp/Sh2Program.java || true
                         [ -n "$eq_scratch" ] && rm -rf "$eq_scratch"
                       else
                         pass=$((pass+1))
@@ -1046,8 +1061,18 @@ EOF
                     if bash "$WORKSPACE/harness/chimera-gate.sh" "$g_wt/target/debug/debashc" "$WORKSPACE"; then
                       echo "  [sh] backend gate: chimera green (passes under Ubuntu AND Chimera)"
                     else
-                      fail=$((fail+1))
-                      echo "  [sh] backend gate: CHIMERA RED — a test fails if it fails under Ubuntu OR Chimera (lists above)"
+                      chimera_rc=$?
+                      if [ "$chimera_rc" -eq 2 ]; then
+                        # deployment missing/broken (no sh-gate binary, or the
+                        # WSL sandbox failed to start — the chimera-gate's
+                        # exit-2 contract) — a sandbox verdict is impossible,
+                        # so it is NOT a renderer fail: skip, like the
+                        # missing-sh-gate case.
+                        echo "  [sh] backend gate: chimera skipped — sandbox deployment unavailable (exit 2)"
+                      else
+                        fail=$((fail+1))
+                        echo "  [sh] backend gate: CHIMERA RED — a test fails if it fails under Ubuntu OR Chimera (lists above)"
+                      fi
                     fi
                   fi
                   if [ "$fail" -gt 0 ]; then echo "  fails: $fails" | head -c 200; echo; exit 1; fi
