@@ -2290,8 +2290,14 @@ export const sh2 = {
     // ordering as _runProc).
     _flushStdout();
     // Run the body immediately (bash starts the job at once; stdout order
-    // matters for the corpus) and keep the promise for `_finish`.
-    const p = Promise.resolve().then(() => fn()).catch(() => {});
+    // matters for the corpus) — on a COPY of the shell state (bash's fork:
+    // the job is a subshell; its mutations are isolated and discarded; no
+    // feed-back — bash's no-arg `wait` returns 0 and `$?` right after `&`
+    // is the & command's own 0). The body is `(sh2) => body`; the
+    // parameter binds the clone for every sh2.* call and native-store
+    // access inside the body (see cloneShellForJob).
+    const shell = cloneShellForJob(this);
+    const p = Promise.resolve().then(() => fn(shell)).catch(() => {});
     this.pending.push(p);
     return true;
   },
