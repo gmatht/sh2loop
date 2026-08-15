@@ -519,6 +519,19 @@ case "${1:-}" in
     # glue an absolute path onto frontends/sh2perl/ and the A1 would be
     # garbage (the reference then fails → SKIP-ESTREE-REF)
     example="$(fe_abs "$1" "$(echo "$info" | cut -d'|' -f1)")/$2"
+    # ARG-ORDER GUARD (2026-08-16): a wrong-order call `triage.sh <fe>
+    # <backend> <example>` resolves the example to .../<corpus>/<backend>
+    # — a path that does not exist — and the emit "failure" recorded a
+    # SWAPPED-layout FAIL-FRONTEND-EMIT row (fe, ex, be) that no purge
+    # could ever match, re-escalating phantom --pi-fix-frontend sessions
+    # (c-sh-go t76/t79, cpp-sh-go t04, powershell-sh-go t02/t10/t26,
+    # zig-sh-go t01/t03/t13 — written by the estree worker's pair
+    # verification at 02:26-02:57 on 2026-08-16). Refuse loudly instead
+    # of poisoning the verdict store.
+    if [ ! -f "$example" ]; then
+      echo "triage.sh: example not found: $example (usage: triage.sh <frontend> <example> <backend>)" >&2
+      exit 2
+    fi
     a1f=$(mktemp -d "$TRIAGE/.row.XXXXXX")
     if emit_a1 "$1" "$example" > "$a1f/a1.json" 2>"$a1f/emit.err"; then
       nout=$(native_out "$1" "$example")
