@@ -174,13 +174,21 @@ native_out() {  # frontend example-file -> native stdout ("" = none: bat)
 }
 estree_ref_out() {  # a1-file -> the estree-proxy executed output
   local a1="$1"
-  if ! "$DEBASHC" --shir-in-estree "$a1" > "$TRIAGE/.ref.estree.json" 2>/dev/null; then
+  # the ref scratch is PID-unique: .ref.estree.json is shared by every
+  # pair, so a manual triage run WHILE the worker sweeps corrupts the
+  # other's reference (both write the same file — the worker's sweep was
+  # read as garbage → the pair got SKIP-ESTREE-REF). The .referr err file
+  # was already unique; the output file wasn't.
+  local refout; refout=$(mktemp "$TRIAGE/.ref.estree.XXXXXX")
+  if ! "$DEBASHC" --shir-in-estree "$a1" > "$refout" 2>/dev/null; then
+    rm -f "$refout"
     echo "__ESTREE_REF_FAIL__ core ingress/render failed"
     return 0
   fi
   local err; err=$(mktemp "$TRIAGE/.referr.XXXXXX")
   local out rc
-  out=$(timeout 30 node "$RUNNER" "$TRIAGE/.ref.estree.json" 2>"$err"); rc=$?
+  out=$(timeout 30 node "$RUNNER" "$refout" 2>"$err"); rc=$?
+  rm -f "$refout"
   if [ $rc -eq 124 ]; then
     rm -f "$err"; echo "__ESTREE_REF_FAIL__ reference timed out"; return 0
   fi
