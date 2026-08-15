@@ -12,6 +12,45 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v27: **`&` background jobs get copy-at-fork semantics (JS backend); the
+>   webworker path is designed but parked** (2026-08-15; submodule
+>   5e56ff2/72b7c61, workspace commit below). Bash `cmd &` FORKS — the job
+>   is a subshell with a copy of the shell state; the runtime's microtask
+>   emulation ran the body on the LIVE shared state, so a background job's
+>   mutations leaked into the parent (`x=1; { x=2; } & wait; echo $x` →
+>   `x=2`; same for `if &`, `for &`; a backgrounded FUNCTION call leaked
+>   too). Fix: the emitted body is now `sh2.background((sh2) => body)`
+>   (shir.rs arrow param; estree-gen/astring prints it) and the runtime's
+>   `background` runs it on `cloneShellForJob(this)` — an `Object.create`
+>   clone shadowing every mutable container (vars/arrays/assoc/exported/
+>   positional/fdTargets/shoptState/refVars/lifted-var stores; traps
+>   RESET per bash's subshell rule; functions shared — see the limitation).
+>   The parent never shares the clone; no feed-back (bash's no-arg `wait`
+>   returns 0 and `$?` after `&` is the & command's own 0). Verified: the 7
+>   existing `&` examples byte-identical vs bash, new corpus pin
+>   `105_background_copy_semantics.sh` (was x=2 → x=1), determinism holds,
+>   `cargo test --lib` 292/293 (the glsl failure is pre-existing in-flight
+>   worker WIP). **Documented limitation:** USER-FUNCTION bodies (`f &`)
+>   are shared closures whose internal `sh2` references bind the module
+>   instance — a function's state writes still touch the parent; the
+>   webworker path (a fresh module instance per job) fixes it.
+>   **Webworker design (assessed, parked):** `&` as real `worker_threads`/
+>   Web Workers gives true copy semantics (the demonstrated `f &` leak) and
+>   real parallelism (browser; CPU-bound bodies), but the corpus pins
+>   microtask stdout order and workers are the most expensive lowering — so
+>   the heuristic is a fact/policy split: the EMITTER classifies the body
+>   (`io` = has a subprocess → microtask clone; `cpu` = loops/arith only →
+>   worker candidate, weighted by the existing range analysis) and the
+>   RUNTIME owns the mechanism decision (capability + weight threshold),
+>   carried as an annotation on `sh2.background(fn, kind[, weight])` — one
+>   reference implementation (harness), spec-owned policy
+>   (`estree-api.md`), never two bespoke heuristics. Corpus rule: background
+>   examples must be order-deterministic (no unsynchronized parent↔job
+>   write races — the `(echo hi)& echo there` / `((echo hi)& echo there)`
+>   classes are banned; sleeps/wait pin ordering). Also fixed:
+>   `fail-estree` prefix/solo runs no longer clobber `.estree_failures.tsv`
+>   (the metric tsv had the same guard; a solo run used to wipe the
+>   full-run failure list mid-investigation).
 > - v26: **Worker allocation + cgroup enforcement for the gates**
 >   (`harness/WorkerPool.pm`, wired into `fail` / `fail-estree`; the GNU
 >   coreutils `gate` patch is staged for a root-owned apply). A gate's
