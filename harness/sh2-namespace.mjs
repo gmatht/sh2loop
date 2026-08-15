@@ -3654,28 +3654,44 @@ builtins.eval = function (args) {
     }
     if (ok) { this.lastExit = 0; return true; }
   }
-  // Dynamic (or unparseable) eval: ONE bash spawn — run the code, then in
-  // the SAME process print a marker + `set` + `declare -F`. The code runs
-  // ONCE (side effects are not duplicated), its real stdout is re-emitted
-  // (everything before the marker), and the variable state after it is
-  // parsed and synced back into the store.
-  // the marker must be ECHOED — a bare `__SH2_EVAL_END__` line would be
-  // run as a command (not found, stderr suppressed) and NEVER appear on
-  // stdout, so the split below would fall through to the whole `set`
-  // env and leak it to the program's output.
-  //
-  // Wire the EMULATED stdin into the child: the default pipe would never
-  // be written to, so a stdin-reading command inside the eval (`cmp -`,
-  // `cat`) would block forever — double-paren-subshell.sh's
-  // `eval cmp /dev/fd/5 -` hung exactly there. A string fd0 becomes the
-  // input (EOF after it), a file fd0 an open read fd, inherit for the
-  // script's own stdin, ignore for a closed fd.
-  const efd0 = this.fdTargets[0];
+  // Dynamic (or unparseable) eval: ONE bash spawn via runBashSync — the
+  // code runs ONCE (side effects are not duplicated), its real stdout is
+  // re-emitted (everything before the marker), and the variable state
+  // after it is parsed and synced back into the store.
+  runBashSync(this, code);
+  this.lastExit = 0;
+  return true;
+};
+
+// Run shell TEXT through a real bash child and sync the resulting shell
+// state back into the runtime store — the eval/source protocol. The text
+// runs ONCE in one bash -c, then the SAME process prints a marker +
+// `set` + `declare -F`:
+//   - the marker must be ECHOED — a bare `__SH2_EVAL_END__` line would be
+//     run as a command (not found, stderr suppressed) and NEVER appear on
+//     stdout, so the split below would fall through to the whole `set`
+//     env and leak it to the program's output.
+//   - stdout before the marker is the code's real output, re-emitted via
+//     the fd-aware emit (handles redirects/captures).
+//   - `set` lines parse back as NAME=value assignments (setVar — a sourced
+//     lib's assignments must survive into the caller's state, the
+//     dot-source-lib.sh contract); `declare -f` names become function
+//     stubs (same best-effort as eval).
+//
+// Wire the EMULATED stdin into the child: the default pipe would never
+// be written to, so a stdin-reading command inside the text (`cmp -`,
+// `cat`) would block forever — double-paren-subshell.sh's
+// `eval cmp /dev/fd/5 -` hung exactly there. A string fd0 becomes the
+// input (EOF after it), a file fd0 an open read fd, inherit for the
+// script's own stdin, ignore for a closed fd.
+function runBashSync(sh, code) {
+  _flushStdout();
+  const efd0 = sh.fdTargets[0];
   let syncInput;
   let syncStdio = ['pipe', 'pipe', 'pipe'];
   if (efd0.kind === 'string') syncInput = efd0.content;
   else if (efd0.kind === 'file' && efd0.readMode) {
-    try { syncStdio[0] = fs.openSync(expandWord(this, efd0.target), 'r'); }
+    try { syncStdio[0] = fs.openSync(expandWord(sh, efd0.target), 'r'); }
     catch { syncStdio[0] = 'ignore'; }
   } else if (efd0.kind === 'stdin') syncStdio[0] = 'inherit';
   else syncStdio[0] = 'ignore'; // `<&-` / dup-of-closed — no stdin
@@ -3687,22 +3703,21 @@ builtins.eval = function (args) {
   }
   if (!r.error && r.stdout) {
     const [out, ...rest] = String(r.stdout).split('__SH2_EVAL_END__\n');
-    if (out) emit(this, out);  // the code's real output — via the fd-aware emit (handles redirects/captures)
+    if (out) emit(sh, out);  // the code's real output — via the fd-aware emit (handles redirects/captures)
     for (const line of (rest.join('__SH2_EVAL_END__\n') || '').split('\n')) {
       const eq = line.indexOf('=');
       if (eq > 0 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(line.slice(0, eq))) {
-        this.setVar(line.slice(0, eq), line.slice(eq + 1));
+        sh.setVar(line.slice(0, eq), line.slice(eq + 1));
       } else if (line.startsWith('declare -f ')) {
         const fn = line.slice('declare -f '.length).trim();
-        if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(fn) && !this.functions.has(fn)) {
-          this.functions.set(fn, async () => {});
+        if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(fn) && !sh.functions.has(fn)) {
+          sh.functions.set(fn, async () => {});
         }
       }
     }
   }
-  this.lastExit = 0;
-  return true;
-};
+  return !r.error;
+}
 
 builtins.wait = async function () {
   for (const p of this.pending) { try { await p; } catch { /* bg failures ignored */ } }
@@ -3711,12 +3726,28 @@ builtins.wait = async function () {
   return true;
 };
 
-// source / .: run a file through a real shell (best effort; the file's own
-// commands were authored for bash).
+// source / .: run a file through bash IN-PROCESS-SEMANTICS — the eval
+// protocol (runBashSync): the file's stdout is re-emitted fd-aware and
+// its variable state is synced back into the caller's store. Sourcing
+// must share state with the sourcing script (dot-source-lib.sh: a
+// sourced lib's assignments persist); the old runShellFile spawn lost
+// every assignment in the child.
 builtins.source = function (args) {
   if (args.length === 0) { this.lastExit = 1; return false; }
   const file = expandWord(this, args[0]);
-  runShellFile(file, args.slice(1));
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); }
+  catch {
+    // bash: `bash: <file>: No such file or directory`, status 1
+    emitErr(this, `bash: ${file}: No such file or directory\n`);
+    this.lastExit = 1;
+    return false;
+  }
+  // `source file arg…` makes the args the file's positional params for
+  // the duration of the source (best effort — like eval, only the
+  // VARIABLE state syncs back, not positional changes).
+  const pos = args.slice(1).map(a => "'" + String(a).replace(/'/g, `'\\''`) + "'").join(' ');
+  runBashSync(this, (pos ? `set -- ${pos}\n` : '') + text);
   this.lastExit = 0;
   return true;
 };
