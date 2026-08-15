@@ -870,3 +870,180 @@ export function pushLastExitToEnd(program) {
   });
   return program;
 }
+
+// ── synced from sh2runtime/src/lower.js (commit 5e1182e + refinement):
+// directShellFnCalls — rewrite dispatch call sites of normalized
+// shell functions to direct JS calls. Inert in this harness (the
+// sh2loop emitter's functions are sh2.functions.set registrations,
+// not FunctionDeclarations — normalizeFunctions is not part of
+// this backend), present so the estree worker can review the
+// implemented pass against the request.
+//   sh2.callDirect("f", __fn_f, [args])  (sync direct — fn ref as arg 2)
+// Returns { name, args } (the ArrayExpression elements) or null.
+function shellFnCallInfo(call) {
+  if (!call || call.type !== "CallExpression" || !call.callee || call.callee.type !== "MemberExpression" ||
+      !call.callee.object || call.callee.object.type !== "Identifier" || call.callee.object.name !== "sh2" ||
+      !call.callee.property || call.callee.property.type !== "Identifier" ||
+      (call.callee.property.name !== "exec" && call.callee.property.name !== "fnCall" && call.callee.property.name !== "callDirect")) {
+    return null;
+  }
+  if (!call.arguments || call.arguments.length < 2 || !call.arguments[0] ||
+      call.arguments[0].type !== "Literal" || typeof call.arguments[0].value !== "string") return null;
+  const argIdx = call.callee.property.name === "callDirect" ? 2 : 1;
+  const argsArr = call.arguments[argIdx];
+  if (argsArr && argsArr.type !== "ArrayExpression") return null;
+  return { name: String(call.arguments[0].value), args: argsArr ? argsArr.elements : [] };
+}
+
+// ── directShellFnCalls: rewrite dispatch call sites of the NORMALIZED
+// shell functions to direct JS calls ─────────────────────────────────
+//
+// normalizeFunctions (estree.js) converts `sh2.functions.set("f",
+// arrow)` registrations into native `function f(...)` declarations — but
+// leaves every CALL SITE as `await sh2.fnCall("f", [args])` (or the
+// sync `sh2.callDirect("f", __fn_f, [args])`), which pays the runtime
+// dispatch (function-table lookup, scriptArgs save/restore, argument
+// stringifying, a Promise) per call. The texture generators call the
+// pure helpers (lat_hash / smooth_w / vnoise2) thousands of times per
+// texture; the dispatch is the measured hot cost.
+//
+// The pass collects the FunctionDeclaration names + async flags and
+// rewrites every exec/fnCall/callDirect of a known function to a direct
+// call: `await f(args)` for async targets, `f(args)` for sync. Output
+// vars stay module-level (normalizeFunctions' design), so the direct
+// call is semantically identical to the dispatch+adapter path.
+// Functions whose body has an explicit `return N` keep the dispatch
+// (the adapter propagates $? — the conservative fallback).
+export function directShellFnCalls(program) {
+  if (!program || program.type !== "Program" || !Array.isArray(program.body)) return program;
+  const fns = new Map(); // name → { async, hasReturn, posRefs }
+  for (const st of program.body) {
+    if (!st || st.type !== "FunctionDeclaration" || !st.id || st.id.type !== "Identifier") continue;
+    let hasReturn = false;
+    let posRefs = false;
+    const scan = (n) => {
+      if (!n || typeof n !== "object") return;
+      if (Array.isArray(n)) { for (const x of n) scan(x); return; }
+      if (n.type === "ReturnStatement") hasReturn = true;
+      // a NESTED function's `$1..$9` are ITS OWN positionals (its own
+      // dispatch sets them) — only the outer body's refs matter for the
+      // direct-call wrapper, so don't descend
+      if ((n.type === "ArrowFunctionExpression" || n.type === "FunctionExpression" || n.type === "FunctionDeclaration") && n !== st) return;
+      if (n.type === "MemberExpression" && n.computed === false &&
+          n.object && n.object.type === "Identifier" && n.object.name === "sh2" &&
+          n.property && n.property.type === "Identifier" && n.property.name === "positional") posRefs = true;
+      for (const k of Object.keys(n)) if (k !== "loc") scan(n[k]);
+    };
+    scan(st.body);
+    fns.set(st.id.name, { async: !!st.async, hasReturn, posRefs });
+  }
+  if (!fns.size) return program;
+
+  const isCall = (n, obj, fn) =>
+    n && n.type === "CallExpression" && n.callee && n.callee.type === "MemberExpression" &&
+    n.callee.object && n.callee.object.type === "Identifier" && n.callee.object.name === obj &&
+    n.callee.property && n.callee.property.type === "Identifier" && n.callee.property.name === fn;
+  // The dispatch's args are word-LIST coerced (`X.split(/\s+/)
+  // .filter(w => w.length > 0)` — the shell's unquoted-expansion split);
+  // the native function's params are plain STRINGS (the adapter passes
+  // sh2.positional[N]), so unwrap the split back to the raw string.
+  // `String(x).split(...)` → x; `(sh2.vars.x ?? "").split(...)` → the
+  // store read.
+  const unwrapWordList = (n) => {
+    if (!n || n.type !== "CallExpression" || !n.callee || n.callee.type !== "MemberExpression" ||
+        !n.callee.property || n.callee.property.type !== "Identifier" || n.callee.property.name !== "filter" ||
+        !n.arguments || n.arguments.length !== 1) return n;
+    const split = n.callee.object;
+    if (!split || split.type !== "CallExpression" || !split.callee || split.callee.type !== "MemberExpression" ||
+        !split.callee.property || split.callee.property.type !== "Identifier" || split.callee.property.name !== "split" ||
+        !split.arguments || !split.arguments.length) return n;
+    let base = split.callee.object;
+    // String(x).split(...) → x
+    if (base && base.type === "CallExpression" && base.callee && base.callee.type === "Identifier" &&
+        base.callee.name === "String" && base.arguments && base.arguments.length === 1) base = base.arguments[0];
+    return base;
+  };
+  const directStmt = (info) => {
+    const f = fns.get(info.name);
+    const args = info.args.map((a) => rewrite(unwrapWordList(a)));
+    const callExpr = {
+      type: "CallExpression",
+      callee: { type: "Identifier", name: info.name },
+      arguments: args,
+      optional: false,
+    };
+    let expr = callExpr;
+    if (f.posRefs) {
+      // the callee reads `$5..$9` via `sh2.positional[N]` — the runtime
+      // dispatch sets that array for the call, so the DIRECT call must
+      // too (and restore the caller's positionals after, exactly like
+      // callDirect). Without it the HUD/menu rects lose their colour
+      // (the device skips <7-number rect lines → invisible text).
+      const prev = { type: "Identifier", name: "prevArgs" };
+      const sh2Pos = () => ({
+        type: "MemberExpression", computed: false, optional: false,
+        object: { type: "Identifier", name: "sh2" },
+        property: { type: "Identifier", name: "positional" },
+      });
+      const call = f.async ? { type: "AwaitExpression", argument: callExpr } : callExpr;
+      expr = {
+        type: "CallExpression",
+        callee: {
+          type: "ArrowFunctionExpression", async: !!f.async, params: [], expression: false, generator: false,
+          body: {
+            type: "BlockStatement",
+            body: [
+              { type: "VariableDeclaration", kind: "const", declarations: [
+                { type: "VariableDeclarator", id: prev, init: sh2Pos() },
+              ] },
+              { type: "ExpressionStatement", expression: {
+                type: "AssignmentExpression", operator: "=", left: sh2Pos(),
+                right: { type: "ArrayExpression", elements: args },
+              } },
+              { type: "TryStatement",
+                block: { type: "BlockStatement", body: [{ type: "ReturnStatement", argument: call }] },
+                handler: null,
+                finalizer: { type: "BlockStatement", body: [
+                  { type: "ExpressionStatement", expression: {
+                    type: "AssignmentExpression", operator: "=", left: sh2Pos(), right: prev,
+                  } },
+                ] },
+              },
+            ],
+          },
+        },
+        arguments: [],
+      };
+      if (f.async) expr = { type: "AwaitExpression", argument: expr };
+    } else if (f.async) {
+      expr = { type: "AwaitExpression", argument: callExpr };
+    }
+    return { type: "ExpressionStatement", expression: expr };
+  };
+  const rewrite = (node) => {
+    if (!node || typeof node !== "object") return node;
+    if (Array.isArray(node)) return node.map(rewrite);
+    if (node.type === "ExpressionStatement" && node.expression) {
+      let e = node.expression;
+      if (isCall(e, "sh2", "guard") && e.arguments && e.arguments.length === 1) e = e.arguments[0];
+      if (e && e.type === "AwaitExpression") {
+        const inner = rewrite(e);
+        if (inner && inner.type === "ExpressionStatement") return inner;
+        return { type: "ExpressionStatement", expression: inner };
+      }
+      const info = shellFnCallInfo(e);
+      if (info && fns.has(info.name) && !fns.get(info.name).hasReturn) return directStmt(info);
+      return { type: "ExpressionStatement", expression: rewrite(node.expression) };
+    }
+    if (node.type === "AwaitExpression" && node.argument && node.argument.type === "CallExpression") {
+      const info = shellFnCallInfo(node.argument);
+      if (info && fns.has(info.name) && !fns.get(info.name).hasReturn) return directStmt(info);
+    }
+    const out = {};
+    for (const k of Object.keys(node)) out[k] = rewrite(node[k]);
+    return out;
+  };
+  program.body = program.body.map(rewrite);
+  return program;
+}
+
