@@ -305,3 +305,5 @@ go-sh: `filepath.Ext needs a string literal (v2)` — the probe
   on that path — the app's `%t`/`%v` uses also hit the §2/§3 boundaries
   (struct fields, variadics) first and stay refused via the literal-format
   gate.
+
+## OUTCOME: rejected: contract-extension proposals (#1 index_var For form, #4 stringIndex, #6 stringSplit) have no emitting consumer — go-sh refuses loudly by design (Refuse > guess); boundaries #2/#3/#5 need no core change. A new A1 primitive is a plan-level design decision, not a corpus fix.
