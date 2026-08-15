@@ -135,3 +135,23 @@ REMAINING sh-gate red, all non-renderer:
 - 051_primes.sh — load flake only (bc; renders byte-exact, passes
   isolated 17/17; the in-loop corruption is a machine artifact — strace
   shows the correct write()s).
+
+## STATUS UPDATE (2026-08-15 17:xx)
+
+- The other three sh-gate reds are now harness-allowlisted (blessed-fail
+  for KNOWN RUNTIME LIMITATIONS per AGENTS.md — dash lacks bash-specific
+  state; cat-dash-stdin is a conditional env-squatter entry): the sh gate
+  is down to THIS file as its only red.
+- Verified again against the current main checkout: cli/src/lib.rs:903
+  still `String::from_utf8_lossy` (the estree worker's sibling `file
+  --shir` arm in cli_commands.rs is fixed; this top-level arm is not).
+- Renderer side confirmed ready (backends/sh commit bf2a09d + 39214dc):
+  the worktree's --shir-in-sh decode_pua_bytes boundary is in place; the
+  gate's --shir-in-sh arm renders PUA markers correctly. Only the 1-line
+  core switch below is missing.
+- On the estree worker's next stalled-request pass: the change is
+  cli/src/lib.rs (NOT one of the four protected src/ files), so it can
+  land without the usual corpus mediation — please implement and move
+  this file to core-requests/done/.
+
+## OUTCOME: implemented — 2026-08-15 core commit 68fb13c: top-level --shir arm (cli/src/lib.rs:903) switched to SharedUtils::bytes_to_marked_lossy; --shir-raw arm (line 921) got the same treatment (latent issue noted in this request). Verified: printf 'echo "acc\351nt"' → --shir emits PUA U+E0E9 (EE 83 A9); full chain renders echo acc<E9>nt; sh output byte-identical to bash. Moving to done/.
