@@ -436,6 +436,28 @@ EOF
     fi
     trans_out=$(run_estree "$tmp/e.json" "$f")
   fi
+  # Second chance: the core's debashc binary is rebuilt CONCURRENTLY by
+  # the estree worker while implementing core requests (src/estree.rs,
+  # src/shir.rs held mid-edit). A snapshot taken from such a build can
+  # render exit-0-but-UNRUNNABLE ESTree for real programs (a SyntaxError
+  # or an immediate runtime crash) while the minimal empty-program
+  # snapshot verify passes — every test then DIFFs with empty transpiled
+  # stdout, and the retry above reuses the SAME broken e.json
+  # (fish-sh-go 2026-08-15 17:27:56: 0/80 match while the estree worker
+  # held src/estree.rs mid-edit; gate green again after its next build
+  # landed). On a persistent mismatch, re-snapshot the oracle (picks up
+  # the settled build), re-convert, and re-run BOTH sides once. A real
+  # deterministic regression fails this tier too and is still reported
+  # as DIFF/FAIL (same policy as the relink retries above).
+  if [ "$(normalize "$native_out")" != "$(normalize "$trans_out")" ]; then
+    if "$root/harness/snapshot-debashc.sh" "$debashc" "$snap" 2>/dev/null && \
+       "$snap" --shir-in-estree "$tmp/a1.json" > "$tmp/e.json" 2>/dev/null; then
+      if [ "$native_ran" -eq 1 ]; then
+        native_out=$(run_native "$f") || true
+      fi
+      trans_out=$(run_estree "$tmp/e.json" "$f")
+    fi
+  fi
   if [ "$(normalize "$native_out")" = "$(normalize "$trans_out")" ]; then
     record PASS; echo "OK   $bn (stdout match)"
   else
