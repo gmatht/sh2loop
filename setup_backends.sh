@@ -919,6 +919,18 @@ EOF
                     if [ -z "$shir" ]; then
                       skip=$((skip+1)); continue
                     fi
+                    # a source bash itself cannot parse (the parse-* syntax-
+                    # error examples) is NOT a testable translation target:
+                    # bash exits 2 before running anything, and the core's
+                    # canonical empty-program fallback for a parse failure is
+                    # indistinguishable from a genuinely empty file. Skip —
+                    # the chimera gate already excludes this class
+                    # (original-rc!=0), and the rc-equality verdict would
+                    # otherwise fail the empty translation (rc 0) against
+                    # bash's rc 2 forever.
+                    if ! bash -n "$f" 2>/dev/null; then
+                      skip=$((skip+1)); continue
+                    fi
                     g_out=""
                     if [ "$g_binmode" = 1 ]; then
                       if g_out=$("$g_wt/target/debug/${g_lang}_backend" "$f" 2>/dev/null); then ok=1; else ok=0; g_out=""; fi
