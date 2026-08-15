@@ -416,8 +416,18 @@ sweep() {
         # --pi-fix-frontend sessions for cpp-sh-go. Purge those too:
         # the successful emit proves the frontend works regardless of
         # the key artifact.
+        # SWAPPED legacy layout (2026-08-16 02:26-02:44 artifact): a
+        # stale/anomalous writer emitted FAIL-FRONTEND-EMIT rows as
+        # (fe, ex, be) instead of (fe, be, ex) — 21 rows across
+        # c-sh-go/cpp-sh-go/powershell-sh-go/zig-sh-go (the c-sh-go
+        # t76/t79 rows were proven false: every direct emit + the gate
+        # pass). The swapped rows' example sits in $2, so none of the
+        # $3-keyed clauses above can ever purge them and the phantom
+        # keys re-escalate forever. Purge the swapped form too — a
+        # successful emit proves the frontend works regardless of
+        # which column holds the example.
         awk -F'\t' -v fe="$fe" -v ex="$ex" -v cd="$fe_corpus" \
-          '!($1==fe && $3==ex && $4=="FAIL-FRONTEND-EMIT") && !($1==fe && $3==cd "/" ex && $4=="FAIL-FRONTEND-EMIT") && !($1==fe && $3==ex "." && $4=="FAIL-FRONTEND-EMIT")' "$VTSV" \
+          '!($1==fe && $3==ex && $4=="FAIL-FRONTEND-EMIT") && !($1==fe && $3==cd "/" ex && $4=="FAIL-FRONTEND-EMIT") && !($1==fe && $3==ex "." && $4=="FAIL-FRONTEND-EMIT") && !($1==fe && $2==ex && $4=="FAIL-FRONTEND-EMIT")' "$VTSV" \
           > "$VTSV.purge" 2>/dev/null && mv -f "$VTSV.purge" "$VTSV" \
           || rm -f "$VTSV.purge"
         nout=$(native_out "$fe" "$example")
