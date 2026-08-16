@@ -314,6 +314,22 @@ go-sh: `filepath.Ext needs a string literal (v2)` — the probe
   triage pass (the os.Stat if-form works only because `err == nil` maps
   to a path test, `test -e`).
 
+  NOTE (landed, FRONTEND-GAP not boundary): this bullet's core
+  justification was STALE — the A1 If cond IS a command-status shape:
+  the core's own `if b=$(cat p); then` lowering (debashc file --shir)
+  is Call{func:"assign", args:[Str(b), Str("="), Capture{native:false,
+  expr:Arrow{body:[Expr exec cat …]}}]}, and `if ! b=$(cat p); then` is
+  the Not BinOp over the same assign (both verified executing correctly
+  end-to-end through --shir-in-estree + estree-runner). The frontend
+  fix landed in go-sh.go parseIf: `if <name>, err := os.ReadFile(p);
+  err == nil {` lowers to that assign-capture cond (err != nil → the
+  Not BinOp); the old behavior was a bare parser crash (`expected "{",
+  got ","` — parseIf only special-cased `if _, err := os.Stat(...)`),
+  not a deliberate refusal. Probe templates/go/read_file_if.go GREEN
+  (oracle == translated; the app's instance is cmd/go-sh/main.go:29 —
+  `if b, err := os.ReadFile(inp); err == nil {`). Corpus 93/93 + make
+  test green.
+
 ---
 
 ## 11. NEED — array-valued positional copy (`os.Args[1:]`, 2 uses)
