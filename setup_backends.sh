@@ -1018,6 +1018,32 @@ EOF
                     fi
                     stub_total=$((stub_total + s))
                     if [ "$ok" = 1 ] && [ "$s" -eq 0 ]; then
+                      # ANTI-CHEAT (perl only): the equivalence gate alone
+                      # would PASS a bash-wrapper / qx-cheat — stdout matches
+                      # bash because it IS bash (sh2perl, not sh2sh). Mirror
+                      # ./fail's two guards: reject the whole-script
+                      # `system('bash', '<file>')` fallback, and run
+                      # check_qx.pl on the render (builtins must lower
+                      # NATIVELY). A violation = the file FAILS the gate even
+                      # though its stdout happens to match.
+                      if [ "$g_lang" = perl ]; then
+                        if printf '%s' "$g_out" | grep -qE "system\('bash',\s*'[^']*'\)"; then
+                          echo "  [perl] anti-cheat: bash-wrapper fallback in $f — FAIL" >> "$WORKSPACE/loop-backend-perl.log"
+                          fail=$((fail+1)); fails="$f $fails"; continue
+                        fi
+                        printf '%s' "$g_out" > /tmp/eq_$$.pl
+                        # capture the count, NOT the pipeline status: check_qx
+                        # exits with the violation count (nonzero), so under
+                        # set -euo pipefail a `perl ... | grep -q FAIL` if-
+                        # condition is ALWAYS false (pipefail propagates
+                        # check_qx's nonzero) — grep matched but the branch
+                        # never fired. Count + test the count instead.
+                        qxout=$(perl "$ROOT/check_qx.pl" /tmp/eq_$$.pl 2>/dev/null | grep -c FAIL || true)
+                        if [ "${qxout:-0}" -gt 0 ]; then
+                          echo "  [perl] anti-cheat: check_qx violation in $f — FAIL" >> "$WORKSPACE/loop-backend-perl.log"
+                          fail=$((fail+1)); fails="$f $fails"; continue
+                        fi
+                      fi
                       if [ "$eq_gate" = 1 ]; then
                         # EQUIVALENCE: compile+run the render, diff its stdout
                         # against `bash "$f"` and compare exit codes (perl:
@@ -1136,6 +1162,24 @@ EOF
                     fi
                   done
                   echo "  [$g_lang] backend gate: $pass/$((pass+skip+fail)) corpus render OK, $fail fail ($stub_files stubs, $eq_fail equiv), $skip skip ($al_count allowlisted) — $stub_total stubs emitted${eq_gate:+; equiv: $eq_pass pass vs bash}"
+                  # the Go corpus through this backend (the dog-food target):
+                  # the Go→<lang> verdict is part of the backend's scope. rust
+                  # measures it (fail-go --rust); the corpus-wide bash gate
+                  # above is the primary ladder, this is the Go-side pin.
+                  if [ "$g_lang" = "rust" ] && [ -x "$WORKSPACE/fail-go" ]; then
+                    if bash "$WORKSPACE/fail-go" --rust --gate >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
+                      echo "  [rust] Go corpus via fail-go --rust: GREEN" >> "$WORKSPACE/loop-backend-$g_lang.log"
+                    else
+                      echo "  [rust] Go corpus via fail-go --rust: RED — Go→Rust ladder (a backend gap; the worker grinds it)" >> "$WORKSPACE/loop-backend-$g_lang.log"
+                      fail=$((fail+1))
+                    fi
+                  fi
+                  # the KNOWN report location (summarize-progress.sh reads this,
+                  # not the log): one timestamped line, newest last
+                  mkdir -p "$WORKSPACE/gate-reports"
+                  printf '%s [%s] backend gate: %s/%s corpus render OK, %s fail (%s stubs, %s equiv), %s skip\n' \
+                    "$(date +%FT%T)" "$g_lang" "$pass" "$((pass+skip+fail))" "$fail" "$stub_files" "$eq_fail" "$skip" \
+                    >> "$WORKSPACE/gate-reports/backend-$g_lang.report"
                   # CHIMERA gate (sh only): the bash-free WSL sandbox (BSD
                   # shell + busybox toolchain, no bash/perl/GNU coreutils). A
                   # test PASSES only if it passes under BOTH Ubuntu (dash,
