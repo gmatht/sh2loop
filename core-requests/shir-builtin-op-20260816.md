@@ -82,6 +82,48 @@ Target: the A1 carries `builtin("ls")`, `builtin("echo")`, `builtin("tr")`,
 and `grepMatches` (the grep-o transform); `check_qx_shir.py` exits 0; all
 four backends render native code from the native A1.
 
+## FOLD-LIFT SPECS — the estree-only command folds that become shIR transforms
+
+The umbrella `builtin` op covers the raw `exec`→native movement. These
+further estree-only rewrites (render-time in estree.rs today, pinned by
+its tests) should ALSO move into shared transforms so rust/perl inherit
+them. Each: estree test | shIR target | failing case.
+
+1. **egrep → grep -E** (`egrep_lowers_to_sync_builtin`): `exec("egrep", [PAT, FILE])`
+   → `builtin("grep", ["-E", PAT, FILE])` (the estree runtime's
+   `builtins.egrep = grep -E` alias). A static-foldable alias — pure
+   semantics, no JS.
+   Failing case: `x=$(egrep '^pattern' /dev/null)` — rust/perl shell it;
+   the A1 should carry `builtin("grep", ["-E", ...])`.
+
+2. **quiet-grep capture fold** (`quiet_grep_cmdsub_test_folds_constant`):
+   a capture whose pipeline ends in `grep -q`/`grep -s` has NO observable
+   stdout (the value is always "") — the enclosing value test folds to a
+   constant. The A1 capture of a quiet-grep tail → constant "".
+   Failing case: `[ "$(echo "$v" | grep -q p)" ]` — the test is
+   constant-false; rust/perl run the pipeline per evaluation.
+
+3. **case-cmdsub static chains** (`case_cmdsub_pattern_folds_to_static_chain`):
+   a case whose pattern is a command substitution over a static command
+   (uname/date/echo) folds to the static chain at compile time.
+   Failing case: `case $(uname) in Linux) ...` — the discriminant is
+   statically known; rust/perl should not spawn bash per match.
+
+4. **param-default cmdsub** (`param_default_cmdsub_defaults_lower_native`):
+   `x=${y:-$(echo LIT)}` — the default is a static cmdsub → the literal.
+   Failing case: the default runs a bash spawn in rust/perl today.
+
+5. **uname/pwd test-operand folds** (`uname_cmdsub_test_operand_lowers_native`):
+   `[[ $(uname -r) == 5.4.* ]]` — the cmdsub operand folds to the native
+   value + the glob folds to a prefix test; `[[ "$(pwd)" = ... ]]` → the
+   cwd field. Depends on the `builtin` op (uname/pwd native) + the test
+   fold.
+
+Priority (by corpus gap + payoff): the umbrella builtin-lift first
+(`core-requests/transforms/builtin_lift.rs` — ready to compile), then
+(1) egrep, (2) quiet-grep, (3) case-cmdsub, (4) param-default, (5)
+test-operands.
+
 ## VALIDATION
 
 - `check_qx_shir.py` exit 0 over the corpus (the 2738-violation ladder
