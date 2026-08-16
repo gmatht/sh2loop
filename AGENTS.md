@@ -20,7 +20,15 @@ revision history).
   main in; `--remove` cleans up. Merge discipline: backend commits push to
   main only when they don't touch the shared core (src/shir.rs, src/ir.rs,
   src/estree.rs, src/parser/); the core stays single-owner during the
-  lowering phase.
+  lowering phase. **Transforms (`src/transforms/`, `src/shir_passes/`) are
+  NOT single-owner — PLAN §11 marketplace:** a backend implements new
+  transforms, fixes/updates existing ones, decides the sharing scope, and
+  OFFERS them; other backends accept or reject (per-backend manifest,
+  compile-time for transforms, render-time verdict for contract nodes).
+  The core's transform role is build CI + bug-fixing the canonical set;
+  updates to accepted transforms are offers too, and when all acceptors
+  land the new version the old one is pruned (no forks — a modification is
+  a new transform).
 - `harness/check_ast.pl` — AST-structure regression tests (pins parser gaps
   like `echo x $$` vs `echo x$$` distinguishability). KNOWN AST GAP cases
   COUNT AS FAILURES (exit 1) — never blessed; the count drops only when a
