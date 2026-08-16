@@ -1,0 +1,46 @@
+{
+  "name": "sh2-test-grammar",
+  "version": 1,
+  "description": "The machine-readable grammar of the `test(\"...\")` string — the frontends' condition channel (py-sh-go `test(\"$x -gt 1\")`, c-sh-go `test(\"$a -eq $b -a ...\")`, every frontend lowers its languages' conditions into it). Frontends must DERIVE their condition lowering from this spec instead of rediscovering the grammar by trial. The authoritative implementation is `parseTest`/`evalTest` in harness/sh2-namespace.mjs; this file is the contract documentation (core request frontends-test-grammar-20260806).",
+  "input": "A single string; the runner tokenizes it by splitting on whitespace (the shell's word-splitting already happened on the frontend side — each operand is one token, expansions pre-evaluated).",
+  "argument_count_semantics": {
+    "0 tokens": "false (`[ $unset ]` → `[ ]`)",
+    "1 token": "true iff the token is non-empty — even when it LOOKS like an operator (`[ -gt ]` is a string test); a lone `!` is false (the empty string)",
+    "2+ tokens": "parsed with the precedence grammar below"
+  },
+  "precedence": [
+    { "level": 3, "name": "or", "op": "-o", "assoc": "left", "note": "precedence below -a, matching POSIX test" },
+    { "level": 2, "name": "and", "op": "-a", "assoc": "left" },
+    { "level": 1, "name": "not", "op": "!", "prefix": true, "note": "binds tighter than -a/-o" },
+    { "level": 0, "name": "primary", "note": "parenthesized group `( expr )`, unary flag, binary comparison, or a bare string (truthy iff non-empty)" }
+  ],
+  "unary_flags": {
+    "string_tests": { "-n": "true iff arg non-empty", "-z": "true iff arg empty" },
+    "file_tests": {
+      "-f": "regular file exists", "-d": "directory exists", "-e": "exists", "-s": "exists and size > 0",
+      "-x": "executable", "-w": "writable", "-r": "readable", "-L": "symlink", "-h": "symlink (alias of -L)",
+      "-b": "block device", "-c": "char device", "-p": "fifo", "-u": "setuid", "-g": "setgid",
+      "-k": "sticky bit", "-S": "socket", "-O": "owned by euid", "-G": "owned by egid", "-N": "modified since last read",
+      "-t": "fd is a tty"
+    },
+    "note": "a dangling flag with no operand (`[[ -n $x ]]` with x empty) evaluates against the empty string (`-n \"\"` is false)"
+  },
+  "binary_ops": {
+    "string": { "=": "equal", "==": "equal (glob pattern when the rhs contains glob chars)", "!=": "not equal", "=~": "rhs is an ERE regex matched against lhs (documented guarantee — the runner implements it)" },
+    "integer": { "-eq": "equal", "-ne": "not equal", "-lt": "less", "-le": "less-or-equal", "-gt": "greater", "-ge": "greater-or-equal", "note": "non-integer operands make the WHOLE test false (bash: integer expression expected, exit 2)" },
+    "file": { "-nt": "newer than", "-ot": "older than", "-ef": "same file" },
+    "lexicographic": { "<": "less (strcmp)", ">": "greater (strcmp)" }
+  },
+  "expansion_rules": {
+    "$var": "the variable's value at test time — the frontend emits `$name` text; the runtime expands it (or the emitter inlines lifted bindings)",
+    "quoting": "the test string is ONE string — the frontend is responsible for embedding its operands (quote-joined) so whitespace inside an operand survives",
+    "split": "the runtime does NOT field-split inside the test string (word-splitting happened at tokenization on the frontend side)"
+  },
+  "tags": {
+    "double_bracket": "the A1 test call may carry a trailing `[[` tag arg (extglob-nocasematch-20260806): double-bracket style = no word splitting, extglob patterns, =~ regex, no empty-arg ambiguity"
+  },
+  "semantics": {
+    "exit_status": "the test evaluates to true/false; the runner records it as lastExit (0/1) for `&&`/`||`/if/while contexts",
+    "native_lowering": "the ESTree emitter may lower tests to NATIVE JS comparisons when the operand values are statically safe (numeric ops on lifted numerics, string equality on store-free values); the native forms must agree with this grammar"
+  }
+}
