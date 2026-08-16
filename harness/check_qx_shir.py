@@ -40,8 +40,15 @@ EXEMPTIONS = load_exemptions(
 )
 
 
-def walk(obj, violations, path):
-    """Recursively find exec calls of builtins.json commands in the A1."""
+def walk(obj, violations, path, in_capture=False):
+    """Recursively find exec calls of builtins.json commands in the A1.
+
+    Capture-context execs are EXEMPT by design: a command substitution
+    (`$(echo …)`) is the async capture path — the exec-to-builtin
+    transform deliberately keeps it raw (the capture renderers' native
+    folds key on the exec command name), so counting it here would flag
+    the documented behavior as a gap.
+    """
     if isinstance(obj, dict):
         # a Call node: {"type":"Call","func":X,"args":[...]}
         if obj.get("type") == "Call" and obj.get("func") == "exec":
@@ -52,13 +59,27 @@ def walk(obj, violations, path):
                 # a Var-sourced command is not statically checkable — skip
                 if cmd.startswith("$"):
                     pass
-                elif base in BUILTINS and not any(base.startswith(e) for e in EXEMPTIONS):
+                elif "/" in cmd:
+                    # a path-qualified command is the EXTERNAL binary
+                    # (`/bin/echo ≠` the bash builtin) — a legitimate
+                    # shell-out, not a transform gap
+                    pass
+                elif (
+                    not in_capture
+                    and base in BUILTINS
+                    and not any(base.startswith(e) for e in EXEMPTIONS)
+                ):
                     violations.append((path, cmd))
         for k, v in obj.items():
-            walk(v, violations, f"{path}.{k}")
+            walk(
+                v,
+                violations,
+                f"{path}.{k}",
+                in_capture or obj.get("type") == "Capture",
+            )
     elif isinstance(obj, list):
         for i, v in enumerate(obj):
-            walk(v, violations, f"{path}[{i}]")
+            walk(v, violations, f"{path}[{i}]", in_capture)
 
 
 def main():
