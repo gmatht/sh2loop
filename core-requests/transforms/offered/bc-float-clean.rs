@@ -315,3 +315,16 @@ fn strip_trailing_add_zero(t: &str) -> Option<String> {
     }
     Some(prefix.trim_end().to_string())
 }
+//!
+//! ## Manifest (PLAN §11.4)
+//! name: bc-float-clean
+//! prereqs: [] (a pure IR-level identity strip — no analyses consumed)
+//! invariant: only `echo … | bc` captures whose LAST literal ends in
+//!   `+ 0.0` AND whose remainder already contains a decimal point are
+//!   touched; every other shape is left byte-identical (refuse > guess).
+//!   Output is behaviourally identical (X + 0.0 == X for finite values).
+//! scope: offered to glsl (owner — the mimecroft shaders) and sh (which
+//!   also has a `bc` path); all other backends expected to reject (their
+//!   `qx{echo … | bc}` captures are runtime, not IR, so the strip is a
+//!   no-op for them).
+//! updates: none (first offer; un-rejected from the pre-marketplace pile)
