@@ -315,3 +315,5 @@ it; the sh worker's next gate cycle will see the failures (the 12
 arithmetic files + 4 grep files in the chimera gate's
 `bad_translation.txt` and the residual bash-`c` failures the
 recursion would now handle) and has the context to fix.
+
+## OUTCOME: rejected: out of scope — the remaining work (renderer arms A/B/C/D + the four CLI modes) is backends/sh worktree code owned by the sh backend worker (the request's own SCOPE/OWNERSHIP section says the estree loop cannot implement it); the shared-core transforms it depends on (arith_forms, grep_to_case, process_subst) are all landed and verified (estree 546/546), and the sh worktree already renders ArithAst::Assign/IncDec (6611) and lowers bash -c → sh -c (4301).
