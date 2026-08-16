@@ -448,6 +448,16 @@ case "${1:-}" in
                   echo $! > "$bw_dir/loop-backend-$bw_lang.pid"
                   echo "[$bw_lang] backend worker started (pid $(cat "$bw_dir/loop-backend-$bw_lang.pid")) — log: $WORKSPACE/loop-backend-$bw_lang.log"
                   exit 0 ;;
+  --start-core-worker) # the CORE/CONTRACT worker (TRANSLATE_ONE_APPLICATION fleet
+                  # role #1): single owner of the shared IR + the A1 contract + the
+                  # transforms + the core-requests queue + the A1-native check
+                  # (check_qx_shir.py). Highest priority — every backend/frontend
+                  # queues to it. Scope: sh2perl/src/ + core-requests/ + harness A1
+                  # checks; the estree worker defers requests (CORE_WORKER_ACTIVE=1).
+                  nohup nice -n 5 bash "$ROOT/run_core_worker.sh" \
+                    >> "$WORKSPACE/loop-core-worker.log" 2>&1 &
+                  echo "core worker started (pid $!) — log: $WORKSPACE/loop-core-worker.log"
+                  exit 0 ;;
   --start-go-idiom-worker) # the Go idiom-triage worker (TRANSLATE_ONE_APPLICATION
                   # mining loop): on demand, mines NEW Go idioms from our own
                   # Go frontends and grows templates/go/ (probes + classification

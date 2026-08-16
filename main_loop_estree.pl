@@ -1340,7 +1340,9 @@ sub print_mediation_table {
 my $iteration = 0;
 while (1) {
     $iteration++;
-    collect_core_requests();   # fold pending core escalations into this iteration's pi prompt
+    unless ($ENV{CORE_WORKER_ACTIVE}) {
+        collect_core_requests();   # core-request queue owned by run_core_worker.sh now
+    }
     process_core_transforms();  # compile-in + bisect worker-submitted IR passes
     print "\n" . "=" x 70, "\n";
     print "iteration $iteration — running fail-estree", ($prefix ne '' ? " (prefix $prefix)" : ''), "\n";
@@ -1486,7 +1488,7 @@ while (1) {
     if ($summary->{estree_failed} == 0) {
         # core-requests: once green, commit + wake any sleeping workers whose
         # requests the (single) pi call implemented.
-        finalize_core_requests();
+        finalize_core_requests() unless $ENV{CORE_WORKER_ACTIVE};
         # Anti-starvation policy: requests STILL pending after the previous
         # round's outcomes are finalized get a DEDICATED mediation round —
         # sibling workers (sh/c/go/python frontends + backends, trapped
@@ -1495,7 +1497,9 @@ while (1) {
         # empty. Regression protection is unchanged: the corpus gate (green
         # above) governs commits; a red corpus next iteration goes to fix
         # mode. report_only (prefix runs) never mutates: no invocation.
-        collect_core_requests();
+        unless ($ENV{CORE_WORKER_ACTIVE}) {
+            collect_core_requests();
+        }
         if (!$report_only && @core_pending) {
             print "\nImprovement mode deferred: " . scalar(@core_pending) . " pending core-requests — dedicated mediation round (tiny estree improvements wait for the queue).\n";
             my $req_prompt = build_core_request_prompt($summary);
