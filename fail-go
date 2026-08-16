@@ -49,7 +49,7 @@ wrap_go() { # file -> wrapped program on stdout (if it needs wrapping)
   grep -q 'fmt\.'       "$f" && imports="$imports\n\t\"fmt\""
   grep -q 'strings\.'   "$f" && imports="$imports\n\t\"strings\""
   grep -q 'bufio\.'     "$f" && imports="$imports\n\t\"bufio\""
-  grep -qE 'os\.(Getenv|WriteFile|Setenv|Stat|Stdin|Stdout|ReadFile|Args)' "$f" \
+  grep -qE 'os\.(Getenv|WriteFile|Setenv|Stat|Stdin|Stdout|Stderr|ReadFile|Args)' "$f" \
     && imports="$imports\n\t\"os\""
   grep -q 'exec\.'      "$f" && imports="$imports\n\t\"os/exec\""
   grep -q 'strconv\.'   "$f" && imports="$imports\n\t\"strconv\""
