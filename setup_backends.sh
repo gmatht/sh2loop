@@ -425,6 +425,39 @@ case "${1:-}" in
   --build)        MODE=build; shift; SCOPE="${1:-all}"; shift || true ;;
   --start-workers) MODE=start-workers; shift ;;
   --start-frontend-workers) MODE=start-frontend-workers; shift ;;
+  --start-backend-worker) # start ONE backend worker supervisor (like
+                  # --start-workers, but a single lang — on-demand).
+                  # Usage: setup_backends.sh --start-backend-worker <lang>
+                  shift; bw_lang="$1"; bw_dir="$BT/$bw_lang"
+                  [ -d "$bw_dir" ] || { echo "no worktree: $bw_lang" >&2; exit 2; }
+                  if [ -f "$bw_dir/loop-backend-$bw_lang.pid" ] && kill -0 "$(cat "$bw_dir/loop-backend-$bw_lang.pid")" 2>/dev/null; then
+                    echo "[$bw_lang] worker already running (pid $(cat "$bw_dir/loop-backend-$bw_lang.pid"))"
+                    exit 0
+                  fi
+                  nice -n 19 nohup bash -c "
+                    set -euo pipefail
+                    attempts=0
+                    while [ \$attempts -lt 5 ]; do
+                      attempts=\$((attempts+1))
+                      echo \"[\$(date +%FT%T)] $bw_lang: worker attempt \$attempts\" >> '$WORKSPACE/loop-backend-$bw_lang.log'
+                      bash '$WORKSPACE/setup_backends.sh' --run-backend-worker '$bw_lang'
+                      echo \"[\$(date +%FT%T)] $bw_lang: worker exited (attempt \$attempts) — restarting in 5s\" >> '$WORKSPACE/loop-backend-$bw_lang.log'
+                      sleep 5
+                    done
+                  " >/dev/null 2>&1 &
+                  echo $! > "$bw_dir/loop-backend-$bw_lang.pid"
+                  echo "[$bw_lang] backend worker started (pid $(cat "$bw_dir/loop-backend-$bw_lang.pid")) — log: $WORKSPACE/loop-backend-$bw_lang.log"
+                  exit 0 ;;
+  --start-go-idiom-worker) # the Go idiom-triage worker (TRANSLATE_ONE_APPLICATION
+                  # mining loop): on demand, mines NEW Go idioms from our own
+                  # Go frontends and grows templates/go/ (probes + classification
+                  # via pi; frontend gaps fixed in-scope, boundaries escalated to
+                  # core-requests). Trigger: touch .go-idiom-trigger. Scope:
+                  # frontends/go-sh/ + harness/ + fail-go — never the core.
+                  nohup nice -n 19 bash "$ROOT/run_go_idiom_worker.sh" \
+                    >> "$WORKSPACE/loop-go-idiom-worker.log" 2>&1 &
+                  echo "go idiom-triage worker started (pid $!) — log: $WORKSPACE/loop-go-idiom-worker.log"
+                  exit 0 ;;
   --start-triage-worker) # the cross-product triage worker (frontend corpus ×
                   # backend). Rotates frontends, sweeps each through ALL
                   # backends, escalates NEW failures by class (frontend →
@@ -932,8 +965,21 @@ EOF
                   for f in $corpus; do
                     # shIR emit from the CORE (the A1 contract source of truth):
                     # if the core emits nothing (rc!=0 or empty JSON — the 4
-                    # parse-error examples), SKIP (not a backend gap).
-                    shir=$("$SUB/target/debug/debashc" --shir "$f" --raw 2>/dev/null)
+                    # parse-error examples), SKIP (not a backend gap). The emit
+                    # must be failure-tolerant: $SUB's debashc is rebuilt by the
+                    # estree worker CONSTANTLY, so a mid-relink window (or a WIP
+                    # binary that crashes on one input) makes --shir exit
+                    # nonzero — and under set -euo pipefail the unguarded
+                    # assignment used to kill the WHOLE gate silently (no
+                    # verdict line, rc!=0, zero evidence — the 2026-08-16T11:20
+                    # sh run, the only silent death in gate history). A loud
+                    # skip keeps the gate alive and leaves the file + rc in the
+                    # log; an anomalous skip count is the visible signal (core-
+                    # emit health is the estree gate's job, not this gate's).
+                    shir=$("$SUB/target/debug/debashc" --shir "$f" --raw 2>/dev/null) || {
+                      echo "  [$g_lang] backend gate: shir emit failed for $f (rc=$?) — core binary transient/mid-rebuild — counted as skip"
+                      skip=$((skip+1)); continue
+                    }
                     if [ -z "$shir" ]; then
                       skip=$((skip+1)); continue
                     fi
@@ -981,10 +1027,14 @@ EOF
                         # fix (the gate's correctness oracle).
                         # java: javac requires the public class in a file named
                         # Sh2Program.java — write there (serial gate, no clash).
+                        # the render-write must be failure-tolerant too (same
+                        # set -e silent-death class): a full disk (the 10:29
+                        # t32_redirect host had the root fs at 98%) makes the
+                        # unguarded printf kill the gate with no verdict line.
                         if [ "$g_lang" = java ]; then
-                          printf '%s' "$g_out" > /tmp/Sh2Program.java
+                          printf '%s' "$g_out" > /tmp/Sh2Program.java || { echo "  [$g_lang] backend gate: cannot write the java render for $f (disk?) — counted as fail"; fail=$((fail+1)); fails="$f $fails"; continue; }
                         else
-                          printf '%s' "$g_out" > /tmp/eq_$$.$eq_ext
+                          printf '%s' "$g_out" > /tmp/eq_$$.$eq_ext || { echo "  [$g_lang] backend gate: cannot write the $eq_ext render for $f (disk?) — counted as fail"; fail=$((fail+1)); fails="$f $fails"; continue; }
                         fi
                         eq_exit=1
                         # HERMETIC equivalence CWD (perl): the workspace root
