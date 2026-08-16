@@ -1,0 +1,167 @@
+#!/usr/bin/env perl
+# fail-shir — the shIR normalisation gate.
+#
+# The shIR worker's correctness+progress oracle. For every corpus file:
+#   raw A1 (debashc --shir) -> rendered Perl (debashc --shir-in-perl),
+#   count + classify `system('bash', '-c', q{...})` shell-out call sites.
+#
+# Verdicts per file:
+#   bashfree      — 0 shell-outs in the rendered Perl (already native)
+#   normalisable  — every shell-out's first command is in the verified
+#                   emulable whitelist (harness/shir-whitelist.txt): the
+#                   shIR worker's actionable gap — a shir_passes lift can
+#                   rewrite the surrounding A1 so the renderer's native
+#                   emulation fires instead of shelling out.
+#   else          — legitimate shell-out (command outside the whitelist,
+#                   or a non-command shell-out shape): needs bash today.
+#
+# The metric is STRUCTURAL (absence of shell-outs), NOT behavioral: the
+# behavioral oracle is fail-estree on the normalised A1 (the worker re-runs
+# it after every lift and refuses any change that regresses it). The
+# per-command tally below is the whitelist-growth backlog — the top
+# shell-out command is what the worker's pi implements next.
+#
+# Summary (greppable, printed to stdout):
+#   SHIR: N files scanned
+#   SHIR: B files bash-free (0 shell-out call sites)
+#   SHIR: T total shell-out call sites across S files
+#   SHIR: R normalisable call sites across N2 files (whitelisted commands)
+#   SHIR: top shell-out commands: tr 45, wc 31, ...
+#
+# TSV (all files): .shir_failures.tsv — file \t perl_shellouts \t
+#   bashfree \t normalisable \t normalisable_count \t commands
+#
+# Options:  <prefix>  restrict the corpus scan to files containing <prefix>
+use strict;
+use warnings;
+use Cwd qw(abs_path);
+use File::Basename qw(dirname);
+use POSIX qw(:sys_wait_h);
+
+$| = 1;
+
+my $root    = dirname(abs_path($0));
+my $sh2perl = "$root/sh2perl";
+my $debashc = "$sh2perl/target/debug/debashc";
+my $examples = "$sh2perl/examples";
+my $whitelist_file = "$root/harness/shir-whitelist.txt";
+my $tsv     = "$root/.shir_failures.tsv";
+my $prefix  = shift @ARGV // '';
+my $timeout = 20;   # seconds per debashc invocation
+
+-d $examples or die "no corpus at $examples (run: git submodule update --init)\n";
+-x $debashc or die "no debashc at $debashc (run: cd sh2perl && cargo build --bin debashc)\n";
+
+# ── whitelist ────────────────────────────────────────────────────────
+my %wl;
+if (open my $fh, '<', $whitelist_file) {
+    while (<$fh>) {
+        chomp; next if /^\s*#/ || !/\S/;
+        $wl{$_} = 1;
+    }
+    close $fh;
+}
+print "# whitelist: ", scalar(keys %wl), " commands\n";
+
+# ── helpers ──────────────────────────────────────────────────────────
+sub sh {
+    my ($cmd) = @_;
+    my $out = `timeout $timeout $cmd 2>/dev/null`;
+    return ($out, $? >> 8);
+}
+
+# first shell word of a reconstructed bash command text (best effort):
+# strip the leading quote form ('cmd' / "cmd" / bare), take the first word
+sub first_command {
+    my ($txt) = @_;
+    $txt =~ s/^\s+//;
+    if ($txt =~ /^(['"])(.*?)\1/) { return $1; }   # quoted first word
+    my ($w) = $txt =~ /^([^\s|&;<>()]+)/;
+    return defined $w ? $w : '';
+}
+
+# classify the shell-out call sites in one rendered perl file.
+# Returns (count, normalisable_count, hash command->count)
+sub classify_shellouts {
+    my ($perl) = @_;
+    my $count = 0;
+    my %cmds;
+    my $normalisable = 0;
+    while ($perl =~ /system\(['"]bash['"],\s*['"]-c['"],\s*q\{(.*?)\}\)/sg) {
+        my $body = $1;
+        $count++;
+        # the bash text may itself contain q{} — take the first line/word
+        my ($quote, $cmd) = $body =~ /^\s*(?:q\{)?\s*(['"]?)([^'"{}\s]+)/;
+        $cmd = '' unless defined $cmd;
+        $cmds{$cmd}++;
+        $normalisable++ if $cmd ne '' && $wl{$cmd};
+    }
+    # also catch the unquoted form system('bash', '-c', "...")
+    while ($perl =~ /system\(['"]bash['"],\s*['"]-c['"],\s*"((?:[^"\\]|\\.)*)"/sg) {
+        my $body = $1;
+        $count++;
+        my ($quote, $cmd) = $body =~ /^\s*(['"]?)([^'"{}\s]+)/;
+        $cmd = '' unless defined $cmd;
+        $cmds{$cmd}++;
+        $normalisable++ if $cmd ne '' && $wl{$cmd};
+    }
+    return ($count, $normalisable, \%cmds);
+}
+
+# ── scan ─────────────────────────────────────────────────────────────
+opendir my $dh, $examples or die "opendir $examples: $!";
+my @files = sort grep { /\.sh$/ } readdir $dh;
+closedir $dh;
+@files = grep { /$prefix/ } @files if $prefix ne '';
+
+my $total = scalar @files;
+my ($bashfree, $with_shellouts, $norm_files, $norm_sites, $tot_sites) = (0, 0, 0, 0, 0);
+my %tally;   # command -> count
+
+open my $tfh, '>', $tsv or warn "write $tsv: $!";
+for my $f (@files) {
+    my $path = "$examples/$f";
+    print STDERR "  [scan] $f\n" if $. % 100 == 0;
+    my ($a1, $rc1) = sh(qq{"$debashc" --shir "$path"});
+    if ($rc1 != 0 || $a1 !~ /"type":"Program"/) {
+        print $tfh "$f\tERR\t0\t0\t0\t(no A1)\n";
+        next;
+    }
+    # render perl from the A1 (temp file — the ingress flag takes a filename)
+    my $tmp = "$root/.shir_gate_$$.a1.json";
+    open my $tf, '>', $tmp or warn "write $tmp: $!" and next;
+    print $tf $a1; close $tf;
+    my ($perl, $rc2) = sh(qq{"$debashc" --shir-in-perl "$tmp"});
+    unlink $tmp;
+    if ($rc2 != 0 || $perl !~ /^#!/) {
+        print $tfh "$f\tERR\t0\t0\t0\t(no perl render)\n";
+        next;
+    }
+    my ($count, $norm, $cmds) = classify_shellouts($perl);
+    $tot_sites += $count;
+    $tally{$_} += $cmds->{$_} for keys %$cmds;
+    if ($count == 0) { $bashfree++; }
+    else {
+        $with_shellouts++;
+        if ($count == $norm) { $norm_files++; $norm_sites += $norm; }
+    }
+    my $is_norm = ($count > 0 && $count == $norm) ? 1 : 0;
+    my $cmds_s = join(',', sort keys %$cmds);
+    print $tfh join("\t", $f, $count, ($count == 0 ? 1 : 0), $is_norm, $norm, $cmds_s), "\n";
+}
+close $tfh;
+
+# ── summary ──────────────────────────────────────────────────────────
+my @sorted = sort { $tally{$b} <=> $tally{$a} } keys %tally;
+print "SHIR: $total files scanned\n";
+print "SHIR: $bashfree files bash-free (0 shell-out call sites)\n";
+print "SHIR: $tot_sites shell-out call sites across $with_shellouts files\n";
+print "SHIR: $norm_sites normalisable call sites across $norm_files files (all shell-outs in the emulable whitelist)\n";
+if (@sorted) {
+    print "SHIR: top shell-out commands: ",
+        join(", ", map { "$_ $tally{$_}" } @sorted[0 .. (@sorted < 10 ? $#sorted : 9)]), "\n";
+} else {
+    print "SHIR: no shell-outs in the corpus\n";
+}
+print "SHIR: tsv -> $tsv\n";
+exit 0;
