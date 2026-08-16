@@ -24,7 +24,9 @@ $| = 1;
 
 my $root = dirname(abs_path($0));
 my $sh2perl = "$root/sh2perl";
-my $debashc = "$sh2perl/target/debug/debashc";
+# otranspilerl-cli is the transpiler (PLAN "migrate to otranspiler only") —
+# renders the same shIR pipeline, byte-identical to debashc's modern paths.
+my $otranspilerl = "$root/otranspilerl/target/debug/otranspilerl-cli";
 my $examples = "$sh2perl/examples";
 my $gate = "$root/harness/estree_gate.pl";
 my $runner = "$root/harness/estree-runner.mjs";
@@ -85,15 +87,13 @@ sub run_one_test {
     # ---- PERL path (mirrors ./fail) ----
     my $perl_verdict = 'PASS';
     my $perl_reason = '';
-    my $gen_out = `timeout $timeout_per_test sh -c 'cd "$sh2perl" && "$debashc" "$test_file" 2>/dev/null'`;
+    my $gen_out = `timeout $timeout_per_test sh -c '"$otranspilerl" --target pl "$test_file" 2>/dev/null'`;
     if ($? != 0) {
         $perl_verdict = 'FAIL';
-        $perl_reason = 'debashc failed';
+        $perl_reason = 'otranspilerl failed';
     } else {
+        # whole stdout is the Perl (otranspilerl has no banner)
         my $perl_code = $gen_out;
-        if ($gen_out =~ /Generated Perl code:\n(.*?)\n--- Running/ms) {
-            $perl_code = $1;
-        }
         my $perl_file = "$tmp_dir/test.pl";
         open my $pfh, '>', $perl_file or die "write $perl_file: $!";
         print $pfh $perl_code;
@@ -132,10 +132,10 @@ sub run_one_test {
     # ---- ESTREE path ----
     my $est_verdict = 'PASS';
     my $est_reason = '';
-    my $json_out = `timeout $timeout_per_test sh -c 'cd "$sh2perl" && "$debashc" file --estree "$test_file" 2>/dev/null'`;
+    my $json_out = `timeout $timeout_per_test sh -c '"$otranspilerl" --target estree "$test_file" 2>/dev/null'`;
     if ($? != 0 || $json_out =~ /Parse error/) {
         $est_verdict = 'FAIL';
-        $est_reason = $? != 0 ? 'debashc --estree failed' : 'parse error';
+        $est_reason = $? != 0 ? 'otranspilerl --target estree failed' : 'parse error';
     } else {
         my $json_file = "$tmp_dir/prog.estree.json";
         open my $jfh, '>', $json_file or die "write $json_file: $!";
@@ -234,8 +234,8 @@ if ($pool_ok) {
 print "Examples dir: $examples\n";
 print "----------------------------------------\n";
 
-print "Building debashc...\n";
-my $build_out = `cd '$sh2perl' && cargo build --bin debashc 2>&1`;
+print "Building otranspilerl-cli...\n";
+my $build_out = `'$root/harness/build-lock.sh' --role core -- bash -c 'cd "\$1" && cargo build --bin otranspilerl-cli 2>&1' _ '$root/otranspilerl'`;
 if ($? != 0) {
     print $build_out;
     die "Build failed\n";

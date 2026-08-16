@@ -11,7 +11,11 @@ $| = 1;
 
 my $root = dirname(abs_path($0));
 my $sh2perl = "$root/sh2perl";
-my $debashc = "$sh2perl/target/debug/debashc";
+# The transpiler CLI is otranspilerl (the Optimising Transpiler — PLAN
+# §11.8 / "migrate to otranspiler only"): it renders the same shIR
+# pipeline (byte-identical output, verified) without the legacy debashc
+# Generator paths.
+my $otranspilerl = "$root/otranspilerl/target/debug/otranspilerl-cli";
 # Corpus override: FAIL_CORPUS=/path/to/dir runs only that corpus (used by
 # ./fail-coreutils for the workspace-side GNU coreutils regression tests in
 # tests/coreutils/). Defaults to the sh2perl examples corpus.
@@ -131,8 +135,9 @@ sub run_one_test {
     my $tmp_paths = extract_tmp_paths($test_file);
     my $before_snapshot = @$tmp_paths ? snapshot_paths($tmp_paths) : undef;
 
-    # Step 1: Run debashc to generate Perl code
-    my $gen_out = `timeout $timeout_per_test sh -c 'cd "$sh2perl" && "$debashc" "$test_file" 2>/dev/null'`;
+    # Step 1: Run otranspilerl to generate Perl code (the whole stdout IS
+    # the Perl — no debashc banner to strip)
+    my $gen_out = `timeout $timeout_per_test sh -c '"$otranspilerl" --target pl "$test_file" 2>/dev/null'`;
     if ($? != 0 && !defined $gen_out) {
         remove_tree($tmp_dir);
         return { status => 'FAIL', detail => 'debashc timed out' };
@@ -142,13 +147,8 @@ sub run_one_test {
         return { status => 'FAIL', detail => 'debashc failed to generate code' };
     }
 
-    # Extract Perl code: take text between "Generated Perl code:" and "--- Running"
+    # Extract Perl code: the whole stdout (otranspilerl has no banner)
     my $perl_code = $gen_out;
-    if ($gen_out =~ /Generated Perl code:\n(.*?)\n--- Running/ms) {
-        $perl_code = $1;
-    } elsif ($gen_out =~ /Generated Perl code:\n(.*)/ms) {
-        $perl_code = $1;
-    }
 
     # Gate: reject the bash-wrapper fallback. When debashc cannot parse a
     # script it emits `system('bash', '<file>')` instead of real Perl
@@ -252,11 +252,11 @@ if ($pool_ok) {
     print "Worker pool: $jobs workers (", WorkerPool::status(), ")\n";
 }
 print "Examples dir: $examples\n";
-print "Debashc: $debashc\n";
+print "Transpiler: $otranspilerl\n";
 print "----------------------------------------\n";
 
-print "Building debashc...\n";
-my $build_out = `cd '$sh2perl' && cargo build --bin debashc 2>&1`;
+print "Building otranspilerl-cli...\n";
+my $build_out = `'$root/harness/build-lock.sh' --role core -- bash -c 'cd "\$1" && cargo build --bin otranspilerl-cli 2>&1' _ '$root/otranspilerl'`;
 if ($? != 0) {
     print $build_out;
     die "Build failed\n";
