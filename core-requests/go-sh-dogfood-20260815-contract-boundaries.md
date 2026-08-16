@@ -455,3 +455,69 @@ Oracle (`go run` of the wrapped snippet): `decl`. go-sh today:
 no A1 shape` (exit 2) — the same message as the app's refusal at
 go-sh.go:70. Probe stays red, documented (ladder baseline 41/46,
 DOGFOOD.md).
+
+---
+
+## 13. Re-hit (2026-08-17): package-qualified call in WORD position — `out, err := golib.Shir(src)` (cmd/go-sh/main.go:32)
+
+The app loop's CLI first refuses at main.go:32: `go-sh: line 32:
+unsupported call "golib.Shir" in word position (v2)` — the app's ONLY
+non-stdlib qualified call: `golib` is the import alias for the
+frontend library itself (`github.com/gmatht/sh2loop/frontends/go-sh`).
+
+## NEED
+
+The construct is a DOTTED (package-qualified) function call in WORD
+position — `pkg.Func(args)` as an expression VALUE (here the RHS of a
+multi-assign). The frontend's word-position call contract is a stdlib
+whitelist (exprToWord's call case); any callee outside it refuses.
+The qualifier is incidental: a SAME-UNIT user function in word position
+refuses identically (`out := greet("bob")` with `greet` defined in the
+same file → `unsupported call "greet" in word position (v2)`). The gap
+is the call-EXPRESSION, not the import.
+
+## WHY
+
+The A1 `Function` node is a statement-level sub (echo-based); there is
+no call-expression primitive that carries a function's RETURN VALUE
+into a word — a word-position call to a user function has no value
+carrier. The app instance is doubly unreachable: (i) the callee's body
+lives in ANOTHER compilation unit (go-sh.go — the golib), which is not
+in the transpiled input (the app is the CLI, main.go only), and (ii)
+even inlined, the golib is the §2/§3/§5 no-A1 dialect (maps, structs,
+methods, interfaces, json, goroutines — DOGFOOD.md (a)/(d)). A
+lowering that drops the qualifier (`Shir "$src"`) would emit a call to
+an UNDEFINED sub — a runtime failure where `go run` prints shIR JSON
+and exits 0 — a silent divergence, not a translation (Refuse > guess).
+The whitelist's value-returning special cases (`n, err :=
+strconv.Atoi`, `b, _ := os.ReadFile` — the `err` target skipped) are
+per-function foldings, not a call-expression contract; the app's
+`([]byte, error)` multi-value return is the §5 error-value class.
+
+## MINIMAL-CORE-CHANGE
+
+None proposed — declared boundary (same class as §2 function values /
+§5 error values). A call-expression contract (a Function return-value
+convention — e.g. capture of the sub's stdout, or a call node with an
+out-var) is a plan-level design decision, not a corpus fix; the
+frontend keeps refusing loudly.
+
+## FAILING-CASE
+
+Ladder probe `templates/go/qualified_call.go` (sig
+`golib\.[A-Z][A-Za-z0-9]*\(` — fires on main.go:32):
+
+```go
+before, after, found := strings.Cut("a=b", "=")
+fmt.Println(before, after, found)
+```
+Oracle (`go run` of the wrapped snippet): `a b true`. go-sh today:
+`unsupported call "strings.Cut" in word position (v2)` (exit 2) — the
+same refusal path and message shape as the app's
+`unsupported call "golib.Shir" in word position (v2)` (main.go:32).
+strings.Cut is the hermetic stdlib stand-in for the app's user-package
+call: same parse shape (`call{callee:"pkg.Func"}`), same position
+(multi-assign RHS), a multi-value return like the app's `([]byte,
+error)` — and `go run` of the wrapped snippet is deterministic with no
+module deps (a user-package call cannot compile in the single-file
+probe wrapper). Probe stays red, documented (verdict EMIT-FAIL).
