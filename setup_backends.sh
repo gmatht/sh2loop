@@ -799,7 +799,7 @@ EOF
                         # --bin debashc only: the gate needs just the CLI;
                         # building the whole workspace fails on the core
                         # owner's in-flight extra bins (glsl_dump etc.).
-                        if cargo build --manifest-path "$SUB/Cargo.toml" --bin debashc >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
+                        if "$ROOT/harness/build-lock.sh" --role backend -- cargo build --manifest-path "$SUB/Cargo.toml" --bin debashc >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
                           core_build_ok=1; break
                         fi
                         echo "  [$g_lang] backend gate: core build attempt $try FAILED (estree-worker churn) — retrying in 20s" >> "$WORKSPACE/loop-backend-$g_lang.log"
@@ -821,7 +821,7 @@ EOF
                       # ESTree-path-only unreachable! arms; see
                       # core-requests/perl-*.md.)
                       if [ "$g_lang" = "js" ] || [ "$g_lang" = "perl" ]; then
-                        if ! (export CARGO_TARGET_DIR="$g_wt/target"; cargo build --manifest-path "$g_wt/Cargo.toml") >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
+                        if ! "$ROOT/harness/build-lock.sh" --role backend --share-target "$g_wt/target" -- cargo build --manifest-path "$g_wt/Cargo.toml" >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
                           echo "  [$g_lang] backend gate: worktree build FAILED"; exit 1
                         fi
                         g_bin="$g_wt/target/debug/debashc"
@@ -862,18 +862,19 @@ EOF
                       ;;
                     *)
                       # scaffolds (c go python rust zig sh java): PER-WORKTREE target
-                      # dirs — each compiles its OWN copy of the core
-                      # ($g_wt/target-core) and its worktree renderer
-                      # ($g_wt/target), so the five scaffold gates stop
-                      # serializing on the SHARED cargo build lock (the
-                      # "Blocking waiting for file lock" contention). The
-                      # two manifests (main core vs the branch core) are the
-                      # same package — keep them in SEPARATE target dirs.
-                      if ! (export CARGO_TARGET_DIR="$g_wt/target-core";                             cargo build --manifest-path "$SUB/Cargo.toml") >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
+                      # CORE builds go through build-lock.sh (harness/) with the
+                      # SHARED $SUB/target dir — the estree loop and all backend
+                      # gates dedupe the core + its deps (PLAN §11.8; the old
+                      # per-worktree target-core split existed to dodge cargo's
+                      # "Blocking waiting for file lock" — the wrapper's
+                      # priority lock replaces that workaround). Worktree
+                      # builds keep their own $g_wt/target (their debashc bin
+                      # name collides with the main checkout's).
+                      if ! "$ROOT/harness/build-lock.sh" --role backend -- cargo build --manifest-path "$SUB/Cargo.toml" >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
                         echo "  [$g_lang] backend gate: core build FAILED"; exit 1
                       fi
                       # build the worktree (the branch's core + its renderer)
-                      if ! (export CARGO_TARGET_DIR="$g_wt/target";                             cargo build --manifest-path "$g_wt/Cargo.toml") >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
+                      if ! "$ROOT/harness/build-lock.sh" --role backend --share-target "$g_wt/target" -- cargo build --manifest-path "$g_wt/Cargo.toml" >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
                         echo "  [$g_lang] backend gate: worktree build FAILED"; exit 1
                       fi
                       g_bin="$g_wt/target/debug/debashc"

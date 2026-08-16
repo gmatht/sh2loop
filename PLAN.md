@@ -1551,3 +1551,22 @@ re-baselines the canonical set. The estree worker's scope narrows to
 `estree.rs` + the shell parser + canonical-transform bug-fixes — the
 fix-surface contraction mechanism (triggered when other workers run)
 applies unchanged.
+
+### 11.8 Dependency sharing = our lock + shared core target (landed)
+
+Implemented: `harness/build-lock.sh` — the single choke point for cargo
+builds (PLAN §11.8): a mkdir-based priority lock in front of cargo. Cargo's
+own target-dir lock is blocking FIFO with no policy; the wrapper adds
+priority (core preempts the holder after its timeout via graceful SIGTERM +
+grace), timeouts, stale-lock recovery, a status/waiters diagnostic trail,
+and a re-entrancy guard. CORE builds (the estree loop + every backend
+gate) share `sh2perl/target` — the dep + core crate compile once for all
+of them (replacing the per-worktree `target-core` split that existed only
+to dodge cargo's file-lock churn). WORKTREE builds keep `$g_wt/target`
+(their `debashc` bin collides with the main checkout's). Rationale: the
+workspace is CPU-bound more than lock-bound, so serialization is
+acceptable; sccache stays a measured fallback (its stale-artifact
+correctness risk and WSL2/overlay surface are documented risks, not
+adopted). Wire-in: setup_backends.sh (gate core + worktree builds),
+main_loop_estree.pl (commit-gate full build, role core, preempts backend
+gates after 180s).
