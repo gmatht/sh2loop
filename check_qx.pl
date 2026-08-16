@@ -77,6 +77,12 @@ sub check_builtins_in_cmd {
     return undef unless defined $first_word;
     my $basename = $first_word;
     $basename =~ s{.*/}{};  # strip leading path: /usr/bin/echo → echo
+    # the renderer single-quotes every word ('echo') — strip the quotes so
+    # 'echo' matches the bare builtin name (the old code compared the quoted
+    # token and silently missed EVERY qx{} builtin — enforce the original
+    # intent: builtins/extras must lower natively, sh2perl NOT sh2sh)
+    $basename =~ s/^'(.*)'$/$1/;
+    $basename =~ s/^"(.*)"$/$1/;
     for my $b (@builtins) {
         # Match only if the basename is exactly the builtin name (not a substring).
         # This avoids false matches on filenames like "hostname.sh" (contains "hostname")
