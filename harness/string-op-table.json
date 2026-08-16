@@ -1,0 +1,41 @@
+{
+  "name": "sh2-string-op-table",
+  "version": 1,
+  "description": "The shared catalog of string operations in the A1 param/runtime family (core request frontends-string-op-table-20260806): op -> A1 shape -> runtime behavior. Each frontend language has these natively (py .strip()/split(\",\"), go strings.TrimSpace/Split, fish string trim/split, perl s/// + split, zsh ${(s:,:)}); the shared shape exists ONCE here so a language op maps to one testable A1 shape instead of a per-frontend invention. The authoritative implementation is `sh2.param` (harness/sh2-namespace.mjs, ~line 2777) and the split/join helpers; whitelisted helper names are in src/shir_json.rs (purity table).",
+  "param_call_shape": {
+    "a1": "{ \"type\": \"Call\", \"func\": \"param\", \"purity\": \"PureCpu\", \"args\": [ {op}, {name}, {extra...} ] }",
+    "op_values": ["len", "^^", ",,", "^", "#", "##", "%", "%%", "/", "//", ":-", ":=", ":?", "?", "slice", "basename", "dirname", ""],
+    "note": "the value is read from the store (`getVar(name)`) at runtime; the emitter may inline lifted bindings as a trailing `value` argument"
+  },
+  "ops": {
+    "trim_prefix_shortest": { "a1": "param(\"#\", name, pattern)", "runtime": "stripGlobPrefix(v, pattern, false)", "shell": "${x#pat}", "frontend_examples": ["py str.removeprefix", "go strings.TrimPrefix"] },
+    "trim_prefix_longest": { "a1": "param(\"##\", name, pattern)", "runtime": "stripGlobPrefix(v, pattern, true)", "shell": "${x##pat}" },
+    "trim_suffix_shortest": { "a1": "param(\"%\", name, pattern)", "runtime": "stripGlobSuffix(v, pattern, false)", "shell": "${x%pat}" },
+    "trim_suffix_longest": { "a1": "param(\"%%\", name, pattern)", "runtime": "stripGlobSuffix(v, pattern, true)", "shell": "${x%%pat}", "frontend_examples": ["py str.removesuffix", "go strings.TrimSuffix"] },
+    "subst_first": { "a1": "param(\"/\", name, pattern, repl)", "runtime": "substGlobFirst (glob pattern)", "shell": "${x/pat/repl}" },
+    "subst_all": { "a1": "param(\"//\", name, pattern, repl)", "runtime": "substGlob (glob pattern)", "shell": "${x//pat/repl}", "frontend_examples": ["py str.replace", "go strings.ReplaceAll"] },
+    "upper": { "a1": "param(\"^^\", name)", "runtime": "v.toUpperCase()", "shell": "${x^^}", "frontend_examples": ["py str.upper", "go strings.ToUpper"] },
+    "lower": { "a1": "param(\",,\", name)", "runtime": "v.toLowerCase()", "shell": "${x,,}", "frontend_examples": ["py str.lower", "go strings.ToLower"] },
+    "upper_first": { "a1": "param(\"^\", name)", "runtime": "first char upper, rest unchanged", "shell": "${x^}" },
+    "len": { "a1": "param(\"len\", name)", "runtime": "String(v).length", "shell": "${#x}", "frontend_examples": ["py len(s)", "go len(s)", "fish string length"] },
+    "slice": { "a1": "param(\"slice\", name, start, len[, step])", "runtime": "offset/len may be arithmetic strings; array names slice the array (`${#arr[@]}` length and `${!map[@]}` keys ride this op)", "shell": "${x:off:len}", "frontend_examples": ["py s[1:3]", "go s[1:3]", "fish string sub"] },
+    "default_value": { "a1": "param(\":-\", name, default)", "runtime": "v !== '' ? v : expand(default)", "shell": "${x:-d}" },
+    "assign_default": { "a1": "param(\":=\", name, default)", "runtime": "if empty: setVar(name, default) and return it", "shell": "${x:=d}" },
+    "error_if_unset": { "a1": "param(\":?\", name, msg)", "runtime": "stderr + exit 1 when empty/unset", "shell": "${x:?msg}" }
+  },
+  "split": {
+    "a1": "{ \"type\": \"Call\", \"func\": \"split\", \"purity\": \"PureCpu\", \"args\": [value] }",
+    "runtime": "default (unset or whitespace-only IFS): whitespace collapse (split(/\\s+/) + drop empties); custom IFS (frontends-ifs 20260806): split on the IFS chars, KEEPING empty fields between adjacent separators; empty IFS: NO splitting",
+    "explicit_separator": "zsh flag form: param(\"\", name, flags, sep) with s/j flags (${(s:,:)x}); a frontend needing split(sep) without zsh may emit split() and set IFS, or use the flag form",
+    "field_split_marker": "the A1 `split` marker on UNQUOTED expansions (for-iters `for w in $y`, exec args `set -- $y`, array-literal elements `arr=($y)`)"
+  },
+  "join": {
+    "a1": "array joins: `$x[*]` joins with IFS[0] (quoted `${x[*]}` too); `$x[@]` joins with a space; positional `$*` joins with IFS[0]",
+    "explicit_separator": "zsh flag form: param(\"\", name, flags, sep) with the j flag (${(j:,:)x})",
+    "runtime": "line ~571/581 in harness/sh2-namespace.mjs (the IFS[0] rule)"
+  },
+  "whitelisted_helpers": [
+    "param", "split", "getVar", "setVar", "trimCapture"
+  ],
+  "gate": "cargo test --lib stays green; two frontends lowering the same language op to the SAME A1 shape (from this table) is the acceptance signal"
+}
