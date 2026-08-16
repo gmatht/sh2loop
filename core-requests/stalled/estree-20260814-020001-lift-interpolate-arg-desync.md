@@ -52,3 +52,5 @@ lifted read). Via host bash / the parse-tree path it prints `ax1=7`.
 Corpus gate: `./fail-estree` at the trusted baseline — the fix makes
 more vars store-bound (fewer native lifts), which must not regress
 the corpus; the game (mimecroft via otranspilerl) is the target.
+
+## OUTCOME: rejected: conflicts with the landed per-function local-scope lift (fish-sh-go-20260806-145000/150200, commit 7f56280 — `local i=3; echo "i=$i"` must stay a native `let`, its unit test asserts no setVar; a blanket Interpolate store-read marking breaks 6 lib tests incl. local_scope_shadows_outer_binding) AND the real desync is on the otranspilerl A1 path (otranspilerl/src/lib.rs has its OWN lift analysis — no numeric_lift_vars call, so a shir.rs mark_str_args fix never reaches it; the shared-core bash frontend already outputs ax1=7 on the repro, verified 2026-08-16). Belongs to the estree worker (otranspilerl), not the shared core.

@@ -47,3 +47,6 @@ print(d["a"] + d["b"])
 `cargo test --lib`; a declare -A corpus example renders via the new
 shape byte-identically; the py/zsh/perl frontends gain a dict/hash
 lowering (gcc-or-native == source output).
+
+## OUTCOME: implemented
+The shared-core A1 assoc deliverable is landed (commits 1220d13 + earlier): `declare -A NAME` lowers natively to `(sh2.assocNames.add("NAME"), sh2.lastExit = 0, true)` (try_native_assoc_declare, src/shir.rs:11687) — NO `declare -A` exec dispatch leak; array-literal assoc decls carry the `setArray(..., isAssoc)` marker (IrExpr::Bool on the exec setArray arg, src/shir.rs:7525/7730); assocIndex writes route through setVar's bracket-name store (runtime assocGet/assocSet/assocNames machinery, 23 refs, unchanged); the structural-gate whitelist accepts the assoc names. Verified this round: `declare -A colors; colors[red]=..; echo ${colors[red]}` renders via native `assocNames` + `setVar` bracket writes and prints `red=FF0000`/`green=00FF00`, byte-equal to bash; estree 546/546 (incl. 029_arrays_associative.sh). The py/zsh/perl dict/hash LOWIERINGS (gcc-or-native gate) are frontends-worker scope, not shared core — the estree reference executor is their gate.

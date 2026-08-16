@@ -125,3 +125,11 @@ lowers to `let DIR_X = ["0","1","0","-1"]` + a native
 - The game's own per-frame breakdown: `other` 5ms/f (was inflated to
   76ms/f under the async probe stub — the real loop machinery is the
   `_g`/`lastExit`/`arithEval`/`arrayIndex` churn this request removes).
+
+## OUTCOME: implemented
+All four transforms landed and are gate-green:
+1. native-array `$var` indexes — `NativeIdx::Var` in `array_read_index` + `native_element_read` (estree.rs ~2104-2118, commit b5ae282);
+2. the `!a.in_fn` filter dropped (estree.rs ~1740, with the safety rationale inlined: TDZ-order + `declared` shadow guard);
+3. `arith_has_div_mod` counts a div/mod only when `!arith_is_nonzero(rhs)` (shir.rs ~12466, commit 86f24fc);
+4. test-chain status deadness — `is_pure_test_chain` + `TEST_UNSTATUSED_DEPTH` + `native_and_or_unstatused` (shir.rs 343/928, commit b5ae282), incl. the async `whileLoop` expr-arrow pre-lower.
+estree 546/546 at baseline. The browser-side `keepVariables({ repl: false })` split remains sh2runtime/estree-worker scope (explicitly excluded by the request).
