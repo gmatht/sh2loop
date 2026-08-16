@@ -3,10 +3,12 @@
 # §11 / v29): the core is narrowed to build CI + the invariants + the A1
 # schema + canonical bug-fixes. Transforms are CONCRETE, manifest-carrying
 # modules: a backend implements + offers them; other backends accept or
-# reject. The core accepts anything that BUILDS + doesn't regress any
-# backend's corpus (transforms must be self-fallbacking — an op a backend
-# hasn't implemented renders as the exec it came from, so rejection never
-# breaks; it just doesn't gain).
+# reject. The core's bar is: the transform COMPILES + the A1 contract/
+# invariants hold + every backend tree still BUILDS (the op ships a
+# self-fallback arm). It does NOT run every backend corpus green — each
+# backend's accept/reject is ITS decision, and rejection is safe because
+# the fallback renders the op as the exec it came from (no regression,
+# no gain).
 #
 # Mandate per iteration (in order):
 #   1. the transform/request queue (incl. the stalled A1-optimization
@@ -77,9 +79,12 @@ while true; do
       printf 'implement the pending requests as CONCRETE shared transforms/ops with a\n'
       printf 'MANIFEST, gate them on build + the invariants, and OFFER each to the\n'
       printf 'affected backends. Acceptance rule: a transform is accepted if it\n'
-      printf 'COMPILES and does not regress ANY backend (it must be self-fallbacking\n'
-      printf '— an op a backend has not implemented renders as the exec it came from,\n'
-      printf 'so a rejecting backend never breaks, it just does not gain).\n\n'
+      printf 'COMPILES, the A1 contract stays valid (schema + round-trip +\n'
+      printf 'determinism), and every backend tree still BUILDS — the op must ship\n'
+      printf 'a self-fallback arm (an op a backend has NOT accepted renders as the\n'
+      printf 'exec it came from). You do NOT need every backend corpus green with\n'
+      printf 'the op: each backend decides accept/reject itself, and rejection is\n'
+      printf 'safe by the fallback (no regression, no gain).\n\n'
       printf 'For EACH request:\n'
       printf '  1. Implement it as a concrete transform/op (transforms.rs or\n'
       printf '     shir_passes/) with a manifest appended to the request file:\n'
@@ -98,8 +103,10 @@ while true; do
       done
       printf '\nScope: sh2perl/src/ (shir.rs ir.rs shir_json* transforms* shir_passes*) +\n'
       printf 'core-requests/ + harness/. NEVER touch backends/ or frontends/.\n'
-      printf 'Verify: cargo test --lib + harness/check_qx_shir.py + fail-estree must\n'
-      printf 'not regress. Move finalized requests to done/. Commit the submodule\n'
+      printf 'Verify: cargo test --lib + the A1 round-trip/determinism invariants +\n'
+      printf 'each backend tree still compiles (the fallback arm). fail-estree is the\n'
+      printf 'ESTREE worker accepts/rejects the op itself (its gate). Move finalized\n'
+      printf 'requests to done/. Commit the submodule\n'
       printf '(git -C sh2perl add src/ && commit) and the workspace explicitly.\n'
     } > /tmp/core-prompt-$$
     pi --mode json --provider opencode-go --model "$MODEL" --thinking "$THINKING" \
