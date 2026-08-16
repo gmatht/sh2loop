@@ -356,4 +356,20 @@ go-sh: frontend cannot parse/lower (EMIT-FAIL) — the probe
 args (`go run </dev/null`), so `len(os.Args[1:])` is deterministically
 0.
 
+NOTE (landed, FRONTEND-GAP not boundary): the §11 core-justification
+was STALE — the runtime HAS the array-valued positional slice
+(`param("slice", "@", off, len)` → the native positional list;
+sh2-namespace.mjs + the shir.rs native lowering), and setArray SPLICES
+array elements into the array store. The frontend fix landed in
+go-sh.go: `args := os.Args[1:]` lowers to `setArray("args",
+[param("slice", "@", "1", "")])` (Go 0-based os.Args vs bash 1-based
+`${@:off}`: os.Args[i:] ↔ offset i; os.Args[i:j] ↔ length j-i;
+os.Args[:j]/os.Args[0:] ↔ offset 0, the [argv0, ...params] form).
+Probe templates/go/args.go GREEN (oracle == translated for 0 and 2
+args); corpus 93/93 + make test green. REMAINING boundary in the same
+family: `for _, a := range args` over the runtime-loaded array — the
+A1 For iter is a STATIC element list, so the frontend refuses it
+loudly ("range over unknown array") rather than unroll an empty
+iteration; a runtime-array For iter is a separate contract design.
+
 ## OUTCOME: rejected: contract-extension proposals (#1 index_var For form, #4 stringIndex, #6 stringSplit) have no emitting consumer — go-sh refuses loudly by design (Refuse > guess); boundaries #2/#3/#5 need no core change. A new A1 primitive is a plan-level design decision, not a corpus fix.
