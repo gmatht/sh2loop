@@ -28,3 +28,4 @@ frontends/coverage/ts-node-gap/libgrammars.a
 # refused-refresh worker state (REFUSED-REFRESH.md — runtime stamps/cursors)
 frontends/coverage/refused-refresh-stamp-*.txt
 frontends/coverage/refused-refresh-cursor-*.txt
+/.build-lock/

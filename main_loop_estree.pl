@@ -821,7 +821,10 @@ sub scoped_commit {
         # is healthy for every consumer (2026-08-14: HEAD was committed
         # with a broken glsl_dump E0063 and the backend gates ground on
         # it for hours). On failure the WIP stays uncommitted in the tree.
-        my $build_out = `cd '$sh2perl' && cargo build --manifest-path Cargo.toml 2>&1`;
+        # The build goes through harness/build-lock.sh (PLAN §11.8): the
+        # core role preempts backend gate builds after its timeout, so the
+        # estree worker's commit gate never queues behind a backend build.
+        my $build_out = `'$project_root/harness/build-lock.sh' --role core --timeout 180 -- bash -c 'cd "$1" && cargo build --manifest-path Cargo.toml' _ '$sh2perl' 2>&1`;
         if ($? != 0) {
             print "\nFULL-WORKSPACE BUILD FAILED — NOT committing (fail-estree only builds debashc; the backend gates need the whole workspace). WIP left in the tree:\n";
             print substr($build_out, -500);
