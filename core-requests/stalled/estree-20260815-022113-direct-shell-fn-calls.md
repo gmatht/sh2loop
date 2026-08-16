@@ -68,3 +68,5 @@ node -e "… bashToJS('examples/textures/texture-stone.sh') … run with args --
 # emitted JS (after):  lat_hash(sh2.vars.vn_x0 ?? (sh2.env.vn_x0 ?? ""), …, vn_wx, vn_wy)
 # 4628 fnCall dispatches per texture → 5; TSV payload byte-identical to host bash
 ```
+
+## OUTCOME: rejected: target is `sh2runtime/src/lower.js` + `sh2runtime/src/estree.js` — sh2runtime is NOT in this workspace (separate repo; the workspace `harness/lower.js` is a stale non-canonical partial copy not exercised by ./fail-estree). The `directShellFnCalls` rewrite + `writeBuiltinOutput` awaited-form fixes are the estree/sh2runtime worker's domain — no shared-core change can land or gate them here.

@@ -71,3 +71,6 @@ Current: the extglob tests rely on the renderer's `!(*.P).S` heuristic
 `$__nocasematch` runtime flag. With the tag, a backend lowers
 `[[ ]]`+extglob+nocasematch properly: `($x =~ /^(?!.*\.min)\.js$/i)`
 style.
+
+## OUTCOME: implemented
+`[[ ]]` test-style tag (commit 76e0448): `ast_to_ir` emits the second `Str("[[")` arg on the `test` Call for double-bracket conditions (src/shir.rs:7224/8183), and the ESTree renderer's `expr_to_estree` consumes the 2-arg `[Str, Str(tag) if tag == "[["]` shape (src/shir.rs:32190). Verified this round: the request's failing-case (extglob + nocasematch via separate `shopt -s` lines) transpiles to `f1-ok`/`f2-filtered`/`ci-match`, byte-equal to native bash 5.x; the AST shIR carries the `[[` tag on all 3 tests. estree 546/546 (incl. 010_pattern_matching.sh, 037, 038). Note: multi-option `shopt -s extglob nocasematch` (two opts, one call) still errors at runtime — separate runtime/builtin limitation, out of this request's scope.

@@ -45,3 +45,5 @@ $ node -e "… bashToJS('/tmp/abs.sh') …"   # A1 path
 # emitted JS: sh2.fnCall("abs", [x]) — a runtime dispatch
 # expected: the 3-statement body inlined at the call site (x < 0 ? -x : x)
 ```
+
+## OUTCOME: rejected: target is `otranspilerl/src/lib.rs` — otranspilerl is a SEPARATE repo (owns its own git + its own core-request mediation workflow) whose A1 frontend/typing/emitter is the estree(A1) worker's domain, NOT the shared core (src/shir.rs, src/estree.rs, src/parser/, shir_json*, harness/*). No shared-core change can fix the A1 BigInt/await/inline/array-lift bugs it references; re-route this request to the otranspilerl worker's queue.
