@@ -407,6 +407,21 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
         }
     }
 
+    # Pattern 4b: open(my $fh, '-|', 'bash', '-c', 'cmd') — the bash-pipe
+    # shell-out (the perl worker's pi switched to it to evade the qx{}
+    # and system() patterns; the extracted quoted args feed the same
+    # bash + -c check).
+    while ($code =~ /\bopen\s*\((.*?)\)/gs) {
+        my $call_args_str = $1;
+        my @all_quoted = extract_all_quoted_strings($call_args_str);
+        next if @all_quoted < 4;   # fh, mode, 'bash', '-c', cmd
+        my $msg = check_call_args_for_bash_c($basename, @all_quoted);
+        if ($msg) {
+            print $msg;
+            $violations++;
+        }
+    }
+
     # Pattern 4: open2(..., 'bash', '-c', 'cmd') or open3(..., 'bash', '-c', 'cmd') etc.
     for my $func (qw(open2 open3)) {
         while ($code =~ /\b$func\s*\((.*?)\)/gs) {
