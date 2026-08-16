@@ -74,6 +74,12 @@ wake_sleepers() {
 while true; do
   bash "$ROOT/setup_backends.sh" --wait >> "$LOG" 2>&1 || true
   echo "[$(date +%FT%T)] core: iteration start" >> "$LOG"
+  # write the report at iteration START too, so the summary shows the
+  # pending/done trajectory immediately (the final GREEN/RED line lands
+  # when the iteration completes — the pi mediation takes a while)
+  printf '%s core-worker: iterating (%s pending, %s done)\n' \
+    "$(date +%FT%T)" "$(pending_requests | wc -l)" "$(done_requests)" \
+    >> "$ROOT/gate-reports/core-worker.report"
 
   pending=$(pending_requests)
   if [ -n "$pending" ]; then
