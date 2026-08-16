@@ -12,6 +12,24 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v29: **Transform marketplace — offered/accept/reject, core narrowed to
+>   build + canonical bug-fix (proposal, §11).** The estree worker's
+>   implement-and-mediate model is the bottleneck (serial mediation, blocking
+>   sleeping-<lang> wakes, STALLED-FIRST starvation, a gate that can't see
+>   frontend-emitted A1). Replace it: BACKENDS own transforms — a backend
+>   implements new transforms, decides the sharing scope, offers them; other
+>   backends accept or reject (compile-time for transforms, render-time
+>   verdict-recorded for contract nodes). FIXES and UPDATES to existing
+>   transforms are ALSO offered; when all acceptors land the new version, the
+>   OLD one is pruned (no forks: a per-backend modification is a NEW
+>   transform). The core keeps only: build CI over every backend tree, bug
+>   fixes on the canonical set, the invariants (determinism, perl pass
+>   count, round-trip), the A1 schema, and the bash→A1 parser. The
+>   cross-product gate flips from an owner's gate to a SIGNAL feeding each
+>   backend's accept/reject verdicts. Conditions: acceptance ≠ fork;
+>   every transform ships a manifest (prereqs, invariant, intended scope);
+>   the contract stays additive + round-trip-tested. Pilot: un-reject
+>   bc-float-clean (GLSL backend owns it, offers to sh).
 > - v28: **Embed profile — purify inside the transpiler (Stage 1 landed):**
 >   the shIR renderer gains `shir_to_perl_embed` (`src/ir.rs`), rendering a
 >   shell snippet as an embeddable Perl fragment — statements only, `do { … }`
@@ -1436,3 +1454,100 @@ Open questions: status-tracker strategy (declare-local vs reuse-enclosing),
 `__bt` wrapper home (renderer vs purify), scope-var precision (file-wide v1
 vs per-site), function-def refusals v1 (vs render-as-host-sub), Int64
 boundary conversion, per-fragment `#line`.
+
+## 11. Transform marketplace: offered / accept / reject (proposal)
+
+The estree worker's implement-and-mediate model is the bottleneck (serial
+mediation of every escalation, blocking `sleeping-<lang>` wakes, STALLED-FIRST
+starvation, and a gate that cannot see frontend-emitted A1). Replace it with
+a **marketplace**: transforms are offered by the backend that needs them and
+accepted or rejected by the backends they would affect. The core narrows to
+build + canonical bug-fix.
+
+### 11.1 The roles
+
+- **A backend** implements new transforms, decides the sharing scope (which
+  other backends should get them), and OFFERS them.
+- **Other backends** ACCEPT or REJECT offers. Acceptance is compile-time for
+  transforms (a per-backend manifest selects the compiled set); for CONTRACT
+  NODES (the shared `estree::Stmt`/`Expr` enums) acceptance is render-time —
+  every backend has the node compiled in and chooses to render or refuse it;
+  `triage/verdicts.tsv` records the emergent contract map.
+- **The core** only: build CI over every backend tree; bug-fix the canonical
+  transform set; hold the invariants (determinism, perl pass count, A1
+  round-trip); own the A1 schema; own the bash→A1 parser.
+
+### 11.2 The offer / accept protocol
+
+1. A backend writes a transform (or fixes/updates an existing one) in its
+   worktree (`backend/<lang>`), with a MANIFEST header (see 11.4).
+2. It drops the offer in `core-requests/transforms/offered/<name>.md` naming
+   the intended sharing scope.
+3. Target backends merge the candidate into their worktree and run their own
+   gate: green → ACCEPT (the canonical copy lives in their tree); red →
+   REJECT (stays out, verdict recorded; the offerer may fix and re-offer).
+4. **Updates are offers too**: a fix or improvement to an accepted transform
+   is offered the same way. When ALL acceptors land the new version, the
+   OLD version is PRUNED from main (the canonical set). Partial acceptance
+   keeps the old canonical + the new per-acceptor copy as a distinct
+   transform (a fork is a NEW transform, never an edit of the accepted one —
+   acceptance ≠ fork, so the core's bug-fix role stays well-defined).
+5. Graduation: a transform accepted by all (or a quorum) moves to main's
+   canonical `src/transforms/`; the core's CI builds it and the core fixes
+   its bugs (propagating via the existing `--sync` merge discipline).
+
+### 11.3 The cross-product gate flips from gate to signal
+
+The `triage.sh` cross-product sweep is no longer the core's verification
+gate — it is a SIGNAL: for each frontend×backend pair it records whether
+the backend renders the frontend's A1 and matches native. Each backend uses
+its own verdicts to decide accept/reject (a transform that makes many pairs
+pass is de-facto shared; one that helps a single pair stays scoped).
+"Out of scope" ceases to exist as a rejection category.
+
+### 11.4 Transform manifest (required on every offer)
+
+```text
+name: <transform>
+prereqs: [analyses it needs — var_lifetimes, const_vars, …]
+invariant: <which A1 shapes it expects/normalizes, what must not change>
+scope: <intended acceptors — e.g. c, sh, glsl>
+updates: <if this replaces an accepted version, the old version's id>
+```
+
+The acceptance decision is "I'll run this + its prereqs, and my gate
+passes." Prereq declaration is the guard against a transform silently
+breaking a later acceptor.
+
+### 11.5 Conditions (the anti-bottleneck guarantees)
+
+- **Additive contract**: A1 schema additions are append-only + round-trip
+  tested; nothing to mediate between conflicting requests if the contract is
+  monotone.
+- **Independent merge units**: one offer per cycle, scoped commits, merged
+  independently (additivity makes them conflict-free).
+- **Reject by default**: an offer that is not clearly small and additive is
+  rejected/deferred; a stalled offer auto-escalates to the human core-owner
+  after two cycles instead of being re-fed forever.
+- **Cadence split if needed**: contract steward (schema + round-trip,
+  frontend-facing) vs transform worker (cross-backend changes) if a single
+  worker saturates.
+
+### 11.6 Pilot: bc-float-clean
+
+Un-reject `core-requests/transforms/rejected/bc-float-clean`: the GLSL
+backend (backends/glsl) owns it, offers it to sh (sh also has a `bc` path),
+the remaining backends reject. This exercises build (core), offer/accept
+(worktrees), and verdict recording (cross-product gate) with one
+self-contained transform before scaling the protocol.
+
+### 11.7 Migration
+
+The existing `src/transforms/*.rs` modules and `core-requests/transforms/`
+done/rejected piles become the seed inventory: each transform gets a
+manifest, each backend declares its accept set (default: the current
+unconditional `pub mod transforms`), and the first re-offer cycle
+re-baselines the canonical set. The estree worker's scope narrows to
+`estree.rs` + the shell parser + canonical-transform bug-fixes — the
+fix-surface contraction mechanism (triggered when other workers run)
+applies unchanged.
