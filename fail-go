@@ -134,6 +134,8 @@ while IFS=$'\t' read -r bn Jv Rv orc reason; do
   fi
 done < "$tmpd/out.tsv"
 echo "=== fail-go: $js_pass/$total js pass, ${rs_pass}/$total rust pass ==="
+mkdir -p "$ROOT/gate-reports"
+printf '%s fail-go: %s/%s js pass, %s/%s rust pass\n' "$(date +%FT%T)" "$js_pass" "$total" "$rs_pass" "$total" >> "$ROOT/gate-reports/go-js.report"
 rm -rf "$tmpd"
 [ "$GATE" = 1 ] && { [ "$js_fail" -gt 0 ] || { [ "$RUST" = 1 ] && [ "$rs_fail" -gt 0 ]; }; } && exit 1
 exit 0
