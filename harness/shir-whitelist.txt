@@ -1,0 +1,34 @@
+# shir-whitelist.txt — the verified emulable-command whitelist for the shIR
+# normalisation worker (fail-shir / main_loop_shir.pl).
+#
+# A shell-out call site whose first command is in this list is
+# "normalisable": the shIR worker's job is to rewrite the surrounding A1 so
+# the perl/js renderers' native emulation paths fire instead of
+# `system('bash', '-c', ...)`. One command per line. Growing this list is
+# the worker's progress metric — each new command must be verified
+# GNU-faithful (the fail-coreutils differential probes) before it is added,
+# per the "native only when verified; otherwise the shell-out stays" rule.
+#
+# v1 set: the PLAN v14 bash-free whitelist (seq/ls/wc/cat/tail/grep/tr/
+# mkdir/rm/touch/basename/dirname/pwd/date/hostname/paste/tee/which/yes).
+# Some already have perl-generator emulations; the ones that do not are the
+# top escalation targets (core-requests/shir-<ts>.md).
+seq
+ls
+wc
+cat
+tail
+grep
+tr
+mkdir
+rm
+touch
+basename
+dirname
+pwd
+date
+hostname
+paste
+tee
+which
+yes
