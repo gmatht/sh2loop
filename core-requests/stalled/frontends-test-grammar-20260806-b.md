@@ -47,3 +47,5 @@ if re.search(r"^h", s):   # py condition -> needs =~ semantics
 
 `cargo test --lib`; the spec exists; a frontend lowers a condition
 purely from the spec without runtime trial-and-error; corpus unchanged.
+
+## OUTCOME: implemented

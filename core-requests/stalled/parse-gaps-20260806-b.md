@@ -49,3 +49,5 @@ echo "$out"
 
 Current: `debashc --shir` → empty JSON. Expected: valid A1 (or at worst
 a graceful fallback marker, never empty).
+
+## OUTCOME: implemented

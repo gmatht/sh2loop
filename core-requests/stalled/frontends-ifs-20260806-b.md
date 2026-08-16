@@ -42,3 +42,5 @@ echo "$a $b $c"
 
 `cargo test --lib`; the probe above executes correctly; corpus unchanged
 (default IFS is whitespace — the existing behavior).
+
+## OUTCOME: implemented

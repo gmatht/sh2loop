@@ -51,3 +51,5 @@ The estree worker is decoupled from perl work (the rust loop owns the
 perl backend); this request documents the hang precisely so the rust
 loop can implement it — or the mediation can route it. Either way the
 bug is on record with a reproducible case.
+
+## OUTCOME: implemented
