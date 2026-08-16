@@ -43,3 +43,5 @@ fmt.Println(strings.TrimSpace(s))   // go-sh: no shared trim shape
 
 `cargo test --lib`; the catalog exists; two frontends lower the same op
 to the same A1 shape; corpus unchanged.
+
+## OUTCOME: implemented

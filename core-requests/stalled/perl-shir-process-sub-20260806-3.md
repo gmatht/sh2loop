@@ -52,3 +52,5 @@ Current: `--shir` emits `{"mode":"unsupported","target":{"value":""}}`;
 `--shir-in-perl` dies "(redirect mode)". Expected: `process-in` modes →
 `bash -c` gets ` <(echo a) <(echo b)` → passes
 harness/ir-perl-metric.sh.
+
+## OUTCOME: implemented
