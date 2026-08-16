@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 # summarize-progress.sh — a progress summary from the workers' LAST gate
-# reports. Each gate writes a timestamped report line to a KNOWN file
-# under gate-reports/ (the newest line is the latest report); this script
-# reads those files. Workers without a report file yet fall back to the
-# last matching line in their loop log.
+# reports (the NEW worker model: core/contract is a separate marketplace
+# worker; estree is re-scoped to the corpus/emission).
 #
+# Each gate writes a timestamped report line to a KNOWN file under
+# gate-reports/ (the newest line is the latest report); this script reads
+# those files. Workers without a report file yet fall back to the last
+# matching line in their loop log.
+#
+#   gate-reports/core-worker.report      ← run_core_worker.sh (marketplace:
+#                                          A1-native ladder + pending reqs)
+#   gate-reports/estree.report           ← fail-estree (estree: corpus/emission)
 #   gate-reports/backend-<lang>.report   ← --backend-gate <lang>
 #   gate-reports/go-js.report            ← fail-go (Go→JS/Rust corpus)
 #   gate-reports/frontend-go-sh.report   ← go-sh frontend worker gate
 #   gate-reports/idiom-triage.report     ← run_go_idiom_worker pass
-#   gate-reports/estree.report           ← fail-estree (the estree worker)
 #   gate-reports/triage.report           ← run_triage_worker cycle
 #
 # Does NOT run any gate — the reports are the source (fast, no load).
@@ -26,22 +31,27 @@ age() {  # file -> "12m ago" / "-"
 
 # name | report file | pgrep (alive) | fallback log | fallback patterns
 workers=(
+  # ── the NEW model: core/contract is the marketplace owner; estree is
+  #    the corpus/emission worker (requests deferred via CORE_WORKER_ACTIVE)
+  "core/contract|$REP/core-worker.report|run_core_worker|$ROOT/loop-core-worker.log|core-worker: (GREEN|RED)|core: [0-9]+ pending request|A1-native invariant"
+  "estree (corpus)|$REP/estree.report|main_loop_estree|$ROOT/loop-estree.log|estree [0-9]+/[0-9]+|ESTREE: [0-9]+/[0-9]+|[0-9]+/[0-9]+ pass"
+  # ── the frontends / idiom-triage ─────────────────────────────────────
   "go-sh frontend|$REP/frontend-go-sh.report|frontends/go-sh/run_frontend_worker|$ROOT/loop-frontend-go-sh.log|fail-go: [0-9]+/[0-9]+ js pass|go-sh: gate (GREEN|FAILED)|frontend-stdout \\[go\\]: [0-9]+/[0-9]+ match"
   "cpp-sh-go frontend|$REP/frontend-cpp-sh-go.report|frontends/cpp-sh-go/run_frontend_worker|$ROOT/loop-frontend-cpp-sh-go.log|frontend-stdout \\[cpp\\]: [0-9]+/[0-9]+ match|C-invariant: c-sh-go corpus stays green"
   "idiom-triage|$REP/idiom-triage.report|run_go_idiom_worker|$ROOT/loop-go-idiom-worker.log|idiom-triage: (pass GREEN|app [a-z.-]+ TRANSPILES|ladder covers the app's dialect[^\"\\n]{0,30}|uncovered constructs)"
-  "estree/core|$REP/estree.report|main_loop_estree|$ROOT/loop-estree.log|estree [0-9]+/[0-9]+|ESTREE: [0-9]+/[0-9]+|[0-9]+/[0-9]+ pass"
-  "core/contract|$REP/core-worker.report|run_core_worker|$ROOT/loop-core-worker.log|core: (GREEN|RED)|core worker started"
+  # ── the backends ─────────────────────────────────────────────────────
   "rust backend|$REP/backend-rust.report|run-backend-worker rust|$ROOT/loop-backend-rust.log|\\[rust\\] backend gate: [^\"\\n]{0,80}|equivalence [0-9]+"
   "c backend|$REP/backend-c.report|run-backend-worker c|$ROOT/loop-backend-c.log|\\[c\\] backend gate: [^\"\\n]{0,80}"
   "perl backend|$REP/backend-perl.report|run-backend-worker perl|$ROOT/loop-backend-perl.log|\\[perl\\] backend gate: [^\"\\n]{0,80}"
   "sh backend|$REP/backend-sh.report|run-backend-worker sh|$ROOT/loop-backend-sh.log|\\[sh\\] backend gate: [^\"\\n]{0,80}"
   "go→js/rust|$REP/go-js.report|fail-go|$ROOT/loop-frontend-go-sh.log|fail-go: [0-9]+/[0-9]+ js pass, [0-9]+/[0-9]+ rust pass"
+  # ── cross-product ────────────────────────────────────────────────────
   "triage|$REP/triage.report|run_triage_worker|$ROOT/loop-triage-worker.log|triage: cycle [a-z-]+ done|PASS[a-z-]* [^\"\\n]{0,60}"
 )
 
 ALL="${1:-}"
-printf '%-18s %-7s %-70s %s\n' "worker" "alive" "last gate report" "age"
-printf '%-18s %-7s %-70s %s\n' "------" "-----" "----------------" "---"
+printf '%-16s %-7s %-72s %s\n' "worker" "alive" "last gate report" "age"
+printf '%-16s %-7s %-72s %s\n' "------" "-----" "----------------" "---"
 for w in "${workers[@]}"; do
   IFS='|' read -r name rep pgrep log pats <<< "$w"
   # primary: the known report file (newest line = the last report)
@@ -57,5 +67,5 @@ for w in "${workers[@]}"; do
   [ -n "$pgrep" ] && pgrep -f "$pgrep" >/dev/null 2>&1 && alive="yes"
   src="$rep"
   [ -f "$rep" ] || src="$log"
-  printf '%-18s %-7s %-70s %s\n' "$name" "$alive" "${line:0:70}" "$(age "$src")"
+  printf '%-16s %-7s %-72s %s\n' "$name" "$alive" "${line:0:72}" "$(age "$src")"
 done

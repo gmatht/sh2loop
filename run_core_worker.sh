@@ -140,11 +140,11 @@ while true; do
   if [ "$(a1_gate)" -eq 0 ] && "$ROOT/harness/build-lock.sh" --role core -- cargo test --lib \
        --manifest-path "$SUB/Cargo.toml" >> "$LOG" 2>&1; then
     echo "[$(date +%FT%T)] core: gate GREEN (A1 native + lib tests)" >> "$LOG"
-    printf '%s core-worker: GREEN (A1 native + lib tests)\n' "$(date +%FT%T)" >> "$ROOT/gate-reports/core-worker.report"
+    printf '%s core-worker: GREEN (A1-native %s, %s pending requests)\n' "$(date +%FT%T)" "$v" "$(pending_requests | wc -l)" >> "$ROOT/gate-reports/core-worker.report"
     wake_sleepers
   else
     echo "[$(date +%FT%T)] core: gate RED after fixes — left for the next iteration (never bless a regression)" >> "$LOG"
-    printf '%s core-worker: RED (A1-native ladder + lib tests)\n' "$(date +%FT%T)" >> "$ROOT/gate-reports/core-worker.report"
+    printf '%s core-worker: RED (A1-native %s, %s pending requests)\n' "$(date +%FT%T)" "$v" "$(pending_requests | wc -l)" >> "$ROOT/gate-reports/core-worker.report"
   fi
   sleep "$WATCH"
 done
