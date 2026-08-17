@@ -1207,7 +1207,12 @@ sub process_core_transforms {
     if (open my $rfh, '<', $src_transforms) {
         local $/; my $t = <$rfh>; close $rfh;
         $t =~ s/pub mod $bm;\n//;
-        $t =~ s/\(\s*"$blamed", $bm::transform\),\n\s*//;
+        # `${bm}::transform` (not `$bm::transform` — that is the package-
+        # scoped global `$bm::transform`, undef, so the registry entry
+        # never matched and the blamed transform left a DANGLING
+        # reference: pub mod removed but ("$blamed", …::transform) still
+        # in all(), and the crate wouldn't rebuild after a blame)
+        $t =~ s/\(\s*"$blamed", ${bm}::transform\),\n\s*//;
         open my $wfh, '>', $src_transforms; print $wfh $t; close $wfh;
     }
     system('mkdir', '-p', "$transforms_dir/rejected");
