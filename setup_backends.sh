@@ -1243,7 +1243,7 @@ EOF
                     {
                       printf '# %s: TRAPPED (build fails repeatedly)\n\n' "$t_name"
                       printf '## NEED\n'
-                      printf 'The %s worker cannot build; it likely needs a shared-core change (shIR node / deserializer / contract / parser) it cannot make in-scope. Inspect the worker log and the pi-fix attempts.\n' "$t_name"
+                      printf 'The %s worker cannot build. DIAGNOSE first (its own gate log), then FILE BY TYPE (PLAN §11 / core-requests/README.md): a NEW shIR node -> a contract-gen SPEC (core-requests/contracts/<node>.json); a NEW transform -> an .rs offer with the §11.4 manifest (core-requests/transforms/offered/<name>.rs); a NEW NODE + its lowerings -> a bundle (core-requests/bundles/<name>/); only a genuine shared-analysis bug -> this .md WITH the diagnosis. NEVER a blind escalate.\n' "$t_name"
                       printf '\n## WHY\n'
                       printf 'Repeated build failures; see frontends-or-backends/%s and harness/.\n' "$t_kind"
                       printf '\n## MINIMAL-CORE-CHANGE\n'
