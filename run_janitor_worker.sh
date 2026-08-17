@@ -37,15 +37,19 @@ mkdir -p "$REQS/transforms"
 [ -f "$VERDICTS" ] || printf 'request\tverdict\treason\tbundle\n' > "$VERDICTS"
 echo "[$(date +%FT%T)] janitor worker started (pid=$$)" >> "$LOG"
 
-# old requests not yet converted (no marker, no bundle, not already judged)
+# old requests not yet converted (no marker, no bundle, not already judged).
+# ORDER: the stalled estree-20260813 A1-optimization backlog FIRST (the
+# known CONVERT-candidates — const-fold, DCE, SSA, loop passes...), then
+# the other stalled, then the open requests (newest first).
 pending_requests() {
   {
+    ls "$REQS/stalled"/estree-20260813-*.md 2>/dev/null
+    ls "$REQS/stalled"/*.md 2>/dev/null | grep -v estree-20260813
     ls "$REQS"/*.md 2>/dev/null | grep -vE "/(done|stalled|offered|rejected)/"
-    ls "$REQS/stalled"/*.md 2>/dev/null
   } | while read -r f; do
     grep -q "## CONVERTED-TO\|## SUPERSEDED\|## NOT-A-TRANSFORM\|## DUPLICATE" "$f" 2>/dev/null && continue
     echo "$f"
-  done | sort -r | head -"$MAX_PER_RUN" || true
+  done | head -"$MAX_PER_RUN" || true
 }
 
 # does a bundle already exist for this request (name-derived)?
