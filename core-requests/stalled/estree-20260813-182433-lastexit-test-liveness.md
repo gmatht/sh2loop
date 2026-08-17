@@ -50,3 +50,6 @@ assignments + the Number dance per test. With the elision:
 — the `$?` protocol must be byte-identical for the cases that DO read
 it: `if cmd; then …; fi` chains, `cmd && …`, `$?` in `$(( ))`). Corpus
 gate: `./fail-estree` at the trusted baseline.
+
+## SUPERSEDED: compute_test_cond_deadness / TEST_COND_DEAD (the Plan 4 test-condition liveness)
+## REASON: Both minimal-core-change points landed in the core: shir.rs compute_test_cond_deadness (line 941) is populated by compute_lastexit_deadness (1023) and consumed by every [ ]-condition emission — If (16698), While (17010), DoWhile (17243) — emitting the bare boolean condition (no _g/lastExit seq) when the status write is provably unread; live sites keep the byte-identical statused form.

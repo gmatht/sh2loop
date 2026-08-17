@@ -55,3 +55,6 @@ Number/closure removal across the board is transform 1's typed
 lowering; this request is the pure-int fold + arithEval elision on top
 of it — independent and behavior-preserving). Corpus gate:
 `./fail-estree` at the trusted baseline.
+
+## SUPERSEDED: shir::const_fold_arith (the const-pool arith fold)
+## REASON: The shared fold landed in the core: shir.rs:4945 const_fold_arith — single-site Const verdicts seed a pool, pure-int Arith subtrees fold to literals (Arith → Int), ±2^53 envelope, --true64 skip — wired at the A1-ingress points every renderer consumes (shir.rs:13734 "Const-pool arith fold (core request estree-20260813-182434-const-fold-arith)" + the A1-optimizer pass shir_passes/optimize.rs:1724). The residual $(( )) arithEval-elision emission is renderer-side (the A1-path native arith emission LIFTED_NUMERIC/native_arith_text landed separately, done/estree-20260813-212042-native-arith-debashcl.md) — like 182432, not a bundle.

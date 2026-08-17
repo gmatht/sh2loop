@@ -3,3 +3,11 @@ triage-sh-20260817-092641	SUPERSEDED	dead_store_elim (redirect-target reads); co
 triage-rust-20260817-092641	SUPERSEDED	dead_store_elim (redirect-target reads) + rust Redirect/exec arms in core 1e123dd; rust executes to hi/more == corrected oracle	dead_store_elim
 triage-rust-20260816-234940	NOT-A-TRANSFORM	rust renderer t79 codegen (i++ String round-trip 59s -O0 > 30s harness timeout); fixed by the rust worker in cfd5c4b (straight-to-i64); no shared transform	-
 triage-rust-20260817-115757	DUPLICATE	re-escalation of the same go-sh/t79_go_stmt.go/rust pair; merge into triage-rust-20260816-234940	-
+triage-sh-20260817-092641	## SUPERSEDED: dead_store_elim (redirect-target reads)	Root cause was a canonical core transform bug, not the sh renderer:	
+triage-rust-20260817-115757	## DUPLICATE: triage-rust-20260816-234940	Identical pair — same frontend (go-sh), same example	
+triage-rust-20260817-092641	## SUPERSEDED: dead_store_elim (redirect-target reads)	Same cluster as the sh request: the broken estree reference (DSE	
+triage-rust-20260816-234940	## NOT-A-TRANSFORM: rust backend renderer (t79 codegen, cfd5c4b)	The pair fails on RENDERER emission, not on a shared A1/IR shape:	
+estree-20260813-182431-inline-pure-fns	SUPERSEDED	inline-pure-fns landed in the shared core (src/transforms/inline_pure_fns.rs; offer accepted e242948, fixed da233c3, build+invariants green; canonical record done/inline-pure-fns.rs); estree worker's registration in all() + renderer fnCall hooks are its own gate	inline-pure-fns
+estree-20260813-182432-split-elide-typed-args	NOT-A-TRANSFORM	estree.rs emission-time word-split elision (expr_known_nospace on the fnCall/exec arg path); consumes the shared A1 var_types verdicts; no IR change, no shared analysis	-
+estree-20260813-182433-lastexit-test-liveness	SUPERSEDED	compute_test_cond_deadness/TEST_COND_DEAD landed in shir.rs (941/1023) and consumed by the If/While/DoWhile [ ] emission (16698/17010/17243) — bare boolean when the status write is unread	lastexit-test-liveness
+estree-20260813-182434-const-fold-arith	SUPERSEDED	shir::const_fold_arith (shir.rs:4945) wired at A1 ingress (13734) + the A1-optimizer pass (optimize.rs:1724); the $(( )) arithEval-elision emission residue is estree renderer-side (native-arith landed separately)	const_fold_arith

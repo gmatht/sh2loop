@@ -63,3 +63,6 @@ dispatches + six split/filter coercions for one array read. Inlined it
 is `idx = 5*16 + 0*16 + 2; gv = map[idx]`. Corpus gate: `./fail-estree`
 must stay at the trusted baseline; the render-loop numbers (MIMEcroft
 `gspan "render"` ≈ 48ms/frame of async dispatches) are the target.
+
+## SUPERSEDED: inline-pure-fns
+## REASON: The request's core ask — the IR-level inline pass (fn(&mut Vec<IrStmt>) -> bool) — landed in the shared core as src/transforms/inline_pure_fns.rs (marketplace offer accepted sh2perl e242948 "contract op + transform (build + invariants green)", fixed da233c3; canonical workspace record core-requests/transforms/done/inline-pure-fns.rs). The estree worker's remaining steps — registering it in transforms::all() + the renderer-side fnCall hooks — are its own acceptance gate, not a new bundle.
