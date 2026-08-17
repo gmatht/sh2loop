@@ -448,6 +448,16 @@ case "${1:-}" in
                   echo $! > "$bw_dir/loop-backend-$bw_lang.pid"
                   echo "[$bw_lang] backend worker started (pid $(cat "$bw_dir/loop-backend-$bw_lang.pid")) — log: $WORKSPACE/loop-backend-$bw_lang.log"
                   exit 0 ;;
+  --start-janitor-worker) # the BACKLOG JANITOR: classifies the OLD core requests
+                  # (open + stalled) with reasons, converts the good ones to NEW-spec
+                  # marketplace bundles (transform.rs + register + manifest + OFFERED-TO)
+                  # in core-requests/transforms/, records verdicts in
+                  # core-requests/janitor-verdicts.tsv. The AUTHOR side (LLM); the core
+                  # worker gates what it submits. Scope: core-requests/ only.
+                  nohup nice -n 15 bash "$ROOT/run_janitor_worker.sh" \
+                    >> "$WORKSPACE/loop-janitor-worker.log" 2>&1 &
+                  echo "janitor worker started (pid $!) — log: $WORKSPACE/loop-janitor-worker.log"
+                  exit 0 ;;
   --start-core-worker) # the CORE/CONTRACT worker (TRANSLATE_ONE_APPLICATION fleet
                   # role #1): single owner of the shared IR + the A1 contract + the
                   # transforms + the core-requests queue + the A1-native check
