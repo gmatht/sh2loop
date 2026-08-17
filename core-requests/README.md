@@ -1,90 +1,85 @@
-# core-requests/ — escalation channel: workers -> the ESTree core owner
+# core-requests/ — escalation channel: workers -> the shared core
 
 When a per-worktree backend worker or per-frontend worker hits a genuine
-shared-core limitation (a missing shIR node, a deserializer round-trip
-gap, a contract field, a parser limitation), its `pi` invocation is told
-to APPEND a structured request here instead of touching the core.
+shared-core limitation, it escalates. **The artifact type depends on the
+need (PLAN §11 marketplace — the core is LLM-free):**
 
-## Request file format
+| Need | Artifact | Where | What the core does |
+|---|---|---|---|
+| A NEW CONTRACT NODE (a shIR statement/expression the frontend emits and backends must ingest) | a **`contract-gen` spec** (JSON) | `core-requests/contracts/<node>.json` | `harness/contract-gen` generates the patch (enum + serde + schema + round-trip fixture); the sweep builds/tests/logs |
+| A NEW NODE **+ ITS CONSUMING TRANSFORMS** (one or more — different backends may lower the same node differently) | a **bundle**: `bundle.json` (spec + manifest) + `transforms/*.rs` (each with its own §11.4 manifest) | `core-requests/bundles/<name>/` | atomic on the core: `contract-gen` emits the node patch, the sweep applies node + ALL transforms, builds+gates the pair, logs ONE verdict, reverts WHOLE on failure. Acceptance stays per-transform: each backend's gate decides accept/reject |
+| A NEW TRANSFORM (a lowering the backend wants, shared or scoped) | an **`.rs` transform with a manifest** | `core-requests/transforms/offered/<name>.rs` | `harness/core-sweep.sh` builds + gates it; each backend's gate verdict = accept/reject |
+| A BUG in an existing shared analysis (DCE, lifetimes, var_types…) | a **`.md` request** | `core-requests/<lang>-<ts>.md` | the estree worker mediates + fixes (the core's remaining non-mechanical surface) |
 
-One file per request: `core-requests/<lang>-<YYYYMMDD-HHMMSS>.md`
+**Blind escalations are the anti-pattern**: a worker that cannot build must
+diagnose its own gate log and file a SPEC or OFFER with the concrete
+change — never an `.md` that says "inspect my log".
 
-```markdown
-# <lang>: <one-line summary>
+## The contract-gen spec format (for NEW NODES)
 
-## NEED
-What the shared core must provide (node type, deserializer support,
-contract field, parser fix...).
-
-## WHY
-The failing case / build error / Unsupported reason that prompted this.
-
-## MINIMAL-CORE-CHANGE
-The smallest change to src/shir.rs, src/ir.rs, src/estree.rs,
-src/parser/, or the A1 contract (shir_json.rs / shir_json_in.rs) that
-would satisfy NEED. Concrete: node name, fields, serialization shape.
-
-## FAILING-CASE
-A minimal source snippet (in <lang>) that currently fails, so the
-estree worker can reproduce it.
+```json
+{
+  "node": "ForInit",
+  "kind": "stmt",                       // stmt | expr
+  "fields": {
+    "init": {"kind": "stmts"},          // expr | stmts | stmt
+    "cond": {"kind": "expr", "required": true},
+    "step": {"kind": "stmts"},
+    "body": {"kind": "stmts"}
+  },
+  "sample": {}                          // optional fixture field values
+}
 ```
 
-## Processing (the estree worker mediates)
+Run `harness/contract-gen <spec>.json` to see the generated patch (ir.rs
+enum variant, shir_json serializer arm, shir_json_in deserializer arm,
+schema entry, round-trip fixture). Application precondition (PLAN §11.9):
+the OPEN node model — renderers' node-model matches have `_ => refuse`
+fallbacks, so the new variant compiles everywhere untouched.
 
-- `main_loop_estree.pl` polls `core-requests/*.md` at the start of each
-  iteration (it is the single owner of the shared core).
-- It passes ALL pending requests to ONE `pi` invocation (opencode-go +
-  deepseek-v4-flash, automatic key rotation), instructing it to:
-  - **revisit STALLED requests first** — requests in
-    `core-requests/stalled/` (they waited ≥3 cycles) are folded in
-    before pending ones and before any general estree/benchmark
-    improvement, up to `SH2_STALLED_MAX` (default 15) per iteration;
-  - **mediate between conflicting requests** (oldest first; if two are
-    truly incompatible, implement the one that maximizes corpus
-    coverage and note the rejection);
-  - **implement each without regressing the ESTree corpus** (verify
-    `./fail-estree` — estree_failed must stay at the trusted baseline,
-    ideally 0);
-  - keep its fix surface to the shared core + harness/*.
-- After `pi` finishes, the worker runs `./fail-estree` itself:
-  - green (no regression): commits the core changes (scoped) and moves
-    every request to `core-requests/done/`.
-  - regressed: `scoped_stash` (reverts pi's changes), leaves the
-    requests in place, and logs the regression — the corpus gate wins.
+## The bundle format (NEW NODE + its transforms)
 
-## Stalled (≠ done)
+A bundle directory = one contract node + one or more transforms that
+consume it (different backends may want different lowerings — e.g. a
+static try/finally vs a runtime cleanup list). Atomicity is on the CORE
+side: node + all transforms apply as one unit, build+gate as one pair,
+revert WHOLE on failure. Acceptance stays per-transform: each backend's
+gate verdict on ITS transform set decides accept/reject (a backend can
+accept the node and one lowering while rejecting another).
 
-A request that survives **3 consecutive cycles** without implementation
-(or explicit rejection) is moved to `core-requests/stalled/` — NOT `done/`.
-Stalled is a status, not a verdict:
+```
+bundles/<name>/
+  bundle.json        # {"spec": {contract-gen spec}, "manifest": {…}}
+  transforms/*.rs    # one per lowering; each carries the §11.4 manifest,
+                     # with `depends: [<Node>]` naming its prerequisite node
+```
 
-- the estree worker **revisits** stalled requests every iteration,
-  stalled-first (see above), until pi implements or rejects them;
-- an implemented or rejected stalled request moves to `done/` like any
-  other;
-- `core-requests/stalled-needs.tsv` is regenerated each iteration — one
-  row per stalled request (lang, filename, title) — so the backlog stays
-  visible to humans/agents.
+`harness/contract-gen bundles/<name>/bundle.json` emits the node patch +
+the manifest block; `harness/core-sweep.sh --bundles` validates spec +
+manifests (verdicts.log); `--apply-bundles` applies+builds+gates+reverts
+(explicit operator mode — the live tree is restored after).
 
-## Trapped workers (sleep until estree wakes them)
+## The transform offer format (for NEW TRANSFORMS)
 
-A worker that hits **3 consecutive build failures** is TRAPPED. It:
+A complete `.rs` module (like the `src/transforms/` compile-ins) whose doc
+header carries the §11.4 manifest:
 
-1. ensures a core request exists (`core-requests/<lang>-<ts>.md`,
-   with a fallback "TRAPPED" request if `pi` didn't write one),
-2. creates the marker **`core-requests/sleeping-<lang>`**,
-3. **sleeps** (loops every 60s) while the marker exists — it does NOT
-   busy-loop the build.
+```rust
+//! name: <transform>
+//! prereqs: [analyses it needs]
+//! invariant: <which A1 shapes it expects/normalizes>
+//! scope: <intended acceptors>
+//! updates: <old version id if replacing one>
+```
 
-The estree worker **wakes it**: after processing a request batch GREEN
-(no corpus regression), it removes `core-requests/sleeping-<lang>` for
- each implemented request's language. The worker then wakes, resets its
- failure count, and retries. If the batch regressed, the markers stay
- (workers remain asleep) and the regression is logged.
+Acceptance = the gate verdict: the sweep builds the transform set, each
+backend's gate either passes (accept) or fails (the backend reads its
+verdict line in `core-requests/transforms/verdicts.log` and fixes its own
+offer). Updates to accepted transforms are offers too; when all acceptors
+land the new version, the old one is pruned.
 
-## Done
+## Legacy .md requests
 
-`core-requests/done/<lang>-<ts>.md` = implemented (or rejected, with the
-mediation note in the file).
-`core-requests/stalled/<lang>-<ts>.md` = still open; waiting to be
-implemented (revisited stalled-first each iteration).
+Genuine shared-analysis bugs only (a broken pass, a wrong verdict, a
+round-trip gap). Newest-first is honored by the mediation loop; a request
+that survives 3 cycles moves to `stalled/` (revisited, never retired).

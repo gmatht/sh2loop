@@ -1,0 +1,17 @@
+{
+  "spec": {
+    "node": "Defer",
+    "kind": "stmt",
+    "fields": {
+      "body": {"kind": "stmts", "required": true}
+    }
+  },
+  "manifest": {
+    "name": "defer-lowering",
+    "depends": "Defer",
+    "prereqs": [],
+    "invariant": "Only a Defer statement whose body is a single call is lowered; every other shape refuses (the open node model). The lowered form runs the deferred call when the ENCLOSING function returns (LIFO across multiple defers), matching Go. Non-function contexts refuse.",
+    "scope": ["go", "rust", "java", "c"],
+    "updates": "none"
+  }
+}
