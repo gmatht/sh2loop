@@ -81,5 +81,17 @@ bundles=$(ls -d core-requests/bundles/*/ 2>/dev/null | wc -l)
 echo ""
 echo "marketplace queue: $offers transform offer(s), $specs contract spec(s), $bundles bundle(s) pending"
 for b in core-requests/bundles/*/; do
-  [ -d "$b" ] && echo "  bundle $(basename "$b"): $(ls "$b"/transforms/*.rs 2>/dev/null | wc -l) transform offer(s)"
+  [ -d "$b" ] || continue
+  bn=$(basename "$b")
+  # per-offer status from the verdicts log (OFFER-OK / OFFER-FAIL /
+  # PLACEHOLDER / ACCEPTED) — the count alone was ambiguous
+  for x in "$b"/transforms/*.rs; do
+    [ -f "$x" ] || continue
+    xn=$(basename "$x" .rs)
+    st="PENDING"
+    grep -q "PLACEHOLDER" "$x" && st="PLACEHOLDER"
+    v=$(grep "bundle:$bn/$xn" core-requests/transforms/verdicts.log 2>/dev/null | tail -1)
+    [ -n "$v" ] && st=$(echo "$v" | awk -F'\t' '{print $3}')
+    echo "  bundle $bn/$xn: $st"
+  done
 done
