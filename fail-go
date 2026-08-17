@@ -25,6 +25,13 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 GOSH="$ROOT/frontends/go-sh/go-sh"
 DEBASHC="$ROOT/sh2perl/target/debug/debashc"
 OTRANS="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
+# the rust BACKEND renderer — the worktree's debashc --shir-in-rust
+# (harness/triage.sh + harness/repro-pair.sh use the same binary). The
+# otranspilerl-cli fallback links the MAIN checkout's stale renderer
+# copy — used only when the worktree binary isn't built (standalone
+# runs outside the backend gate, which builds it first).
+RUSTBIN="$ROOT/sh2perl/backends/rust/target/debug/debashc"
+[ -x "$RUSTBIN" ] || RUSTBIN="$OTRANS"
 RUNNER="$ROOT/harness/estree-runner.mjs"
 CORPUS="$ROOT/frontends/go-sh/testdata"
 TIMEOUT=15
@@ -83,11 +90,21 @@ one() { # file -> "file\toracle\tjs\trust\treason" (tab-separated)
   # ── Rust target ──
   if [ "$RUST" = 1 ]; then
     if [ $jrc -eq 0 ] && [ -n "$a1" ]; then
-      rs=$(printf '%s' "$a1" | "$OTRANS" - - --target rust 2>/dev/null); rsrc=$?
+      if [ "$RUSTBIN" = "$OTRANS" ]; then
+        rs=$(printf '%s' "$a1" | "$RUSTBIN" - - --target rust 2>/dev/null); rsrc=$?
+      else
+        rs=$(printf '%s' "$a1" | "$RUSTBIN" --shir-in-rust - 2>/dev/null); rsrc=$?
+      fi
       if [ $rsrc -ne 0 ]; then R="TARGET-ERR";
       else
         printf '%s\n' "$rs" > "$tmp/main.rs"
-        if (cd "$tmp" && timeout "$TIMEOUT" rustc -o main.rsbin main.rs 2>/dev/null); then
+        # -C opt-level=1: without it the rust leg is the ONLY unoptimized
+        # one — the oracle is `go run` (compiled with optimization) and
+        # node JITs the estree output. Debug-mode TLS-static access is
+        # ~10x slower; a faithful 50M-iteration loop (t79_go_stmt) would
+        # blow the 15s run timeout at -O0. opt-level=1 also wraps i64
+        # overflow like bash (debug builds panic).
+        if (cd "$tmp" && timeout "$TIMEOUT" rustc -C opt-level=1 -o main.rsbin main.rs 2>/dev/null); then
           R=$(cd "$tmp" && timeout "$TIMEOUT" ./main.rsbin </dev/null 2>/dev/null | tr '\n' '\036'); rsrc=$?
           [ $rsrc -ge 128 ] && R="CRASH"
         else R="RUST-COMPILE-FAIL"; fi
@@ -119,7 +136,7 @@ for f in "$CORPUS"/*.go; do
 done
 
 export -f one wrap_go
-export GOSH DEBASHC OTRANS RUNNER TIMEOUT RUST
+export GOSH DEBASHC OTRANS RUSTBIN RUNNER TIMEOUT RUST
 # ── run ──────────────────────────────────────────────────────────────
 tmpd=$(mktemp -d)
 printf '%s\n' "${files[@]}" | xargs -P "$JOBS" -I{} bash -c 'one "$1"' _ {} > "$tmpd/out.tsv" 2>/dev/null
