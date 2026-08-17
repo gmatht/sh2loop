@@ -144,18 +144,45 @@ def gen_fixture(spec):
     }
     return json.dumps(prog)
 
+def load_spec(spec_file):
+    """A plain node spec, or a BUNDLE json: {"spec": {…}, "manifest": {…}}
+    (PLAN §11 — a contract node + the transform that consumes it, applied
+    atomically). Returns (spec, manifest_or_None)."""
+    d = json.load(open(spec_file))
+    if isinstance(d, dict) and "spec" in d:
+        return d["spec"], d.get("manifest")
+    return d, None
+
+def gen_manifest(manifest, spec):
+    node = spec["node"]
+    if not manifest:
+        return ""
+    m = manifest
+    lines = [
+        "\n## Bundle manifest (PLAN §11.4 + bundle protocol):",
+        f"name: {m.get('name', node + '-lowering')}",
+        f"depends: [{m.get('depends', node)}]   # the node this transform consumes",
+        "prereqs: " + str(m.get("prereqs", [])),
+        "invariant: " + m.get("invariant", ""),
+        "scope: " + str(m.get("scope", [])),
+        "updates: " + str(m.get("updates", "none")),
+    ]
+    return "\n".join(lines)
+
 def main():
     args = sys.argv[1:]
     if not args:
         print(__doc__, file=sys.stderr)
         sys.exit(2)
     spec_file = args[0]
-    spec = json.load(open(spec_file))
-    mode = "--fixture"
-    if mode in args:
+    spec, manifest = load_spec(spec_file)
+    if "--fixture" in args:
         print(gen_fixture(spec))
         return
-    patch = gen_patch(spec) + "\n\n## Round-trip fixture (feed to `debashc --shir-in-perl` / otranspilerl --shir):\n" + gen_fixture(spec) + "\n"
+    patch = gen_patch(spec)
+    if manifest:
+        patch += gen_manifest(manifest, spec)
+    patch += "\n\n## Round-trip fixture (feed to `debashc --shir-in-perl` / otranspilerl --shir):\n" + gen_fixture(spec) + "\n"
     if "--out" in args:
         out = args[args.index("--out") + 1]
         open(out, "w").write(patch)
