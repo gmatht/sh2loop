@@ -1,0 +1,11 @@
+{
+  "node": "ForIndexed",
+  "kind": "stmt",
+  "fields": {
+    "var": {"kind": "str", "required": true},
+    "index": {"kind": "str", "required": true},
+    "iter": {"kind": "expr", "required": true},
+    "body": {"kind": "stmts"}
+  },
+  "sample": {"var": "s", "index": "i"}
+}

@@ -10,6 +10,11 @@ interface_type, str_upper, filepath).
 
 ## 1. NEED — index+value range `for i, s := range arr`
 
+> CONVERTED (PLAN §11): the §1 node is filed as a contract-gen SPEC at
+> `core-requests/contracts/ForIndexed.json` (the marketplace contract
+> channel — `harness/contract-gen` emits the patch; the core applies it
+> mechanically once the open node model lands).
+
 The app's most common loop form (`for i, s := range args { a[i] = … }`,
 26 uses). The A1 `For` node binds ONE loop var to each element; Go binds
 BOTH the index and the value, and the app reads both (`a[i] = strExpr(s)`).

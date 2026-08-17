@@ -51,6 +51,8 @@ def ser(field, kind, required):
         return f'stmts_json({field})'
     if kind == "stmt":
         return f'stmt_json({field})'
+    if kind == "str":
+        return field  # a plain String serializes directly (json! {"var": var})
     raise ValueError(f"unknown field kind {kind!r}")
 
 def deser(field, kind, required):
@@ -63,10 +65,12 @@ def deser(field, kind, required):
         return f'let {field} = stmts_from(o.get("{field}"), &format!("{{where_}}.{field}"))?;'
     if kind == "stmt":
         return f'let {field} = stmt_from(req(o, "{field}", where_)?, &format!("{{where_}}.{field}"))?;'
+    if kind == "str":
+        return f'let {field} = req_str(o, "{field}", where_)?.to_string();'
     raise ValueError(f"unknown field kind {kind!r}")
 
 def rust_type(kind, required):
-    return {"expr": "IrExpr", "stmts": "Vec<IrStmt>", "stmt": "Box<IrStmt>"}[kind]
+    return {"expr": "IrExpr", "stmts": "Vec<IrStmt>", "stmt": "Box<IrStmt>", "str": "String"}[kind]
 
 def sample_value(field, kind, required):
     if kind == "expr":
@@ -75,6 +79,8 @@ def sample_value(field, kind, required):
         return '[]'
     if kind == "stmt":
         return '{"type": "Expr", "expr": {"type": "Int", "value": 1}}'
+    if kind == "str":
+        return '"0"'  # a plain string value
     raise ValueError(kind)
 
 def gen_patch(spec):
