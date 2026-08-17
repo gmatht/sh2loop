@@ -13,6 +13,19 @@
 # never by render success alone. No failing-test allowlist: a red probe is
 # the pipeline's gap signal (the TRANSLATE_ONE_APPLICATION fix loop).
 #
+# FLAKINESS GUARD (re-verification, NOT an allowlist): a single transient
+# infra failure — a `go run` oracle that dies (rc=124 timeout / compile
+# hiccup), an estree-runner node killed or returning empty under load, or
+# the shared target dir's debashc being churned by another worker — can
+# false-red one test as js=MISMATCH (e.g. the 18:47:06 t16-t19 flake,
+# green 17s later and in 39 consecutive runs). one() re-runs the whole
+# per-test measurement ONCE before trusting a non-PASS verdict (the same
+# re-check the operator does by hand), and the second attempt's verdict is
+# final — a real transpiler bug reproduces on retry and still counts as a
+# failure. Deterministic frontend rejections (EMIT-FAIL / REFUSE) are not
+# retried. The per-test oracle rc is surfaced in the summary for
+# diagnosis, so a recurring infra flake stays visible.
+#
 # Usage: ./fail-go [--gate] [--rust] [--app FILE.go] [PREFIX]
 #   default    report per-file {file, oracle, js, rust, reason}
 #   --gate     exit 1 on any failure (js unless --rust; both with --rust)
@@ -100,14 +113,13 @@ wrap_go() { # file -> wrapped program on stdout (if it needs wrapping)
   { printf 'package main\n\nimport (\n%b\n)\n\nfunc main() {\n' "$imports"; cat "$f"; printf '\n}\n'; }
 }
 
-one() { # file -> "file\toracle\tjs\trust\treason" (tab-separated)
-  local f="$1" bn wrp orc js jsrc rs rsrc o= J= R= reason=""
-  bn=$(basename "$f")
+measure_once() { # f -> run oracle+JS(+Rust) ONCE; store MO MORC MJ MJRC MJv MR MRRC MRv MREASON
+  local f="$1" wrp tmp o orc a1 jrc e rs rsrc reason="" R= J= rc
   wrp=$(wrap_go "$f")
   tmp=$(mktemp -d)
   printf '%s\n' "$wrp" > "$tmp/main.go"
-  o=$(cd "$tmp" && timeout "$TIMEOUT" go run main.go </dev/null 2>/dev/null); orc=$?
-  o=$(printf '%s' "$o" | tr '\n' '\036')   # record separator, keep exact bytes-ish
+  MO="$(cd "$tmp" && timeout "$TIMEOUT" go run main.go </dev/null 2>/dev/null)"; MORC=$?
+  MO=$(printf '%s' "$MO" | tr '\n' '\036')   # record separator, keep exact bytes-ish
   # ── JS target ──
   a1=$(timeout "$TIMEOUT" "$GOSH" --shir "$f" --raw 2>/dev/null); jrc=$?
   if [ $jrc -ne 0 ]; then J="EMIT-FAIL"; reason="frontend cannot parse/lower";
@@ -148,11 +160,35 @@ one() { # file -> "file\toracle\tjs\trust\treason" (tab-separated)
   # normalize: command substitution strips the oracle's trailing newline,
   # but the JS/Rust pipes converted it to a record separator first — strip
   # a trailing separator from both sides before comparing.
-  o="${o%$'\036'}"; J="${J%$'\036'}"; R="${R%$'\036'}"
-  if [ "$o" = "$J" ]; then Jv=PASS; else [ "$J" = "EMIT-FAIL" -o "$J" = "REFUSE" -o "$J" = "TARGET-ERR" -o "$J" = "CRASH" ] && Jv="$J" || Jv=MISMATCH; fi
-  if [ "$o" = "$R" ]; then Rv=PASS; else [ "$R" = "EMIT-FAIL" -o "$R" = "TARGET-ERR" -o "$R" = "RUST-COMPILE-FAIL" -o "$R" = "CRASH" -o "$R" = "n/a" ] && Rv="$R" || Rv=MISMATCH; fi
+  o="${MO%$'\036'}"; MO="$o"
+  J="${J%$'\036'}"; R="${R%$'\036'}"
+  if [ "$MO" = "$J" ]; then Jv=PASS; else [ "$J" = "EMIT-FAIL" -o "$J" = "REFUSE" -o "$J" = "TARGET-ERR" -o "$J" = "CRASH" ] && Jv="$J" || Jv=MISMATCH; fi
+  if [ "$MO" = "$R" ]; then Rv=PASS; else [ "$R" = "EMIT-FAIL" -o "$R" = "TARGET-ERR" -o "$R" = "RUST-COMPILE-FAIL" -o "$R" = "CRASH" -o "$R" = "n/a" ] && Rv="$R" || Rv=MISMATCH; fi
   rm -rf "$tmp"
-  printf '%s\t%s\t%s\t%s\t%s\n' "$bn" "$Jv" "$Rv" "$orc" "$reason"
+  MJ="$J"; MJRC=$jrc; MJv="$Jv"; MREASON="$reason"
+  MR="$R"; MRRC=$rsrc; MRv="$Rv"
+}
+
+one() { # file -> "file\toracle\tjs\trust\treason" (tab-separated)
+  local f="$1" bn
+  bn=$(basename "$f")
+  measure_once "$f"
+  # FLAKINESS GUARD: one re-verification before trusting a non-PASS verdict
+  # (see header). A genuine bug reproduces on the retry and still fails;
+  # deterministic frontend rejections are not retried. The second attempt
+  # (or the first, when it passed) is what the gate reports.
+  if [ "$MJv" != PASS ] && [ "$MJv" != EMIT-FAIL ] && [ "$MJv" != REFUSE ]; then
+    local first_reason="$MREASON"
+    measure_once "$f"
+    if [ "$MJv" != PASS ]; then
+      MREASON="[flake-retry: first=$first_reason] ${MREASON:-still failing}"
+    else
+      MREASON="[flake-retry: first=$first_reason] passed on re-check"
+    fi
+  fi
+  # surface the per-test oracle rc (+ js rc) for infra-flake diagnosis
+  if [ "$MJv" != PASS ]; then MREASON="${MREASON:+$MREASON }(oracle_rc=$MORC js_rc=$MJRC)"; fi
+  printf '%s\t%s\t%s\t%s\t%s\n' "$bn" "$MJv" "$MRv" "$MORC" "$MREASON"
 }
 
 # ── gather files ─────────────────────────────────────────────────────
@@ -168,7 +204,7 @@ for f in "$CORPUS"/*.go; do
   files+=("$f")
 done
 
-export -f one wrap_go
+export -f one wrap_go measure_once
 export GOSH DEBASHC OTRANS RUSTBIN RUNNER TIMEOUT RUST
 # ── run ──────────────────────────────────────────────────────────────
 tmpd=$(mktemp -d)
