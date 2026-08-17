@@ -46,3 +46,6 @@ w.length > 0), "0", String(az).split(/\s+/).filter(w => w.length > 0)])`
 — six split/filter calls for three int values. With the elision the
 args emit as `[ax, "0", az]`. Output bytes are identical (an int has no
 spaces to split); the corpus gate (`./fail-estree`) is the judge.
+
+## NOT-A-TRANSFORM: estree worker (estree.rs fnCall/exec argument lowering)
+## REASON: Renderer-specific emission — estree.rs decides at emit time, per the shared expr_known_nospace verdict, whether to skip the String(x).split(/\s+/).filter(...) word-split wrapper on fnCall/exec args. It consumes the already-shared A1 var_types verdicts (122 Int/116 Str in the mimecroft contract); no IR mutation, no new op, no shared analysis — nothing to bundle (the rubric's split-elide example verbatim).
