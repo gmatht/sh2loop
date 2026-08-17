@@ -49,6 +49,39 @@ for a in "$@"; do
 done
 [ -n "$APP" ] && shift 2
 
+# ── A1-ingress oracle ────────────────────────────────────────────────
+# The main checkout's target dir is SHARED with the core/estree/sh
+# workers (build-lock.sh default), and they churn or wipe it (cargo
+# clean, rebuilds, lockfile revert/stale serde caches) — the binary can
+# vanish between `make test`'s debashc-oracle check and this script's
+# run. A missing oracle must report "oracle unavailable", never a
+# misleading "A1->estree failed" (rc=127 masquerades as a renderer
+# rejection). Rebuild through the sanctioned choke point (backend role:
+# waits up to 1800s, never preempts) — same as make debashc-oracle,
+# including the documented stale-cache retry (serde 1.0.229 artifacts
+# vs a reverted 1.0.226 lockfile; cleaning just those packages recovers
+# without nuking the shared dep cache).
+ensure_oracle() {
+  [ -x "$DEBASHC" ] && return 0
+  echo "oracle $(basename "$DEBASHC") missing — rebuilding via build-lock.sh" >&2
+  if "$ROOT/harness/build-lock.sh" --role backend -- cargo build \
+      --manifest-path "$ROOT/sh2perl/Cargo.toml" --bin debashc >&2; then
+    echo "oracle rebuilt" >&2
+    return 0
+  fi
+  echo "oracle build failed — stale serde cache? cleaning serde artifacts and retrying once" >&2
+  if "$ROOT/harness/build-lock.sh" --role backend -- cargo clean \
+        --manifest-path "$ROOT/sh2perl/Cargo.toml" -p serde_derive -p serde -p serde_core >&2 \
+      && "$ROOT/harness/build-lock.sh" --role backend -- cargo build \
+        --manifest-path "$ROOT/sh2perl/Cargo.toml" --bin debashc >&2; then
+    echo "oracle rebuilt after serde cache clean" >&2
+    return 0
+  fi
+  echo "FAIL (oracle unavailable — could not build debashc; the core tree may be mid-WIP)" >&2
+  return 1
+}
+ensure_oracle || exit 1
+
 # ── helpers ──────────────────────────────────────────────────────────
 wrap_go() { # file -> wrapped program on stdout (if it needs wrapping)
   local f="$1" imports=""
