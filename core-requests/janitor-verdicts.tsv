@@ -1,0 +1,5 @@
+request	verdict	reason	bundle
+triage-sh-20260817-092641	SUPERSEDED	dead_store_elim (redirect-target reads); core 1e123dd 12:40 fixed the broken estree reference (DSE dropped the redirect-target store); sh renders+matches today	dead_store_elim
+triage-rust-20260817-092641	SUPERSEDED	dead_store_elim (redirect-target reads) + rust Redirect/exec arms in core 1e123dd; rust executes to hi/more == corrected oracle	dead_store_elim
+triage-rust-20260816-234940	NOT-A-TRANSFORM	rust renderer t79 codegen (i++ String round-trip 59s -O0 > 30s harness timeout); fixed by the rust worker in cfd5c4b (straight-to-i64); no shared transform	-
+triage-rust-20260817-115757	DUPLICATE	re-escalation of the same go-sh/t79_go_stmt.go/rust pair; merge into triage-rust-20260816-234940	-
