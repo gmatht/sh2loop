@@ -1,0 +1,10 @@
+name: copy-propagation
+prereqs: [none — reuses the core's existing analyze_var_const / the
+  local single-def scan below is the fallback]
+invariant: only vars with exactly ONE static literal/copy def whose
+  def precedes every read with no capture/subshell between are
+  folded; anything ambiguous stays. Folding is idempotent.
+scope: offered to all (estree owner, c, go, perl, python, rust, sh,
+  zig, glsl — the frag-shader copy lines and the per-frame
+  single-use arith chains in the mimecroft render loop)
+updates: none (first offer)

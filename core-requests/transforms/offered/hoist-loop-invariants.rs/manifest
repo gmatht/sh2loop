@@ -1,0 +1,12 @@
+name: hoist-loop-invariants
+prereqs: [function-purity — the pure-function-call gate; the
+  conservative arith/test-only fallback stands without it]
+invariant: only an Assign whose var is written exactly once in the
+  body, whose expr reads loop-invariant vars, and whose var is not
+  read earlier in the iteration is moved out — behavior-preserving by
+  construction. `rand`-style LCG calls and any exec/capture are
+  refused.
+scope: offered to all (estree owner, c, go, perl, python, rust, sh,
+  zig — the texture generators' per-column hash is the motivating
+  corpus case)
+updates: none (first offer)

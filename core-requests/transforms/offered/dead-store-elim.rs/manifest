@@ -1,0 +1,10 @@
+name: dead-store-elim
+prereqs: [escape-classes (optional — sharpens the escapes set;
+  without it the local capture/subshell walk stands in)]
+invariant: only vars with ZERO reads anywhere and no escape are
+  dropped; the `$?`/lastExit/status machinery is untouched; anything
+  ambiguous is left as-is. Runs before the renderers, so no store
+  contract is broken (a dropped var was never observed).
+scope: offered to all (estree owner, c, go, perl, python, rust, sh,
+  zig, glsl — every backend's narrowing decl + store write disappears)
+updates: none (first offer)

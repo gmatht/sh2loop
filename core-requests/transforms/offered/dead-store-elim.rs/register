@@ -1,0 +1,4 @@
+### mod
+pub mod dead_store_elim;
+### all
+        ("dead-store-elim", dead_store_elim::transform),

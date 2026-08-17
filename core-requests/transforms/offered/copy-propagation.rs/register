@@ -1,0 +1,4 @@
+### mod
+pub mod copy_propagation;
+### all
+        ("copy-propagation", copy_propagation::transform),

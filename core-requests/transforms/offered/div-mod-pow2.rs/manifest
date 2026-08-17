@@ -1,0 +1,9 @@
+name: div-mod-pow2
+prereqs: [i32-provable — the widening refinement; without it the
+  verdict only fires on literal-known non-negative dividends]
+invariant: analysis-only; no structural mutation. A node is marked
+  only when the divisor is an exact pow2 AND the dividend is provably
+  non-negative — never a false positive (a false negative is fine).
+scope: offered to c, go, rust, zig, estree (shift-capable); the glsl
+  backend MUST ignore the verdict (ES 1.00 has no bitwise ops)
+updates: none (first offer)

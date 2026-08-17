@@ -1,0 +1,8 @@
+name: const-condition-elim
+prereqs: [copy-propagation — const vars become literals first]
+invariant: only fully-literal, side-effect-free conditions are
+  evaluated and pruned; any condition touching a var/capture is
+  untouched; a constant-true `While` is LEFT (never unrolled).
+scope: offered to all (estree owner, c, go, perl, python, rust, sh,
+  zig, glsl)
+updates: none (first offer)
