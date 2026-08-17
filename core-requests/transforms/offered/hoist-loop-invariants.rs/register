@@ -1,0 +1,4 @@
+### mod
+pub mod hoist_loop_invariants;
+### all
+        ("hoist-loop-invariants", hoist_loop_invariants::transform),

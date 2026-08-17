@@ -1,0 +1,9 @@
+name: string-accumulator
+prereqs: [none — a self-contained pattern match]
+invariant: analysis-only; no structural mutation. A var is marked
+  only when every write in the loop is a `"$v$seg"` self-append and
+  its sole post-loop reads observe the final value; mid-loop reads
+  (other than the leading self-reference) disqualify it.
+scope: offered to estree (owner — the shrinking `blk_p` cons-chain),
+  perl (a builder), go, c, sh
+updates: none (first offer)

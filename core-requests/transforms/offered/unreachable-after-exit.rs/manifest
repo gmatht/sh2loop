@@ -1,0 +1,8 @@
+name: unreachable-after-exit
+prereqs: [none — a self-contained block scan]
+invariant: only the straight-line tail after a DIRECT unconditional
+  `Exit` (or a function-body `Return`) is dropped; conditional exits
+  and every non-exit statement are untouched.
+scope: offered to all (estree owner, c, go, perl, python, rust, sh,
+  zig, glsl)
+updates: none (first offer)

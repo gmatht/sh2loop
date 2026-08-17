@@ -1,0 +1,4 @@
+### mod
+pub mod unreachable_after_exit;
+### all
+        ("unreachable-after-exit", unreachable_after_exit::transform),

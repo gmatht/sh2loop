@@ -1,0 +1,4 @@
+### mod
+pub mod string_accumulator;
+### all
+        ("string-accumulator", string_accumulator::transform),
