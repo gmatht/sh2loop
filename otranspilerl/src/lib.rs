@@ -133,10 +133,36 @@ pub fn run_process(exe: &Path, _args: &[&str], _stdin: &[u8]) -> Result<Vec<u8>,
 /// the argument as literal source text (mirrors the core's `--shir`
 /// dispatch).
 fn read_source(src: &str) -> Result<String, String> {
-    match std::fs::read_to_string(src) {
-        Ok(content) => Ok(content),
+    // byte-preserving: invalid-UTF-8 bytes decode to PUA markers (the
+    // estree corpus has non-UTF-8 examples — fs::read_to_string would fail
+    // on them and the gate reported "stream did not contain valid UTF-8").
+    // byte-preserving with the ESTREE marker base (U+F800+byte): the
+    // emitter's map_raw_bytes (src/estree.rs) detects 0xF800..=0xF8FF and
+    // turns them back into raw bytes. bytes_to_marked_lossy uses 0xE000
+    // — the emitter misses those and the output differs (verified on
+    // utf8-non-utf8-content.sh). Valid UTF-8 passes through as-is.
+    let decode = |bytes: &[u8]| -> String {
+        match String::from_utf8(bytes.to_vec()) {
+            Ok(s) => s,
+            Err(_) => bytes
+                .iter()
+                .map(|&b| {
+                    if b < 0x80 {
+                        b as char
+                    } else {
+                        char::from_u32(0xF800 + b as u32).unwrap_or('\u{FFFD}')
+                    }
+                })
+                .collect(),
+        }
+    };
+    match std::fs::read(src) {
+        Ok(bytes) => Ok(decode(&bytes)),
         Err(_) if !src.contains(' ') => {
-            std::fs::read_to_string(src).map_err(|e| format!("read {src}: {e}"))
+            match std::fs::read(src) {
+                Ok(bytes) => Ok(decode(&bytes)),
+                Err(e) => Err(format!("read {src}: {e}")),
+            }
         }
         Err(_) => Ok(src.to_string()),
     }
@@ -154,6 +180,17 @@ pub fn shell_to_shir(content: &str) -> String {
     };
     let prog = debashl::shir::ast_to_ir_with_lines(&commands, &lines);
     debashl::shir_json::shir_to_shir_json(&prog)
+}
+
+/// The debashc-canonical parse-error ESTree fallback: a Program whose only
+/// statement is `process.exit(2)` — the estree runner executes it and exits
+/// 2, matching bash's syntax-error verdict. The plain empty Program would
+/// exit 0 ("exit code (bash=2 estree=0)" gate failures on
+/// parse-double-semicolon.sh etc.).
+pub fn parse_error_estree_fallback() -> String {
+    // static (otranspilerl has no direct serde_json dep — this mirrors the
+    // debashc CLI's fallback byte-for-byte)
+    r#"{"type":"Program","sourceType":"module","body":[{"type":"ExpressionStatement","expression":{"type":"CallExpression","callee":{"type":"MemberExpression","object":{"type":"Identifier","name":"process"},"property":{"type":"Identifier","name":"exit"},"computed":false,"optional":false},"arguments":[{"type":"Literal","value":2,"raw":"2"}],"optional":false}}]}"#.to_string()
 }
 
 /// A1 shIR JSON → target source, entirely in-process. `lang` is the bare
@@ -234,10 +271,16 @@ pub fn render(a1: &str, lang: &str) -> Result<String, String> {
     // pass — the CLI's --shir-in-estree/--shir-in-perl run the same
     // restructure_goto_only; without it frontend A1 carrying C `goto`
     // reaches the renderers' Label/Goto arms instead of DoWhile/While).
-    debashl::shir_passes::restructure_goto_only(&mut prog);
-    // rich nodes (C-style ForInit) → the shell-flavored A1 the renderers
-    // expect; a survivor means this pipeline forgot the strip.
-    debashl::shir_passes::strip_cfor(&mut prog);
+    // The ESTREE target SKIPS both passes — debashc's `file --estree` is
+    // ast_to_ir → shir_to_estree_json DIRECTLY, and the estree emitter
+    // handles goto/cfor natively; restructuring changed the output for
+    // goto/cfor-bearing examples (gate "stdout mismatch" deltas).
+    if kind != "estree" {
+        debashl::shir_passes::restructure_goto_only(&mut prog);
+        // rich nodes (C-style ForInit) → the shell-flavored A1 the renderers
+        // expect; a survivor means this pipeline forgot the strip.
+        debashl::shir_passes::strip_cfor(&mut prog);
+    }
     let target = match kind {
         "estree" => {
             debashl::shir::shir_to_estree_json(&prog).map_err(|e| format!("estree: {e}"))?
@@ -500,6 +543,44 @@ pub fn cli_at(
         return write_out(stdout, stderr, &output, a1.as_bytes());
     }
 
+    // ESTree parity with debashc's DIRECT path: the corpus baseline
+    // (`file --estree`) is ast_to_ir → shir_to_estree_json with NO shIR
+    // JSON round-trip — even debashc's own --shir-in-estree round-trip
+    // differs from it. For shell sources, replicate the direct path
+    // exactly (byte-marked reads; parse error → the process.exit(2)
+    // fallback above).
+    if tgt_lang == "estree" && src_lang == "sh" && input != "-" {
+        let content = match read_source(&input) {
+            Ok(c) => c,
+            Err(e) => {
+                let _ = writeln!(stderr, "otranspiler: {e}");
+                return 1;
+            }
+        };
+        let commands = match debashl::Parser::new(&content).parse() {
+            Ok(c) => c,
+            Err(_) => {
+                return write_out(
+                    stdout,
+                    stderr,
+                    &output,
+                    parse_error_estree_fallback().as_bytes(),
+                );
+            }
+        };
+        // the corpus baseline (`file --estree`) is the estree module's
+        // AST-level emitter — debashl::estree::ast_to_estree_json — NOT the
+        // shIR path (shir_to_estree_json); they differ on process
+        // substitution etc. (verified on 012_process_substitution.sh).
+        return match debashl::estree::ast_to_estree_json(&commands) {
+            Ok(json) => write_out(stdout, stderr, &output, json.as_bytes()),
+            Err(e) => {
+                let _ = writeln!(stderr, "otranspiler: estree: {e}");
+                1
+            }
+        };
+    }
+
     // the pipeline: A1 -> the target backend -> output
     let a1 = match shir_from(root, &input, &src_lang) {
         Ok(a1) => a1,
@@ -508,6 +589,22 @@ pub fn cli_at(
             return 1;
         }
     };
+    // ESTree parse-error parity with debashc: a shell source that fails to
+    // parse renders the process.exit(2) fallback (the plain empty Program
+    // exits 0 — gate "exit code (bash=2 estree=0)" failures). Only for
+    // in-process shell sources (a `-`/`.shir` A1 input has no parse).
+    if (tgt_lang == "estree" || (tgt_lang == "js" && !do_run)) && src_lang == "sh" {
+        if let Ok(content) = read_source(&input) {
+            if debashl::Parser::new(&content).parse().is_err() {
+                return write_out(
+                    stdout,
+                    stderr,
+                    &output,
+                    parse_error_estree_fallback().as_bytes(),
+                );
+            }
+        }
+    }
     let out = match render(&a1, &tgt_lang) {
         Ok(out) => out,
         Err(e) => {
