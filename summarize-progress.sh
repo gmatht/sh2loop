@@ -33,8 +33,10 @@ age() {  # file -> "12m ago" / "-"
 workers=(
   # ── the NEW model: core/contract is the marketplace owner; estree is
   #    the corpus/emission worker (requests deferred via CORE_WORKER_ACTIVE)
-  "core/contract|$REP/core-worker.report|run_core_worker|$ROOT/loop-core-worker.log|core-worker: (GREEN|RED)|core: [0-9]+ pending request|A1-native invariant"
+  "core/contract|$REP/core-worker.report|run_core_worker|$ROOT/loop-core-worker.log|core-worker: (GREEN|RED)|core-worker: iterating|A1-native invariant"
   "estree (corpus)|$REP/estree.report|main_loop_estree|$ROOT/loop-estree.log|estree [0-9]+/[0-9]+|ESTREE: [0-9]+/[0-9]+|[0-9]+/[0-9]+ pass"
+  # ── the shIR normalisation worker (transform producer) ──────────────
+  "shir (normalisation)|$REP/shir.report|main_loop_shir|$ROOT/loop-shir.log|SHIR: [0-9]+ files bash-free|shir: VERIFIED|shir: submission OUTCOME|shir: NOT verified"
   # ── the frontends / idiom-triage ─────────────────────────────────────
   "go-sh frontend|$REP/frontend-go-sh.report|frontends/go-sh/run_frontend_worker|$ROOT/loop-frontend-go-sh.log|fail-go: [0-9]+/[0-9]+ js pass|go-sh: gate (GREEN|FAILED)|frontend-stdout \\[go\\]: [0-9]+/[0-9]+ match"
   "cpp-sh-go frontend|$REP/frontend-cpp-sh-go.report|frontends/cpp-sh-go/run_frontend_worker|$ROOT/loop-frontend-cpp-sh-go.log|frontend-stdout \\[cpp\\]: [0-9]+/[0-9]+ match|C-invariant: c-sh-go corpus stays green"
@@ -68,4 +70,16 @@ for w in "${workers[@]}"; do
   src="$rep"
   [ -f "$rep" ] || src="$log"
   printf '%-16s %-7s %-72s %s\n' "$name" "$alive" "${line:0:72}" "$(age "$src")"
+done
+
+# ── marketplace queue (PLAN §11 channels) ──────────────────────────────
+# the artifacts the LLM-free core consumes: transform offers, contract-gen
+# specs, and bundles (a node + its transforms) — pending in the channels.
+offers=$(ls core-requests/transforms/offered/*.rs 2>/dev/null | wc -l)
+specs=$(ls core-requests/contracts/*.json 2>/dev/null | wc -l)
+bundles=$(ls -d core-requests/bundles/*/ 2>/dev/null | wc -l)
+echo ""
+echo "marketplace queue: $offers transform offer(s), $specs contract spec(s), $bundles bundle(s) pending"
+for b in core-requests/bundles/*/; do
+  [ -d "$b" ] && echo "  bundle $(basename "$b"): $(ls "$b"/transforms/*.rs 2>/dev/null | wc -l) transform offer(s)"
 done
