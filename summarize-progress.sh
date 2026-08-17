@@ -78,8 +78,10 @@ done
 offers=$(ls core-requests/transforms/offered/*.rs 2>/dev/null | wc -l)
 specs=$(ls core-requests/contracts/*.json 2>/dev/null | wc -l)
 bundles=$(ls -d core-requests/bundles/*/ 2>/dev/null | wc -l)
+accepted=$(ls core-requests/transforms/done/*.rs 2>/dev/null | wc -l)
+rejected=$(ls core-requests/transforms/rejected/*.rs 2>/dev/null | wc -l)
 echo ""
-echo "marketplace queue: $offers transform offer(s), $specs contract spec(s), $bundles bundle(s) pending"
+echo "marketplace queue: $offers offer(s), $specs spec(s), $bundles bundle(s) pending | $accepted accepted, $rejected rejected"
 for b in core-requests/bundles/*/; do
   [ -d "$b" ] || continue
   bn=$(basename "$b")
