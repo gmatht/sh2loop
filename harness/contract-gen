@@ -1,0 +1,167 @@
+#!/usr/bin/env python3
+"""contract-gen — the LLM-free contract-node generator (PLAN §11.9).
+
+A frontend or backend that needs a new A1 node writes a DECLARATIVE SPEC;
+contract-gen emits the four mechanical pieces as a patch:
+  1. the ir.rs enum variant
+  2. the shir_json serializer arm
+  3. the shir_json_in deserializer arm
+  4. the shir-contract/schema.json entry
+plus a round-trip fixture (a minimal Program containing the node) that the
+core builds, tests, and logs — no pi anywhere.
+
+Spec format (JSON):
+  {
+    "node": "ForInit",
+    "kind": "stmt",                  # stmt | expr
+    "fields": {
+      "init": {"kind": "stmts"},     # expr | stmts | stmt
+      "cond": {"kind": "expr", "required": true},
+      "step": {"kind": "stmts"},
+      "body": {"kind": "stmts"}
+    },
+    "sample": { "cond": {"type": "Int", "value": 1} }   # field values for
+                                        # the round-trip fixture (defaults:
+                                        # expr → Int 1, stmts → [], stmt → …)
+  }
+
+Usage:
+  contract-gen spec.json                    # print the patch to stdout
+  contract-gen spec.json --out patch.diff   # write the patch
+  contract-gen spec.json --fixture          # print just the round-trip fixture
+
+Application precondition (PLAN §11.9): the renderers' node-model matches
+must have `_ => refuse` fallbacks (the OPEN node model) so a new variant
+compiles everywhere without touching the renderers. Until that lands,
+patches apply to the shared core files only and the fixture is the
+verification.
+
+The emitted code mirrors the ForInit exemplar in src/shir_json.rs /
+src/shir_json_in.rs / src/ir.rs exactly.
+"""
+
+import json
+import sys
+
+# field-kind → serializer / deserializer snippets (mirrors the ForInit arms)
+def ser(field, kind, required):
+    if kind == "expr":
+        return f'expr_json({field})'
+    if kind == "stmts":
+        return f'stmts_json({field})'
+    if kind == "stmt":
+        return f'stmt_json({field})'
+    raise ValueError(f"unknown field kind {kind!r}")
+
+def deser(field, kind, required):
+    where = 'where_'
+    if kind == "expr":
+        if required:
+            return f'let {field} = expr_from(req(o, "{field}", where_)?, &format!("{{where_}}.{field}"))?;'
+        return f'let {field} = o.get("{field}").map(|v| expr_from(v, &format!("{{where_}}.{field}"))).transpose()?;'
+    if kind == "stmts":
+        return f'let {field} = stmts_from(o.get("{field}"), &format!("{{where_}}.{field}"))?;'
+    if kind == "stmt":
+        return f'let {field} = stmt_from(req(o, "{field}", where_)?, &format!("{{where_}}.{field}"))?;'
+    raise ValueError(f"unknown field kind {kind!r}")
+
+def rust_type(kind, required):
+    return {"expr": "IrExpr", "stmts": "Vec<IrStmt>", "stmt": "Box<IrStmt>"}[kind]
+
+def sample_value(field, kind, required):
+    if kind == "expr":
+        return '{"type": "Int", "value": 1}'
+    if kind == "stmts":
+        return '[]'
+    if kind == "stmt":
+        return '{"type": "Expr", "expr": {"type": "Int", "value": 1}}'
+    raise ValueError(kind)
+
+def gen_patch(spec):
+    node = spec["node"]
+    kind = spec["kind"]
+    fields = spec["fields"]
+    ordered = list(fields.keys())
+    prefix = "IrExpr::" if kind == "expr" else "IrStmt::"  # the enum arm prefix
+
+    lines = []
+    lines.append(f"# contract-gen: {node} (kind={kind}) — PLAN §11.9 semantic patch")
+    lines.append("")
+
+    # 1. ir.rs enum variant
+    lines.append("### src/ir.rs — add to the IrStmt/IrExpr enum:")
+    lines.append(f"    {node} {{")
+    for f in ordered:
+        lines.append(f"        {f}: {rust_type(fields[f]['kind'], fields[f].get('required', True))},")
+    lines.append("    },")
+    lines.append("")
+
+    # 2. shir_json.rs serializer arm
+    lines.append("### src/shir_json.rs — add to the serializer match:")
+    pat = ", ".join(f"{f}" for f in ordered)
+    lines.append(f"        {prefix}{node} {{ {pat} }} => json!({{\"type\": \"{node}\",")
+    for f in ordered:
+        lines.append(f"            \"{f}\": {ser(f, fields[f]['kind'], fields[f].get('required', True))},")
+    lines.append('            "runs": crate::shir::stmt_provably_runs(s),')
+    lines.append("        }),")
+    lines.append("")
+
+    # 3. shir_json_in.rs deserializer arm
+    lines.append("### src/shir_json_in.rs — add to the deserializer match:")
+    lines.append(f'        "{node}" => {{')
+    for f in ordered:
+        lines.append(f"            {deser(f, fields[f]['kind'], fields[f].get('required', True))}")
+    lines.append(f"            {prefix}{node} {{ {', '.join(f'{f}' for f in ordered)} }}")
+    lines.append("        }")
+    lines.append("")
+
+    # 4. schema.json entry
+    lines.append("### frontends/shir-contract/schema.json — add under stmts/exprs:")
+    lines.append(f' "{node}": {{"type": "object", "fields": {{')
+    lines.append(f'  "type": "str",')
+    for f in ordered:
+        lines.append(f'  "{f}": "{fields[f]["kind"]}",')
+    lines.append(" }}},")
+    lines.append("")
+    return "\n".join(lines)
+
+def gen_fixture(spec):
+    node = spec["node"]
+    fields = spec["fields"]
+    sample = spec.get("sample", {})
+    stmt = {"type": node}
+    for f, meta in fields.items():
+        if f in sample:
+            stmt[f] = sample[f]
+        else:
+            stmt[f] = json.loads(sample_value(f, meta["kind"], meta.get("required", True)))
+    prog = {
+        "type": "Program",
+        "contract_version": 1, "imports": [], "requires": [],
+        "var_types": [], "stmt_lines": [], "var_lengths": [], "var_const": [],
+        "var_lifetimes": [], "var_nospace": [], "var_bash_env": [],
+        "subs": [], "stmts": [stmt],
+    }
+    return json.dumps(prog)
+
+def main():
+    args = sys.argv[1:]
+    if not args:
+        print(__doc__, file=sys.stderr)
+        sys.exit(2)
+    spec_file = args[0]
+    spec = json.load(open(spec_file))
+    mode = "--fixture"
+    if mode in args:
+        print(gen_fixture(spec))
+        return
+    patch = gen_patch(spec) + "\n\n## Round-trip fixture (feed to `debashc --shir-in-perl` / otranspilerl --shir):\n" + gen_fixture(spec) + "\n"
+    if "--out" in args:
+        out = args[args.index("--out") + 1]
+        open(out, "w").write(patch)
+        print(f"patch written to {out}")
+    else:
+        print(patch)
+
+if __name__ == "__main__":
+    main()

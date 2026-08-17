@@ -1570,3 +1570,29 @@ correctness risk and WSL2/overlay surface are documented risks, not
 adopted). Wire-in: setup_backends.sh (gate core + worktree builds),
 main_loop_estree.pl (commit-gate full build, role core, preempts backend
 gates after 180s).
+
+### 11.9 The core is LLM-free (landed)
+
+The core's remaining jobs are mechanical: build every backend's tree
+(`harness/build-lock.sh`), run the gates, and LOG verdicts the backends
+read — no pi. Two new artifacts:
+
+- **`harness/contract-gen`** — the semantic-patch generator: a frontend/
+  backend writes a declarative node spec (name, kind, fields); contract-gen
+  emits the ir.rs enum variant + the shir_json serializer arm + the
+  shir_json_in deserializer arm + the schema entry + a round-trip fixture.
+  Verified: the generated ForInit fixture round-trips through the current
+  `--shir-in-perl` binary. Application precondition: the OPEN node model —
+  renderers' node-model matches need `_ => refuse` fallbacks so a new
+  variant compiles everywhere without touching the renderers (until that
+  lands, patches apply to the shared core files and the fixture is the
+  verification).
+- **`harness/core-sweep.sh`** — the mechanical loop: shared core build +
+  per-backend worktree build (via build-lock.sh), verdict lines appended
+  to `core-requests/transforms/verdicts.log` (tsv: backend, transform-set
+  hash, PASS/FAIL, detail, epoch). Acceptance = the gate verdict; the
+  backend reads its FAIL lines and fixes its own transforms (PLAN §11.2).
+
+The LLM's remaining role in the workspace moves to the PROPOSERS: the
+backend that knows its transform writes it and reads its own verdicts.
+The core is scheduled (cron/loop), not prompted.
