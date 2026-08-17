@@ -50,7 +50,7 @@ pending_transforms() {
   ls "$REQS/transforms"/*.rs 2>/dev/null | sort || true
 }
 
-done_count() { ls "$REQS/done"/*.md "$REQS/done"/*.rs 2>/dev/null | wc -l; }
+done_count() { ls "$REQS/done"/*.md "$REQS/done"/*.rs "$REQS/transforms/done"/*.rs 2>/dev/null | wc -l; }
 
 wake_sleepers() {
   for m in "$REQS"/sleeping-*; do
