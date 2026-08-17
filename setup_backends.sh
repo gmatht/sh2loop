@@ -1056,12 +1056,13 @@ EOF
                       fi
                       if [ "$eq_gate" = 1 ]; then
                         # EQUIVALENCE: compile+run the render, diff its stdout
-                        # against `bash "$f"` and compare exit codes (perl:
+                        # against `bash "$f"` and compare exit codes (perl/sh:
                         # equality — a faithful translation reproduces bash's
                         # final status, which is legitimately nonzero for many
-                        # scripts; other backends: rc 0 on both sides, the old
-                        # contract). A mismatch = wrong lowering the worker must
-                        # fix (the gate's correctness oracle).
+                        # scripts; rust joined this group when its renderer
+                        # became rc-faithful; other backends: rc 0 on both
+                        # sides, the old contract). A mismatch = wrong lowering
+                        # the worker must fix (the gate's correctness oracle).
                         # java: javac requires the public class in a file named
                         # Sh2Program.java — write there (serial gate, no clash).
                         # the render-write must be failure-tolerant too (same
@@ -1101,7 +1102,21 @@ EOF
                           c)    cc /tmp/eq_$$.c -o /tmp/eq_$$_bin 2>/dev/null && timeout 15 /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           go)   timeout 30 "$eq_tool" run /tmp/eq_$$.go > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           python) timeout 15 python3 /tmp/eq_$$.py > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
-                          rust) rustc /tmp/eq_$$.rs -o /tmp/eq_$$_bin 2>/dev/null && timeout 15 /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
+                          rust) # argv0 = the source path (what `bash "$f"` sees),
+                                # mirroring the sh/perl arms — the rust renderer
+                                # reads $0 via std::env::args (self-location,
+                                # dirname-of-$0, usage lines), so running the
+                                # raw binary path would mismatch bash on those.
+                                # The REAL exit code is captured (not collapsed
+                                # to 0/1): the rust renderer's main() exits with
+                                # the last statement's rc, so the verdict
+                                # compares it to bash's — scripts that exit
+                                # nonzero BY DESIGN (exit 1/3, short-circuits)
+                                # pass when the translation reproduces the code
+                                # (the old rc=0-on-both-sides rule made them
+                                # unpassable; the sh/perl arms adopted equality
+                                # first). A 124 (timeout) is caught below.
+                                rustc /tmp/eq_$$.rs -o /tmp/eq_$$_bin 2>/dev/null && timeout 15 bash -c 'exec -a "$0" "$1"' "$f" /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
                           zig)  timeout 30 "$eq_tool" run /tmp/eq_$$.zig > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           sh)   # argv0 = the source path (what `bash "$f"` sees),
                                 # mirroring the perl arm below. The REAL exit
@@ -1135,19 +1150,22 @@ EOF
                         else
                           timeout 15 bash "$f" > /tmp/eq_$$_ref 2>/dev/null || bash_rc=$?
                         fi
-                        # stdout diff + exit-code verdict. perl: the codes must
-                        # MATCH (bash's final status is the last command's —
+                        # stdout diff + exit-code verdict. perl/sh/rust: the codes
+                        # must MATCH (bash's final status is the last command's —
                         # scripts legitimately exit nonzero; a faithful
-                        # translation reproduces the code). other backends: the
-                        # old contract (translation rc 0 AND reference rc 0)
+                        # translation reproduces the code). rust's renderer is
+                        # rc-faithful (main() exits the last statement's rc) and
+                        # its arm captures the TRUE code + self-locates like
+                        # bash, so it joined the equality group. other backends:
+                        # the old contract (translation rc 0 AND reference rc 0)
                         # stays — their arms collapse rc to 0/1, so equality
                         # would false-pass a compile/run failure against a
                         # nonzero-exit reference. A 124 (timeout) on EITHER side
                         # is a fail, never a pass (both sides empty would
                         # otherwise "match").
                         if [ "$eq_exit" != 124 ] && [ "$bash_rc" != 124 ] \
-                           && { { { [ "$g_lang" = "perl" ] || [ "$g_lang" = "sh" ]; } && [ "$eq_exit" = "$bash_rc" ]; } \
-                                || { [ "$g_lang" != "perl" ] && [ "$g_lang" != "sh" ] && [ "$eq_exit" = 0 ] && [ "$bash_rc" = 0 ]; }; } \
+                           && { { { [ "$g_lang" = "perl" ] || [ "$g_lang" = "sh" ] || [ "$g_lang" = "rust" ]; } && [ "$eq_exit" = "$bash_rc" ]; } \
+                                || { { [ "$g_lang" != "perl" ] && [ "$g_lang" != "sh" ] && [ "$g_lang" != "rust" ]; } && [ "$eq_exit" = 0 ] && [ "$bash_rc" = 0 ]; }; } \
                            && diff -q /tmp/eq_$$_out /tmp/eq_$$_ref >/dev/null 2>&1; then
                           pass=$((pass+1)); eq_pass=$((eq_pass+1))
                         else
