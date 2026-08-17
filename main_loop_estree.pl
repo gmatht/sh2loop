@@ -610,6 +610,14 @@ sub wait_for_ram_perl {
 
 sub invoke_pi {
     my ($prompt) = @_;
+    # QUOTA GATE (the 85%-in-30min burn): skip the spawn when the opencode-go
+    # quota is blocked — retry storms spend the rolling budget without
+    # landing fixes (harness/quota-gate.sh; the provider's own
+    # quotaBlockedUntil for the active key).
+    if (quota_blocked_estree()) {
+        print "\n(pi QUOTA-BLOCKED — skipping this round to preserve the rolling budget)\n";
+        return "";
+    }
     # RAM gate (fail-open, RELAXED — this is the LEAD worker, not a
     # secondary): the secondary workers yield at 2GB/50% swap; the lead
     # worker proceeds unless RAM is CRITICALLY low (<1GB) or moderately
@@ -1064,6 +1072,30 @@ sub estree_trusted {
 my $transforms_dir = "$core_requests_dir/transforms";
 my $src_transforms = "$sh2perl/src/transforms.rs";
 
+# Stage one offered transform into the crate: copy to src/transforms/ +
+# register it in transforms.rs (a no-op if already staged). Returns the
+# offer basename minus ".rs" (the registry name).
+sub stage_transform {
+    my ($f, $transforms_dir, $src_transforms, $sh2perl) = @_;
+    (my $n = $f) =~ s/\.rs$//;
+    (my $m = $n) =~ s/-/_/g;   # valid Rust ident
+    system('cp', "$transforms_dir/$f", "$sh2perl/src/transforms/$m.rs");
+    if (open my $rfh, '<', $src_transforms) {
+        local $/; my $t = <$rfh>; close $rfh;
+        if ($t !~ /pub mod $m;/) {
+            $t =~ s/pub mod sub;/pub mod $m;\npub mod sub;/;
+            open my $wfh, '>', $src_transforms; print $wfh $t; close $wfh;
+        }
+        if ($t !~ /\(\s*"$n"/) {
+            # ${m}::transform — the braces delimit the Perl var so the
+            # Rust `::transform` stays literal text in the emitted line.
+            $t =~ s/\/\/ \(name, <name>::transform\)/("$n", ${m}::transform),\n        \/\/ (name, <name>::transform)/;
+            open my $wfh, '>', $src_transforms; print $wfh $t; close $wfh;
+        }
+    }
+    return $n;
+}
+
 sub process_core_transforms {
     return 0 if $dry_run;
     return 0 unless -d $transforms_dir;
@@ -1077,33 +1109,59 @@ sub process_core_transforms {
     # 1. compile-in (copy + register + cargo build once)
     my @names = ();
     for my $f (@files) {
-        (my $n = $f) =~ s/\.rs$//;
-        (my $m = $n) =~ s/-/_/g;   # valid Rust ident
-        push @names, $n;
-        system('cp', "$transforms_dir/$f", "$sh2perl/src/transforms/$m.rs");
-        if (open my $rfh, '<', $src_transforms) {
-            local $/; my $t = <$rfh>; close $rfh;
-            if ($t !~ /pub mod $m;/) {
-                $t =~ s/pub mod sub;/pub mod $m;\npub mod sub;/;
-                open my $wfh, '>', $src_transforms; print $wfh $t; close $wfh;
-            }
-            if ($t !~ /\(\s*"$n"/) {
-                # ${m}::transform — the braces delimit the Perl var so the
-                # Rust `::transform` stays literal text in the emitted line.
-                $t =~ s/\/\/ \(name, <name>::transform\)/("$n", ${m}::transform),\n        \/\/ (name, <name>::transform)/;
-                open my $wfh, '>', $src_transforms; print $wfh $t; close $wfh;
-            }
-        }
-        print "  compile-in: $f -> src/transforms/$m.rs\n";
+        push @names, stage_transform($f, $transforms_dir, $src_transforms, $sh2perl);
+        print "  compile-in: $f\n";
     }
     print "transforms: cargo build (once, all registered)...\n";
-    if (system('cargo', 'build', '--manifest-path', "$sh2perl/Cargo.toml") != 0) {
-        print "transforms: COMPILE ERROR — sending all back (the compiler names the file)\n";
+    # capture stderr too, so a compile failure can be attributed to the
+    # offending transform file(s) the compiler names instead of rejecting
+    # the whole batch in one go
+    my $build_out = `cd '$sh2perl' && cargo build --manifest-path '$sh2perl/Cargo.toml' 2>&1`;
+    if ($? != 0) {
+        print STDERR substr($build_out, -3000) . "\n\n" if $build_out =~ /\S/;
+        # ── attribute the failure ───────────────────────────────────
+        my %mod_offer = map { (my $m = $_) =~ s/-/_/g; ($m, $_) } @names;
+        my %named;
+        $named{$1} = 1 while $build_out =~ m{src/transforms/([A-Za-z0-9_]+)\.rs:}g;
+        my @bad_mod = sort grep { $named{$_} } keys %mod_offer;
+        my @bad_f   = map { $mod_offer{$_} . ".rs" } @bad_mod;
+        # roll back the whole compile-in first (so the crate builds),
+        # then re-stage only the survivors
         system('git', '-C', $sh2perl, 'checkout', '--', 'src/transforms.rs');
         system('git', '-C', $sh2perl, 'clean', '-f', 'src/transforms/');
-        for my $f (@files) { system('mkdir', '-p', "$transforms_dir/rejected"); system('mv', "$transforms_dir/$f", "$transforms_dir/rejected/$f"); }
-        log_decision('transform-compile', scalar(@files), 0, 'all-sent-back');
-        return 1;
+        if (@bad_f == 0) {
+            # no transform file was named in the error (the registration
+            # itself, a pre-existing break, a knock-on) — coarse fallback
+            print "transforms: COMPILE ERROR un-attributable (no transform file named) — sending all back\n";
+            system('mkdir', '-p', "$transforms_dir/rejected");
+            for my $f (@files) { system('mv', "$transforms_dir/$f", "$transforms_dir/rejected/$f"); }
+            log_decision('transform-compile', scalar(@files), 0, 'all-sent-back');
+            return 1;
+        }
+        # selective: reject only the named offenders, keep the rest staged
+        print "transforms: COMPILE ERROR attributed: " . join(', ', @bad_f)
+            . " — rejecting just those, keeping " . (scalar(@files) - scalar(@bad_f)) . " staged\n";
+        my %bad_offer = map { $_ => 1 } @bad_f;
+        system('mkdir', '-p', "$transforms_dir/rejected");
+        for my $bf (@bad_f) { system('mv', "$transforms_dir/$bf", "$transforms_dir/rejected/$bf"); }
+        my @keep = grep { !$bad_offer{$_} } @files;
+        for my $f (@keep) {
+            stage_transform($f, $transforms_dir, $src_transforms, $sh2perl);
+            print "  re-staged: $f\n";
+        }
+        # confirm the survivors leave the crate buildable; a knock-on break
+        # we couldn't attribute falls back to coarse
+        my $keep_build = `cd '$sh2perl' && cargo build --manifest-path '$sh2perl/Cargo.toml' 2>&1`;
+        if ($? != 0) {
+            print STDERR substr($keep_build, -3000) . "\n\n" if $keep_build =~ /\S/;
+            system('git', '-C', $sh2perl, 'checkout', '--', 'src/transforms.rs');
+            system('git', '-C', $sh2perl, 'clean', '-f', 'src/transforms/');
+            for my $f (@keep) { system('mv', "$transforms_dir/$f", "$transforms_dir/rejected/$f"); }
+            log_decision('transform-compile', scalar(@files), 0, 'selective-then-all:' . join(',', @bad_f));
+            return 1;
+        }
+        log_decision('transform-compile', scalar(@bad_f), scalar(@keep), 'selective:' . join(',', @bad_f));
+        return 1;   # survivors stay staged; the loop gates them next iteration
     }
 
     # 2. gate: all enabled
