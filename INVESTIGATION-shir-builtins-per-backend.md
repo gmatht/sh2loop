@@ -165,7 +165,44 @@ this is migration, not greenfield):
    check_qx_shir.py into the corpus gate (it already is the A1 invariant).
 5. Update PLAN.md (status + revision) when each backend lands — per AGENTS.md.
 
-## 6. Open question worth settling before coding
+## 7. Extension status & the typed-backend blocker (session 2)
+
+Follow-up on "Migrate": the **Perl** backend migration is landed and committed
+(submodule `bcd9864` / gitlink-bump `8449b43e`): the renderer accepts the `builtin`
+op with no erasure, honors it at every exec-dispatch site, and gains a native
+`echo … | tr SET1 SET2` transliteration fold (`try_native_echo_tr_pipeline`, unit
+pin `echo_tr_pipeline_renders_native_transliterate`). Verified byte-identical vs
+HEAD (546/546), `./fail` 299/247 unchanged, debashl lib 36 pre-existing failures
+(no new).
+
+**Extending to a typed backend (Go experiment) revealed the real blocker is in the
+CORE analysis, not the renderers.** Removing the erasure globally and adding
+`builtin` to Go's renderer dispatch changed Go's var typing (`var x string` →
+`var x any`) because the typed backends re-run `shir.rs::analyze_var_types`
+(and friends) on the now-un-erased A1, and several of those analysis helpers key
+solely on `func == "exec"`:
+
+- `string_lift_vars` → `collect_native_arith_sources` (`shir.rs` ~29519) — the
+  main offender (dropped arith capture vars to `any`).
+- `analyze_var_nospace` (~4220), `analyze_big_i53` (~5565/5708), `cond_bound` /
+  `walk_stmt_ranges` (range analysis ~6052/6576), `collect_arith_ref_set_vars`
+  (~12908) — the same exec-only pattern.
+
+Many sites already use `matches!(func, "exec" | "builtin")` (numeric_lift_vars,
+analyze_var_const, classify_builtin, analyze_string_lengths), so the normalization
+is mechanical and idempotent. Fixing all exec-only analysis sites to accept
+`builtin` (the op and `exec` have identical arg shape) is the **prerequisite** for
+migrating go/c/python/java/rust/zig/js/sh. Without a complete audit it is NOT
+byte-preserving (the Go experiment left 4 `string→any` residuals for
+capture/heredoc-assigned vars), and validating each typed backend's runtime
+correctness needs its native-stub harness.
+
+The Go/shir experiment was reverted to keep the tree byte-identical (only the
+verified Perl migration ships). Extending typed backends = (1) complete the core
+analysis op-normalization table above, (2) re-run the per-backend byte-diff to 0,
+(3) then land each backend's renderer `builtin` arms + drop its erasure.
+
+## 8. Open question worth settling before coding
 
 Should a backend's "still shelling-out set" live (a) as a compile-time constant
 in its renderer (fast, but duplicated per backend), or (b) shared in
