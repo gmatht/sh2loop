@@ -42,7 +42,12 @@ $| = 1;
 
 my $root    = dirname(abs_path($0));
 my $sh2perl = "$root/sh2perl";
-my $debashc = "$sh2perl/target/debug/debashc";
+# DEBASHC override: a worker verifying a transform in ITS OWN build (the
+# shir worker's .shir-verify-target) must gate against that binary, never
+# the shared main-tree one — a temp transform compiled into the shared
+# binary would poison the estree worker's next gate run (the phantom-
+# regression class the core-worker worktree fixed).
+my $debashc = $ENV{DEBASHC} // "$sh2perl/target/debug/debashc";
 my $examples = "$sh2perl/examples";
 my $whitelist_file = "$root/harness/shir-whitelist.txt";
 my $tsv     = "$root/.shir_failures.tsv";
@@ -81,31 +86,55 @@ sub first_command {
 }
 
 # classify the shell-out call sites in one rendered perl file.
-# Returns (count, normalisable_count, hash command->count)
+# Returns (count, normalisable_count, body_chars, est_forks, hash command->count)
+#   body_chars — total bytes inside the bash -c bodies (a size proxy for
+#     how much native work escapes; shrinking a body is progress even when
+#     the site count is unchanged).
+#   est_forks  — 1 (the bash -c) plus one per pipeline-stage / logical op /
+#     separator / command-subst token (a `yes | head` body >> an `echo hi`).
 sub classify_shellouts {
     my ($perl) = @_;
     my $count = 0;
     my %cmds;
     my $normalisable = 0;
-    while ($perl =~ /system\(['"]bash['"],\s*['"]-c['"],\s*q\{(.*?)\}\)/sg) {
-        my $body = $1;
+    my ($chars, $forks) = (0, 0);
+    for my $body ($perl =~ /system\(['"]bash['"],\s*['"]-c['"],\s*q\{(.*?)\}\)/sg) {
         $count++;
-        # the bash text may itself contain q{} — take the first line/word
         my ($quote, $cmd) = $body =~ /^\s*(?:q\{)?\s*(['"]?)([^'"{}\s]+)/;
         $cmd = '' unless defined $cmd;
         $cmds{$cmd}++;
         $normalisable++ if $cmd ne '' && $wl{$cmd};
+        $chars += length $body;
+        $forks += 1 + fork_ops($body);
     }
     # also catch the unquoted form system('bash', '-c', "...")
-    while ($perl =~ /system\(['"]bash['"],\s*['"]-c['"],\s*"((?:[^"\\]|\\.)*)"/sg) {
-        my $body = $1;
+    for my $body ($perl =~ /system\(['"]bash['"],\s*['"]-c['"],\s*"((?:[^"\\]|\\.)*)"/sg) {
         $count++;
         my ($quote, $cmd) = $body =~ /^\s*(['"]?)([^'"{}\s]+)/;
         $cmd = '' unless defined $cmd;
         $cmds{$cmd}++;
         $normalisable++ if $cmd ne '' && $wl{$cmd};
+        $chars += length $body;
+        $forks += 1 + fork_ops($body);
     }
-    return ($count, $normalisable, \%cmds);
+    return ($count, $normalisable, $chars, $forks, \%cmds);
+}
+
+# Rough fork proxy inside one bash -c body: +1 per pipeline `|`, logical
+# `&&`/`||`, `;` separator, or command-substitution `$(`. Single-quoted
+# spans are blanked so a literal `|` in an echo payload isn't counted.
+# Not exact — a "decent proxy".
+sub fork_ops {
+    my ($body) = @_;
+    my $sb = $body;
+    $sb =~ s/'[^']*'//g;               # ignore literal | inside '...'
+    my $n = 0;
+    $n += () = $sb =~ m{\|}g;         # pipeline pipe
+    $n += () = $sb =~ m{\s\&\&}g;    # &&
+    $n += () = $sb =~ m{\s\|\| }g;   # ||
+    $n += () = $sb =~ m{;\s}g;         # separators
+    $n += () = $sb =~ m{\$\s*\(}g;  # $(
+    return $n;
 }
 
 # ── scan ─────────────────────────────────────────────────────────────
@@ -116,6 +145,7 @@ closedir $dh;
 
 my $total = scalar @files;
 my ($bashfree, $with_shellouts, $norm_files, $norm_sites, $tot_sites) = (0, 0, 0, 0, 0);
+my ($tot_chars, $tot_forks) = (0, 0);
 my %tally;   # command -> count
 
 open my $tfh, '>', $tsv or warn "write $tsv: $!";
@@ -137,8 +167,10 @@ for my $f (@files) {
         print $tfh "$f\tERR\t0\t0\t0\t(no perl render)\n";
         next;
     }
-    my ($count, $norm, $cmds) = classify_shellouts($perl);
+    my ($count, $norm, $chars, $forks, $cmds) = classify_shellouts($perl);
     $tot_sites += $count;
+    $tot_chars += $chars;
+    $tot_forks += $forks;
     $tally{$_} += $cmds->{$_} for keys %$cmds;
     if ($count == 0) { $bashfree++; }
     else {
@@ -156,6 +188,7 @@ my @sorted = sort { $tally{$b} <=> $tally{$a} } keys %tally;
 print "SHIR: $total files scanned\n";
 print "SHIR: $bashfree files bash-free (0 shell-out call sites)\n";
 print "SHIR: $tot_sites shell-out call sites across $with_shellouts files\n";
+print "SHIR: $tot_chars shell-out body bytes, ~$tot_forks estimated forks\n";
 print "SHIR: $norm_sites normalisable call sites across $norm_files files (all shell-outs in the emulable whitelist)\n";
 if (@sorted) {
     print "SHIR: top shell-out commands: ",
