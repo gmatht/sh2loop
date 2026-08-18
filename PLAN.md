@@ -12,6 +12,31 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v30: **First core acceptance of worker-offered IR transforms via the
+>   per-backend bisect.** 13 offers from `core-requests/transforms/offered/`
+>   were staged into the shared crate (`src/transforms/`, *not* the marketplace
+>   per-backend worktrees — see the note below), each given its IR-shape
+>   compile fixes (`asm`/`named_blocks`/`var` fields added to patterns and
+>   initializers vs the offers' older IR), and bisected per backend
+>   (`bisect-transforms.pl`, `DEBASHC_TRANSFORMS`-gated, no rebuilds) over the
+>   **estree** (`fail-estree --metric`, ESTREE failed), **perl** (`fail`,
+>   TESTS COMPLETED failed), **shir** (`fail-shir`, total shell-outs) and
+>   **go** (`fail-go`, js pass) gates.
+>   **All 13 pass the intersection — no gate regressed**: arith-identity,
+>   const-capture-fold, const-condition-elim, copy-propagation,
+>   dead-store-elim, div-mod-pow2, hoist-loop-invariants, redundant-store-elim,
+>   string-accumulator, test-simplification, unreachable-after-exit,
+>   counted-while-forinit, merge-init-assignments. Committed in the submodule
+>   (85e9807) + gitlink bump; now enabled by default in `all()`.
+>   **Gating note:** there is NO live per-backend enable/disable of structural
+>   transforms in the shared root crate — `transforms::apply()` runs the whole
+>   `all()` once for every backend (shir.rs:3082); the only runtime gate is the
+>   global `DEBASHC_TRANSFORMS` env allowlist (`transform_enabled`, used by
+>   sync-ok-loops), and per-backend acceptance only exists as (a) render-time
+>   contract-node refusal (`refuse > guess`, e.g. sh_backend refusing un-
+>   stripped ForInit) and (b) the separate `backends/<lang>` worktree
+>   registries. So an accepted transform must pass the intersection of the
+>   kept backends' gates, which is what this bisect measured.
 > - v29: **Transform marketplace — offered/accept/reject, core narrowed to
 >   build + canonical bug-fix (proposal, §11).** The estree worker's
 >   implement-and-mediate model is the bottleneck (serial mediation, blocking
