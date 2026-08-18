@@ -202,7 +202,40 @@ verified Perl migration ships). Extending typed backends = (1) complete the core
 analysis op-normalization table above, (2) re-run the per-backend byte-diff to 0,
 (3) then land each backend's renderer `builtin` arms + drop its erasure.
 
-## 8. Open question worth settling before coding
+## 8. Session-3 probe: op-normalize / run-passes-before-lift (result: correct but not byte-preserving)
+
+Applied the suggested fixes to the typed-backend blocker and measured each:
+
+1. **Run the passes before the lift** — already the case at export
+   (`shir_to_shir_json` computes var_types/lengths/const/lifetimes/nospace BEFORE
+   `transforms::builtin::transform`, so the A1 JSON carries pre-lift results).
+2. **Respect those pre-lift results instead of recomputing on the lifted A1**: added
+   `if prog.var_types.is_empty()` guards around the typed backends' in-process
+   `analyze_var_types` recomputes (go/c/glsl/js/python/rust/zig; c also guarded its
+   var_lengths/var_const recomputes). This is exactly the
+   "run those passes before the builtin lift" directive.
+
+**Measured result — NOT a no-op.** The guards changed 4-5 typed backends on
+arith/`let`-heavy examples (`062_11_mixed_arithmetic`, `062_hard_to_lex`,
+`092_for_arith_func`, `case-pattern-paren`): go=4, c=5, js=4, rust=4, zig=4,
+while python=0, sh=0, glsl=0. Root cause: the backends' in-process
+`analyze_var_types(&prog)` recompute on the erased (exec) IR produces DIFFERENT
+var verdicts than the `--shir`-serialized ones for arith/`let` programs — the two
+analysis invocations are not yet consistent. So neither op-normalizing every
+analysis site nor honoring pre-lift results is byte-preserving for the typed
+backends until that --shir vs recompute inconsistency is reconciled.
+
+Renderer-layer divergence compounds it: Go still branches differently on the op
+for `let`/heredoc/var-collection even with the dispatch arms + correct analysis
+(`result = 1` → `result = "1"`, heredoc → fmt.Print + st=0, extra var decls).
+
+**Disposition:** all typed-backend experiments (go migration, the 7 guards)
+were reverted to keep every backend byte-identical; only the verified Perl
+migration ships (submodule `bcd9864`, in current HEAD). The typed-backend
+migration is a real, multi-layer effort (analysis-consistency first, then
+renderer op-branching per backend) — not a mechanical erasure-drop.
+
+## 9. Open question worth settling before coding
 
 Should a backend's "still shelling-out set" live (a) as a compile-time constant
 in its renderer (fast, but duplicated per backend), or (b) shared in
