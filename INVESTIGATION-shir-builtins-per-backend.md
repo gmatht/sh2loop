@@ -235,7 +235,33 @@ migration ships (submodule `bcd9864`, in current HEAD). The typed-backend
 migration is a real, multi-layer effort (analysis-consistency first, then
 renderer op-branching per backend) — not a mechanical erasure-drop.
 
-## 9. Open question worth settling before coding
+## 9. Session-4: the consistency bug is FIXED (ForInit collect_assigns)
+
+Root-caused the --shir vs recompute inconsistency and fixed it with a
+byte-preserving change. The bug was NOT the builtin lift at all: for c-style
+`for ((…))` loops, `numeric_lift_vars`/`string_lift_vars` `collect_assigns`
+walked `While`/`For` but not `IrStmt::ForInit`, so an assignment in the for body
+(and its init/step counter writes) was invisible to the EXPORT-side analysis —
+it under-typed those loop vars (e.g. 092's `i`/`result` dropped away). The JSON
+round-trip reconstructs ForInit as a different stmt shape that the backend's
+walker DID recurse, so the backend recompute typed them correctly → the two
+analysis invocations disagreed.
+
+Fix (submodule `393f852`, gitlink `cb0ebded`): add the `ForInit` arm to both
+collectors, recursing init/step/body. Now the export analysis matches what every
+backend recomputes. **Verified byte-identical across all 10 backends vs HEAD (0
+diffs each), debashl lib 292 passed (up from 289, same 36 pre-existing failures),
+`./fail` 299/247 unchanged.**
+
+This was the exact "--shir vs recompute inconsistency" the user asked to fix
+("run the analysis consistently; the code SHOULD change if it's a correctness
+fix, just not on stdout"). Adding ForInit recursion made the analysis correct and
+consistent, and the serialized var_types now equal every backend's recompute — so
+a typed backend migration (or simply trusting the serialized A2 values) no
+longer drifts. The residual typed-backend work is the renderer-layer op-branching
+(go's `let`/heredoc/var-collection on `builtin`), not analysis.
+
+## 10. Open question worth settling before coding
 
 Should a backend's "still shelling-out set" live (a) as a compile-time constant
 in its renderer (fast, but duplicated per backend), or (b) shared in
