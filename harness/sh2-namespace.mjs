@@ -1540,6 +1540,29 @@ export const sh2 = {
     return out.split(/\s+/).filter(w => w.length > 0);
   },
 
+  // Unquoted $var / ${...} in exec-arg position.
+  fieldSplit(v) {
+    return String(v ?? '').split(/\s+/).filter(w => w.length > 0);
+  },
+
+  // Native $(mktemp [flags] TEMPLATE) lift.
+  mktemp(isDir, tpl) {
+    const t = String(tpl ?? '/tmp/tmp.XXXXXX');
+    const m = /X+$/.exec(t);
+    if (!m) throw new Error(`mktemp: template "${t}" must end in X`);
+    const prefix = t.slice(0, t.length - m[0].length);
+    const rand = (n) => {
+      let s = '';
+      while (s.length < n) s += crypto.randomBytes(n).toString('hex');
+      return s.slice(0, n);
+    };
+    let p;
+    do { p = prefix + rand(m[0].length); } while (fs.existsSync(p));
+    if (isDir) fs.mkdirSync(p, { mode: 0o700 });
+    else fs.closeSync(fs.openSync(p, 'w', 0o600));
+    return p;
+  },
+
   // The `split` marker on UNQUOTED expansions (for-iters `for w in $y`,
   // exec args `set -- $y`): bash field-splits on default-IFS whitespace
   // and drops empty fields — an empty/unset variable yields ZERO fields

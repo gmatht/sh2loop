@@ -18,6 +18,18 @@
     }
   },
   "callees": {
+    "fieldSplit": {
+      "purity": "Emulable",
+      "async": false,
+      "signature": "(v: str) -> [str]",
+      "semantics": "Bash field-splitting of an unquoted expansion in exec-arg position."
+    },
+    "mktemp": {
+      "purity": "Fs",
+      "async": false,
+      "signature": "(isDir: bool, template: str) -> str",
+      "semantics": "Create a temporary file or directory from a trailing-X template."
+    },
     "getVar": {
       "purity": "Emulable",
       "async": false,
