@@ -23,7 +23,11 @@ use JSON::PP;
 $| = 1;
 
 my $root = dirname(abs_path($0));
-my $sh2perl = "$root/sh2perl";
+# SH2PERL_DIR override: a worker with its own git worktree (the core/contract
+# worker at sh2perl/backends/core) gates against ITS binary, not the main
+# tree's — so its uncommitted WIP can never leak into another worker's
+# measurement.
+my $sh2perl = $ENV{SH2PERL_DIR} // "$root/sh2perl";
 # otranspilerl-cli is the transpiler (PLAN "migrate to otranspiler only") —
 # renders the same shIR pipeline, byte-identical to debashc's modern paths.
 my $otranspilerl = "$root/otranspilerl/target/debug/otranspilerl-cli";
@@ -306,6 +310,14 @@ print "----------------------------------------\n";
 printf "PERL:   %d passed, %d failed out of %d\n", $perl_pass, $perl_fail, $total;
 printf "ESTREE: %d passed, %d failed out of %d  (%.1f%%)\n", $estree_pass, $estree_fail, $total,
     $total ? 100 * $estree_pass / $total : 0;
+# the KNOWN report location (summarize-progress.sh reads this, not the log)
+{
+    my $stamp = localtime;
+    mkdir "$root/gate-reports" unless -d "$root/gate-reports";
+    open my $rh, '>>', "$root/gate-reports/estree.report" or die "write estree report: $!";
+    print $rh "$stamp estree: $estree_pass/$total pass, $estree_fail fail; perl $perl_pass/$total\n";
+    close $rh;
+}
 
 # ── improvement metric (M8 / PLAN.md §9) ────────────────────────────
 if ($do_metric) {
