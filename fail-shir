@@ -117,6 +117,28 @@ sub classify_shellouts {
         $chars += length $body;
         $forks += 1 + fork_ops($body);
     }
+    # the qx{...} shell-out form (command substitution / backtick lowering)
+    for my $body ($perl =~ /qx\{((?:[^{}]|\{[^{}]*\})*)\}/sg) {
+        $count++;
+        my ($quote, $cmd) = $body =~ /^\s*(['"]?)([^'"{}\s]+)/;
+        $cmd = '' unless defined $cmd;
+        $cmds{$cmd}++;
+        $normalisable++ if $cmd ne '' && $wl{$cmd};
+        $chars += length $body;
+        $forks += 1 + fork_ops($body);
+    }
+    # heredoc-fed bash: open(my $fh, '-|'/'|-', 'bash') + a <<-style body
+    # (the cmd_str_to_open_perl path) — capture the whole open-bash region
+    for my $region ($perl =~ /open\([^;]*'bash'[^;]*\);.*?(?=;\s*(?:exit|my|our|\$|print|close)|\z)/sg) {
+        $count++;
+        my $body = $region;
+        my ($quote, $cmd) = $body =~ /'([^'"{}\s]+)/;
+        $cmd = '' unless defined $cmd;
+        $cmds{$cmd}++;
+        $normalisable++ if $cmd ne '' && $wl{$cmd};
+        $chars += length $body;
+        $forks += 1 + fork_ops($body);
+    }
     return ($count, $normalisable, $chars, $forks, \%cmds);
 }
 
