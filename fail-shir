@@ -167,6 +167,7 @@ closedir $dh;
 
 my $total = scalar @files;
 my ($bashfree, $with_shellouts, $norm_files, $norm_sites, $tot_sites) = (0, 0, 0, 0, 0);
+my $max_chars = 0;
 my ($tot_chars, $tot_forks) = (0, 0);
 my %tally;   # command -> count
 
@@ -192,6 +193,7 @@ for my $f (@files) {
     my ($count, $norm, $chars, $forks, $cmds) = classify_shellouts($perl);
     $tot_sites += $count;
     $tot_chars += $chars;
+    $max_chars = $chars if $chars > $max_chars;
     $tot_forks += $forks;
     $tally{$_} += $cmds->{$_} for keys %$cmds;
     if ($count == 0) { $bashfree++; }
@@ -201,7 +203,7 @@ for my $f (@files) {
     }
     my $is_norm = ($count > 0 && $count == $norm) ? 1 : 0;
     my $cmds_s = join(',', sort keys %$cmds);
-    print $tfh join("\t", $f, $count, ($count == 0 ? 1 : 0), $is_norm, $norm, $cmds_s), "\n";
+    print $tfh join("\t", $f, $count, ($count == 0 ? 1 : 0), $is_norm, $norm, $chars, $cmds_s), "\n";
 }
 close $tfh;
 
@@ -210,6 +212,7 @@ my @sorted = sort { $tally{$b} <=> $tally{$a} } keys %tally;
 print "SHIR: $total files scanned\n";
 print "SHIR: $bashfree files bash-free (0 shell-out call sites)\n";
 print "SHIR: $tot_sites shell-out call sites across $with_shellouts files\n";
+print "SHIR: max per-file shell-out body bytes: $max_chars (target <= 2000)\n";
 print "SHIR: $tot_chars shell-out body bytes, ~$tot_forks estimated forks\n";
 print "SHIR: $norm_sites normalisable call sites across $norm_files files (all shell-outs in the emulable whitelist)\n";
 if (@sorted) {
