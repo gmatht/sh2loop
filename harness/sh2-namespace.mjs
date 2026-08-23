@@ -2308,6 +2308,18 @@ export const sh2 = {
   },
   // strLen: byte/char length of an arbitrary WORD value
   strLen(s) { return String(s ?? '').length; },
+  // strContainsRune: Go strings.ContainsRune twin (r = rune/byte code)
+  strContainsRune(s, r) {
+    return String(s).indexOf(String.fromCharCode(Number(r))) >= 0;
+  },
+  // strItoa / strAtoi: Go strconv.Itoa/Atoi twins
+  strItoa(n) { return String(Number(n)); },
+  strAtoi(s) {
+    const t = parseInt(String(s).trim(), 10);
+    if (Number.isNaN(t)) { this.lastExit = 1; return '0'; }
+    this.lastExit = 0;
+    return String(t);
+  },
   // strSplit: Go strings.Split twin — returns a LIST-OBJECT id
   strSplit(s, sep) {
     const parts = String(s).split(String(sep));
