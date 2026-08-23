@@ -19,6 +19,7 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as rlmod from 'node:readline';
 import * as fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -2229,6 +2230,115 @@ export const sh2 = {
     return true;
   },
 
+  // ── generic struct/list/map objects (the A1's reference-type store) ──
+  // Reference semantics for frontends whose source language has structs,
+  // slices and maps BY REFERENCE (Go *T, Zig, Java objects). An object is
+  // an opaque ID string riding the normal value channels (vars, call
+  // args, the echo/capture return protocol); the payloads live here.
+  // nil / zero ids are the EMPTY STRING — `p != nil` lowers to != "".
+  _objStore: new Map(),
+  _objSeq: 0,
+  objNew(typeName, fields, vals) {
+    const id = 'obj#' + (++this._objSeq);
+    const f = {};
+    if (Array.isArray(fields)) for (let i = 0; i < fields.length; i++) f[fields[i]] = vals?.[i] ?? '';
+    this._objStore.set(id, { kind: 'struct', type: String(typeName ?? ''), f });
+    return id;
+  },
+  objGet(id, field) {
+    const o = this._objStore.get(String(id));
+    if (!o || o.kind !== 'struct') return '';
+    const v = o.f[String(field)];
+    return v === undefined ? '' : v;
+  },
+  objSet(id, field, val) {
+    const o = this._objStore.get(String(id));
+    if (o && o.kind === 'struct') o.f[String(field)] = val ?? '';
+    return true;
+  },
+  listNew() {
+    const id = 'list#' + (++this._objSeq);
+    this._objStore.set(id, { kind: 'list', items: [] });
+    return id;
+  },
+  listPush(id, ...vals) {
+    // append on a NIL slice auto-vivifies (Go semantics): an unknown /
+    // empty id allocates a fresh list whose id the caller must store.
+    let o = this._objStore.get(String(id));
+    if (!o || o.kind !== 'list') {
+      const nid = 'list#' + (++this._objSeq);
+      o = { kind: 'list', items: [] };
+      this._objStore.set(nid, o);
+      for (const v of vals) o.items.push(v ?? '');
+      return nid;
+    }
+    for (const v of vals) o.items.push(v ?? '');
+    return id;
+  },
+  listGet(id, i) {
+    const o = this._objStore.get(String(id));
+    if (!o || o.kind !== 'list') return '';
+    const idx = Number(i);
+    return idx >= 0 && idx < o.items.length ? String(o.items[idx]) : '';
+  },
+  listSet(id, i, val) {
+    const o = this._objStore.get(String(id));
+    if (o && o.kind === 'list') { const idx = Number(i); if (idx >= 0 && idx < o.items.length) o.items[idx] = val ?? ''; }
+    return true;
+  },
+  listLen(id) {
+    const o = this._objStore.get(String(id));
+    return o && o.kind === 'list' ? String(o.items.length) : '0';
+  },
+  mapNew() {
+    const id = 'map#' + (++this._objSeq);
+    this._objStore.set(id, { kind: 'map', m: new Map() });
+    return id;
+  },
+  mapGet(id, k) {
+    const o = this._objStore.get(String(id));
+    if (!o || o.kind !== 'map') return '';
+    const v = o.m.get(String(k));
+    return v === undefined ? '' : v;
+  },
+  mapSet(id, k, val) {
+    const o = this._objStore.get(String(id));
+    if (o && o.kind === 'map') o.m.set(String(k), val ?? '');
+    return true;
+  },
+  // strLen: byte/char length of an arbitrary WORD value
+  strLen(s) { return String(s ?? '').length; },
+  // strSplit: Go strings.Split twin — returns a LIST-OBJECT id
+  strSplit(s, sep) {
+    const parts = String(s).split(String(sep));
+    const id = 'list#' + (++this._objSeq);
+    this._objStore.set(id, { kind: 'list', items: parts });
+    return id;
+  },
+  // num_add / num_sub / num_mul: arithmetic over arbitrary WORDS
+  // (object-field reads, captures) — operands coerce through Number()
+  // like bash's (( )).
+  num_add(a, b) { return String(Number(a) + Number(b)); },
+  num_sub(a, b) { return String(Number(a) - Number(b)); },
+  num_mul(a, b) { return String(Number(a) * Number(b)); },
+  // strLastIndex / strIndex: Go strings.LastIndex/Index twins (numbers)
+  strLastIndex(s, sep) { return String(s).lastIndexOf(String(sep)); },
+  strIndex(s, sep) { return String(s).indexOf(String(sep)); },
+  // strHasPrefix / strHasSuffix: native string-affix tests for operands
+  // that aren't store vars (`strings.HasPrefix(src[i:], op)` — a slice
+  // expression rides as a word). Return real booleans for native BinOp.
+  strHasPrefix(s, p) { return String(s).startsWith(String(p)); },
+  strHasSuffix(s, p) { return String(s).endsWith(String(p)); },
+  // objAdd: numeric RMW over an object field (`p.pos++`, `p.pos += n`)
+  // — the A1 arith forms address STORE vars only, so the read-modify-
+  // write rides one call.
+  objAdd(id, field, delta) {
+    const cur = Number(this.objGet(id, field)) || 0;
+    const nv = cur + Number(delta);
+    this.objSet(id, field, String(nv));
+    return String(nv);
+  },
+
   listVar(name) {
     if (name === '@' || name === '*') return [...this.positional];
     return [];
@@ -2304,6 +2414,36 @@ export const sh2 = {
       this.cwd = saved.cwd;
       try { process.chdir(saved.cwd); } catch { /* ignore */ }
     }
+  },
+
+  // STREAMING line iteration over a file — O(1) memory (readline over
+  // createReadStream). The ForEachLine stream primitive's JS rendering.
+  // Calls cb(line) per line WITHOUT the trailing newline (bash/cut/grep
+  // semantics); resolves when the file is exhausted. The promise is pushed
+  // onto pending so `await sh2._finish()` joins it.
+  eachLine(path, cb, limit) {
+    const p = new Promise((resolve, reject) => {
+      // STREAMING head: a numeric limit closes the reader after that many
+      // lines — O(limit) work, the file is never read past them.
+      let n = 0;
+      let done = false;
+      const input = fs.createReadStream(path);
+      const itf = rlmod.createInterface({ input, crlfDelay: Infinity });
+      const finish = () => { if (!done) { done = true; itf.close(); resolve(); } };
+      itf.on('line', (l) => {
+        if (done) return;
+        try {
+          cb(l);
+          n++;
+          if (limit !== undefined && limit !== null && n >= Number(limit)) finish();
+        } catch (e) { done = true; itf.close(); reject(e); }
+      });
+      itf.on('close', () => finish());
+      itf.on('error', reject);
+      input.on('error', reject);
+    });
+    this.pending.push(p);
+    return p;
   },
 
   background(fn) {
