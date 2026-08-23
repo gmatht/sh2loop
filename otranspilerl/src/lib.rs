@@ -249,7 +249,16 @@ pub fn compile(src: &str, _opts: &str) -> Result<String, String> {
         Ok(p) => p,
         Err(_) => (Vec::new(), Vec::new()),
     };
-    let prog = debashl::shir::ast_to_ir_with_lines(&commands, &lines);
+    let mut prog = debashl::shir::ast_to_ir_with_lines(&commands, &lines);
+    // loop-opt (LICM-lite, estree-20260813-182436/201235): hoist the
+    // leading loop-invariant run of statements out of every While/For/
+    // DoWhile body so the emitted code stops re-deriving the same
+    // products/arith per iteration (the game's per-cell index math, the
+    // texture generators' invariant glyph geometry). Program-level, so it
+    // plugs here (the WASM compile channel the browser game uses), NOT in
+    // ast_to_ir — the --shir export and the perl/c channels stay
+    // byte-identical.
+    debashl::shir_passes::loop_opt::hoist_loop_invariants(&mut prog);
     let estree = debashl::shir::shir_to_estree_compiled(&prog);
     // the estree JSON embeds directly into the envelope (estree_to_json
     // is a complete JSON object)
@@ -267,6 +276,12 @@ pub fn render(a1: &str, lang: &str) -> Result<String, String> {
             format!("target {lang:?} not wired (known: js, pl, c, go, py, sh, java, rs, zig, glsl, glslv, shir)")
         })?;
     let mut prog = debashl::shir_json_in::shir_json_to_ir(a1)?;
+    // FRONTEND A1 ingress: the same worker-submitted transforms the bash
+    // path runs in ast_to_ir — this is how zsh/fish/java/zig sources get
+    // the text_ops primitive reductions. Gated by DEBASHC_TRANSFORMS
+    // inside apply() (text-ops is opt-in there), so default behavior is
+    // byte-identical.
+    debashl::transforms::apply(&mut prog.stmts);
     // A1 ingress: restructure Label/Goto into structured flow (the shared
     // pass — the CLI's --shir-in-estree/--shir-in-perl run the same
     // restructure_goto_only; without it frontend A1 carrying C `goto`
