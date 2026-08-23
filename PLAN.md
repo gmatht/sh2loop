@@ -12,6 +12,30 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v31: **C-backend natural-node push: 538 → 565/643 corpus cells, zero
+> compile errors, zero stub markers on corpus; limitations catalogued**
+> (`sh2perl/docs/c-backend-limitations.md`). Native-codegen replacements
+> for child-bash emulation: raw `((...))` texts evaluate via `parse_arith`
+> with SEQUENCED statement rendering for side-effecting trees
+> (`j = i++ + ++i` — ordered temps, no fork/exec); stderr-only redirects
+> over natively-renderable inners skip the shell site (the assign must
+> land in the parent: `n=$(($1+0)) 2>/dev/null`); unquoted-heredoc
+> interpolation exports body vars and uses a bare delimiter; file
+> redirects render BEFORE heredoc bodies with a terminator-alone-on-line
+> guard. Soundness fixes: const-lift poisons vars named inside raw arith
+> texts and type-checks lifted initializers (`const char i[21] = 2` was
+> invalid C); statement-level `!cmd`/`A && B`/`A || B` publish the bash
+> verdict in `$?`; env-prefix assignments render glued (`IFS= read`);
+> `${#var}` length reads and `$var` slice indices resolve live values;
+> first-segment expansions in private capture buffers keep their word
+> separator (`-- "$d/f1"` was gluing into one word). Remaining 78 reds
+> are catalogued per-class with root causes (assoc iteration order,
+> background copy-at-fork, eval/source parent effects, quoted-brace
+> alternation — the last is a CORE parser bug offered back per §11:
+> brace alternatives containing `..` under a top-level comma must stay
+> literal). Concurrent-worker note: this effort ran while sibling loops
+> held in-flight edits on shir.rs/text_ops.rs; all C-backend diffs stayed
+> inside src/c_backend.rs (+docs), verified by cargo test c_backend 6/6.
 > - v30: **First core acceptance of worker-offered IR transforms via the
 >   per-backend bisect.** 13 offers from `core-requests/transforms/offered/`
 >   were staged into the shared crate (`src/transforms/`, *not* the marketplace
