@@ -12,6 +12,26 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v32: **backend/c convergence merge + gate 580 → 596/643 (44 reds), lib
+>   tests 382/382.** Merged the parallel backend/c lineage (22 commits:
+>   heredoc render-time interpolation, eval/./source state-import sites,
+>   `printf -v` native lowering, string-var ++/-- sequence-safe helpers
+>   (`_sh_postinc`/`_sh_preinc` — the hoisted-temp strcpy form was
+>   unsequenced C), flow-statement peeling out of and/or chains
+>   (`test || continue` rendered `|| 1` and never flowed), nested-block
+>   `local` hoisting (bash local is function-scoped; C block decls
+>   vanished at the brace), first-match `${var/pat/repl}`, subshell
+>   unset/read save-restore, `$?`/`$$`/`$#`/positional resolution inside
+>   `[[ ]]`, IFS inline expansion (bash resets inherited IFS at startup),
+>   bare-export env sync, echo -e escape interpretation in text stages)
+>   with main's independent line (14 conflicts resolved toward main where
+>   it superseded: arith_subst_specials/arith_sequenced, array-inits
+>   materialization for test texts, assoc-aware param reads). Post-merge
+>   regression fix: extglob shopt + operator spacing re-added to
+>   test_shell_site. Remaining 44 reds: process-substitution state
+>   backflow (mapfile arrays), PIPESTATUS, traps, background copy-at-fork,
+>   $0/script-name, assoc iteration order — all catalogued as runtime-
+>   limitation classes, none hidden.
 > - v31: **C-backend natural-node push: 538 → 580/643 corpus cells, zero
 > compile errors, zero stub markers on corpus; limitations catalogued**
 > (`sh2perl/docs/c-backend-limitations.md`). Native-codegen replacements
