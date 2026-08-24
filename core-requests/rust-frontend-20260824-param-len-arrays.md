@@ -45,6 +45,17 @@ The generated ESTree is `String(sh2.getVar("a")).length`.
    can see them, that is the larger open item (the rust frontend tracks
    Arr-typed vars and can emit annotations once a type exists).
 
+## ALSO GATED ON THIS (added 2026-08-25)
+
+The rust frontend's iterator-chain desugar now supports
+`.enumerate()` / `.rev()` / `.map(|(i, x)| ..)` tuple-destructuring —
+all lowering to exact index-based while-loops whose element reads go
+through `arrayIndex` and whose positions are the loop index (never a
+materialized pair). They still fail the stdout oracle because the
+ACCUMULATED arrays are read back via `getVar`/`${#arr}` (same scalar
+view). Example: testdata-pending/t56_enumerate_rev.rs — native prints
+30/true/true/18, transpiled 0/c/8. Promotes automatically with the fix.
+
 ## EVIDENCE
 
 - al.sh repro above (native 3, transpiled 2).
