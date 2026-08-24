@@ -12,8 +12,17 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
-> - v32: **backend/c convergence merge + gate 580 → 596/643 (44 reds), lib
->   tests 382/382.** Merged the parallel backend/c lineage (22 commits:
+> - v32: **backend/c convergence merge + gate 597 → 602/643 (34 reds),
+>   lib tests 382/382.** Follow-up round on top of the convergence: native
+>   `mapfile`/`readarray` from FILE (process-substitution arrays survive —
+>   bash arrays cannot cross exec; natives inside and/or chains are
+>   DEFERRED past the site's system() via pending_native_stmts so a FIFO
+>   reader cannot deadlock its own writer), `$PIPESTATUS` through a
+>   state-import tail (`__shps_j='1,0'`, ring-buffered `_sh_ps()` reads,
+>   rc chained via trailing test), nested `${v:-${w:-$(cmd)}}` defaults,
+>   `BASH_VERSION` seeding, capture-assign NAME= gluing. Post-convergence
+>   regression fix: extglob shopt + operator spacing re-added to
+>   test_shell_site. Merged the parallel backend/c lineage (22 commits:
 >   heredoc render-time interpolation, eval/./source state-import sites,
 >   `printf -v` native lowering, string-var ++/-- sequence-safe helpers
 >   (`_sh_postinc`/`_sh_preinc` — the hoisted-temp strcpy form was
