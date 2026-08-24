@@ -12,7 +12,7 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
-> - v31: **C-backend natural-node push: 538 → 565/643 corpus cells, zero
+> - v31: **C-backend natural-node push: 538 → 580/643 corpus cells, zero
 > compile errors, zero stub markers on corpus; limitations catalogued**
 > (`sh2perl/docs/c-backend-limitations.md`). Native-codegen replacements
 > for child-bash emulation: raw `((...))` texts evaluate via `parse_arith`
@@ -28,7 +28,7 @@ Covers three related work items:
 > verdict in `$?`; env-prefix assignments render glued (`IFS= read`);
 > `${#var}` length reads and `$var` slice indices resolve live values;
 > first-segment expansions in private capture buffers keep their word
-> separator (`-- "$d/f1"` was gluing into one word). Remaining 78 reds
+> separator (`-- "$d/f1"` was gluing into one word). Remaining 63 reds
 > are catalogued per-class with root causes (assoc iteration order,
 > background copy-at-fork, eval/source parent effects, quoted-brace
 > alternation — the last is a CORE parser bug offered back per §11:
