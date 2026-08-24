@@ -31,3 +31,10 @@ Extend collect_decl_guard with an `IrStmt::Expr(IrExpr::Call{func,..})
 if func == "exec" | "builtin"` arm: when cmd is export/declare/readonly/
 typeset, guard every non-flag, non-`=`-containing word operand.
 lib tests stay green; c gate returns to expected tally.
+
+## SECOND ITEM (same review): posix-sh-go A1 missing split markers
+frontends/posix-sh-go/testdata/t62_word_split.sh: `printf "<%s>\n" $x`
+arrives with `$x` as a PLAIN var read (no split marker), so backends that
+render printf natively print one argument instead of field-splitting.
+The sh/estree references split — the A1 ingress for this frontend needs
+the split marker (or backends must shell out every unquoted expansion).
