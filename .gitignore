@@ -43,3 +43,9 @@ frontends/*/grammars/*/src/parser.c
 /du-xh.log
 /.stash_history.log
 junk/backends/
+
+
+# ── shell-accident outputs (same policy as sh2perl/.gitignore) ──────
+/junk/&[0-9]
+/junk/-
+/junk/[0-9]
