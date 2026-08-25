@@ -41,9 +41,9 @@ for f in $corpus; do
   fi
   : > "$d/ref.txt"; : > "$d/out.txt"
   bash_rc=0
-  (cd "$d" && timeout 15 bash prog.sh > ref.txt 2>/dev/null) || bash_rc=$?
+  (cd "$d" && timeout 15 bash prog.sh </dev/null > ref.txt 2>/dev/null) || bash_rc=$?
   eq_exit=0
-  (cd "$d" && timeout 15 java Sh2Program > out.txt 2>/dev/null) || eq_exit=$?
+  (cd "$d" && timeout 15 java Sh2Program </dev/null > out.txt 2>/dev/null) || eq_exit=$?
   if [ "$eq_exit" != 124 ] && [ "$bash_rc" != 124 ] \
      && [ "$eq_exit" = "$bash_rc" ] \
      && diff -q "$d/ref.txt" "$d/out.txt" >/dev/null 2>&1; then

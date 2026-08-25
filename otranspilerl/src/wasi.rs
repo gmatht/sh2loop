@@ -176,6 +176,25 @@ pub extern "C" fn otranspilerl_render(
     }
 }
 
+/// `otranspilerl_shir_opt(a1, a1_len, lang, lang_len)` — the OPTIMIZED A1
+/// contract: exactly what `otranspilerl_render(a1, lang)` feeds its
+/// backend, serialized back to shIR JSON (the GUI shows this next to the
+/// raw frontend output so the ingress passes are inspectable).
+#[no_mangle]
+pub extern "C" fn otranspilerl_shir_opt(
+    a1: *const u8,
+    a1_len: usize,
+    lang: *const u8,
+    lang_len: usize,
+) -> *mut u8 {
+    let a1 = take_input(a1, a1_len);
+    let lang = take_input(lang, lang_len);
+    match crate::shir_opt(&a1, &lang) {
+        Ok(out) => alloc_string(&ok_json(&out)),
+        Err(e) => alloc_string(&err_json(&e)),
+    }
+}
+
 /// `otranspilerl_transpile(input, input_len, src_lang, src_lang_len,
 /// tgt_lang, tgt_lang_len)` — shell (or A1) source → target source. Only
 /// the in-process languages (`sh`, `shir`) are wired here; the others
