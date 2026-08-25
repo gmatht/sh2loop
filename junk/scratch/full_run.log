@@ -1,0 +1,13 @@
+fail-estree: 521 tests, 8 parallel workers, 20s timeout
+Examples dir: /home/llm/sh2loop/sh2perl/examples
+----------------------------------------
+Building debashc...
+Build complete.
+
+----------------------------------------
+PERL:   319 passed, 202 failed out of 521
+ESTREE: 521 passed, 0 failed out of 521  (100.0%)
+
+ESTree failure reasons:
+
+(full per-test list in .estree_failures.tsv)
