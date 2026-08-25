@@ -25,7 +25,9 @@
 #   py  -> python3 + frontends/py-sh-go
 #   pl  -> perl + frontends/perl-sh-go
 #   go  -> go (wrapper) + frontends/go-sh
-# Target (default estree): estree | perl | c | sh  (--shir-in-<t> pipe).
+# Target (default estree): estree | perl | c | sh | rust  (estree executes
+# end-to-end via the sh2 runner; rust renders + rustc-compiles + runs; the
+# rest render only).
 #
 # Environment: MODEL (pi model, default deepseek-v4-turbo), THINKING,
 # WORK (.translate-work), TPLDIR (templates/), MAX_ATTEMPTS (3),
@@ -35,6 +37,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 SUB="$ROOT/sh2perl"
 DEBASHC="$SUB/target/debug/debashc"
+OTRANS="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
 RUNNER="$ROOT/harness/estree-runner.mjs"
 TPLDIR="${TPLDIR:-$ROOT/templates}"
 WORK="${WORK:-$ROOT/.translate-work}"
@@ -85,12 +88,23 @@ run_native() { # file -> stdout
       (cd "$tmp" && timeout "$TIMEOUT" cc main.c -o main 2>/dev/null && timeout "$TIMEOUT" ./main) </dev/null 2>/dev/null ;;
     go)   # the frontend-stdout.sh wrapper: import detection + func main
       tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
-      imports=""
-      grep -q 'fmt\.' "$1" && imports="$imports\n\t\"fmt\""
-      grep -q 'strings\.' "$1" && imports="$imports\n\t\"strings\""
-      grep -q 'bufio\.' "$1" && imports="$imports\n\t\"bufio\""
-      grep -qE 'os\.(Getenv|WriteFile|Setenv|Stat|Stdin|Stdout)' "$1" && imports="$imports\n\t\"os\""
-      { printf 'package main\n\nimport (\n%b\n)\n\nfunc main() {\n' "$imports"; cat "$1"; printf '\n}\n'; } > "$tmp/main.go"
+      if grep -q 'func main(' "$1"; then
+        # complete program — run as-is
+        cp "$1" "$tmp/main.go"
+      else
+        imports=""
+        grep -q 'fmt\.' "$1" && imports="$imports\n\t\"fmt\""
+        grep -q 'strings\.' "$1" && imports="$imports\n\t\"strings\""
+        grep -q 'bufio\.' "$1" && imports="$imports\n\t\"bufio\""
+        grep -qE 'os\.(Getenv|WriteFile|Setenv|Stat|Stdin|Stdout|Stderr|ReadFile|Args)' "$1" && imports="$imports\n\t\"os\""
+        grep -q 'exec\.' "$1" && imports="$imports\n\t\"os/exec\""
+        grep -q 'strconv\.' "$1" && imports="$imports\n\t\"strconv\""
+        grep -q 'filepath\.' "$1" && imports="$imports\n\t\"path/filepath\""
+        grep -q 'bytes\.' "$1" && imports="$imports\n\t\"bytes\""
+        grep -q 'sort\.' "$1" && imports="$imports\n\t\"sort\""
+        grep -q 'time\.' "$1" && imports="$imports\n\t\"time\""
+        { printf 'package main\n\nimport (\n%b\n)\n\nfunc main() {\n' "$imports"; cat "$1"; printf '\n}\n'; } > "$tmp/main.go"
+      fi
       (cd "$tmp" && timeout "$TIMEOUT" go run main.go) </dev/null 2>/dev/null ;;
   esac
 }
@@ -103,11 +117,19 @@ run_target() { # file -> target stdout; rc signals the gap class
     estree)
       e=$(printf '%s' "$a1" | "$DEBASHC" --shir-in-estree - 2>/dev/null) || return 13
       timeout "$TIMEOUT" node "$RUNNER" /dev/stdin --source "$1" <<<"$e" 2>/dev/null ;;
+    rust)
+      e=$(printf '%s' "$a1" | "$OTRANS" - - --target rust 2>/dev/null) || return 13
+      tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+      printf '%s\n' "$e" > "$tmp/main.rs"
+      (cd "$tmp" && timeout "$TIMEOUT" rustc -o main main.rs 2>/dev/null \
+        && timeout "$TIMEOUT" ./main) </dev/null 2>/dev/null ;;
     perl)
       e=$(printf '%s' "$a1" | "$DEBASHC" --shir-in-perl - 2>/dev/null) || return 13
       timeout "$TIMEOUT" perl -e "$e" 2>/dev/null ;;
-    c|sh|go|py|rust|zig|java)
-      e=$(printf '%s' "$a1" | "$DEBASHC" --shir-in-$TARGET - 2>/dev/null) || return 13
+    c|sh|go|py|zig|java)
+      # otranspilerl target names differ (python, not py); map them
+      case "$TARGET" in py) tgt=python ;; *) tgt="$TARGET" ;; esac
+      e=$(printf '%s' "$a1" | "$OTRANS" - - --target "$tgt" 2>/dev/null) || return 13
       echo "$e" ;;   # render only — execution needs the target toolchain (best-effort)
     *) echo "unknown target: $TARGET" >&2; return 14 ;;
   esac
@@ -118,7 +140,10 @@ probe_one() { # file -> verdict line (TAB-separated)
   n=$(basename "$f")
   [ -f "$WORK/sleeping/$n" ] && { printf '%s\tSLEEPING\n' "$n"; return; }
   native=$(run_native "$f" 2>/dev/null) || native=""
-  tgt=$(run_target "$f" 2>/dev/null); trc=$?
+  # set -e guard: run_target returns nonzero on gap classes — capture the
+  # rc as the verdict instead of letting the assignment kill the loop
+  tgt=""; trc=0
+  tgt=$(run_target "$f" 2>/dev/null) || trc=$?
   case "$trc" in
     0)  if [ "$native" = "$tgt" ]; then v=PASS; else v=MISMATCH; fi ;;
     11) v=EMIT-FAIL ;;   # frontend cannot parse/lower the construct
@@ -354,8 +379,117 @@ dump_templates() {
       t array_index '\$[A-Za-z_][A-Za-z0-9_]*\[' 'a=(x y z); echo $a[2]'
       t param_default '\$\{[A-Za-z_][A-Za-z0-9_]*:-' 'x=""; echo "${x:-def}"'
       ;;
-    py|pl|go|fish)
+    py|pl|fish)
       echo "no seed templates for $SLANG yet — add $tdir/<name>.$EXT + <name>.sig (see templates/README)" >&2
+      ;;
+    go)
+      t() { local name="$1" sig="$2" tpl="$3"
+        printf '%s\n' "$sig" > "$tdir/$name.sig"; printf '%s\n' "$tpl" > "$tdir/$name.go"; }
+      t print        'fmt\.Print'            'fmt.Println("hello probe")'
+      t assign_str   ':='                    'name := "world"
+fmt.Println(name)'
+      t assign_num   ':= *[0-9]'             'x := 42
+fmt.Println(x)'
+      t arith        '[-+*/%] *[0-9$A-Za-z_]' 'x := 1 + 2 * 3
+fmt.Println(x)'
+      t arith_neg    '-\w'                   'x := 7
+fmt.Println(-x)'
+      t incr         '(\+\+|--)'            'i := 0
+i++
+fmt.Println(i)'
+      t str_concat   '" *\+ *"'             's := "foo" + "bar"
+fmt.Println(s)'
+      t str_len      'len\('                 's := "hello"
+fmt.Println(len(s))'
+      t if_else      '^if |else '            'x := 2
+if x == 1 {
+    fmt.Println("one")
+} else {
+    fmt.Println("other")
+}'
+      t for_cond     '^for .*<.*\{'          'i := 0
+for i < 3 {
+    fmt.Println(i)
+    i++
+}'
+      t for_cstyle   'for [A-Za-z_]+ := '    'for i := 1; i <= 3; i++ {
+    fmt.Println(i)
+}'
+      t switch       'switch '               'x := 2
+switch x {
+case 1:
+    fmt.Println("one")
+case 2:
+    fmt.Println("two")
+default:
+    fmt.Println("other")
+}'
+      t func_literal ':= *func\(\)'         'f := func() {
+    fmt.Println("in-func")
+}
+f()'
+      t array_lit    '\[\]string\{|\[\]int\{' 'a := []string{"x", "y", "z"}
+fmt.Println(len(a))
+fmt.Println(a[1])'
+      t array_append 'append\('              'a := []string{"x"}
+a = append(a, "y")
+fmt.Println(a[0], a[1])'
+      t map_lit      'map\['                 'm := map[string]string{"k": "v"}
+fmt.Println(m["k"])'
+      t str_contains 'strings\.Contains'     's := "hello"
+if strings.Contains(s, "l") {
+    fmt.Println("has")
+}'
+      t str_replace  'strings\.ReplaceAll'   's := "parrot"
+fmt.Println(strings.ReplaceAll(s, "p", "r"))'
+      t env_get      'os\.Getenv'            'x := os.Getenv("X")
+if x == "" {
+    x = "def"
+}
+fmt.Println("a=" + x)'
+      t exec_cmd     'exec\.Command'         'out, _ := exec.Command("echo", "hi").Output()
+fmt.Println(string(out))'
+      t type_switch  '\.\(type\)'          'var x interface{} = "hi"
+switch v := x.(type) {
+case string:
+    fmt.Println("string", v)
+default:
+    fmt.Println("other")
+}'
+      t seq_range    'for [A-Za-z_]+ := [0-9]+;' 'for i := 2; i <= 4; i++ {
+    fmt.Printf("n%d\n", i)
+}'
+      t return_val   '\breturn\b'     'f := func(x int) int {
+    return x * 2
+}
+fmt.Println(f(3))'
+      t nil_check    '\bnil\b'        'var x any = nil
+if x == nil {
+    fmt.Println("nil")
+} else {
+    fmt.Println("not nil")
+}'
+      t break_loop   '\bbreak\b'      'for i := 0; i < 10; i++ {
+    if i == 3 {
+        break
+    }
+    fmt.Println(i)
+}'
+      t continue_loop '\bcontinue\b'  'for i := 1; i <= 3; i++ {
+    if i == 2 {
+        continue
+    }
+    fmt.Println(i)
+}'
+      t err_check    'err != nil'       'n, err := strconv.Atoi("42")
+if err != nil {
+    fmt.Println("bad")
+} else {
+    fmt.Println(n + 1)
+}'
+      t builder      'strings\.Builder' 'var b strings.Builder
+b.WriteString("hi")
+fmt.Println(b.String())'
       ;;
   esac
   echo "templates: $(ls "$tdir"/*."$EXT" 2>/dev/null | wc -l) for $SLANG in $tdir"

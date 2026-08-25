@@ -1,0 +1,747 @@
+Running 531 tests, 8 parallel workers, 20s timeout each
+Examples dir: /home/llm/sh2loop/sh2perl/examples
+Debashc: /home/llm/sh2loop/sh2perl/target/debug/debashc
+----------------------------------------
+Building debashc...
+Build complete.
+
+[4/531] 000__04b_file_directory_operations.sh ... FAIL: stdout mismatch
+[3/531] 000__04a_basic_command_substitution.sh ... TEST PASSED
+[8/531] 000__04f_output_formatting.sh ... TEST PASSED
+[1/531] 000__02_output_formatting_commands.sh ... TEST PASSED
+[2/531] 000__03_file_manipulation_commands.sh ... TEST PASSED
+[7/531] 000__04e_file_manipulation.sh ... TEST PASSED
+[9/531] 000__04g_checksum_commands.sh ... TEST PASSED
+[11/531] 000__05_system_utilities.sh ... TEST PASSED
+[10/531] 000__04h_complex_examples.sh ... FAIL: stdout mismatch
+[14/531] 001_simple.sh ... TEST PASSED
+[15/531] 002_control_flow.sh ... TEST PASSED
+[17/531] 004_test_quoted.sh ... TEST PASSED
+[5/531] 000__04c_text_processing_commands.sh ... TEST PASSED
+[18/531] 005_args.sh ... TEST PASSED
+[19/531] 006_misc.sh ... TEST PASSED
+[20/531] 007_cat_EOF.sh ... TEST PASSED
+[23/531] 010_pattern_matching.sh ... TEST PASSED
+[24/531] 011_brace_expansion.sh ... TEST PASSED
+[21/531] 008_simple_backup.sh ... TEST PASSED
+[26/531] 013_parameter_expansion.sh ... TEST PASSED
+[6/531] 000__04d_system_utilities.sh ... TEST PASSED
+[27/531] 014_ansi_quoting.sh ... TEST PASSED
+[12/531] 000__06_text_processing_commands.sh ... TEST PASSED
+[25/531] 012_process_substitution.sh ... FAIL: stdout mismatch
+[28/531] 015_grep_advanced.sh ... FAIL: stdout mismatch
+[13/531] 000__07_find_path_commands.sh ... FAIL: stdout mismatch
+[29/531] 016_grep_basic.sh ... FAIL: stdout mismatch
+[33/531] 020_ansi_quoting_basic.sh ... TEST PASSED
+[35/531] 022_ansi_quoting_unicode.sh ... TEST PASSED
+[34/531] 021_ansi_quoting_escape.sh ... TEST PASSED
+[32/531] 019_grep_regex.sh ... FAIL: stdout mismatch
+[36/531] 023_ansi_quoting_practical.sh ... TEST PASSED
+[37/531] 024_parameter_expansion_case.sh ... TEST PASSED
+[38/531] 025_parameter_expansion_advanced.sh ... TEST PASSED
+[39/531] 026_parameter_expansion_more.sh ... TEST PASSED
+[31/531] 018_grep_params.sh ... FAIL: stdout mismatch
+[40/531] 027_parameter_expansion_defaults.sh ... TEST PASSED
+[41/531] 028_arrays_indexed.sh ... TEST PASSED
+[30/531] 017_grep_context.sh ... FAIL: stdout mismatch
+[43/531] 030_control_flow_if.sh ... TEST PASSED
+[47/531] 034_brace_expansion_advanced.sh ... TEST PASSED
+[44/531] 031_control_flow_loops.sh ... TEST PASSED
+[45/531] 032_control_flow_function.sh ... TEST PASSED
+[46/531] 033_brace_expansion_basic.sh ... TEST PASSED
+[49/531] 036_pattern_matching_basic.sh ... TEST PASSED
+[48/531] 035_brace_expansion_practical.sh ... TEST PASSED
+[52/531] 039_process_substitution_here.sh ... TEST PASSED
+[51/531] 038_pattern_matching_nocase.sh ... TEST PASSED
+[50/531] 037_pattern_matching_extglob.sh ... TEST PASSED
+[53/531] 040_process_substitution_comm.sh ... TEST PASSED
+[54/531] 041_process_substitution_mapfile.sh ... TEST PASSED
+[56/531] 043_home.sh ... TEST PASSED
+[55/531] 042_process_substitution_advanced.sh ... FAIL: stdout mismatch
+[58/531] 046_cd..sh ... TEST PASSED
+[59/531] 047_for_arithematic.sh ... TEST PASSED
+[61/531] 049_local.sh ... TEST PASSED
+[62/531] 050_test_ls_star_dot_sh.sh ... TEST PASSED
+[57/531] 045_shell_calling_perl.sh ... TEST PASSED
+[64/531] 054_fibonacci.sh ... TEST PASSED
+[65/531] 055_factorize.sh ... TEST PASSED
+[67/531] 057_case.sh ... FAIL: stdout mismatch
+[66/531] 056_send_args.sh ... TEST PASSED
+[70/531] 060_issue5.sh ... TEST PASSED
+[69/531] 059_issue3.sh ... TEST PASSED
+[16/531] 003_pipeline.sh ... FAIL: stdout mismatch
+[71/531] 061_test_local_names_preserved.sh ... TEST PASSED
+[73/531] 062_02_complex_parameter_expansions.sh ... TEST PASSED
+[72/531] 062_01_ambiguous_operators.sh ... TEST PASSED
+[60/531] 048_subprocess.sh ... TEST PASSED
+[74/531] 062_03_complex_heredocs.sh ... TEST PASSED
+[75/531] 062_04_nested_arithmetic.sh ... TEST PASSED
+[77/531] 062_06_process_substitution.sh ... TEST PASSED
+[76/531] 062_05_nested_command_substitution.sh ... TEST PASSED
+[78/531] 062_07_complex_brace_expansion.sh ... TEST PASSED
+[80/531] 062_09_complex_function.sh ... FAIL: stdout mismatch
+[79/531] 062_08_simple_case.sh ... TEST PASSED
+[81/531] 062_10_simple_pipeline.sh ... TEST PASSED
+[82/531] 062_11_mixed_arithmetic.sh ... TEST PASSED
+[84/531] 062_13_simple_test_expressions.sh ... TEST PASSED
+[83/531] 062_12_complex_string_interpolation.sh ... TEST PASSED
+[88/531] 063_01_deeply_nested_arithmetic.sh ... TEST PASSED
+[86/531] 062_15_complex_local_variables.sh ... FAIL: stdout mismatch
+[90/531] 063_03_nested_command_substitutions.sh ... TEST PASSED
+[91/531] 063_04_complex_parameter_expansion.sh ... TEST PASSED
+[63/531] 051_primes.sh ... FAIL: stdout mismatch
+[92/531] 063_05_heredoc_with_complex_content.sh ... TEST PASSED
+[94/531] 063_07_nested_if_statements.sh ... TEST PASSED
+[95/531] 063_08_complex_case_statement.sh ... TEST PASSED
+[96/531] 063_09_complex_function_parameter_handling.sh ... FAIL: stdout mismatch
+[97/531] 063_10_complex_for_loop.sh ... TEST PASSED
+[98/531] 063_11_complex_while_loop.sh ... TEST PASSED
+[99/531] 063_12_complex_eval.sh ... TEST PASSED
+[100/531] 063_13_nested_subshells.sh ... TEST PASSED
+[101/531] 063_14_complex_redirects.sh ... FAIL: stdout mismatch
+[93/531] 063_06_complex_pipeline_background.sh ... TEST PASSED
+[102/531] 063_15_complex_function_definition.sh ... TEST PASSED
+[103/531] 063_16_complex_test_expressions.sh ... TEST PASSED
+[104/531] 063_17_nested_brace_expansion.sh ... TEST PASSED
+[22/531] 009_arrays.sh ... FAIL: debashc failed to generate code
+[105/531] 063_18_complex_here_string.sh ... TEST PASSED
+[106/531] 063_19_complex_function_call.sh ... TEST PASSED
+[107/531] 063_20_final_complex_construct.sh ... TEST PASSED
+[110/531] 064_02_nested_brace_expansions.sh ... TEST PASSED
+[109/531] 064_01_complex_nested_subshells.sh ... FAIL: stdout mismatch
+[111/531] 064_03_complex_parameter_expansion.sh ... FAIL: stdout mismatch
+[112/531] 064_04_extended_glob_patterns.sh ... TEST PASSED
+[113/531] 064_05_complex_case_statement.sh ... TEST PASSED
+[114/531] 064_06_nested_arithmetic_expressions.sh ... TEST PASSED
+[116/531] 064_08_heredocs_with_variable_interpolation.sh ... TEST PASSED
+[42/531] 029_arrays_associative.sh ... FAIL: debashc failed to generate code
+[118/531] 064_10_nested_function_definitions.sh ... TEST PASSED
+[117/531] 064_09_process_substitution_pipeline.sh ... TEST PASSED
+[119/531] 064_11_complex_test_expressions.sh ... TEST PASSED
+[120/531] 064_12_brace_expansion_nested_sequences.sh ... TEST PASSED
+[121/531] 064_13_complex_string_manipulation.sh ... TEST PASSED
+[123/531] 064_15_complex_pipeline_multiple_redirects.sh ... TEST PASSED
+[122/531] 064_14_nested_command_substitution_arithmetic.sh ... TEST PASSED
+[68/531] 058_advanced_bash_idioms.sh ... FAIL: debashc failed to generate code
+[125/531] 064_17_complex_while_loop_nested_conditionals.sh ... TEST PASSED
+[126/531] 064_18_array_slicing_manipulation.sh ... TEST PASSED
+[127/531] 064_19_complex_pattern_matching_extended_globs.sh ... TEST PASSED
+[124/531] 064_16_function_complex_argument_handling.sh ... TEST PASSED
+[128/531] 064_20_nested_subshells_environment_variables.sh ... TEST PASSED
+[129/531] 064_21_complex_string_interpolation_multiple_variables.sh ... FAIL: stdout mismatch
+[130/531] 064_22_function_returning_complex_data_structures.sh ... FAIL: stdout mismatch
+[132/531] 064_24_advanced_parameter_expansion.sh ... TEST PASSED
+[131/531] 064_23_complex_error_handling_traps.sh ... TEST PASSED
+[133/531] 064_25_complex_command_chaining.sh ... TEST PASSED
+[135/531] 065_yes_head_while.sh ... TEST PASSED
+[136/531] 070_cmp_basic.sh ... FAIL: check_qx:   FAIL: test.pl [perl] â SYSTEM violation: system() call with builtin 'cmp'
+[137/531] 071_while_ifs_read.sh ... TEST PASSED
+[85/531] 062_14_complex_array_operations.sh ... FAIL: debashc failed to generate code
+[138/531] 072_background_fork.sh ... TEST PASSED
+[87/531] 062_hard_to_lex.sh ... FAIL: debashc failed to generate code
+[139/531] 073_trap_signal.sh ... TEST PASSED
+[140/531] 074_shopt.sh ... TEST PASSED
+[142/531] 076_brace_expansion_mixed.sh ... TEST PASSED
+[141/531] 075_eval_complex.sh ... FAIL: stdout mismatch
+[143/531] 077_backslash_continuation.sh ... TEST PASSED
+[89/531] 063_02_complex_array_assignments.sh ... FAIL: debashc failed to generate code
+[144/531] 078_arithmetic_double_paren.sh ... TEST PASSED
+[145/531] 079_heredoc_interpolation.sh ... TEST PASSED
+[147/531] 081_nested_functions.sh ... TEST PASSED
+[146/531] 080_process_sub_pipeline.sh ... TEST PASSED
+[149/531] 083_process_sub_missing_files.sh ... FAIL: stdout mismatch
+[148/531] 082_sort_locale.sh ... TEST PASSED
+[151/531] 086_if_condition_pipe.sh ... TEST PASSED
+[152/531] 087_function_cmd_sub.sh ... FAIL: stdout mismatch
+[153/531] 088_while_read_ifs_sort.sh ... FAIL: stdout mismatch
+[150/531] 084_while_pipeline.sh ... FAIL: stdout mismatch
+[154/531] 089_for_in_arith.sh ... TEST PASSED
+[158/531] 093_case_esac.sh ... TEST PASSED
+[157/531] 092_for_arith_func.sh ... TEST PASSED
+[156/531] 091_while_pipe_var.sh ... FAIL: stdout mismatch
+[155/531] 090_nested_if_else.sh ... TEST PASSED
+[159/531] 094_until_loop.sh ... TEST PASSED
+[160/531] 095_select_menu.sh ... TEST PASSED
+[162/531] 100_pipeline_failure_basic.sh ... TEST PASSED
+[164/531] 102_pipeline_failure_sort.sh ... TEST PASSED
+[165/531] 103_pipeline_failure_multi.sh ... TEST PASSED
+[163/531] 101_pipeline_failure_grep.sh ... TEST PASSED
+[167/531] 900_if2echo.sh ... TEST PASSED
+[168/531] 999_pwd.sh ... TEST PASSED
+[169/531] arith-ambiguous-double-paren.sh ... TEST PASSED
+[166/531] 104_pipeline_failure_var_capture.sh ... TEST PASSED
+[170/531] arith-base-notation.sh ... TEST PASSED
+[171/531] arith-postfix-status.sh ... TEST PASSED
+[172/531] arithmetic-bracket-old-syntax.sh ... TEST PASSED
+[173/531] arithmetic-equality.sh ... TEST PASSED
+[174/531] arithmetic-var-ref.sh ... TEST PASSED
+[175/531] arithmetic-vs-command-subshell.sh ... FAIL: stdout mismatch
+[176/531] array-assignment-variable-subscript.sh ... TEST PASSED
+[177/531] array-subscript.sh ... TEST PASSED
+[179/531] at-in-test.sh ... TEST PASSED
+[178/531] assign-in-args.sh ... TEST PASSED
+[181/531] background-chain.sh ... TEST PASSED
+[182/531] backslash-continuation-dollar-paren.sh ... FAIL: stdout mismatch
+[180/531] at-var-default.sh ... TEST PASSED
+[183/531] backslash-continuation-in-dollar-paren.sh ... FAIL: stdout mismatch
+[184/531] backslash-dollar-brace.sh ... TEST PASSED
+[186/531] backslash-newline-dq.sh ... TEST PASSED
+[187/531] backtick-echo-single-quote.sh ... TEST PASSED
+[185/531] backslash-gt-test.sh ... TEST PASSED
+[191/531] bench-case.sh ... TEST PASSED
+[188/531] backtick-inside-comment.sh ... TEST PASSED
+[189/531] bash-keyword-arg.sh ... TEST PASSED
+[192/531] bench-cmp.sh ... FAIL: stdout mismatch
+[193/531] bench-count.sh ... TEST PASSED
+[194/531] bench-cut.sh ... FAIL: stdout mismatch
+[196/531] bench-func.sh ... TEST PASSED
+[195/531] bench-echo.sh ... TEST PASSED
+[198/531] bench-strlen.sh ... FAIL: stdout mismatch
+[199/531] bench-strremove.sh ... FAIL: stdout mismatch
+[200/531] bench-strsubst.sh ... FAIL: stdout mismatch
+[190/531] bc-native-capture.sh ... FAIL: stdout mismatch
+[201/531] bench-subshell.sh ... TEST PASSED
+[203/531] bin-echo-builtin.sh ... TEST PASSED
+[202/531] bench-substr.sh ... TEST PASSED
+[206/531] brace-expansion-fail.sh ... TEST PASSED
+[205/531] brace-expansion-error.sh ... TEST PASSED
+[108/531] 063_hard_to_parse.sh ... FAIL: debashc failed to generate code
+[204/531] brace-close-after-subshell.sh ... TEST PASSED
+[208/531] brace-unbalanced.sh ... TEST PASSED
+[207/531] brace-inside-cmdsubst.sh ... TEST PASSED
+[210/531] capture-paren-with-eval.sh ... TEST PASSED
+[209/531] builtin-system-open3.sh ... FAIL: stdout mismatch
+[212/531] case-command-subst-pattern.sh ... TEST PASSED
+[211/531] case-arithmetic-body.sh ... TEST PASSED
+[214/531] case-nested-esac-semicolon.sh ... TEST PASSED
+[213/531] case-double-semicolon.sh ... TEST PASSED
+[215/531] case-pattern-dollar-paren.sh ... TEST PASSED
+[216/531] case-pattern-empty-assign.sh ... TEST PASSED
+[217/531] case-pattern-paren.sh ... TEST PASSED
+[218/531] case-pattern-pipe-paren.sh ... TEST PASSED
+[220/531] cat-dash-stdin.sh ... TEST PASSED
+[219/531] case-pattern-star-pipe.sh ... TEST PASSED
+[221/531] cat-heredoc-pipeline.sh ... TEST PASSED
+[223/531] cd-in-qx.sh ... TEST PASSED
+[115/531] 064_07_complex_array_operations.sh ... FAIL: debashc failed to generate code
+[225/531] check-qx-systemd-path.sh ... TEST PASSED
+[222/531] cd-command-substitution.sh ... TEST PASSED
+[224/531] check-qx-aa-exec.sh ... FAIL: stdout mismatch
+[226/531] checkqx-open3-builtin.sh ... TEST PASSED
+[228/531] checkqx-qx-var-rm.sh ... TEST PASSED
+[230/531] chmod-standalone.sh ... TEST PASSED
+[227/531] checkqx-qx-var-mv.sh ... TEST PASSED
+[229/531] checkqx-qx-var-which.sh ... TEST PASSED
+[232/531] chown-through-xargs.sh ... TEST PASSED
+[234/531] comment-with-single-quotes.sh ... TEST PASSED
+[233/531] comment-like-in-string.sh ... TEST PASSED
+[235/531] complex-command-substitution.sh ... TEST PASSED
+[237/531] crlf-line-endings.sh ... TEST PASSED
+[231/531] chown-standalone.sh ... TEST PASSED
+[236/531] complex-pipe-subshell.sh ... TEST PASSED
+[239/531] dollar-after-dollar.sh ... TEST PASSED
+[240/531] dollar-at-default-quoted.sh ... TEST PASSED
+[238/531] declare-let-keyword.sh ... TEST PASSED
+[241/531] dollar-at-with-default.sh ... TEST PASSED
+[242/531] dollar-bang.sh ... TEST PASSED
+[243/531] dollar-followed-by-slash.sh ... TEST PASSED
+[244/531] dollar-minus.sh ... FAIL: stdout mismatch
+[245/531] dollar-positional-arithmetic.sh ... TEST PASSED
+[247/531] dollar-question-in-test.sh ... TEST PASSED
+[248/531] dollar-question.sh ... TEST PASSED
+[246/531] dollar-question-in-bracket.sh ... TEST PASSED
+[251/531] double-bracket-or.sh ... TEST PASSED
+[250/531] double-bracket-or-chained.sh ... TEST PASSED
+[249/531] double-bracket-and-chain.sh ... FAIL: stdout mismatch
+[252/531] double-bracket-pipeline.sh ... TEST PASSED
+[253/531] double-equals-in-test.sh ... TEST PASSED
+[254/531] double-paren-subshell.sh ... TEST PASSED
+[256/531] dq-hashbang-multiline-assign.sh ... TEST PASSED
+[258/531] dqs-nested-dollar.sh ... TEST PASSED
+[257/531] dqs-nested-awk-sed.sh ... TEST PASSED
+[255/531] double-quote-with-sed-inside.sh ... TEST PASSED
+[260/531] echo-hashbang-continuation.sh ... TEST PASSED
+[259/531] echo-complex-pipeline.sh ... TEST PASSED
+[261/531] echo-hashbang-in-function.sh ... TEST PASSED
+[262/531] echo-in-qx.sh ... TEST PASSED
+[263/531] echo-with-escaped-backtick-and-quotes.sh ... TEST PASSED
+[264/531] echo-with-escaped-backtick.sh ... TEST PASSED
+[267/531] escaped-paren-command-subst.sh ... TEST PASSED
+[265/531] egrep-not-native.sh ... TEST PASSED
+[268/531] escaped-quote-midword.sh ... TEST PASSED
+[266/531] eq-string-num-var.sh ... FAIL: stdout mismatch
+[272/531] for-loop-dollar-at.sh ... TEST PASSED
+[271/531] exitScript-function.sh ... TEST PASSED
+[273/531] func-after-or-assign.sh ... TEST PASSED
+[269/531] escaped-singlequote-in-doublequote.sh ... TEST PASSED
+[275/531] function-space-paren.sh ... TEST PASSED
+[274/531] func-after-test-or.sh ... TEST PASSED
+[276/531] generator-system-echo-checkqx.sh ... FAIL: stdout mismatch
+[278/531] hash-in-var.sh ... TEST PASSED
+[279/531] heredoc-apostrophe-in-unquoted.sh ... TEST PASSED
+[280/531] heredoc-apostrophe-span.sh ... TEST PASSED
+[281/531] heredoc-apostrophe.sh ... TEST PASSED
+[277/531] gunzip_example.sh ... FAIL: stdout mismatch
+[282/531] heredoc-backtick-quote-span.sh ... FAIL: stdout mismatch
+[284/531] heredoc-inside-dollar-paren.sh ... TEST PASSED
+[283/531] heredoc-binary-data.sh ... TEST PASSED
+[286/531] heredoc-python-fstring.sh ... TEST PASSED
+[285/531] heredoc-parse-error.sh ... TEST PASSED
+[134/531] 064_hard_to_generate.sh ... FAIL: debashc failed to generate code
+[288/531] heredoc-singlequote-span.sh ... FAIL: stdout mismatch
+[197/531] bench-increment.sh ... TEST PASSED
+[289/531] heredoc-subshell-redirects.sh ... TEST PASSED
+[290/531] heredoc-tabs.sh ... TEST PASSED
+[291/531] heredoc-unclosed.sh ... TEST PASSED
+[293/531] heredoc-with-quotes.sh ... TEST PASSED
+[287/531] heredoc-redirects-same-line.sh ... FAIL: stdout mismatch
+[292/531] heredoc-with-braces.sh ... TEST PASSED
+[294/531] heredoc-with-redirect-same-line.sh ... FAIL: stdout mismatch
+[296/531] interactive-test-minus-t.sh ... TEST PASSED
+[298/531] let-builtin.sh ... TEST PASSED
+[299/531] let-plusassign.sh ... TEST PASSED
+[297/531] keyword-in-arg.sh ... TEST PASSED
+[301/531] lex-unexpected-qmark.sh ... TEST PASSED
+[300/531] lex-dot-in-var.sh ... FAIL: stdout mismatch
+[302/531] lexer-char-minus.sh ... FAIL: stdout mismatch
+[303/531] ln-symlink.sh ... TEST PASSED
+[304/531] local-declare-redirect.sh ... TEST PASSED
+[306/531] mixed-quoting.sh ... TEST PASSED
+[308/531] multiline-assign.sh ... TEST PASSED
+[305/531] longoption-consumes-quote.sh ... TEST PASSED
+[311/531] multiple-awk-in-dqs.sh ... FAIL: debashc parser fallback (script wrapped in bash call)
+[307/531] mul_xy.sh ... TEST PASSED
+[310/531] multiline-dq-string.sh ... TEST PASSED
+[309/531] multiline-dq-hashbang.sh ... TEST PASSED
+[312/531] nested-case-esac.sh ... TEST PASSED
+[313/531] nested-heredoc-in-function.sh ... TEST PASSED
+[314/531] nested-subshell-paren.sh ... TEST PASSED
+[315/531] not-negation.sh ... TEST PASSED
+[316/531] or-continue.sh ... TEST PASSED
+[317/531] param-expand-default-operator.sh ... FAIL: stdout mismatch
+[318/531] param-expand-hash-sameline.sh ... FAIL: stdout mismatch
+[320/531] param-expand-hashhash.sh ... FAIL: stdout mismatch
+[319/531] param-expand-hash.sh ... FAIL: stdout mismatch
+[322/531] param-expand-question.sh ... TEST PASSED
+[321/531] param-expand-multiline.sh ... TEST PASSED
+[323/531] parameter-expansion-nested.sh ... TEST PASSED
+[270/531] exitScript-after-test.sh ... TEST PASSED
+[324/531] parameter-expansion-pattern.sh ... TEST PASSED
+[325/531] parse-and-or-chain-with-assign.sh ... TEST PASSED
+[328/531] parse-array-assignment.sh ... TEST PASSED
+[326/531] parse-arithmetic-extra-paren.sh ... TEST PASSED
+[327/531] parse-arithmetic-nested-array.sh ... TEST PASSED
+[330/531] parse-at-slice-param.sh ... TEST PASSED
+[329/531] parse-array-plusassign.sh ... TEST PASSED
+[331/531] parse-at-slice.sh ... TEST PASSED
+[335/531] parse-brace-close.sh ... TEST PASSED
+[333/531] parse-backslash-newline-in-string.sh ... TEST PASSED
+[332/531] parse-backslash-continuation.sh ... TEST PASSED
+[334/531] parse-bare-quote-in-function.sh ... TEST PASSED
+[336/531] parse-brace-expansion.sh ... TEST PASSED
+[337/531] parse-brace-in-heredoc.sh ... TEST PASSED
+[338/531] parse-braceclose-unexpected.sh ... TEST PASSED
+[339/531] parse-bracket-chain.sh ... TEST PASSED
+[341/531] parse-bracket-unexpected.sh ... TEST PASSED
+[342/531] parse-break-or.sh ... TEST PASSED
+[345/531] parse-case-doublesemicolon.sh ... TEST PASSED
+[344/531] parse-case-dollarparen-pattern.sh ... TEST PASSED
+[340/531] parse-bracket-subshell-pipe.sh ... TEST PASSED
+[343/531] parse-builtin-keywords-in-case-body.sh ... TEST PASSED
+[347/531] parse-case-quoted-pattern.sh ... TEST PASSED
+[346/531] parse-case-paren-pattern.sh ... TEST PASSED
+[349/531] parse-cd-command-subst.sh ... TEST PASSED
+[348/531] parse-case-subject-complex.sh ... TEST PASSED
+[350/531] parse-command-subst-in-test.sh ... TEST PASSED
+[161/531] 096_head_procsub.sh ... TEST PASSED
+[351/531] parse-comment-in-brace.sh ... TEST PASSED
+[352/531] parse-comment-in-dollar-paren.sh ... TEST PASSED
+[353/531] parse-complex-pipeline-quotes.sh ... TEST PASSED
+[355/531] parse-complex-test-parens.sh ... TEST PASSED
+[356/531] parse-crlf-shebang.sh ... TEST PASSED
+[354/531] parse-complex-sed-in-dollarparen.sh ... TEST PASSED
+[359/531] parse-default-value-plain-dash.sh ... TEST PASSED
+[358/531] parse-default-value-no-colon.sh ... TEST PASSED
+[360/531] parse-dollar-at-default.sh ... TEST PASSED
+[361/531] parse-dollar-at-end-of-line.sh ... TEST PASSED
+[363/531] parse-dollar-end-of-string.sh ... TEST PASSED
+[362/531] parse-dollar-brace-hash-hash.sh ... TEST PASSED
+[357/531] parse-db-status-fmt.sh ... TEST PASSED
+[365/531] parse-dollar-in-param-expand.sh ... TEST PASSED
+[366/531] parse-dollar-keyword-var.sh ... TEST PASSED
+[364/531] parse-dollar-in-arithmetic.sh ... FAIL: stdout mismatch
+[369/531] parse-dollar-single-quote.sh ... FAIL: stdout mismatch
+[370/531] parse-dollars-in-string.sh ... TEST PASSED
+[371/531] parse-done-unexpected.sh ... TEST PASSED
+[372/531] parse-dot-after-var.sh ... FAIL: stdout mismatch
+[367/531] parse-dollar-paren-or.sh ... TEST PASSED
+[373/531] parse-double-bracket-char-class.sh ... TEST PASSED
+[368/531] parse-dollar-paren-pipe.sh ... FAIL: stdout mismatch
+[374/531] parse-double-bracket-newline.sh ... TEST PASSED
+[375/531] parse-double-bracket-or-after-heredoc.sh ... TEST PASSED
+[376/531] parse-double-bracket-or.sh ... TEST PASSED
+[378/531] parse-double-semicolon.sh ... TEST PASSED
+[377/531] parse-double-semicolon-in-case.sh ... TEST PASSED
+[380/531] parse-ef-test-operator.sh ... TEST PASSED
+[382/531] parse-equals-in-variable.sh ... TEST PASSED
+[379/531] parse-doublequote-unexpected.sh ... TEST PASSED
+[381/531] parse-empty-assign-doublesemicolon.sh ... TEST PASSED
+[383/531] parse-error-block-in-pipeline.sh ... FAIL: stdout mismatch
+[384/531] parse-error-case-bracket.sh ... TEST PASSED
+[388/531] parse-error-export-empty.sh ... TEST PASSED
+[386/531] parse-error-doublesemicolon.sh ... TEST PASSED
+[387/531] parse-error-escaped-dollar.sh ... TEST PASSED
+[385/531] parse-error-dollar-question-in-regex.sh ... TEST PASSED
+[390/531] parse-error-test-semicolon.sh ... TEST PASSED
+[389/531] parse-error-regex-lookbehind.sh ... TEST PASSED
+[392/531] parse-escaped-quote-in-param-expansion.sh ... TEST PASSED
+[391/531] parse-escaped-backtick-case.sh ... TEST PASSED
+[394/531] parse-exit-brace-question.sh ... TEST PASSED
+[396/531] parse-function-parentheses-newline.sh ... TEST PASSED
+[393/531] parse-eval-multiline.sh ... FAIL: stdout mismatch
+[395/531] parse-for-fi-keyword.sh ... TEST PASSED
+[397/531] parse-glob-question-in-arg.sh ... TEST PASSED
+[398/531] parse-heredoc-apostrophe.sh ... TEST PASSED
+[400/531] parse-heredoc-dollar-at.sh ... TEST PASSED
+[399/531] parse-heredoc-before-eof.sh ... TEST PASSED
+[402/531] parse-heredoc-dqs-backtick-question.sh ... TEST PASSED
+[404/531] parse-heredoc-hash-in-brace.sh ... TEST PASSED
+[295/531] id-cmdsub.sh ... FAIL: stdout mismatch
+[401/531] parse-heredoc-dollar-paren.sh ... FAIL: stdout mismatch
+[403/531] parse-heredoc-eof-unexpected.sh ... TEST PASSED
+[405/531] parse-heredoc-in-if.sh ... TEST PASSED
+[406/531] parse-heredoc-or-dangling.sh ... TEST PASSED
+[407/531] parse-heredoc-paren.sh ... TEST PASSED
+[411/531] parse-hex-number-argument.sh ... TEST PASSED
+[413/531] parse-invalid-redirect.sh ... TEST PASSED
+[410/531] parse-herestring.sh ... TEST PASSED
+[412/531] parse-hexnumber-in-arg.sh ... TEST PASSED
+[409/531] parse-heredoc-tab.sh ... TEST PASSED
+[415/531] parse-longoption-with-dollar.sh ... FAIL: stdout mismatch
+[414/531] parse-lexer-dollar.sh ... TEST PASSED
+[408/531] parse-heredoc-redirect-chain.sh ... FAIL: stdout mismatch
+[416/531] parse-multi-command-while-condition.sh ... TEST PASSED
+[418/531] parse-multiline-string.sh ... TEST PASSED
+[417/531] parse-multiline-single-quote.sh ... TEST PASSED
+[425/531] parse-paren-after-do.sh ... FAIL: debashc parser fallback (script wrapped in bash call)
+[419/531] parse-nested-arithmetic.sh ... TEST PASSED
+[421/531] parse-orelse-continuation.sh ... TEST PASSED
+[422/531] parse-param-pattern-match.sh ... TEST PASSED
+[420/531] parse-or-continuation.sh ... TEST PASSED
+[423/531] parse-parameter-expansion-eof.sh ... TEST PASSED
+[424/531] parse-parameter-pattern.sh ... TEST PASSED
+[428/531] parse-question-mark.sh ... TEST PASSED
+[427/531] parse-posix-case-paren.sh ... TEST PASSED
+[431/531] parse-redirect-in-case-body.sh ... TEST PASSED
+[426/531] parse-paren-close.sh ... FAIL: stdout mismatch
+[434/531] parse-return-after-if.sh ... TEST PASSED
+[432/531] parse-redirect-in-case-pattern.sh ... FAIL: stdout mismatch
+[433/531] parse-redirect-samefile.sh ... TEST PASSED
+[429/531] parse-quoted-awk-in-subshell.sh ... TEST PASSED
+[435/531] parse-return-and.sh ... TEST PASSED
+[430/531] parse-redirect-clobber.sh ... TEST PASSED
+[436/531] parse-return-or.sh ... TEST PASSED
+[437/531] parse-return-pipe.sh ... TEST PASSED
+[439/531] parse-single-quote-in-arg.sh ... TEST PASSED
+[438/531] parse-samefile-operator.sh ... TEST PASSED
+[442/531] parse-source-in-test.sh ... TEST PASSED
+[440/531] parse-singlequote-comment.sh ... TEST PASSED
+[441/531] parse-singlequote-unexpected.sh ... TEST PASSED
+[443/531] parse-sq-awk-cmd.sh ... TEST PASSED
+[445/531] parse-sq-multiline-awk.sh ... TEST PASSED
+[444/531] parse-sq-awk-while.sh ... FAIL: stdout mismatch
+[447/531] parse-sq-with-while.sh ... TEST PASSED
+[446/531] parse-sq-with-for.sh ... TEST PASSED
+[449/531] parse-star-case-pattern.sh ... TEST PASSED
+[448/531] parse-standalone-redirect.sh ... TEST PASSED
+[456/531] parse-unexpected-end-of-input.sh ... FAIL: debashc parser fallback (script wrapped in bash call)
+[451/531] parse-substring-expansion.sh ... TEST PASSED
+[450/531] parse-substring-double-colon.sh ... TEST PASSED
+[452/531] parse-test-or.sh ... TEST PASSED
+[453/531] parse-test-semicolon.sh ... TEST PASSED
+[455/531] parse-unexpected-braceclose.sh ... FAIL: stdout mismatch
+[457/531] parse-unexpected-parenclose.sh ... TEST PASSED
+[458/531] parse-unterminated-heredoc.sh ... TEST PASSED
+[459/531] parse-variable-default-with-quotes.sh ... TEST PASSED
+[454/531] parse-test-with-source.sh ... TEST PASSED
+[462/531] process-substitution.sh ... FAIL: stdout mismatch
+[460/531] pid_tempfile.sh ... FAIL: stdout mismatch
+[465/531] question-param-expand.sh ... TEST PASSED
+[461/531] pipeline-after-subshell.sh ... TEST PASSED
+[466/531] quoted-case-pattern.sh ... TEST PASSED
+[463/531] ps-system-call.sh ... TEST PASSED
+[467/531] qx-scalar-var-with-builtin.sh ... TEST PASSED
+[468/531] qx-sed-in-command-var.sh ... TEST PASSED
+[469/531] qx-uname-in-command-var.sh ... TEST PASSED
+[471/531] qx-var-builtin-echo.sh ... TEST PASSED
+[470/531] qx-var-builtin-cd.sh ... FAIL: stdout mismatch
+[464/531] question-in-singlequote.sh ... TEST PASSED
+[473/531] qx-var-builtin-uname.sh ... TEST PASSED
+[472/531] qx-var-builtin-sed.sh ... TEST PASSED
+[475/531] readlink_flags.sh ... FAIL: stdout mismatch
+[480/531] redirect-in-arithmetic.sh ... TEST PASSED
+[474/531] readlink_example.sh ... TEST PASSED
+[479/531] redirect-all.sh ... TEST PASSED
+[476/531] readlink_relative.sh ... TEST PASSED
+[481/531] regex-brace-in-test.sh ... TEST PASSED
+[483/531] return-double-semicolon.sh ... TEST PASSED
+[484/531] rmdir-standalone.sh ... TEST PASSED
+[486/531] sed-backtick.sh ... TEST PASSED
+[485/531] samefile-operator.sh ... TEST PASSED
+[488/531] shopt-quiet-flag.sh ... TEST PASSED
+[487/531] sed-redirect-to-qx.sh ... TEST PASSED
+[489/531] single-quote-embed-escape.sh ... FAIL: stdout mismatch
+[490/531] single-quote-escape.sh ... TEST PASSED
+[495/531] subshell-sed-squote-dquote.sh ... FAIL: debashc parser fallback (script wrapped in bash call)
+[491/531] singlequote-escape.sh ... TEST PASSED
+[492/531] sqs-overlap-multiline-awk.sh ... TEST PASSED
+[494/531] subshell-heredoc-close.sh ... TEST PASSED
+[493/531] sqs-overlap-singleline.sh ... TEST PASSED
+[497/531] tail-standalone.sh ... TEST PASSED
+[496/531] system-call-builtin-echo.sh ... TEST PASSED
+[498/531] test-bracket-command-sub.sh ... TEST PASSED
+[499/531] test-bracket-singlequote.sh ... TEST PASSED
+[501/531] test-double-bracket.sh ... TEST PASSED
+[500/531] test-bracket-unclosed.sh ... TEST PASSED
+[502/531] test-escaped-parens-in-function.sh ... TEST PASSED
+[504/531] test-expr-colon.sh ... TEST PASSED
+[505/531] test-expr-dollar-paren.sh ... TEST PASSED
+[503/531] test-expr-backtick.sh ... TEST PASSED
+[482/531] regexpattern-eats-close-paren.sh ... TEST PASSED
+[506/531] test-expr-float.sh ... TEST PASSED
+[507/531] test-expr-long-option.sh ... TEST PASSED
+[508/531] test-expr-pipe.sh ... TEST PASSED
+[509/531] test-expr-true.sh ... TEST PASSED
+[478/531] realpath-cmdsub.sh ... FAIL: stdout mismatch
+[511/531] test-operator-S.sh ... TEST PASSED
+[510/531] test-expression-backslash-continuation.sh ... FAIL: stdout mismatch
+[512/531] test-operator-missing.sh ... TEST PASSED
+[514/531] test_grep.sh ... FAIL: stdout mismatch
+[515/531] test_perl_critic.sh ... TEST PASSED
+[513/531] test_find.sh ... TEST PASSED
+[516/531] test_simple_function.sh ... TEST PASSED
+[521/531] unclosed-param-expansion.sh ... TEST PASSED
+[520/531] uname-in-qx.sh ... TEST PASSED
+[522/531] unicode-in-string.sh ... TEST PASSED
+[523/531] unmatched-brace.sh ... TEST PASSED
+[517/531] test_system_builtin.sh ... FAIL: stdout mismatch
+[524/531] utf8-non-utf8-content.sh ... FAIL: stdout mismatch
+[525/531] var-hash-pattern.sh ... TEST PASSED
+[526/531] variable-apostrophe-concat.sh ... TEST PASSED
+[527/531] variable-assignment-concatenated-string.sh ... TEST PASSED
+[477/531] readonly-cmdsub.sh ... FAIL: stdout mismatch
+[528/531] variable-default-with-hash.sh ... TEST PASSED
+[530/531] zsh-style-eval-redirect.sh ... TEST PASSED
+[529/531] variable-plus-operator.sh ... TEST PASSED
+[531/531] zstd_example.sh ... FAIL: stdout mismatch
+[518/531] tty-cmdsub.sh ... FAIL: stdout mismatch
+[519/531] typeset-cmdsub.sh ... FAIL: debashc failed to generate code
+
+========================================
+TESTS COMPLETED: 436 passed, 95 failed out of 531
+========================================
+
+FAILED TESTS:
+  FAIL: 000__04b_file_directory_operations.sh [perl] â stdout mismatch
+  FAIL: 000__04h_complex_examples.sh [perl] â stdout mismatch
+  FAIL: 012_process_substitution.sh [perl] â stdout mismatch
+  FAIL: 015_grep_advanced.sh [perl] â stdout mismatch
+  FAIL: 000__07_find_path_commands.sh [perl] â stdout mismatch
+  FAIL: 016_grep_basic.sh [perl] â stdout mismatch
+  FAIL: 019_grep_regex.sh [perl] â stdout mismatch
+  FAIL: 018_grep_params.sh [perl] â stdout mismatch
+  FAIL: 017_grep_context.sh [perl] â stdout mismatch
+  FAIL: 042_process_substitution_advanced.sh [perl] â stdout mismatch
+  FAIL: 057_case.sh [perl] â stdout mismatch
+  FAIL: 003_pipeline.sh [perl] â stdout mismatch
+  FAIL: 062_09_complex_function.sh [perl] â stdout mismatch
+  FAIL: 062_15_complex_local_variables.sh [perl] â stdout mismatch
+  FAIL: 051_primes.sh [perl] â stdout mismatch
+  FAIL: 063_09_complex_function_parameter_handling.sh [perl] â stdout mismatch
+  FAIL: 063_14_complex_redirects.sh [perl] â stdout mismatch
+  FAIL: 009_arrays.sh [perl] â debashc failed to generate code
+  FAIL: 064_01_complex_nested_subshells.sh [perl] â stdout mismatch
+  FAIL: 064_03_complex_parameter_expansion.sh [perl] â stdout mismatch
+  FAIL: 029_arrays_associative.sh [perl] â debashc failed to generate code
+  FAIL: 058_advanced_bash_idioms.sh [perl] â debashc failed to generate code
+  FAIL: 064_21_complex_string_interpolation_multiple_variables.sh [perl] â stdout mismatch
+  FAIL: 064_22_function_returning_complex_data_structures.sh [perl] â stdout mismatch
+  FAIL: 070_cmp_basic.sh [perl] â check_qx:   FAIL: test.pl [perl] â SYSTEM violation: system() call with builtin 'cmp'
+  FAIL: 062_14_complex_array_operations.sh [perl] â debashc failed to generate code
+  FAIL: 062_hard_to_lex.sh [perl] â debashc failed to generate code
+  FAIL: 075_eval_complex.sh [perl] â stdout mismatch
+  FAIL: 063_02_complex_array_assignments.sh [perl] â debashc failed to generate code
+  FAIL: 083_process_sub_missing_files.sh [perl] â stdout mismatch
+  FAIL: 087_function_cmd_sub.sh [perl] â stdout mismatch
+  FAIL: 088_while_read_ifs_sort.sh [perl] â stdout mismatch
+  FAIL: 084_while_pipeline.sh [perl] â stdout mismatch
+  FAIL: 091_while_pipe_var.sh [perl] â stdout mismatch
+  FAIL: arithmetic-vs-command-subshell.sh [perl] â stdout mismatch
+  FAIL: backslash-continuation-dollar-paren.sh [perl] â stdout mismatch
+  FAIL: backslash-continuation-in-dollar-paren.sh [perl] â stdout mismatch
+  FAIL: bench-cmp.sh [perl] â stdout mismatch
+  FAIL: bench-cut.sh [perl] â stdout mismatch
+  FAIL: bench-strlen.sh [perl] â stdout mismatch
+  FAIL: bench-strremove.sh [perl] â stdout mismatch
+  FAIL: bench-strsubst.sh [perl] â stdout mismatch
+  FAIL: bc-native-capture.sh [perl] â stdout mismatch
+  FAIL: 063_hard_to_parse.sh [perl] â debashc failed to generate code
+  FAIL: builtin-system-open3.sh [perl] â stdout mismatch
+  FAIL: 064_07_complex_array_operations.sh [perl] â debashc failed to generate code
+  FAIL: check-qx-aa-exec.sh [perl] â stdout mismatch
+  FAIL: dollar-minus.sh [perl] â stdout mismatch
+  FAIL: double-bracket-and-chain.sh [perl] â stdout mismatch
+  FAIL: eq-string-num-var.sh [perl] â stdout mismatch
+  FAIL: generator-system-echo-checkqx.sh [perl] â stdout mismatch
+  FAIL: gunzip_example.sh [perl] â stdout mismatch
+  FAIL: heredoc-backtick-quote-span.sh [perl] â stdout mismatch
+  FAIL: 064_hard_to_generate.sh [perl] â debashc failed to generate code
+  FAIL: heredoc-singlequote-span.sh [perl] â stdout mismatch
+  FAIL: heredoc-redirects-same-line.sh [perl] â stdout mismatch
+  FAIL: heredoc-with-redirect-same-line.sh [perl] â stdout mismatch
+  FAIL: lex-dot-in-var.sh [perl] â stdout mismatch
+  FAIL: lexer-char-minus.sh [perl] â stdout mismatch
+  FAIL: multiple-awk-in-dqs.sh [perl] â debashc parser fallback (script wrapped in bash call)
+  FAIL: param-expand-default-operator.sh [perl] â stdout mismatch
+  FAIL: param-expand-hash-sameline.sh [perl] â stdout mismatch
+  FAIL: param-expand-hashhash.sh [perl] â stdout mismatch
+  FAIL: param-expand-hash.sh [perl] â stdout mismatch
+  FAIL: parse-dollar-in-arithmetic.sh [perl] â stdout mismatch
+  FAIL: parse-dollar-single-quote.sh [perl] â stdout mismatch
+  FAIL: parse-dot-after-var.sh [perl] â stdout mismatch
+  FAIL: parse-dollar-paren-pipe.sh [perl] â stdout mismatch
+  FAIL: parse-error-block-in-pipeline.sh [perl] â stdout mismatch
+  FAIL: parse-eval-multiline.sh [perl] â stdout mismatch
+  FAIL: id-cmdsub.sh [perl] â stdout mismatch
+  FAIL: parse-heredoc-dollar-paren.sh [perl] â stdout mismatch
+  FAIL: parse-longoption-with-dollar.sh [perl] â stdout mismatch
+  FAIL: parse-heredoc-redirect-chain.sh [perl] â stdout mismatch
+  FAIL: parse-paren-after-do.sh [perl] â debashc parser fallback (script wrapped in bash call)
+  FAIL: parse-paren-close.sh [perl] â stdout mismatch
+  FAIL: parse-redirect-in-case-pattern.sh [perl] â stdout mismatch
+  FAIL: parse-sq-awk-while.sh [perl] â stdout mismatch
+  FAIL: parse-unexpected-end-of-input.sh [perl] â debashc parser fallback (script wrapped in bash call)
+  FAIL: parse-unexpected-braceclose.sh [perl] â stdout mismatch
+  FAIL: process-substitution.sh [perl] â stdout mismatch
+  FAIL: pid_tempfile.sh [perl] â stdout mismatch
+  FAIL: qx-var-builtin-cd.sh [perl] â stdout mismatch
+  FAIL: readlink_flags.sh [perl] â stdout mismatch
+  FAIL: single-quote-embed-escape.sh [perl] â stdout mismatch
+  FAIL: subshell-sed-squote-dquote.sh [perl] â debashc parser fallback (script wrapped in bash call)
+  FAIL: realpath-cmdsub.sh [perl] â stdout mismatch
+  FAIL: test-expression-backslash-continuation.sh [perl] â stdout mismatch
+  FAIL: test_grep.sh [perl] â stdout mismatch
+  FAIL: test_system_builtin.sh [perl] â stdout mismatch
+  FAIL: utf8-non-utf8-content.sh [perl] â stdout mismatch
+  FAIL: readonly-cmdsub.sh [perl] â stdout mismatch
+  FAIL: zstd_example.sh [perl] â stdout mismatch
+  FAIL: tty-cmdsub.sh [perl] â stdout mismatch
+  FAIL: typeset-cmdsub.sh [perl] â debashc failed to generate code
+
+436 passed, 95 failed out of 531
+REGRESSED (95):
+  tty-cmdsub.sh
+  utf8-non-utf8-content.sh
+  generator-system-echo-checkqx.sh
+  parse-dollar-in-arithmetic.sh
+  dollar-minus.sh
+  051_primes.sh
+  bench-strremove.sh
+  gunzip_example.sh
+  012_process_substitution.sh
+  parse-dollar-paren-pipe.sh
+  084_while_pipeline.sh
+  heredoc-redirects-same-line.sh
+  parse-heredoc-dollar-paren.sh
+  058_advanced_bash_idioms.sh
+  000__07_find_path_commands.sh
+  083_process_sub_missing_files.sh
+  parse-unexpected-braceclose.sh
+  062_09_complex_function.sh
+  018_grep_params.sh
+  process-substitution.sh
+  019_grep_regex.sh
+  backslash-continuation-in-dollar-paren.sh
+  000__04b_file_directory_operations.sh
+  064_01_complex_nested_subshells.sh
+  parse-longoption-with-dollar.sh
+  test_system_builtin.sh
+  063_hard_to_parse.sh
+  param-expand-hash.sh
+  heredoc-with-redirect-same-line.sh
+  042_process_substitution_advanced.sh
+  readlink_flags.sh
+  parse-sq-awk-while.sh
+  parse-unexpected-end-of-input.sh
+  test_grep.sh
+  parse-dot-after-var.sh
+  016_grep_basic.sh
+  zstd_example.sh
+  000__04h_complex_examples.sh
+  check-qx-aa-exec.sh
+  064_21_complex_string_interpolation_multiple_variables.sh
+  017_grep_context.sh
+  param-expand-hashhash.sh
+  064_hard_to_generate.sh
+  eq-string-num-var.sh
+  lex-dot-in-var.sh
+  single-quote-embed-escape.sh
+  bc-native-capture.sh
+  id-cmdsub.sh
+  parse-heredoc-redirect-chain.sh
+  double-bracket-and-chain.sh
+  009_arrays.sh
+  realpath-cmdsub.sh
+  bench-strsubst.sh
+  063_09_complex_function_parameter_handling.sh
+  lexer-char-minus.sh
+  063_02_complex_array_assignments.sh
+  parse-paren-after-do.sh
+  064_07_complex_array_operations.sh
+  parse-dollar-single-quote.sh
+  bench-cmp.sh
+  003_pipeline.sh
+  091_while_pipe_var.sh
+  062_15_complex_local_variables.sh
+  bench-cut.sh
+  parse-paren-close.sh
+  param-expand-default-operator.sh
+  070_cmp_basic.sh
+  builtin-system-open3.sh
+  heredoc-backtick-quote-span.sh
+  015_grep_advanced.sh
+  test-expression-backslash-continuation.sh
+  multiple-awk-in-dqs.sh
+  qx-var-builtin-cd.sh
+  readonly-cmdsub.sh
+  parse-redirect-in-case-pattern.sh
+  arithmetic-vs-command-subshell.sh
+  subshell-sed-squote-dquote.sh
+  062_14_complex_array_operations.sh
+  parse-error-block-in-pipeline.sh
+  064_03_complex_parameter_expansion.sh
+  057_case.sh
+  backslash-continuation-dollar-paren.sh
+  087_function_cmd_sub.sh
+  063_14_complex_redirects.sh
+  typeset-cmdsub.sh
+  088_while_read_ifs_sort.sh
+  064_22_function_returning_complex_data_structures.sh
+  029_arrays_associative.sh
+  bench-strlen.sh
+  062_hard_to_lex.sh
+  parse-eval-multiline.sh
+  075_eval_complex.sh
+  heredoc-singlequote-span.sh
+  pid_tempfile.sh
+  param-expand-hash-sameline.sh
+
+Invoking pi to fix failures...
+cached: TESTS COMPLETED: 436 passed, 95 failed out of 531
+[2mLet[0m[2m me[0m[2m start[0m[2m by[0m[2m understanding[0m[2m the[0m[2m current[0m[2m state[0m[2m of[0m[2m the[0m[2m repo[0m[2m.[0m[2m Many[0m[2m tests[0m[2m reg[0m[2mressed[0m[2m.[0m[2m Let[0m[2m me[0m[2m first[0m[2m run[0m[2m `[0m[2m./[0m[2mfail[0m[2m`[0m[2m to[0m[2m see[0m[2m the[0m[2m current[0m[2m state[0m[2m,[0m[2m and[0m[2m check[0m[2m git[0m[2m status[0m[2m/log[0m[2m to[0m[2m understand[0m[2m what[0m[2m changed[0m[2m recently[0m[2m.
+
+[0m[2mThe[0m[2m failures[0m[2m are[0m[2m many[0m[2m —[0m[2m [0m[2m90[0m[2m+[0m[2m reg[0m[2mressions[0m[2m.[0m[2m Let[0m[2m me[0m[2m look[0m[2m at[0m[2m what[0m[2m changed[0m[2m since[0m[2m the[0m[2m last[0m[2m run[0m[2m.[0m[2m Let[0m[2m me[0m[2m check[0m[2m git[0m[2m log[0m[2m and[0m[2m stash[0m[2m.[0m[2mThere[0m[2m are[0m[2m lots[0m[2m of[0m[2m failing[0m[2m tests[0m[2m.[0m[2m Let[0m[2m me[0m[2m first[0m[2m check[0m[2m what[0m[2m the[0m[2m baseline[0m[2m is[0m[2m.[0m[2m Let[0m[2m me[0m[2m run[0m[2m `[0m[2m./[0m[2mfail[0m[2m`[0m[2m and[0m[2m see[0m[2m the[0m[2m summary[0m[2m.[0m[2m Also[0m[2m,[0m[2m let[0m[2m me[0m[2m check[0m[2m which[0m[2m tests[0m[2m are[0m[2m failing[0m[2m and[0m[2m try[0m[2m to[0m[2m understand[0m[2m the[0m[2m pattern[0m[2m —[0m[2m the[0m[2m message[0m[2m says[0m[2m "[0m[2mSince[0m[2m last[0m[2m run[0m[2m,[0m[2m these[0m[2m tests[0m[2m REG[0m[2mR[0m[2mESS[0m[2mED[0m[2m ([0m[2mnew[0m[2mly[0m[2m failing[0m[2m)".[0m[2m That[0m[2m means[0m[2m before[0m[2m the[0m[2m last[0m[2m run[0m[2m,[0m[2m they[0m[2m were[0m[2m passing[0m[2m.[0m[2m Something[0m[2m changed[0m[2m.[0m[2m Let[0m[2m me[0m[2m look[0m[2m at[0m[2m recent[0m[2m commits[0m[2m —[0m[2m maybe[0m[2m the[0m[2m last[0m[2m commit[0m[2m changed[0m[2m something[0m[2m that[0m[2m broke[0m[2m many[0m[2m tests[0m[2m.
+
+[0m[2mLet[0m[2m me[0m[2m check[0m[2m the[0m[2m current[0m[2m failure[0m[2m count[0m[2m first[0m[2m.[0m........[2mH[0m[2mmm[0m[2m,[0m[2m [0m[2m192[0m[2m failures[0m[2m?[0m[2m That[0m[2m's[0m[2m a[0m[2m lot[0m[2m.[0m[2m Wait[0m[2m,[0m[2m let[0m[2m me[0m[2m re[0m[2m-check[0m[2m.[0m[2m The[0m[2m task[0m[2m said[0m[2m "[0m[2mSince[0m[2m last[0m[2m run[0m[2m,[0m[2m these[0m[2m tests[0m[2m REG[0m[2mR[0m[2mESS[0m[2mED[0m[2m ([0m[2mnew[0m[2mly[0m[2m failing[0m[2m)"[0m[2m —[0m[2m about[0m[2m [0m[2m100[0m[2m tests[0m[2m.[0m[2m Let[0m[2m me[0m[2m get[0m[2m the[0m[2m full[0m[2m fail[0m[2m list[0m[2m and[0m[2m understand[0m[2m what[0m[2m's[0m[2m happening[0m[2m.
+
+[0m[2mLet[0m[2m me[0m[2m first[0m[2m look[0m[2m at[0m[2m a[0m[2m few[0m[2m failing[0m[2m tests[0m[2m to[0m[2m find[0m[2m a[0m[2m common[0m[2m pattern[0m[2m.[0m[2m Something[0m[2m big[0m[2m changed[0m[2m recently[0m[2m —[0m[2m many[0m[2m failures[0m[2m.[0m[2m Let[0m[2m me[0m[2m check[0m[2m the[0m[2m fail[0m[2m output[0m[2m more[0m[2m carefully[0m[2m,[0m[2m maybe[0m[2m the[0m[2m count[0m[2m includes[0m[2m check[0m[2m_q[0m[2mx[0m[2m failures[0m[2m.[0m

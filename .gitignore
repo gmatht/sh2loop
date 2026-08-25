@@ -29,3 +29,16 @@ frontends/coverage/ts-node-gap/libgrammars.a
 frontends/coverage/refused-refresh-stamp-*.txt
 frontends/coverage/refused-refresh-cursor-*.txt
 /.build-lock/
+
+# ── repo-size hygiene (see GIT_SIZE_CLEANUP.md) ─────────────────────
+# Rust/Cargo build dirs (syn-coverage etc. were committed by accident)
+frontends/**/target/
+frontends/**/target-*/
+# built frontend wasm (build-on-test artifacts, same policy as the binaries above)
+frontends/*/*.wasm
+# tree-sitter GENERATED parser tables (regenerated from grammars/, never hand-edited)
+frontends/*/grammars/*/src/parser.c
+# one-off run logs that leaked into the root
+/.check_sh_files_run.log
+/du-xh.log
+/.stash_history.log

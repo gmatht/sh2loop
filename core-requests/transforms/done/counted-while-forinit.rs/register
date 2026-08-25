@@ -1,0 +1,4 @@
+### mod
+pub mod counted_while_forinit;
+### all
+        ("counted-while-forinit", counted_while_forinit::transform),

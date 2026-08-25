@@ -28,6 +28,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
+# pi quota gate (the 85%-in-30min burn): skip pi when the opencode-go quota is
+# blocked — retry storms spend the rolling budget without landing fixes
+[ -f "$ROOT/harness/quota-gate.sh" ] && . "$ROOT/harness/quota-gate.sh"
 SUB="$ROOT/sh2perl"
 BT="$SUB/backends"   # worktrees live INSIDE the sh2perl submodule
                      # (they share the submodule's core); $ROOT/backends
@@ -138,6 +141,11 @@ pi_fix() {
     printf 'NEVER touch: %s/sh2perl/src/shir.rs, %s/sh2perl/src/ir.rs, %s/sh2perl/src/estree.rs, %s/sh2perl/src/parser/ (single-owner core)\n' \
       "$WORKSPACE" "$WORKSPACE" "$WORKSPACE" "$WORKSPACE"
   } > "$prompt_file"
+  if ! quota_ok "$scope_label"; then
+    echo "    [$scope_label] QUOTA-BLOCKED — skipping pi (rolling budget preserved)" >> "$log"
+    rm -f "$prompt_file"
+    return 0
+  fi
   echo "    [$scope_label] invoking pi (opencode-go + deepseek-v4-flash, key rotation automatic)..." >> "$log"
   # RAM gate (fail-open, up to 10 min): don't start pi while RAM is tight
   wait_for_ram 2048 0.5 30 600 || true
@@ -146,6 +154,7 @@ pi_fix() {
     echo "    [$scope_label] pi fix complete" >> "$log"
   else
     echo "    [$scope_label] pi fix FAILED (rc=$?)" >> "$log"
+    mark_pi_outcome 1 "$scope_label" "$log"
   fi
   rm -f "$prompt_file"
 }
@@ -189,10 +198,17 @@ sync_worktree () {
   local dir="$BT/$lang" branch="backend/$lang"
   [ -e "$dir/.git" ] || { echo "  [$lang] no worktree — run setup first"; return; }
   echo "  [$lang] merging main into $branch"
+  # fetch first (either from the worktree's remote or the submodule's), then
+  # actually run the merge. NOTE: the merge must be a SEPARATE statement from
+  # the fetch — chaining them with ||/&& makes the merge conditional on the
+  # fetch's exit code (the old one-liner short-circuited the merge whenever
+  # the fetch succeeded, so --sync never merged anything).
   git -C "$dir" fetch origin main 2>/dev/null || git -C "$SUB" fetch origin main 2>/dev/null || true
-  git -C "$dir" merge main -m "merge main into $branch" --no-edit >/dev/null 2>&1 \
-    && echo "  [$lang] merged cleanly" \
-    || echo "  [$lang] MERGE CONFLICT — resolve in $dir by hand, then re-run"
+  if git -C "$dir" merge main -m "merge main into $branch" --no-edit >/dev/null 2>&1; then
+    echo "  [$lang] merged cleanly"
+  else
+    echo "  [$lang] MERGE CONFLICT — resolve in $dir by hand, then re-run"
+  fi
 }
 
 remove_worktree () {
@@ -658,6 +674,10 @@ case "${1:-}" in
                   } > /tmp/pi-fix-prompt-$$
                   # RAM gate (fail-open, up to 10 min): don't start pi while RAM is tight
                   wait_for_ram 2048 0.5 30 600 || true
+                  if ! quota_ok "worker"; then
+                    echo "[quota-gate] QUOTA-BLOCKED — skipping pi" >> "$fix_log" 2>/dev/null || true
+                    exit 0
+                  fi
                   pi --mode json --provider opencode-go --model deepseek-v4-flash \
                      --thinking xhigh < /tmp/pi-fix-prompt-$$ >> "$fix_log" 2>&1 || true
                   rm -f /tmp/pi-fix-prompt-$$
@@ -685,6 +705,10 @@ case "${1:-}" in
                   } > /tmp/pi-fix-prompt-$$
                   # RAM gate (fail-open, up to 10 min): don't start pi while RAM is tight
                   wait_for_ram 2048 0.5 30 600 || true
+                  if ! quota_ok "worker"; then
+                    echo "[quota-gate] QUOTA-BLOCKED — skipping pi" >> "$fix_log" 2>/dev/null || true
+                    exit 0
+                  fi
                   pi --mode json --provider opencode-go --model deepseek-v4-flash \
                      --thinking xhigh < /tmp/pi-fix-prompt-$$ >> "$fix_log" 2>&1 || true
                   rm -f /tmp/pi-fix-prompt-$$
@@ -752,6 +776,10 @@ core-requests/, which the estree worker implements.
 EOF
                   } > /tmp/pi-coverage-prompt-$$
                   wait_for_ram 2048 0.5 30 600 || true
+                  if ! quota_ok "worker"; then
+                    echo "[quota-gate] QUOTA-BLOCKED — skipping pi" >> "$fix_log" 2>/dev/null || true
+                    exit 0
+                  fi
                   pi --mode json --provider opencode-go --model deepseek-v4-flash \
                      --thinking xhigh < /tmp/pi-coverage-prompt-$$ >> "$cov_log" 2>&1 || true
                   rm -f /tmp/pi-coverage-prompt-$$
@@ -781,6 +809,10 @@ EOF
                     printf 'If a SHARED-CORE change is required to satisfy a request, APPEND a structured request to core-requests/c-sh-go-<timestamp>.md per core-requests/README.md and exit 0.\n'
                   } > /tmp/pi-fix-c-requests-$$
                   wait_for_ram 2048 0.5 30 600 || true
+                  if ! quota_ok "worker"; then
+                    echo "[quota-gate] QUOTA-BLOCKED — skipping pi" >> "$fix_log" 2>/dev/null || true
+                    exit 0
+                  fi
                   pi --mode json --provider opencode-go --model deepseek-v4-flash \
                      --thinking xhigh < /tmp/pi-fix-c-requests-$$ >> "$c_log" 2>&1 || true
                   rm -f /tmp/pi-fix-c-requests-$$

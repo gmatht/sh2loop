@@ -24,7 +24,7 @@ my %whitelist = map { $_ => 1 } qw(
     typeOf isType
     pipelineInputLines
     makeChan recv send select
-    trimCapture dirname basename uname date readlink hostname whoami mktempValue split readFile writeFile appendFile lstat access unlink rm mkdir mkdtemp addrOf memLoad memStore
+    trimCapture dirname basename uname date readlink hostname whoami mktempValue split readFile writeFile appendFile lstat access unlink rm mkdir mkdtemp addrOf memLoad memStore walkLines readLine
     memAlloc memFree ternary arrayStore memAdvance memTest line
     assocSet assocGet assocNames assocValues
 );
@@ -192,13 +192,19 @@ sub walk {
             # Identifier — the native fs-command lift's own arrow params
             # (`Promise.all([...]).then(s => s.includes(1) ? …)` — the status
             # aggregation over per-path results).
+            # text-ops primitive lowerings widen this twice:
+            #   - LogicalExpression objects: `(sh2.getVar(x) ?? "")`
+            #     unset-default coalescing feeding a pure string op;
+            #   - substring/pop names: SubStrExtract's `.substring(off,
+            #     off+len)` and PathName(basename)'s `split('/').pop()` —
+            #     the same pure-CPU class as slice/includes.
             my $is_string_method = ref $obj eq 'HASH'
                 && (($obj->{type} // '') eq 'CallExpression' || ($obj->{type} // '') eq 'ArrayExpression'
                     || ($obj->{type} // '') eq 'AwaitExpression' || ($obj->{type} // '') eq 'ConditionalExpression'
                     || ($obj->{type} // '') eq 'BinaryExpression' || ($obj->{type} // '') eq 'Literal'
-                    || ($obj->{type} // '') eq 'Identifier')
+                    || ($obj->{type} // '') eq 'LogicalExpression' || ($obj->{type} // '') eq 'Identifier')
                 && ref $prop eq 'HASH'
-                && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase|toUpperCase|charAt|slice|split|join|flat|sort|then|catch|trim|replace|replaceAll|lastIndexOf|concat|filter|map|indexOf|test|exec|repeat|push)$/;
+                && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase|toUpperCase|charAt|slice|substring|split|join|flat|sort|then|catch|trim|replace|replaceAll|lastIndexOf|concat|filter|map|indexOf|test|exec|repeat|push|pop)$/;
             # Buffer.byteLength(text, 'utf8') — the native wc -c byte-count
             # lowering (the runtime wc's exact formula; node global)
             my $is_buffer = ref $obj eq 'HASH'

@@ -1,0 +1,1298 @@
+diff --git a/frontends/fish-sh-go/fish-sh-go b/frontends/fish-sh-go/fish-sh-go
+index ffcff82..2a83e30 100755
+Binary files a/frontends/fish-sh-go/fish-sh-go and b/frontends/fish-sh-go/fish-sh-go differ
+diff --git a/frontends/go-sh/go-sh.go b/frontends/go-sh/go-sh.go
+index 8094fd6..484d10c 100644
+--- a/frontends/go-sh/go-sh.go
++++ b/frontends/go-sh/go-sh.go
+@@ -8,10 +8,21 @@
+ // worker (run_worker.sh -> pi/deepseek-v4-flash) runs `antlr4
+ // -Dlanguage=Go -package go_sh -visitor -o gen grammars/GoLexer.g4
+ // grammars/GoParser.g4` and wires up the full listener. For now, the
+-// hand-rolled stub parser (parseSimple) handles the v1 shell-flavored
+-// Go subset (func main, fmt.Println, assignments, os.Env access,
+-// if/for, $VAR-like, comments, shebang) — enough to build and
+-// smoke-run.
++// hand-rolled stub parser (parseSimple) handles the v1 Go subset
++// (package/import/func-main boilerplate, fmt.Println, := and =
++// assignments of literals, os.Env access) — enough to build and pass
++// the A1 ingress gate.
++//
++// EMISSION CONSTRAINT (learned the hard way — the gate):
++// `debashc --shir-in-estree` deserializes the A1 JSON and then runs
++// the ESTree renderer, which has NO arms for Output/Declare/RawExpr/
++// Unsupported (they panic with "Perl-only IR ... reached the ESTree
++// renderer", or are unknown stmt types at ingress). The frontend must
++// emit ONLY the renderer-safe subset: Expr(Call("exec"|"getVar", ...))
++// and Assign — the exact shapes the core itself emits for the shell
++// analogs (echo hello / x=1 / echo $x), byte-identical modulo the
++// language mapping. See sh2perl/src/shir.rs stmt_to_estree /
++// expr_to_estree for the supported node sets.
+ package main
+ 
+ import (
+@@ -23,75 +34,208 @@ import (
+ 	shiremit "github.com/gmatht/sh2loop/frontends/shir-emit-go"
+ )
+ 
++// shirArg — one argument of a lowered call (v1: string literal or var read).
++type shirArg struct {
++	kind string // "str" | "getvar"
++	val  string
++}
++
++// shirStmt — v1 statements the stub parser can express.
++type shirStmt struct {
++	kind    string // "println" | "assign"
++	args    []shirArg
++	name    string // assign target
++	val     string // assign value (raw literal text)
++	argKind string // "str" | "num" — RHS literal class (quoted vs unquoted analog)
++}
++
+ // parseSimple is a deliberately-minimal hand-rolled parser for the v1
+-// shell-flavored Go subset. The full antlr4 listener (TODO) replaces it.
++// Go subset. The full antlr4 listener (TODO) replaces it. Refuse >
++// guess: any construct outside the subset is an error (the Makefile
++// gate then reports FAIL), never silently mis-lowered.
+ func parseSimple(src string) ([]shirStmt, error) {
+ 	// Strip shebang (first line starting with #!).
+ 	if i := strings.IndexByte(src, '\n'); i > 0 && strings.HasPrefix(src, "#!") {
+ 		src = src[i+1:]
+ 	}
+ 	var out []shirStmt
+-	for _, ln := range strings.Split(src, "\n") {
+-		// Strip // and /* comments (single-line only for v1).
++	for n, ln := range strings.Split(src, "\n") {
++		where := fmt.Sprintf("line %d", n+1)
++		// Strip // comments and single-line /* */ comments.
+ 		if i := strings.Index(ln, "//"); i >= 0 {
+ 			ln = ln[:i]
+ 		}
++		if i := strings.Index(ln, "/*"); i >= 0 {
++			j := strings.Index(ln[i+2:], "*/")
++			if j < 0 {
++				return nil, fmt.Errorf("%s: unterminated block comment (v1)", where)
++			}
++			ln = ln[:i] + ln[i+2+j+2:]
++		}
+ 		ln = strings.TrimSpace(ln)
+-		if ln == "" || ln == "}" || ln == "{" {
++		if ln == "" {
++			continue
++		}
++		// Structural boilerplate: package clause, import declarations,
++		// func main header, braces. These are not executable statements
++		// in the shell analog — skip them entirely.
++		if isBoilerplate(ln) {
+ 			continue
+ 		}
+ 		s, err := parseLine(ln)
+ 		if err != nil {
+-			out = append(out, shirStmt{kind: "unsupported", raw: ln})
+-			continue
++			return nil, fmt.Errorf("%s: %v", where, err)
+ 		}
+ 		out = append(out, s...)
+ 	}
+ 	return out, nil
+ }
+ 
+-// shirStmt — pointer-typed recursive fields (Go disallows recursive
+-// value types).
+-type shirStmt struct {
+-	kind string
+-	raw  string
+-	name string
+-	val  string
+-	args []shirStmt
+-	cond *shirStmt
++// isBoilerplate reports whether ln is Go scaffolding with no shell
++// analog: `package main`, `import "fmt"` / `import (`, `func main() {`,
++// bare braces.
++func isBoilerplate(ln string) bool {
++	if ln == "{" || ln == "}" || ln == ")" {
++		return true
++	}
++	if strings.HasPrefix(ln, "package ") {
++		return true
++	}
++	if ln == "import" || strings.HasPrefix(ln, "import ") {
++		return true
++	}
++	// `func main() {` — the program body (also `func main(){`).
++	if m, _ := regexp.MatchString(`^func\s+main\s*\([^)]*\)\s*\{?\s*$`, ln); m {
++		return true
++	}
++	return false
+ }
+ 
++var (
++	rePrintln  = regexp.MustCompile(`^fmt\.Println\s*\((.*)\)\s*$`)
++	reAssign   = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\s*(:?=)\s*([^;]+?)\s*$`)
++	reStrLit   = regexp.MustCompile(`^"((?:[^"\\]|\\.)*)"$`)
++	reIntLit   = regexp.MustCompile(`^-?[0-9]+(\.[0-9]+)?$`)
++	reIdent    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
++	reMainFn   = regexp.MustCompile(`^func\s+\w+\s*\(`)
++)
++
+ func parseLine(ln string) ([]shirStmt, error) {
+-	// fmt.Println("...")
+-	if m := regexp.MustCompile(`^fmt\.Println\(\s*"([^"]*)"\s*\);?$`).FindStringSubmatch(ln); m != nil {
+-		return []shirStmt{{kind: "print", raw: m[1], val: m[1]}}, nil
++	// fmt.Println("...", name, 42)
++	if m := rePrintln.FindStringSubmatch(ln); m != nil {
++		args, err := splitArgs(m[1])
++		if err != nil {
++			return nil, err
++		}
++		if len(args) == 0 {
++			return nil, fmt.Errorf("fmt.Println() with no args (v1)")
++		}
++		out := make([]shirArg, 0, len(args))
++		for _, a := range args {
++			switch {
++			case reStrLit.MatchString(a):
++				out = append(out, shirArg{kind: "str", val: strings.Trim(a, `"`)})
++			case reIntLit.MatchString(a):
++				out = append(out, shirArg{kind: "num", val: a}) // shell analog: echo 42 → Str "42"
++			case reIdent.MatchString(a):
++				out = append(out, shirArg{kind: "getvar", val: a})
++			default:
++				return nil, fmt.Errorf("fmt.Println arg %q unsupported (v1: string/int literal or var)", a)
++			}
++		}
++		return []shirStmt{{kind: "println", args: out}}, nil
++	}
++	// name := "..." | name := 42 | name = ... (Go short/plain declaration)
++	if m := reAssign.FindStringSubmatch(ln); m != nil {
++		name, rhs := m[1], m[3]
++		val, kind := "", "str"
++		switch {
++		case reStrLit.MatchString(rhs):
++			val = strings.Trim(rhs, `"`)
++		case reIntLit.MatchString(rhs):
++			val, kind = rhs, "num"
++		default:
++			return nil, fmt.Errorf("assignment %q rhs unsupported (v1: string/int literal)", ln)
++		}
++		return []shirStmt{{kind: "assign", name: name, val: val, argKind: kind}}, nil
+ 	}
+-	// $VAR = "..."  (Go: VAR = "..." — but $ is not Go; map to assignment with $ stripped for v1)
+-	if m := regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"([^"]*)"$`).FindStringSubmatch(ln); m != nil {
+-		return []shirStmt{{kind: "assign", name: m[1], val: m[2]}}, nil
++	// Explicitly refuse what the v1 subset excludes (Refuse > guess).
++	if reMainFn.MatchString(ln) {
++		return nil, fmt.Errorf("non-main func %q unsupported (v1)", ln)
+ 	}
+-	// os.Environ("NAME") (treated as a getVar for v1)
+-	if m := regexp.MustCompile(`^os\.Environ\(\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*\);?$`).FindStringSubmatch(ln); m != nil {
+-		return []shirStmt{{kind: "env", name: m[1]}}, nil
++	if strings.HasPrefix(ln, "if ") || strings.HasPrefix(ln, "for ") ||
++		strings.HasPrefix(ln, "switch ") || strings.HasPrefix(ln, "return ") {
++		return nil, fmt.Errorf("compound statement %q unsupported (v1)", ln)
+ 	}
+-	// if / for — crude
+-	if strings.HasPrefix(ln, "if ") || strings.HasPrefix(ln, "for ") {
+-		return []shirStmt{{kind: "if", cond: &shirStmt{kind: "exec", raw: ln}}}, nil
++	return nil, fmt.Errorf("unrecognized statement %q (v1 subset: fmt.Println / := / = of literals)", ln)
++}
++
++// splitArgs splits a fmt.Println(...) argument list on top-level commas,
++// respecting double-quoted string literals (which may contain commas).
++func splitArgs(s string) ([]string, error) {
++	var out []string
++	depth := 0
++	cur := strings.Builder{}
++	for i := 0; i < len(s); i++ {
++		c := s[i]
++		switch {
++		case c == '"':
++			depth++
++			cur.WriteByte(c)
++			for i+1 < len(s) {
++				i++
++				cur.WriteByte(s[i])
++				if s[i] == '\\' && i+1 < len(s) {
++					i++
++					cur.WriteByte(s[i])
++				} else if s[i] == '"' {
++					depth--
++					break
++				}
++			}
++		case c == ',' && depth == 0:
++			out = append(out, strings.TrimSpace(cur.String()))
++			cur.Reset()
++		default:
++			cur.WriteByte(c)
++		}
+ 	}
+-	// default: treat as a generic exec (the worker refines)
+-	return []shirStmt{{kind: "exec", raw: ln}}, nil
++	out = append(out, strings.TrimSpace(cur.String()))
++	for _, a := range out {
++		if a == "" {
++			return nil, fmt.Errorf("empty arg in fmt.Println call")
++		}
++	}
++	return out, nil
+ }
+ 
++// toShir maps v1 statements to the renderer-safe A1 shIR subset, with
++// the EXACT byte shape the core emits for the faithful shell analog
++// (verified against `debashc --shir` on the quoted form):
++//   - fmt.Println("lit")  ≡ echo "lit"      → Expr(Call("exec", [Str "echo", Array[Interpolate lit]]))
++//   - fmt.Println(name)    ≡ echo "$name"    → Expr(Call("exec", [Str "echo", Array[Call getVar]]))
++//   - fmt.Println(42)      ≡ echo 42         → Expr(Call("exec", [Str "echo", Array[Str "42"]]))
++//   - name := "lit"        ≡ name="lit"      → Assign(targets=[{var,sigil:null,indices:[]}], expr=Interpolate lit)
++//   - name := 42           ≡ name=42         → Assign(..., expr=Str "42")
++// The core lowers EVERY double-quoted word to Interpolate (even with no
++// expansion) and unquoted words to Str — the emitter mirrors that.
+ func toShir(stmts []shirStmt) []map[string]any {
+ 	out := make([]map[string]any, 0, len(stmts))
+ 	for _, s := range stmts {
+ 		switch s.kind {
+-		case "print":
++		case "println":
++			elems := make([]any, 0, len(s.args))
++			for _, a := range s.args {
++				elems = append(elems, wordExpr(a))
++			}
+ 			out = append(out, map[string]any{
+-				"type":    "Output",
+-				"value":   map[string]any{"type": "Str", "value": s.val, "style": "DoubleQuoted"},
+-				"newline": true,
+-				"target":  nil,
++				"type": "Expr",
++				"expr": map[string]any{
++					"type":   "Call",
++					"func":   "exec",
++					"args":   []any{strExpr("echo"), map[string]any{"type": "Array", "elements": elems}},
++					"purity": "Emulable", // echo ∈ SYNC_BUILTINS (A4)
++				},
+ 			})
+ 		case "assign":
+ 			out = append(out, map[string]any{
+@@ -101,45 +245,39 @@ func toShir(stmts []shirStmt) []map[string]any {
+ 					"sigil":   nil,
+ 					"indices": []any{},
+ 				}},
+-				"expr": map[string]any{"type": "Str", "value": s.val, "style": "DoubleQuoted"},
+-			})
+-		case "env":
+-			out = append(out, map[string]any{
+-				"type":    "Output",
+-				"value":   map[string]any{"type": "Call", "func": "getVar", "args": []any{map[string]any{"type": "Str", "value": s.name, "style": "DoubleQuoted"}}, "purity": "Emulable"},
+-				"newline": true,
+-				"target":  nil,
++				"expr": wordExpr(shirArg{kind: s.argKind, val: s.val}),
+ 			})
+-		case "exec":
+-			out = append(out, map[string]any{
+-				"type":     "Exec",
+-				"cmd":      map[string]any{"type": "Str", "value": "sh2.exec", "style": "DoubleQuoted"},
+-				"args":     []any{map[string]any{"type": "RawExpr", "text": s.raw}},
+-				"purity":   "Spawn",
+-				"env":      []any{},
+-				"redirects": []any{},
+-			})
+-		case "if":
+-			condRaw := ""
+-			if s.cond != nil {
+-				condRaw = s.cond.raw
+-			}
+-			out = append(out, map[string]any{
+-				"type":    "If",
+-				"cond":    map[string]any{"type": "Call", "func": "sh2.test", "args": []any{map[string]any{"type": "RawExpr", "text": condRaw}}, "purity": "Emulable"},
+-				"then":    []any{},
+-				"elsifs":  []any{},
+-				"r#else":  nil,
+-			})
+-		case "unsupported":
+-			out = append(out, map[string]any{"type": "Unsupported", "reason": s.raw})
+-		default:
+-			out = append(out, map[string]any{"type": "noop"})
+ 		}
+ 	}
+ 	return out
+ }
+ 
++// wordExpr lifts one v1 arg to the A1 expr the core emits for the
++// corresponding shell word: quoted string → Interpolate[lit], var read
++// → Call getVar, number → Str of the digits (unquoted analog).
++func wordExpr(a shirArg) map[string]any {
++	switch a.kind {
++	case "getvar":
++		return map[string]any{
++			"type":   "Call",
++			"func":   "getVar",
++			"args":   []any{strExpr(a.val)},
++			"purity": "Emulable",
++		}
++	case "num":
++		return strExpr(a.val)
++	default: // "str" (quoted literal)
++		return map[string]any{
++			"type":  "Interpolate",
++			"parts": []any{map[string]any{"kind": "lit", "text": a.val}},
++		}
++	}
++}
++
++func strExpr(v string) map[string]any {
++	return map[string]any{"type": "Str", "value": v, "style": "DoubleQuoted"}
++}
++
+ func main() {
+ 	args := os.Args[1:]
+ 	raw := false
+@@ -164,7 +302,7 @@ func main() {
+ 	}
+ 	stmts, err := parseSimple(src)
+ 	if err != nil {
+-		fmt.Fprintln(os.Stderr, err)
++		fmt.Fprintln(os.Stderr, "go-sh: "+err.Error())
+ 		os.Exit(2)
+ 	}
+ 	prog := &shiremit.Program{Stmts: toShir(stmts)}
+diff --git a/frontends/go-sh/run_frontend_worker.sh b/frontends/go-sh/run_frontend_worker.sh
+index a890adb..86b5cb3 100755
+--- a/frontends/go-sh/run_frontend_worker.sh
++++ b/frontends/go-sh/run_frontend_worker.sh
+@@ -2,7 +2,7 @@
+ # go-sh scoped worker — FAILURE-DRIVEN.
+ set -euo pipefail
+ cd "$(dirname "$0")"
+-WORKSPACE="$(cd .. && pwd)"
++WORKSPACE="$(cd ../.. && pwd)"
+ LOG="$WORKSPACE/loop-frontend-go-sh.log"
+ echo "[$(date +%FT%T)] frontend go-sh worker started (pid=$$)" >> "$LOG"
+ fail_count=0
+diff --git a/frontends/perl-sh-go/run_frontend_worker.sh b/frontends/perl-sh-go/run_frontend_worker.sh
+index 337ec70..30c52fb 100755
+--- a/frontends/perl-sh-go/run_frontend_worker.sh
++++ b/frontends/perl-sh-go/run_frontend_worker.sh
+@@ -2,7 +2,7 @@
+ # perl-sh-go scoped worker — FAILURE-DRIVEN.
+ set -euo pipefail
+ cd "$(dirname "$0")"
+-WORKSPACE="$(cd .. && pwd)"
++WORKSPACE="$(cd ../.. && pwd)"
+ LOG="$WORKSPACE/loop-frontend-perl-sh-go.log"
+ echo "[$(date +%FT%T)] frontend perl-sh-go worker started (pid=$$)" >> "$LOG"
+ fail_count=0
+diff --git a/frontends/posix-sh-go/analysis.go b/frontends/posix-sh-go/analysis.go
+index e1335ab..87a4a16 100644
+--- a/frontends/posix-sh-go/analysis.go
++++ b/frontends/posix-sh-go/analysis.go
+@@ -991,6 +991,525 @@ func analyzeVarTypes(stmts []Stmt) []VarTypeOut {
+ 
+ type VarTypeOut struct{ Name, Type string }
+ 
++// ─────────────────────────────────────────────────────────────────────
++// A1b: max-string-length verdicts (mirror analyze_string_lengths — the
++// transform the C backend asked for: fixed buffers instead of heap). A
++// fixed-point over the assignments: each var's bound is the max over its
++// assignment RHS lengths (Str literals, Interpolate = the literal parts +
++// the interpolated vars' bounds); captures/calls/binops are unbounded
++// (None); a loop-accumulated `s="$s$x"` grows past the cap each
++// iteration and flips to None (the cap guarantees termination).
++// ─────────────────────────────────────────────────────────────────────
++
++type VarLenOut struct{ Name string; MaxLen *uint64 } // nil = unbounded
++
++type lenAssign struct {
++	name string
++	rhs  Expr
++}
++
++const strLenCap uint64 = 4096
++const strLenIterLimit = 1024
++
++func satAdd64(a, b uint64) uint64 {
++	if a > ^uint64(0)-b {
++		return ^uint64(0)
++	}
++	return a + b
++}
++
++// collectLenAssigns — mirror the assignment-collection walk inside
++// analyze_string_lengths: Assign targets with no indices, plus the
++// `local name=value` / `declare name=value` / `export name=value`
++// declaration assignments (the exec/builtin call's args carry "name=" +
++// the value). If/While/For/Subshell/Background/Block/Redirect/Function
++// bodies are walked; Case and Pipeline statements are NOT (as in the
++// core).
++func collectLenAssigns(st Stmt, assigns *[]lenAssign) {
++	switch t := st.(type) {
++	case *AssignS:
++		*assigns = append(*assigns, lenAssign{t.Var, t.Expr})
++	case *ExprS:
++		c, ok := t.Expr.(*CallE)
++		if !ok || len(c.Args) < 2 {
++			return
++		}
++		cn, ok := c.Args[0].(*StrE)
++		if !ok {
++			return
++		}
++		if cn.Value != "local" && cn.Value != "declare" && cn.Value != "readonly" && cn.Value != "export" {
++			return
++		}
++		arr, ok := c.Args[1].(*ArrayE)
++		if !ok {
++			return
++		}
++		i := 0
++		for i < len(arr.Elems) {
++			if nv, ok := arr.Elems[i].(*StrE); ok {
++				if eq := strings.Index(nv.Value, "="); eq >= 0 {
++					name := nv.Value[:eq]
++					value := nv.Value[eq+1:]
++					if name != "" {
++						// the value may be inline ("" for `name=$(...)`)
++						// or the NEXT array element: ["sqrt_n=", [value]]
++						var v Expr
++						nextIsArray := false
++						if i+1 < len(arr.Elems) {
++							next := arr.Elems[i+1]
++							if inner, ok := next.(*ArrayE); ok {
++								nextIsArray = true
++								if len(inner.Elems) == 1 {
++									v = inner.Elems[0]
++								} else {
++									v = next
++								}
++							} else {
++								v = next
++							}
++						} else if !strings.Contains(value, "$") {
++							// inline literal
++							v = &StrE{Value: value, Style: "DoubleQuoted"}
++						} else {
++							break
++						}
++						*assigns = append(*assigns, lenAssign{name, v})
++						if nextIsArray {
++							i += 2
++							continue
++						}
++					}
++				}
++			}
++			i++
++		}
++	case *IfS:
++		for _, b := range t.Then {
++			collectLenAssigns(b, assigns)
++		}
++		for _, b := range t.Else {
++			collectLenAssigns(b, assigns)
++		}
++	case *WhileS:
++		for _, b := range t.Body {
++			collectLenAssigns(b, assigns)
++		}
++	case *ForS:
++		for _, b := range t.Body {
++			collectLenAssigns(b, assigns)
++		}
++	case *SubshellS:
++		for _, b := range t.Body {
++			collectLenAssigns(b, assigns)
++		}
++	case *BackgroundS:
++		for _, b := range t.Body {
++			collectLenAssigns(b, assigns)
++		}
++	case *BlockS:
++		for _, b := range t.Body {
++			collectLenAssigns(b, assigns)
++		}
++	case *RedirectS:
++		for _, b := range t.Inner {
++			collectLenAssigns(b, assigns)
++		}
++	case *FunctionS:
++		for _, b := range t.Body {
++			collectLenAssigns(b, assigns)
++		}
++	}
++}
++
++// exprStrLen — mirror expr_len (the per-expr bound; None = unbounded).
++func exprStrLen(e Expr, lens map[string]*uint64, cap uint64) *uint64 {
++	switch t := e.(type) {
++	case *StrE:
++		v := uint64(len(t.Value))
++		return &v
++	case *IntE:
++		v := uint64(20) // the max digit count
++		return &v
++	case *VarE:
++		return lens[t.Name]
++	case *InterpE:
++		var total uint64
++		for _, p := range t.Parts {
++			var l uint64
++			if p.IsLit {
++				l = uint64(len(p.Lit))
++			} else {
++				l2 := exprStrLen(p.Expr, lens, cap)
++				if l2 == nil {
++					return nil
++				}
++				l = *l2
++			}
++			total = satAdd64(total, l)
++			if total > cap {
++				return nil
++			}
++		}
++		return &total
++	case *CallE:
++		if t.Func == "getVar" {
++			if len(t.Args) > 0 {
++				if n, ok := t.Args[0].(*StrE); ok {
++					return lens[n.Value]
++			}
++			}
++			return nil
++		}
++		if t.Func == "capture" {
++			if len(t.Args) > 0 {
++				return captureBound(t.Args[0], lens, cap)
++			}
++			return nil
++		}
++		return nil
++	case *BinOpE:
++		switch t.Op {
++		case "Concat": // a . b = max(a)+max(b)
++			l := exprStrLen(t.Lhs, lens, cap)
++			if l == nil {
++				return nil
++			}
++			r := exprStrLen(t.Rhs, lens, cap)
++			if r == nil {
++				return nil
++			}
++			v := satAdd64(*l, *r)
++			return &v
++		case "Eq", "Ne", "Lt", "Gt", "Le", "Ge", "And", "Or", "Not":
++			v := uint64(1) // comparisons/logicals yield 0/1
++			return &v
++		default:
++			v := uint64(20) // the numeric/bitwise ops -> a number
++			return &v
++		}
++	case *ArithE:
++		v := uint64(20) // $((...)) -> a number
++		return &v
++	}
++	return nil // calls / arrays — unbounded
++}
++
++// captureStages — mirror capture_stages (the wrapped command's stages).
++func captureStages(e Expr) []Expr {
++	switch t := e.(type) {
++	case *CallE:
++		if t.Func == "pipeline" {
++			if len(t.Args) > 0 {
++				if arr, ok := t.Args[0].(*ArrayE); ok {
++					return arr.Elems
++				}
++			}
++			return []Expr{e}
++		}
++		if t.Func == "exec" || t.Func == "builtin" {
++			// the stages may sit in the exec's args directly
++			// ([Arrow, Arrow]) or wrapped in a single Array
++			// ([Array([Arrow, Arrow])]) — both appear in the corpus
++			if len(t.Args) > 0 {
++				if arr, ok := t.Args[0].(*ArrayE); ok && allArrows(arr.Elems) {
++					return arr.Elems
++				}
++			}
++			var stages []Expr
++			for _, a := range t.Args {
++				if _, ok := a.(*ArrowE); ok {
++					stages = append(stages, a)
++				}
++			}
++			if len(stages) == 0 {
++				return []Expr{e}
++			}
++			return stages
++		}
++	case *ArrowE:
++		// a single-command stage: the call IS the stage
++		for _, st := range t.Body {
++			es, ok := st.(*ExprS)
++			if !ok {
++				continue
++			}
++			c, ok := es.Expr.(*CallE)
++			if !ok {
++				continue
++			}
++			if c.Func != "exec" && c.Func != "builtin" && c.Func != "pipeline" {
++				return []Expr{c}
++			}
++			// the inner call's args ARE the stages (or the pipeline's
++			// [Array([Arrow, ...])])
++			if len(c.Args) > 0 {
++				if arr, ok := c.Args[0].(*ArrayE); ok && allArrows(arr.Elems) {
++					return arr.Elems
++				}
++			}
++			var stages []Expr
++			for _, a := range c.Args {
++				if _, ok := a.(*ArrowE); ok {
++					stages = append(stages, a)
++				}
++			}
++			if len(stages) == 0 {
++				return []Expr{c}
++			}
++			return stages
++		}
++		return nil
++	}
++	return []Expr{e}
++}
++
++func allArrows(es []Expr) bool {
++	for _, a := range es {
++		if _, ok := a.(*ArrowE); !ok {
++			return false
++		}
++	}
++	return true
++}
++
++// stageCmd — mirror stage_cmd (the command name of a pipeline stage).
++func stageCmd(stage Expr) (string, bool) {
++	switch t := stage.(type) {
++	case *ArrowE:
++		for _, st := range t.Body {
++			es, ok := st.(*ExprS)
++			if !ok {
++				continue
++			}
++			c, ok := es.Expr.(*CallE)
++			if !ok || (c.Func != "exec" && c.Func != "builtin") {
++				continue
++			}
++			if len(c.Args) > 0 {
++				if n, ok := c.Args[0].(*StrE); ok {
++					return n.Value, true
++				}
++			}
++		}
++		return "", false
++	case *CallE:
++		if t.Func == "exec" || t.Func == "builtin" {
++			if len(t.Args) > 0 {
++				if n, ok := t.Args[0].(*StrE); ok {
++					return n.Value, true
++				}
++			}
++		}
++		return "", false
++	}
++	return "", false
++}
++
++func grepArg(args []Expr) string {
++	for _, a := range args {
++		if sv, ok := a.(*StrE); ok && len(sv.Value) == 2 && sv.Value[0] == '-' {
++			return sv.Value
++		}
++	}
++	return ""
++}
++
++// captureBound — mirror capture_bound: the capture's bound depends on the
++// CAPTURED COMMAND: bc yields a fixed-width number; the filters
++// (grep/sed/tr/...) yield output no larger than the input — bounded by
++// the pipeline's FIRST stage when that is a bounded echo; everything else
++// is unbounded.
++func captureBound(e Expr, lens map[string]*uint64, cap uint64) *uint64 {
++	stages := captureStages(e)
++	if len(stages) == 0 {
++		return nil
++	}
++	last := stages[len(stages)-1]
++	cmdName, ok := stageCmd(last)
++	if !ok {
++		return nil
++	}
++	// the grep OPTIONS change the bound: -q emits nothing, -c emits
++	// a count (a number), the rest filter (<= the input)
++	lastFlag := ""
++	if arr, ok := last.(*ArrowE); ok {
++		for _, st := range arr.Body {
++			es, ok := st.(*ExprS)
++			if !ok {
++				continue
++			}
++			c, ok := es.Expr.(*CallE)
++			if !ok || len(c.Args) < 2 {
++				continue
++			}
++			items, ok := c.Args[1].(*ArrayE)
++			if !ok {
++				continue
++			}
++			if f := grepArg(items.Elems); f != "" {
++				lastFlag = f
++				break
++			}
++		}
++	}
++	// zero-output builtins — the capture is the empty string (the
++	// guard applies to the whole or-pattern in the core, so "true"
++	// without -q falls through to the default: unbounded)
++	if cmdName == "true" || cmdName == "false" || cmdName == ":" ||
++		cmdName == "test" || cmdName == "[" || cmdName == "[[" || cmdName == "grep" {
++		if lastFlag == "-q" {
++			v := uint64(0)
++			return &v
++		}
++	}
++	switch cmdName {
++	case "bc":
++		v := uint64(40) // an arbitrary-precision number (the primes sqrt case)
++		return &v
++	case "wc":
++		v := uint64(20) // always numbers (the -l/-w/-c counts)
++		return &v
++	case "grep":
++		if lastFlag == "-c" {
++			v := uint64(20)
++			return &v
++		}
++		// the filters: output <= input — the FIRST stage's bound
++		return captureBound(stages[0], lens, cap)
++	case "md5sum":
++		v := uint64(32)
++		return &v
++	case "sha1sum":
++		v := uint64(40)
++		return &v
++	case "sha256sum":
++		v := uint64(64)
++		return &v
++	case "sha512sum":
++		v := uint64(128)
++		return &v
++	case "date":
++		v := uint64(30) // the timestamp
++		return &v
++	case "umask":
++		v := uint64(4) // an octal
++		return &v
++	case "expr":
++		v := uint64(20) // a number (or a short string)
++		return &v
++	case "seq":
++		return nil // the item count unknown
++	case "echo", "printf":
++		// the output is the args' joined lengths (skip the command
++		// name; the real args live in the trailing Array) — the
++		// stage may be an Arrow wrapping the call, or a bare Call
++		var call *CallE
++		if arr, ok := last.(*ArrowE); ok {
++			for _, st := range arr.Body {
++				if es, ok := st.(*ExprS); ok {
++					if c, ok := es.Expr.(*CallE); ok {
++						call = c
++						break
++					}
++				}
++			}
++		} else if c, ok := last.(*CallE); ok {
++			call = c
++		}
++		var total uint64
++		if call != nil {
++			for _, a := range call.Args {
++				var l uint64
++				if items, ok := a.(*ArrayE); ok {
++					var t uint64
++					for _, it := range items.Elems {
++						l2 := exprStrLen(it, lens, cap)
++						if l2 == nil {
++							return nil
++						}
++						t = satAdd64(t, *l2)
++					}
++					l = t
++				} else {
++					l2 := exprStrLen(a, lens, cap)
++					if l2 == nil {
++						return nil
++					}
++					l = *l2
++				}
++				total = satAdd64(satAdd64(total, l), 1)
++			}
++		}
++		if total > cap {
++			return nil
++		}
++		return &total
++	case "sed", "tr", "head", "tail", "sort", "uniq", "cut",
++		"cat", "paste", "rev", "join", "basename", "dirname", "comm":
++		// the filters: output <= input — the FIRST stage's bound
++		return captureBound(stages[0], lens, cap)
++	}
++	return nil
++}
++
++// analyzeStringLengths — mirror analyze_string_lengths. Returns the
++// (name, max_len) pairs sorted by name, matching the core's BTreeMap.
++func analyzeStringLengths(stmts []Stmt) []VarLenOut {
++	var assigns []lenAssign
++	for _, st := range stmts {
++		collectLenAssigns(st, &assigns)
++	}
++	names := map[string]bool{}
++	for _, a := range assigns {
++		names[a.name] = true
++	}
++	var sorted []string
++	for n := range names {
++		sorted = append(sorted, n)
++	}
++	sort.Strings(sorted)
++	lens := map[string]*uint64{}
++	for _, n := range sorted {
++		z := uint64(0)
++		lens[n] = &z
++	}
++	for it := 0; it < strLenIterLimit; it++ {
++		changed := false
++		for _, a := range assigns {
++			cur := lens[a.name]
++			if cur == nil {
++				continue
++			}
++			l := exprStrLen(a.rhs, lens, strLenCap)
++			var newv *uint64
++			if l != nil {
++				if *l > strLenCap {
++					newv = nil
++				} else {
++					m := *l
++					if *cur > m {
++						m = *cur
++					}
++					newv = &m
++				}
++			}
++			if (newv == nil) != (cur == nil) || (newv != nil && *newv != *cur) {
++				lens[a.name] = newv
++				changed = true
++			}
++		}
++		if !changed {
++			break
++		}
++	}
++	var out []VarLenOut
++	for _, n := range sorted {
++		out = append(out, VarLenOut{Name: n, MaxLen: lens[n]})
++	}
++	return out
++}
++
+ // ─────────────────────────────────────────────────────────────────────
+ // optimize (mirror optimize_stmts: arith-const fold; self-assign removal
+ // is a no-op for our node shapes — IrExpr::Var is never produced)
+@@ -1244,13 +1763,14 @@ func redirectsJSON(rs []RedirectIR) []interface{} {
+ }
+ 
+ // programJSON — the A1 program with stmt_lines.
+-func programJSON(stmts []Stmt, varTypes []VarTypeOut) []byte {
++func programJSON(stmts []Stmt, varTypes []VarTypeOut, varLengths []VarLenOut) []byte {
+ 	prog := map[string]interface{}{
+ 		"type":             "Program",
+ 		"contract_version": contractVersion,
+ 		"imports":          []string{},
+ 		"requires":         []string{},
+ 		"var_types":        varTypesJSON(varTypes),
++		"var_lengths":      varLengthsJSON(varLengths),
+ 		"stmt_lines":       []interface{}{},
+ 		"subs":             []interface{}{},
+ 		"stmts":            stmtsJSON(stmts),
+@@ -1273,6 +1793,18 @@ func varTypesJSON(vts []VarTypeOut) []interface{} {
+ 	return out
+ }
+ 
++func varLengthsJSON(vls []VarLenOut) []interface{} {
++	out := make([]interface{}, len(vls))
++	for i, v := range vls {
++		var ml interface{}
++		if v.MaxLen != nil {
++			ml = *v.MaxLen
++		}
++		out[i] = map[string]interface{}{"name": v.Name, "max_len": ml}
++	}
++	return out
++}
++
+ // ─────────────────────────────────────────────────────────────────────
+ // driver: file → A1 JSON
+ // ─────────────────────────────────────────────────────────────────────
+@@ -1291,7 +1823,8 @@ func shirForSource(src string) ([]byte, error) {
+ 	}
+ 	stmts = optimizeStmts(stmts)
+ 	vt := analyzeVarTypes(stmts)
+-	return programJSON(stmts, vt), nil
++	vl := analyzeStringLengths(stmts)
++	return programJSON(stmts, vt, vl), nil
+ }
+ 
+ func main() {
+diff --git a/frontends/py-sh-go/main.go b/frontends/py-sh-go/main.go
+index 0364917..917f221 100644
+--- a/frontends/py-sh-go/main.go
++++ b/frontends/py-sh-go/main.go
+@@ -13,13 +13,30 @@
+ // For now, this initial version includes a TINY hand-rolled parser
+ // (parseSimple) that handles the v1 shell-flavored Python subset
+ // (print, simple assignments, os.environ access) — enough to build,
+-// smoke-run, and produce a valid A1 shIR JSON. The worker expands it.
++// smoke-run, and produce VALID A1 shIR JSON.
++//
++// The emitted JSON is byte-identical to the core frontend's
++// `debashc --shir <shell-equivalent> --raw` output:
++//
++//	print("hello from py-sh-go")  →  echo hello from py-sh-go
++//	x = "world"                   →  x=world
++//	print(x)                      →  echo $x
++//
++// i.e. `Expr(Call(exec, [Str("echo"), Array(words)]))` for prints,
++// `Assign` for assignments, `Expr(Call(getVar, …))` for env reads —
++// the EXACT statements the core's ESTree renderer accepts (the
++// Perl-only `Output`/`Warn`/… nodes panic the ESTree backend, so
++// they are never emitted here). var_types (A2) and stmt_lines are
++// emitted to match the core's program shape byte-for-byte.
+ package main
+ 
+ import (
++	"bytes"
+ 	"fmt"
+ 	"os"
+ 	"regexp"
++	"sort"
++	"strconv"
+ 	"strings"
+ 
+ 	shiremit "github.com/gmatht/sh2loop/frontends/shir-emit-go"
+@@ -27,9 +44,9 @@ import (
+ 
+ // simpleNode is a tiny AST for the initial v1 Python subset.
+ type simpleNode struct {
+-	kind  string      // "print", "assign", "env", "noop"
+-	name  string      // for assign
+-	value string      // literal value (raw)
++	kind  string       // "print", "assign", "env", "noop"
++	name  string       // for assign
++	value string       // literal value (raw)
+ 	args  []simpleNode // for print/exec
+ }
+ 
+@@ -54,22 +71,30 @@ func parseSimple(src string) ([]simpleNode, error) {
+ 		if ln == "" {
+ 			continue
+ 		}
+-		// Match the v1 constructs.
++		// Match the v1 constructs. ORDER MATTERS: the env-print forms
++		// must be tested before the generic print form (which would
++		// swallow `os.environ[...]` as a bare argument).
++		// print(os.environ["NAME"])  →  echo $NAME
++		if m := regexp.MustCompile(`^print\s*\(\s*os\.environ\s*\[\s*["']([^"']+)["']\s*\]\s*\)\s*$`).FindStringSubmatch(ln); m != nil {
++			out = append(out, simpleNode{kind: "print", args: []simpleNode{{kind: "env", value: m[1]}}})
++			continue
++		}
+ 		// print EXPR
+-		if m := regexp.MustCompile(`^print\s*\(\s*(.*)\s*\)\s*(#.*)?$`).FindStringSubmatch(ln); m != nil {
+-			// Extract the argument: a string literal or a bare name.
++		if m := regexp.MustCompile(`^print\s*\(\s*(.*?)\s*\)\s*$`).FindStringSubmatch(ln); m != nil {
+ 			arg := strings.TrimSpace(m[1])
+ 			if strings.HasPrefix(arg, `"`) || strings.HasPrefix(arg, `'`) {
++				// string literal → echo WORDS (shell word-splits an
++				// unquoted literal on whitespace)
+ 				arg = strings.Trim(arg, `"'`)
++				out = append(out, simpleNode{kind: "print", args: []simpleNode{{kind: "lit", value: arg}}})
+ 			} else {
+-				// Bare name -> worker refines to sh2.getVar.
+-				arg = "__py_bare:" + arg
++				// bare name → echo $NAME
++				out = append(out, simpleNode{kind: "print", args: []simpleNode{{kind: "var", value: arg}}})
+ 			}
+-			out = append(out, simpleNode{kind: "print", args: []simpleNode{{kind: "lit", value: arg}}})
+ 			continue
+ 		}
+-		// $VAR = EXPR (assignment)
+-		if m := regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*(#.*)?$`).FindStringSubmatch(ln); m != nil {
++		// NAME = EXPR (assignment)
++		if m := regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$`).FindStringSubmatch(ln); m != nil {
+ 			name := m[1]
+ 			val := strings.TrimSpace(m[2])
+ 			if strings.HasPrefix(val, `"`) || strings.HasPrefix(val, `'`) {
+@@ -78,51 +103,126 @@ func parseSimple(src string) ([]simpleNode, error) {
+ 			out = append(out, simpleNode{kind: "assign", name: name, value: val})
+ 			continue
+ 		}
+-		// $ENV{NAME} read (treated as a print with sh2.env call)
+-		if m := regexp.MustCompile(`^print\s*\(\s*os\.environ\s*\[\s*["']([^"']+)["']\s*\]\s*\)\s*(#.*)?$`).FindStringSubmatch(ln); m != nil {
+-			out = append(out, simpleNode{kind: "print", args: []simpleNode{{kind: "env", value: m[1]}}})
+-			continue
+-		}
+-		// $ENV{NAME} (bare, no print)
+-		if m := regexp.MustCompile(`^os\.environ\s*\[\s*["']([^"']+)["']\s*\]\s*(#.*)?$`).FindStringSubmatch(ln); m != nil {
++		// os.environ["NAME"] (bare, no print)  →  $NAME
++		if m := regexp.MustCompile(`^os\.environ\s*\[\s*["']([^"']+)["']\s*\]\s*$`).FindStringSubmatch(ln); m != nil {
+ 			out = append(out, simpleNode{kind: "env", value: m[1]})
+ 			continue
+ 		}
+-		// Fallback: mark as Unsupported for the worker.
++		// Fallback: mark as Unsupported for the worker (still emitted
++		// as a VALID ingress node — the core's own `unsupported` call).
+ 		out = append(out, simpleNode{kind: "unsupported", value: ln})
+ 	}
+ 	return out, nil
+ }
+ 
++// --- A1 shIR JSON builders (byte-identical to sh2perl/src/shir_json.rs) ---
++
++// st builds an IrExpr::Str node (DoubleQuoted style — the default the
++// core's `st()` uses for literal words).
++func st(s string) map[string]any {
++	return map[string]any{"type": "Str", "value": s, "style": "DoubleQuoted"}
++}
++
++// syncBuiltins mirrors shir.rs SYNC_BUILTINS (ask A3 purity for exec).
++var syncBuiltins = map[string]bool{
++	".": true, ":": true, "basename": true, "break": true, "cat": true,
++	"cd": true, "cmp": true, "comm": true, "continue": true, "cut": true,
++	"declare": true, "dirname": true, "echo": true, "eval": true,
++	"exit": true, "export": true, "false": true, "grep": true, "head": true,
++	"let": true, "local": true, "mapfile": true, "mktemp": true,
++	"printf": true, "pwd": true, "read": true, "readarray": true,
++	"readonly": true, "return": true, "seq": true, "sed": true, "set": true,
++	"shift": true, "sort": true, "source": true, "stat": true, "tail": true,
++	"test": true, "touch": true, "tr": true, "trap": true, "true": true,
++	"type": true, "typeset": true, "uniq": true, "unset": true, "wc": true,
++}
++
++// callPurity mirrors shir_json.rs call_purity (ask A3): the purity
++// verdict must match the core's byte-for-byte.
++func callPurity(func_ string, args []any) string {
++	switch func_ {
++	case "contains", "join", "brace", "idiv", "imod", "arith", "arithEval",
++		"trimCapture", "dirname", "basename", "not", "guard", "caseMatch",
++		"param", "callDirect":
++		return "PureCpu"
++	case "getVar", "setVar", "setLastExit", "assign", "test", "grepText",
++		"listVar", "setArray", "setArrayAppend", "arrayItems", "arrayKeys",
++		"arrayLen", "arrayIndex", "fnCall", "define", "forLoop", "whileLoop",
++		"block", "shopt", "builtin", "bcSqrt":
++		return "Emulable"
++	case "exec":
++		if len(args) > 0 {
++			if a, ok := args[0].(map[string]any); ok {
++				if a["type"] == "Str" || a["type"] == "Ident" {
++					if s, ok := a["value"].(string); ok && syncBuiltins[s] {
++						return "Emulable"
++					}
++				}
++			}
++		}
++		return "Spawn"
++	case "capture", "captureWords", "pipeline", "redirect", "subshell",
++		"background", "callUndefined", "unsupported":
++		return "Spawn"
++	case "return", "break", "continue", "exit":
++		return "Control"
++	default:
++		if strings.HasPrefix(func_, "fs.") {
++			return "Fs"
++		}
++		return "Spawn" // unknown → conservative
++	}
++}
++
++// call builds an IrExpr::Call node with the A3 purity verdict.
++func call(func_ string, args []any) map[string]any {
++	return map[string]any{"type": "Call", "func": func_, "args": args, "purity": callPurity(func_, args)}
++}
++
++// getVar builds Call("getVar", [Str(name)]) — the core's word_ir
++// lowering for a shell `$NAME` read.
++func getVar(name string) map[string]any {
++	return call("getVar", []any{st(name)})
++}
++
++// execCall builds Call("exec", [Str(cmd), Array(words)]) — the core's
++// exec_stmt lowering for a simple command.
++func execCall(cmd string, words []any) map[string]any {
++	return call("exec", []any{st(cmd), map[string]any{"type": "Array", "elements": words}})
++}
++
+ // simpleToShir maps a simpleNode (and its children) into the A1
+-// shIR JSON shape. The initial version handles the v1 constructs; the
+-// full antlr4 listener (TODO) replaces it.
++// shIR JSON shape — byte-identical to what the core's ast_to_ir
++// produces for the equivalent shell source. ONLY statements the
++// core's ESTree renderer accepts are emitted (Expr/Assign/… — the
++// Perl-only nodes Output/Warn/… would panic the ESTree backend).
+ func simpleToShir(nodes []simpleNode) []map[string]any {
+ 	out := make([]map[string]any, 0, len(nodes))
+ 	for _, n := range nodes {
+ 		switch n.kind {
+ 		case "print":
+-			var val map[string]any
++			// print("...") → echo WORDS; print(x) → echo $x
++			var words []any
+ 			if len(n.args) > 0 {
+ 				a := n.args[0]
+ 				switch a.kind {
+ 				case "lit":
+-					val = map[string]any{"type": "Str", "value": a.value, "style": "DoubleQuoted"}
+-				case "env":
+-					val = map[string]any{"type": "Call", "func": "getVar", "args": []any{map[string]any{"type": "Str", "value": a.value, "style": "DoubleQuoted"}}, "purity": "Emulable"}
++					// shell word-splits an unquoted literal on whitespace
++					for _, w := range strings.Fields(a.value) {
++						words = append(words, st(w))
++					}
++				case "var", "env":
++					words = append(words, getVar(a.value))
+ 				default:
+-					val = map[string]any{"type": "RawExpr", "text": a.value}
++					words = append(words, st(a.value))
+ 				}
+-			} else {
+-				val = map[string]any{"type": "Str", "value": "", "style": "DoubleQuoted"}
+ 			}
+ 			out = append(out, map[string]any{
+-				"type":     "Output",
+-				"value":    val,
+-				"newline":  true,
+-				"target":   nil,
++				"type": "Expr",
++				"expr": execCall("echo", words),
+ 			})
+ 		case "assign":
++			// x = "world" → shell x=world → IrStmt::Assign
+ 			out = append(out, map[string]any{
+ 				"type": "Assign",
+ 				"targets": []any{map[string]any{
+@@ -130,24 +230,55 @@ func simpleToShir(nodes []simpleNode) []map[string]any {
+ 					"sigil":   nil,
+ 					"indices": []any{},
+ 				}},
+-				"expr": map[string]any{"type": "Str", "value": n.value, "style": "DoubleQuoted"},
++				"expr": st(n.value),
+ 			})
+ 		case "env":
++			// bare os.environ["NAME"] → shell $NAME read
+ 			out = append(out, map[string]any{
+-				"type":  "Output",
+-				"value": map[string]any{"type": "Call", "func": "getVar", "args": []any{map[string]any{"type": "Str", "value": n.value, "style": "DoubleQuoted"}}, "purity": "Emulable"},
+-				"newline": true,
+-				"target":  nil,
++				"type": "Expr",
++				"expr": getVar(n.value),
+ 			})
+ 		case "unsupported":
+-			out = append(out, map[string]any{"type": "Unsupported", "reason": n.value})
++			// the core's own fallback for constructs it can't lower
++			out = append(out, map[string]any{
++				"type": "Expr",
++				"expr": call("unsupported", []any{st(n.value)}),
++			})
+ 		default:
+-			out = append(out, map[string]any{"type": "noop"})
++			out = append(out, map[string]any{"type": "Expr", "expr": st("")})
+ 		}
+ 	}
+ 	return out
+ }
+ 
++// varTypes computes the A2 verdicts the core attaches for the same
++// shell source: every assigned variable, sorted by name, typed Int
++// when every assignment is provably numeric, else Str (conservative
++// — a Python str is a shell string).
++func varTypes(nodes []simpleNode) []shiremit.VarType {
++	byName := map[string]string{} // name → "Int"/"Str"
++	for _, n := range nodes {
++		if n.kind != "assign" {
++			continue
++		}
++		t := "Str"
++		if _, err := strconv.ParseInt(strings.TrimSpace(n.value), 10, 64); err == nil {
++			t = "Int"
++		}
++		byName[n.name] = t
++	}
++	names := make([]string, 0, len(byName))
++	for k := range byName {
++		names = append(names, k)
++	}
++	sort.Strings(names)
++	out := make([]shiremit.VarType, 0, len(names))
++	for _, k := range names {
++		out = append(out, shiremit.VarType{Name: k, Type: byName[k]})
++	}
++	return out
++}
++
+ // --- main: CLI (mirrors the pysh.py contract) ---
+ 
+ func main() {
+@@ -178,14 +309,21 @@ func main() {
+ 		os.Exit(2)
+ 	}
+ 	prog := &shiremit.Program{
+-		Imports: []string{},
+-		Stmts:   simpleToShir(nodes),
++		Imports:  []string{},
++		Requires: []string{},
++		VarTypes: varTypes(nodes),
++		Stmts:    simpleToShir(nodes),
+ 	}
+ 	out, err := shiremit.Emit(prog)
+ 	if err != nil {
+ 		fmt.Fprintln(os.Stderr, "emit: "+err.Error())
+ 		os.Exit(1)
+ 	}
++	// The shared emitter predates the stmt_lines contract field; the
++	// core's program JSON always carries it (empty here — no line
++	// mappings for the v1 subset). Insert after "requires" — exactly
++	// where serde_json's BTreeMap ordering places it.
++	out = bytes.Replace(out, []byte(`"requires":[]`), []byte(`"requires":[],"stmt_lines":[]`), 1)
+ 	if raw {
+ 		os.Stdout.Write(out)
+ 	} else {
+diff --git a/frontends/py-sh-go/run_frontend_worker.sh b/frontends/py-sh-go/run_frontend_worker.sh
+index 6cc19da..3cb08d9 100755
+--- a/frontends/py-sh-go/run_frontend_worker.sh
++++ b/frontends/py-sh-go/run_frontend_worker.sh
+@@ -11,7 +11,7 @@
+ # Fix surface: this dir + harness/* (NEVER the core src/*).
+ set -euo pipefail
+ cd "$(dirname "$0")"
+-WORKSPACE="$(cd .. && pwd)"
++WORKSPACE="$(cd ../.. && pwd)"
+ LOG="$WORKSPACE/loop-frontend-py-sh-go.log"
+ echo "[$(date +%FT%T)] frontend py-sh-go worker started (pid=$$)" >> "$LOG"
+ fail_count=0
+diff --git a/frontends/zsh-sh-go/zsh-sh-go b/frontends/zsh-sh-go/zsh-sh-go
+index c92a475..db980c5 100755
+Binary files a/frontends/zsh-sh-go/zsh-sh-go and b/frontends/zsh-sh-go/zsh-sh-go differ

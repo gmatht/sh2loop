@@ -1,0 +1,8 @@
+shir-mechtest.rs	rejected
+shir-native-stmt.rs	rejected
+shir-native-shellouts.rs	rejected
+shir-native-twin.rs	rejected
+shir-cat-heredoc.rs	rejected
+shir-control-if.rs	rejected
+shir-pipe-forms.rs	rejected
+shir-pipeline-native.rs	rejected

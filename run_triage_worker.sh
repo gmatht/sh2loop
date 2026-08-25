@@ -64,6 +64,9 @@ cycle() {  # fe
   echo "[$(date +%FT%T)] triage cycle: $fe × all backends" >> "$LOG"
   # the sweep recomputes everything (the point) and appends verdicts
   bash "$WORKSPACE/harness/triage.sh" --sweep "$fe" >> "$LOG" 2>&1 || true
+  # the KNOWN report location (summarize-progress.sh reads this)
+  mkdir -p "$WORKSPACE/gate-reports"
+  printf '%s triage: cycle %s done\n' "$(date +%FT%T)" "$fe" >> "$WORKSPACE/gate-reports/triage.report"
   # diff the NEW verdict rows against the baseline; escalate status
   # changes to a FAIL-* that weren't escalated before. ONLY the LATEST
   # row per (frontend, backend, example) may be diffed: verdicts.tsv is

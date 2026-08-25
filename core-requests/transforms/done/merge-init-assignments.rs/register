@@ -1,0 +1,4 @@
+### mod
+pub mod merge_init_assignments;
+### all
+        ("merge-init-assignments", merge_init_assignments::transform),
