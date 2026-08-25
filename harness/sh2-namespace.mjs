@@ -2240,6 +2240,13 @@ export const sh2 = {
   _objSeq: 0,
   objNew(typeName, fields, vals) {
     const id = 'obj#' + (++this._objSeq);
+    // a MAP allocation (objNew("map", …) from an anonymous map literal):
+    // kind 'map' so mapSet/mapGet resolve it (a struct-kind object would
+    // silently no-op every container write)
+    if (String(typeName ?? '') === 'map') {
+      this._objStore.set(id, { kind: 'map', m: new Map() });
+      return id;
+    }
     const f = {};
     if (Array.isArray(fields)) for (let i = 0; i < fields.length; i++) f[fields[i]] = vals?.[i] ?? '';
     this._objStore.set(id, { kind: 'struct', type: String(typeName ?? ''), f });
