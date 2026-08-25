@@ -2290,6 +2290,34 @@ export const sh2 = {
     const o = this._objStore.get(String(id));
     return o && o.kind === 'list' ? String(o.items.length) : '0';
   },
+
+  // listSlice(id, lo, hi) — Go slice-of-list with EXCLUSIVE hi (the
+  // frontend emits listLen(id) for an open end). Returns a NEW list
+  // ref holding the copied items; the source list is untouched
+  // (`x.out[mark:]` / `x.out[:mark]` on struct-field slices).
+  listSlice(id, lo, hi) {
+    const o = this._objStore.get(String(id));
+    const items = o && o.kind === 'list' ? o.items : [];
+    const l = Math.max(0, Number(lo) || 0);
+    const h = hi == null ? items.length : Math.min(items.length, Number(hi) || 0);
+    const nid = 'list#' + (++this._objSeq);
+    this._objStore.set(nid, { kind: 'list', items: items.slice(l, Math.max(l, h)).map(v => v) });
+    return nid;
+  },
+
+  // listExtend(dst, src) — append ALL of src's items onto dst
+  // (Go `append(dst, src...)` variadic spread over a list value);
+  // returns the dst id so objSet chains.
+  listExtend(dst, src) {
+    const d = this._objStore.get(String(dst));
+    if (!d || d.kind !== 'list') return dst;
+    let s = this._objStore.get(String(src));
+    if (!s || s.kind !== 'list') {
+      s = { items: [] };
+    }
+    for (const it of s.items) d.items.push(it);
+    return dst;
+  },
   mapNew() {
     const id = 'map#' + (++this._objSeq);
     this._objStore.set(id, { kind: 'map', m: new Map() });
