@@ -56,6 +56,16 @@ ACCUMULATED arrays are read back via `getVar`/`${#arr}` (same scalar
 view). Example: testdata-pending/t56_enumerate_rev.rs — native prints
 30/true/true/18, transpiled 0/c/8. Promotes automatically with the fix.
 
+## ALSO GATED (added 2026-08-25, second feature)
+
+`.skip(K)` / `.take(N)` / `.map(..)` iterator chains accumulate into a
+new array via setArrayAppend (appends verified EXACT by instrumentation:
+values 30/40/50 land in the store), then read their length back via
+`${#acc}` — which folds through the same broken getVar scalar view
+(`__sh2l5 = String(getVar("skipped")).length` => 2 instead of 3).
+testdata-pending/t58_iter_skip.rs. Same single fix unblocks: t53, t56,
+t58, and Vec::len generally.
+
 ## EVIDENCE
 
 - al.sh repro above (native 3, transpiled 2).
