@@ -2404,8 +2404,14 @@ export const sh2 = {
   // joinSep(items, sep) — join array items with an arbitrary separator
   // (Go strings.Join for non-space separators; the A1 join() builtin
   // always uses spaces). items arrive as whatever sh2.param("slice",…)
-  // returns — an array of strings.
+  // returns — an array of strings — or as a LIST REFERENCE id
+  // ('list#N', the objGet of a struct-field slice: x.out) which we
+  // resolve through the object store like listLen does.
   joinSep(items, sep) {
+    if (typeof items === 'string' && /^list#/.test(items)) {
+      const o = this._objStore.get(items);
+      if (o && o.kind === 'list') items = o.items;
+    }
     if (Array.isArray(items)) return items.map(String).join(String(sep ?? ''));
     // param("slice",…) returns a space-joined string in some contexts;
     // for the newline case we can split-and-rejoin
