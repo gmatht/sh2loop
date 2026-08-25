@@ -3277,6 +3277,16 @@ export const sh2 = {
       if (/^-?\d+$/.test(t)) return Number(t);
       try { return evalArith(t, this); } catch { return 0; }
     };
+    // sliceLen: the LENGTH operand evaluates ARITHMETIC too — the go-sh
+    // frontend emits computed lengths (`(($i+3))-($i)`, Go's exclusive
+    // hi minus lo); Number(b)||0 silently yielded empty slices for any
+    // non-digit length (the zig-sh-go format-spec match spun on it).
+    const sliceLen = (s) => {
+      const t = String(s ?? '').trim();
+      if (/^\d+$/.test(t)) return Number(t);
+      if (t === '') return null;
+      try { return evalArith(t, this); } catch { return 0; }
+    };
     switch (op) {
       case '^^': return v.toUpperCase();
       case ',,': return v.toLowerCase();
@@ -3397,7 +3407,7 @@ export const sh2 = {
           if (off === 0) { list = [this.argv0, ...this.positional]; start = 0; }
           else if (off > 0) start = off - 1;
           const sl = b !== undefined && b !== null && b !== ''
-            ? list.slice(start, start + (Number(b) || 0))
+            ? list.slice(start, start + (sliceLen(b) || 0))
             : list.slice(start);
           return name === '@' ? [...sl] : sl.join(' ');
         }
@@ -3424,7 +3434,7 @@ export const sh2 = {
           const arr = this.arrays.get(am[1]) ?? [];
           const off = sliceOff(a);
           let slice = b !== undefined && b !== null && b !== ''
-            ? arr.slice(off, off + (Number(b) || 0))
+            ? arr.slice(off, off + (sliceLen(b) || 0))
             : arr.slice(off);
           if (stepFilter) slice = slice.filter(stepFilter);
           return [...slice];
@@ -3433,13 +3443,13 @@ export const sh2 = {
         if (arr) {                                             // ${arr[@]:off:len}
           const off = sliceOff(a);
           let slice = b !== undefined && b !== null && b !== ''
-            ? arr.slice(off, off + (Number(b) || 0))
+            ? arr.slice(off, off + (sliceLen(b) || 0))
             : arr.slice(off);
           if (stepFilter) slice = slice.filter(stepFilter);
           return [...slice];
         }
         const off = sliceOff(a);
-        if (b !== undefined && b !== null && b !== '') return v.slice(off, off + (Number(b) || 0));
+        if (b !== undefined && b !== null && b !== '') return v.slice(off, off + (sliceLen(b) || 0));
         return v.slice(off);
       }
       case '': return v;
