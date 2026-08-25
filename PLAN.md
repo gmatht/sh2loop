@@ -25,6 +25,19 @@ Covers three related work items:
 >   filed from C-gate evidence (core-requests/
 >   core-bug-dse-guard-a1-export-shape.md incl. posix-sh-go A1 split-
 >   marker gap). Gate through main's own binary: 603/643; lib 382/382.
+> - v33a: **NATIVE while-read loops** (the top remaining red class).
+>   `while IFS= read -r … && [ -n "$line" ] && (( … )); do … done < F |
+>   < <(producer)` now lowers to a C streaming fgets loop: the AND-chain
+>   head decomposes into one read builtin + natively-renderable condition
+>   leaves (bails on Or / multi-read / exotic flags), IFS-aware field
+>   splitting via `_sh_read_split()` (default whitespace with leading
+>   trim / raw `IFS=` whole-line / single-char delimiter, last var keeps
+>   remainder), remaining conditions evaluated per iteration, body
+>   rendered natively so continue/break keep C-loop semantics. Producers:
+>   fopen for files, popen for arbitrary pipelines (documented per-case
+>   fork/exec; producer variables exported first). Gate fixes verified
+>   byte-equal: 063_11, 064_17 (7-var `IFS=:` passwd fields), 071, 088,
+>   091. Gate 602 → 605/643.
 > - v33: **ForEachLine completion: ingress round-trip + body-var hoisting
 >   + C render.** Audited the Ext(ForEachLine) family end-to-end and found
 >   it unfinished in three layers: (1) `shir_nodes/enc.rs` could not
