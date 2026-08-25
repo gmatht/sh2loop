@@ -12,6 +12,19 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v34: **ForEachLine landed IN CORE; §11 marketplace status recorded.**
+>   The three-layer completion (enc.rs Array round-trip, cat_read counter
+>   zero-init + BinOp-typed increment, c_backend body-var hoisting +
+>   Int typing) is committed on MAIN (d10cae04 + d327ddc7), not just the
+>   backend/c branch — every backend's ingress and gate now benefits.
+>   DSE guard for the A1 builtin-call export shape verified present in
+>   core (convergent take of the §11 offer). Per-backend ForEachLine
+>   acceptance: IMPLEMENTED c / perl / go / rust / java / zig; PENDING
+>   python / js / sh / estree (estree needs a sh2.lines runtime member in
+>   sh2runtime — cross-repo, out of scope here). Two new core requests
+>   filed from C-gate evidence (core-requests/
+>   core-bug-dse-guard-a1-export-shape.md incl. posix-sh-go A1 split-
+>   marker gap). Gate through main's own binary: 603/643; lib 382/382.
 > - v33: **ForEachLine completion: ingress round-trip + body-var hoisting
 >   + C render.** Audited the Ext(ForEachLine) family end-to-end and found
 >   it unfinished in three layers: (1) `shir_nodes/enc.rs` could not
