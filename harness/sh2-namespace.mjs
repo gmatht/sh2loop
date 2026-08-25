@@ -2312,6 +2312,54 @@ export const sh2 = {
     return nid;
   },
 
+  // strReplaceN(s, old, neu, n) — Go strings.Replace: replace AT MOST
+  // the first n occurrences of old with neu (n < 0 = all); strReplaceAll
+  // is the n=-1 twin but is NOT faithful when the frontend sees a
+  // literal count
+  strReplaceN(s, old, neu, n) {
+    let str = String(s ?? '');
+    const o = String(old ?? '');
+    const rep = String(neu ?? '');
+    const max = Number(n);
+    if (o === '') return str;
+    const all = !(max >= 0); // Go: n < 0 replaces ALL
+    let out = '';
+    let i = 0;
+    let done = 0;
+    while (all || done < max) {
+      const j = str.indexOf(o, i);
+      if (j < 0) break;
+      out += str.slice(i, j) + rep;
+      i = j + o.length;
+      done++;
+    }
+    return out + str.slice(i);
+  },
+
+  // strCount(s, sub) — Go strings.Count: NON-OVERLAPPING instances of
+  // substr in s (0 when substr is empty — Go returns len+1 for empty!)
+  strCount(s, sub) {
+    const str = String(s ?? '');
+    const o = String(sub ?? '');
+    if (o === '') return String(str.length + 1);
+    let n = 0;
+    let i = 0;
+    for (;;) {
+      const j = str.indexOf(o, i);
+      if (j < 0) break;
+      n++;
+      i = j + o.length;
+    }
+    return String(n);
+  },
+
+  // listItems(id) — the ITEMS ARRAY of a list ref (forLoop flattens a
+  // single array-valued iter element; range-over-member lowering)
+  listItems(id) {
+    const o = this._objStore.get(String(id));
+    return o && o.kind === 'list' ? o.items.slice() : [];
+  },
+
   // listExtend(dst, src) — append ALL of src's items onto dst
   // (Go `append(dst, src...)` variadic spread over a list value);
   // returns the dst id so objSet chains.
