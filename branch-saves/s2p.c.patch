@@ -1,0 +1,247 @@
+diff --git a/src/java_backend.rs b/src/java_backend.rs
+index ae42f90..8596cb0 100644
+--- a/src/java_backend.rs
++++ b/src/java_backend.rs
+@@ -1226,6 +1226,12 @@ fn printf_parse(fmt: &str) -> Option<(Vec<(String, Option<char>)>, usize)> {
+                     i += 1;
+                 }
+             }
++            // C LENGTH MODIFIERS (`%lld`, `%zu`, `%hhd`) — java has none;
++            // skip them so the conversion char is recognized (an
++            // unconsumed 'l' made %lld fall through as literal text)
++            while i < chars.len() && matches!(chars[i], 'l' | 'h' | 'L' | 'z' | 'j' | 't') {
++                i += 1;
++            }
+             let Some(&conv) = chars.get(i) else {
+                 return None;
+             };
+@@ -1510,12 +1516,32 @@ fn word_to_java(e: &IrExpr) -> Result<String, String> {
+             }
+             Err("getVar with non-literal name (v1)".into())
+         }
++        // arith/testArith STRINGS — the C frontend's arithmetic operand
++        // and condition shapes: parse via parse_arith after $ref
++        // normalization
++        IrExpr::Call { func, args, .. }
++            if func == "arith" || func == "testArith" =>
++        {
++            if let Some(IrExpr::Str(sv, _)) = args.first() {
++                let norm = norm_arith_text(sv);
++                if let Some(ast) = crate::shir::parse_arith(norm.trim()) {
++                    let mut r = String::new();
++                    arith_to_java(&ast, &mut r)?;
++                    return Ok(r);
++                }
++            }
++            Err("arith with unparseable text".into())
++        }
+         IrExpr::Var(name, _) => {
+             let j = java_home(name);
+             Ok(format!("({j} == null ? \"\" : {j})"))
+         }
+         IrExpr::Arith(a) => Ok(format!("Long.toString({})", arith_str(a)?)),
+-        IrExpr::Call { func, args, .. } if is_mem_func(func) => mem_call_java(func, args),
++        IrExpr::Call { func, args, .. } if is_mem_func(func) => {
++            let mut r = String::new();
++            mem_call_java_into(func, args, &mut r)?;
++            return Ok(r);
++        }
+         IrExpr::Call { func, args, .. } if func == "split" => {
+             // word splitting of a single value: just the value
+             match args.first() {
+@@ -2070,7 +2096,12 @@ fn arith_str(a: &ArithAst) -> Result<String, String> {
+ fn arith_to_java(a: &ArithAst, out: &mut String) -> Result<(), String> {
+     match a {
+         ArithAst::Num(n) => {
+-            out.push_str(&n.to_string());
++            // values past int range need the L suffix (java int is 32-bit)
++            if *n > i32::MAX as i64 || *n < i32::MIN as i64 {
++                out.push_str(&format!("{n}L"));
++            } else {
++                out.push_str(&n.to_string());
++            }
+             Ok(())
+         }
+         ArithAst::Var(name) | ArithAst::Ident(name) => {
+@@ -2142,8 +2173,24 @@ fn arith_to_java(a: &ArithAst, out: &mut String) -> Result<(), String> {
+ 
+ /// A mem* call → `sh2_memX(<args>)` with word-rendered args.
+ fn mem_call_java(func: &str, args: &[IrExpr]) -> Result<String, String> {
+-    let arg_exprs: Result<Vec<String>, String> = args.iter().map(word_to_java).collect();
+-    Ok(format!("sh2_{}({})", func, arg_exprs?.join(", ")))
++    let mut out = String::new();
++    mem_call_java_into(func, args, &mut out)?;
++    Ok(out)
++}
++
++/// A mem* call → `sh2_memX(<args>)` with word-rendered args.
++fn mem_call_java_into(
++    func: &str,
++    args: &[IrExpr],
++    out: &mut String,
++) -> Result<(), String> {
++    let mut parts = Vec::new();
++    for a in args {
++        let r = word_to_java(a)?;
++        parts.push(format!("String.valueOf({r})"));
++    }
++    out.push_str(&format!("sh2_{}({})", func, parts.join(", ")));
++    Ok(())
+ }
+ 
+ fn is_mem_func(func: &str) -> bool {
+@@ -2516,16 +2563,26 @@ mod tests {
+             java.contains("static java.util.HashMap<String, long[]> sh2_memArena"),
+             "arena preamble: {java}"
+         );
+-        assert!(java.contains("a = sh2_memAlloc(\"12\");"), "setVar+memAlloc: {java}");
+         assert!(
+-            java.contains("sh2_memStore((a == null ? \"\" : a), \"1\", \"int\", \"20\");"),
++            java.contains("a = sh2_memAlloc(String.valueOf(\"12\"));"),
++            "setVar+memAlloc: {java}"
++        );
++        assert!(
++            java.contains(
++                "sh2_memStore(String.valueOf((a == null ? \"\" : a)), String.valueOf(\"1\"), String.valueOf(\"int\"), String.valueOf(\"20\"))"
++            ),
+             "memStore: {java}"
+         );
+         assert!(
+-            java.contains("t = sh2_memLoad((a == null ? \"\" : a), \"1\", \"int\");"),
++            java.contains(
++                "t = sh2_memLoad(String.valueOf((a == null ? \"\" : a)), String.valueOf(\"1\"), String.valueOf(\"int\"))"
++            ),
+             "memLoad: {java}"
+         );
+-        assert!(java.contains("sh2_memFree((a == null ? \"\" : a));"), "memFree: {java}");
++        assert!(
++            java.contains("sh2_memFree(String.valueOf((a == null ? \"\" : a)));"),
++            "memFree: {java}"
++        );
+         assert!(java.contains("static String a = \"\";"), "setVar field: {java}");
+     }
+ 
+diff --git a/src/rust_backend.rs b/src/rust_backend.rs
+index b913369..c56ea21 100644
+--- a/src/rust_backend.rs
++++ b/src/rust_backend.rs
+@@ -858,8 +858,46 @@ impl Render {
+     }
+ 
+     /// Render as a bool-typed expression (conditions).
++    /// Normalize an arith STRING for parse_arith ($x/${x} → bare idents).
++    fn norm_arith_text(s: &str) -> String {
++        let norm: String = s
++            .chars()
++            .enumerate()
++            .map(|(i, c)| {
++                if c == '$'
++                    && i + 1 < s.len()
++                    && (s[i + 1..].starts_with('{')
++                        || s[i + 1..]
++                            .chars()
++                            .next()
++                            .map_or(false, |n| n.is_ascii_alphabetic() || n == '_'))
++                {
++                    ' '
++                } else {
++                    c
++                }
++            })
++            .collect();
++        norm.replace('{', " ").replace('}', " ")
++    }
++
+     fn expr_bool(&mut self, e: &IrExpr) -> String {
+         match e {
++            // test/testArith/arith condition calls — the C frontend's
++            // arithmetic-truth conditions (a missing arm rendered every
++            // such cond as an empty-string -n test, i.e. always false)
++            IrExpr::Call { func, args, .. }
++                if func == "test" || func == "testArith" || func == "arith" =>
++            {
++                if let Some(IrExpr::Str(sv, _)) = args.first() {
++                    let norm = Self::norm_arith_text(sv);
++                    if let Some(ast) = crate::shir::parse_arith(norm.trim()) {
++                        let r = self.arith(&ast);
++                        return format!("(({}) != 0)", r);
++                    }
++                }
++                self.test_call_bool(args)
++            }
+             IrExpr::Bool(b) => {
+                 if *b { "true".into() } else { "false".into() }
+             }
+@@ -4304,9 +4342,24 @@ impl Render {
+     /// Non-exec Calls in String context.
+     fn call_str(&mut self, func: &str, args: &[IrExpr]) -> String {
+         match func {
+-            // user-function call — the C frontend's value model flows as
+-            // strings; functions are rendered as fns taking &mut Vec<String>
+-            // out-params or returning String
++            // arrayStore(name, idx, val) — a dynamic-index array element
++            // write: resize the Vec then set the element
++            "arrayStore" => {
++                if let (Some(IrExpr::Str(nm, _)), Some(idx), Some(val)) =
++                    (args.first(), args.get(1), args.get(2))
++                {
++                    // evaluate the VALUE first — it may READ from the same
++                    // Vec (`a[i] = a[j]` swap idiom), so nesting borrows on
++                    // the same thread_local would panic
++                    let v = self.expr_any(val);
++                    let m = self.rust_ident(nm);
++                    let i = self.expr_num(idx);
++                    return format!(
++                        "{{ __SHV_{nm}.with(|arr| {{ let mut b = arr.borrow_mut(); if b.len() <= ({i}) as usize {{ b.resize(({i}) as usize + 1, String::new()); }} b[({i}) as usize] = {v}; }}); }}"
++                    );
++                }
++                "String::new()".to_string()
++            }
+             "fnValue" | "fnCall" => {
+                 // value-returning user-function call: the argv-swap call
+                 // then read __SH_RET (the function's `return expr` home)
+@@ -4576,6 +4629,21 @@ impl Render {
+                     }
+                     self.emit("__SH_RC.store(0, Ordering::SeqCst);");
+                 }
++                IrExpr::Call { func, args } if func == "arrayStore" => {
++                    // arrayStore(name, idx, val) — a dynamic-index array
++                    // element write: evaluate the VALUE first (it may read
++                    // from the same Vec), then resize + store
++                    if let (Some(IrExpr::Str(nm, _)), Some(idx), Some(val)) =
++                        (args.first(), args.get(1), args.get(2))
++                    {
++                        let m = self.rust_ident(nm);
++                        let i = self.expr_num(idx);
++                        let v = self.expr_any(val);
++                        self.emit(&format!(
++                            "{{ let __av = {v}; __SHV_{nm}.with(|arr| {{ let mut b = arr.borrow_mut(); if b.len() <= ({i}) as usize {{ b.resize(({i}) as usize + 1, String::new()); }} b[({i}) as usize] = __av; }}); }}"
++                        ));
++                    }
++                }
+                 IrExpr::Call { func, args } if func == "exec" || func == "builtin" => self.exec_stmt(args),
+                 IrExpr::Call { func, args } if func == "setArray" || func == "setArrayAppend" => {
+                     self.array_call_stmt_by_name(func, args);
+diff --git a/src/sh_backend.rs b/src/sh_backend.rs
+index 1b40f57..24d26ac 100644
+--- a/src/sh_backend.rs
++++ b/src/sh_backend.rs
+@@ -3998,6 +3998,18 @@ fn interp_expr_to_sh(e: &IrExpr) -> Result<String, String> {
+             }
+             "join" => join_to_sh(arg(args, 0)?, false),
+             "brace" => brace_to_sh(args),
++            "param" => {
++                // `${#name}` (len) / `${name:-def}` (default) / substr —
++                // the C frontend's strlen/substring lowerings
++                let op = raw_arg(args, 0)?;
++                match op.as_str() {
++                    "len" => {
++                        let n = raw_arg(args, 1)?;
++                        Ok(format!("${{#{n}}}"))
++                    }
++                    _ => Err(format!("param op not renderable: {op:?}")),
++                }
++            }
+             other => Err(format!("interp call not renderable: {other:?}")),
+         },
+         IrExpr::Arith(a) => Ok(format!("$(({}))", arith_to_sh(a))),

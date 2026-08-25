@@ -265,13 +265,16 @@ pub fn compile(src: &str, _opts: &str) -> Result<String, String> {
     Ok(format!("{{\"estree\":{}}}", debashl::estree::estree_to_json(&estree)))
 }
 
-pub fn render(a1: &str, lang: &str) -> Result<String, String> {
+/// A1 ingress shared by `render` and `shir_opt` — the EXACT pass sequence
+/// the backend receives, so the GUI can show the optimized contract
+/// without drift. Returns the lowered program + canonical target kind.
+fn ingest(a1: &str, lang: &str) -> Result<(debashl::ir::IrProgram, String), String> {
     let lang = lang.strip_prefix('.').unwrap_or(lang);
     let kind = TARGETS
         .iter()
         .find(|(ext, _)| *ext == format!(".{lang}").as_str())
         .or_else(|| TARGETS.iter().find(|(_, k)| *k == lang))
-        .map(|(_, k)| *k)
+        .map(|(_, k)| k.to_string())
         .ok_or_else(|| {
             format!("target {lang:?} not wired (known: js, pl, c, go, py, sh, java, rs, zig, glsl, glslv, shir)")
         })?;
@@ -296,7 +299,20 @@ pub fn render(a1: &str, lang: &str) -> Result<String, String> {
         // expect; a survivor means this pipeline forgot the strip.
         debashl::shir_passes::strip_cfor(&mut prog);
     }
-    let target = match kind {
+    Ok((prog, kind))
+}
+
+/// The OPTIMIZED A1 contract — exactly what `render(a1, lang)` feeds its
+/// backend, serialized back to shIR JSON. The GUI shows this next to the
+/// raw frontend output so the ingress passes are inspectable.
+pub fn shir_opt(a1: &str, lang: &str) -> Result<String, String> {
+    let (prog, _) = ingest(a1, lang)?;
+    Ok(debashl::shir_json::shir_to_shir_json(&prog))
+}
+
+pub fn render(a1: &str, lang: &str) -> Result<String, String> {
+    let (prog, kind) = ingest(a1, lang)?;
+    let target = match kind.as_str() {
         "estree" => {
             debashl::shir::shir_to_estree_json(&prog).map_err(|e| format!("estree: {e}"))?
         }

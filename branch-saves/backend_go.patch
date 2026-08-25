@@ -1,0 +1,202 @@
+diff --git a/.hidden b/.hidden
+new file mode 100644
+index 0000000..587be6b
+--- /dev/null
++++ b/.hidden
+@@ -0,0 +1 @@
++x
+diff --git a/BACKEND.md b/BACKEND.md
+index 0fec1ea..92a6be3 100644
+--- a/BACKEND.md
++++ b/BACKEND.md
+@@ -1,48 +1,40 @@
+-# c backend (worktree: /home/llm/sh2loop/sh2perl/backends/c, branch: backend/c)
++# go backend (worktree: /nvme/ai/sh2loop/sh2perl/backends/go, branch: backend/go)
+ 
+ Shared core (do NOT fork): src/shir.rs (ShIR + lowering), src/ir.rs,
+ src/estree.rs (node model), src/parser/. Consume the ShIR; render it in
+ your language's idioms.
+ 
+ Yours (in THIS worktree): the renderer, the runtime namespace, the corpus
+-gate, and the sh2.*-usage metric for zig.
++gate, and the sh2.*-usage metric for go.
+ 
+ ## The renderer
+ 
+-- `src/zig_backend.rs` — `debashl::zig_backend::shir_to_zig(&IrProgram) -> String`.
++- `src/go_backend.rs` — `debashl::go_backend::shir_to_go(&IrProgram) -> String`.
+   A crate library consuming the ShIR in-process (ask B, docs/backend-c-core-needs.md).
+-- CLI entry: `debashc --shir-in-zig -` (worktree `cli/src/lib.rs`), mirroring
++- CLI entry: `debashc --shir-in-go -` (worktree `cli/src/lib.rs`), mirroring
+   `--shir-in-perl`/`--shir-in-estree`: reads shIR JSON (file or stdin via `-`),
+-  `shir_json_in::shir_json_to_ir` → `shir_to_zig` → stdout.
++  `shir_json_in::shir_json_to_ir` → `shir_to_go` → stdout.
+ 
+ ## Design decisions (draft)
+ 
+-- A2 `var_types` verdicts: `Int` → Zig `i64`, `Str` → `[]const u8`, anything
+-  else → `[]const u8` (the runtime store — shell vars are strings; Zig has
+-  no `any`, so the store is the string map). `sh2ToInt`/`sh2IntStr`/
+-  `sh2Truthy` convert at the type boundaries and the output always compiles.
+-- Native subset (byte-faithful where it matters): echo (one `stdout.print`
+-  per command — no double newline), `exit N`, Assign (incl. `$(( ))` native
+-  i64 arith), if/else if/else, while, do/while, for-in over `Array`/`Range`
+-  iterators, `[ ]` tests (-gt/-lt/-ge/-le/-eq/-ne numeric, =/==/!= string —
+-  incl. the parser's space-stripped `"$a"="b"` form, -n/-z/truthiness),
+-  `&&`/`||`/`!` conds, `WriteFile` (non-append).
++- A2 `var_types` verdicts: `Int` → Go `int64`, `Str` → `string`, anything
++  else → `any` (the runtime store). The `any` type makes the C draft's
++  `(char*)(sh2_arith())` cast pattern unnecessary: `sh2Str`/`sh2ToInt`
++  convert at the type boundaries and the output always compiles.
++- Native subset (byte-faithful where it matters): echo (one `fmt.Println(
++  fmt.Sprintf(...))` per command — no double newline), `exit N`, Assign
++  (incl. `$(( ))` native int64 arith), if/else if/else, while, do/while,
++  for-in over `Array`/`Range` iterators, `[ ]` tests (-gt/-lt/-ge/-le/-eq/
++  -ne numeric, =/==/!= string, -n/-z/truthiness), `&&`/`||`/`!` conds.
+ - Everything outside the lowable subset emits a compile-able `sh2.*` stub
+-  (`sh2TODO` → stderr + `std.process.exit(2)`) or a `// TODO(unsupported)`
+-  marker.
+-- Identifiers: sanitized to Zig identifier syntax, mangled against Zig
+-  keywords/builtins (`fn` → `fn_`, `a-b` → `a_b`), de-duplicated.
+-- Zig gotchas handled: no implicit conversions (`@intFromBool` for
+-  bool→int, `sh2IntStr` for int→string, `sh2B2S` for bool→string);
+-  string equality/ordering via `std.mem.eql`/`std.mem.order`; runtime
+-  slice concat via `sh2StrCat` (allocPrint); `**` via `std.math.pow`;
+-  declared-but-never-read vars get a `_ = x;` guard; helper fns (and the
+-  `const stdout` line) are only emitted when used.
+-- Format specs are chosen statically per part (`{d}`/`{s}`/`{}`) — Zig's
+-  print format is comptime-checked, so each arg's type is known at render
+-  time (`$x` in interpolation arrives as a `getVar` Call — typed by the
+-  A2 verdict).
+-- `--shir-in-zig` reports the ingress marker ("ShIR JSON ingress") on stderr
++  (`sh2TODO` → stderr + `os.Exit(2)`) or a `// TODO(unsupported)` marker.
++- Identifiers: sanitized to Go identifier syntax, mangled against Go
++  keywords/predeclared names (`type` → `type_`, `a-b` → `a_b`), de-duplicated.
++- Go gotchas handled: no implicit bool/int/string conversions (`sh2B2I`,
++  `sh2Cmp`, `sh2LAnd`/`sh2LOr`/`sh2LNot`, `sh2Pow` helpers); no ternary
++  (`sh2Cond`); declared-and-never-read vars get a `_ = x` guard; imports
++  (`fmt`/`os`) are only emitted when used.
++- `--shir-in-go` reports the ingress marker ("ShIR JSON ingress") on stderr
+   and exits 0 for invalid JSON: the backend gate probes the flag by feeding
+   intentionally-invalid JSON and grepping the marker, and the harness runs
+   under `set -euo pipefail` (a nonzero exit would abort the gate before the
+@@ -51,18 +43,17 @@ gate, and the sh2.*-usage metric for zig.
+ ## Next steps (in order)
+ 
+ 1. Native `printf` builtin, `WriteFile` append, `Redirect` (fd/mode table),
+-   `Function`/`Case` (functions as Zig fns, case as switch).
++   `Function`/`Case` (functions as Go funcs, case as switch).
+ 2. The sh2.* runtime port (harness/sh2-namespace.json) — stubs are fine for
+    the first green.
+-3. A `zig build-exe` step in the gate once a Zig toolchain is available to
+-   the harness (none is installed on the worker today; the emitted code
+-   targets 0.13+ idioms).
++3. A `go vet`/`go build` step in the gate once a Go toolchain is available
++   to the harness (snap go cannot run with HOME outside /home).
+ 
+ Merge discipline:
+-- commit on backend/zig; merge main BEFORE each verification run
++- commit on backend/go; merge main BEFORE each verification run
+ - push to main only when the commit does NOT touch the shared core
+ - core changes are single-owner (the estree worker during the lowering
+   phase) — queue, don't fork
+ 
+-Verify: the corpus gate (`setup_backends.sh --backend-gate zig`) must stay
++Verify: the corpus gate (`setup_backends.sh --backend-gate go`) must stay
+ 100% and the metric must only go down.
+diff --git a/a.sh b/a.sh
+new file mode 100644
+index 0000000..7898192
+--- /dev/null
++++ b/a.sh
+@@ -0,0 +1 @@
++a
+diff --git a/a.txt b/a.txt
+new file mode 100644
+index 0000000..7898192
+--- /dev/null
++++ b/a.txt
+@@ -0,0 +1 @@
++a
+diff --git a/alpha b/alpha
+new file mode 100644
+index 0000000..4a58007
+--- /dev/null
++++ b/alpha
+@@ -0,0 +1 @@
++alpha
+diff --git a/b.txt b/b.txt
+new file mode 100644
+index 0000000..6178079
+--- /dev/null
++++ b/b.txt
+@@ -0,0 +1 @@
++b
+diff --git a/beta b/beta
+new file mode 100644
+index 0000000..65b2df8
+--- /dev/null
++++ b/beta
+@@ -0,0 +1 @@
++beta
+diff --git a/file.txt b/file.txt
+new file mode 100644
+index 0000000..4eeff4b
+--- /dev/null
++++ b/file.txt
+@@ -0,0 +1,2 @@
++apple
++apple
+diff --git a/gamma b/gamma
+new file mode 100644
+index 0000000..af17f6c
+--- /dev/null
++++ b/gamma
+@@ -0,0 +1 @@
++gamma
+diff --git a/loop-backend-go.pid b/loop-backend-go.pid
+new file mode 100644
+index 0000000..0eb3024
+--- /dev/null
++++ b/loop-backend-go.pid
+@@ -0,0 +1 @@
++1689615
+diff --git a/note.txt b/note.txt
+new file mode 100644
+index 0000000..f0ad0de
+--- /dev/null
++++ b/note.txt
+@@ -0,0 +1 @@
++hello.txt
+diff --git a/run_worker.sh b/run_worker.sh
+index 3998e84..c8cf83c 100755
+--- a/run_worker.sh
++++ b/run_worker.sh
+@@ -1,4 +1,4 @@
+ #!/usr/bin/env bash
+-# Run the rust backend worker from THIS worktree.
++# Run the go backend worker from THIS worktree.
+ cd "$(dirname "$0")"
+-echo "[rust] backend not implemented yet — scaffold: renderer + runtime + gate + metric in this worktree"
++echo "[go] backend not implemented yet — scaffold: renderer + runtime + gate + metric in this worktree"
+diff --git a/s.sh b/s.sh
+new file mode 100644
+index 0000000..6be55cb
+--- /dev/null
++++ b/s.sh
+@@ -0,0 +1 @@
++function f() { echo hi; }
+diff --git a/sub/c.sh b/sub/c.sh
+new file mode 100644
+index 0000000..f2ad6c7
+--- /dev/null
++++ b/sub/c.sh
+@@ -0,0 +1 @@
++c
+diff --git a/sub/c.txt b/sub/c.txt
+new file mode 100644
+index 0000000..f2ad6c7
+--- /dev/null
++++ b/sub/c.txt
+@@ -0,0 +1 @@
++c

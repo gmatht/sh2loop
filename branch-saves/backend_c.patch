@@ -1,0 +1,28 @@
+diff --git a/loop-backend-c.pid b/loop-backend-c.pid
+new file mode 100644
+index 0000000..17f1c7a
+--- /dev/null
++++ b/loop-backend-c.pid
+@@ -0,0 +1 @@
++2213737
+diff --git a/temp_file1.txt b/temp_file1.txt
+new file mode 100644
+index 0000000..b69c60e
+--- /dev/null
++++ b/temp_file1.txt
+@@ -0,0 +1 @@
++pattern in file1
+diff --git a/temp_file2.txt b/temp_file2.txt
+new file mode 100644
+index 0000000..797948a
+--- /dev/null
++++ b/temp_file2.txt
+@@ -0,0 +1 @@
++no pattern in file2
+diff --git a/temp_file3.txt b/temp_file3.txt
+new file mode 100644
+index 0000000..12f0594
+--- /dev/null
++++ b/temp_file3.txt
+@@ -0,0 +1 @@
++pattern in file3

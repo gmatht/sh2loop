@@ -1,0 +1,276 @@
+diff --git "a/\".sh\"" "b/\".sh\""
+new file mode 100644
+index 0000000..e69de29
+diff --git "a/\"a.sh\"" "b/\"a.sh\""
+new file mode 100644
+index 0000000..e69de29
+diff --git "a/\"a.txt\"" "b/\"a.txt\""
+new file mode 100644
+index 0000000..e69de29
+diff --git "a/\"b.log\"" "b/\"b.log\""
+new file mode 100644
+index 0000000..e69de29
+diff --git "a/\"b.sh\"" "b/\"b.sh\""
+new file mode 100644
+index 0000000..e69de29
+diff --git "a/\"c.dat\"" "b/\"c.dat\""
+new file mode 100644
+index 0000000..e69de29
+diff --git "a/\"x.yz\"" "b/\"x.yz\""
+new file mode 100644
+index 0000000..e69de29
+diff --git a/.neww b/.neww
+new file mode 100644
+index 0000000..e69de29
+diff --git a/BACKEND.md b/BACKEND.md
+index 0fec1ea..50b95de 100644
+--- a/BACKEND.md
++++ b/BACKEND.md
+@@ -1,68 +1,16 @@
+-# c backend (worktree: /home/llm/sh2loop/sh2perl/backends/c, branch: backend/c)
++# perl backend (worktree: /home/llm/sh2loop/sh2perl/backends/perl, branch: backend/perl)
+ 
+ Shared core (do NOT fork): src/shir.rs (ShIR + lowering), src/ir.rs,
+ src/estree.rs (node model), src/parser/. Consume the ShIR; render it in
+ your language's idioms.
+ 
+ Yours (in THIS worktree): the renderer, the runtime namespace, the corpus
+-gate, and the sh2.*-usage metric for zig.
+-
+-## The renderer
+-
+-- `src/zig_backend.rs` — `debashl::zig_backend::shir_to_zig(&IrProgram) -> String`.
+-  A crate library consuming the ShIR in-process (ask B, docs/backend-c-core-needs.md).
+-- CLI entry: `debashc --shir-in-zig -` (worktree `cli/src/lib.rs`), mirroring
+-  `--shir-in-perl`/`--shir-in-estree`: reads shIR JSON (file or stdin via `-`),
+-  `shir_json_in::shir_json_to_ir` → `shir_to_zig` → stdout.
+-
+-## Design decisions (draft)
+-
+-- A2 `var_types` verdicts: `Int` → Zig `i64`, `Str` → `[]const u8`, anything
+-  else → `[]const u8` (the runtime store — shell vars are strings; Zig has
+-  no `any`, so the store is the string map). `sh2ToInt`/`sh2IntStr`/
+-  `sh2Truthy` convert at the type boundaries and the output always compiles.
+-- Native subset (byte-faithful where it matters): echo (one `stdout.print`
+-  per command — no double newline), `exit N`, Assign (incl. `$(( ))` native
+-  i64 arith), if/else if/else, while, do/while, for-in over `Array`/`Range`
+-  iterators, `[ ]` tests (-gt/-lt/-ge/-le/-eq/-ne numeric, =/==/!= string —
+-  incl. the parser's space-stripped `"$a"="b"` form, -n/-z/truthiness),
+-  `&&`/`||`/`!` conds, `WriteFile` (non-append).
+-- Everything outside the lowable subset emits a compile-able `sh2.*` stub
+-  (`sh2TODO` → stderr + `std.process.exit(2)`) or a `// TODO(unsupported)`
+-  marker.
+-- Identifiers: sanitized to Zig identifier syntax, mangled against Zig
+-  keywords/builtins (`fn` → `fn_`, `a-b` → `a_b`), de-duplicated.
+-- Zig gotchas handled: no implicit conversions (`@intFromBool` for
+-  bool→int, `sh2IntStr` for int→string, `sh2B2S` for bool→string);
+-  string equality/ordering via `std.mem.eql`/`std.mem.order`; runtime
+-  slice concat via `sh2StrCat` (allocPrint); `**` via `std.math.pow`;
+-  declared-but-never-read vars get a `_ = x;` guard; helper fns (and the
+-  `const stdout` line) are only emitted when used.
+-- Format specs are chosen statically per part (`{d}`/`{s}`/`{}`) — Zig's
+-  print format is comptime-checked, so each arg's type is known at render
+-  time (`$x` in interpolation arrives as a `getVar` Call — typed by the
+-  A2 verdict).
+-- `--shir-in-zig` reports the ingress marker ("ShIR JSON ingress") on stderr
+-  and exits 0 for invalid JSON: the backend gate probes the flag by feeding
+-  intentionally-invalid JSON and grepping the marker, and the harness runs
+-  under `set -euo pipefail` (a nonzero exit would abort the gate before the
+-  corpus loop). Renderer panics still exit 101 and fail the corpus loop.
+-
+-## Next steps (in order)
+-
+-1. Native `printf` builtin, `WriteFile` append, `Redirect` (fd/mode table),
+-   `Function`/`Case` (functions as Zig fns, case as switch).
+-2. The sh2.* runtime port (harness/sh2-namespace.json) — stubs are fine for
+-   the first green.
+-3. A `zig build-exe` step in the gate once a Zig toolchain is available to
+-   the harness (none is installed on the worker today; the emitted code
+-   targets 0.13+ idioms).
++gate, and the sh2.*-usage metric for perl.
+ 
+ Merge discipline:
+-- commit on backend/zig; merge main BEFORE each verification run
++- commit on backend/perl; merge main BEFORE each verification run
+ - push to main only when the commit does NOT touch the shared core
+ - core changes are single-owner (the estree worker during the lowering
+   phase) — queue, don't fork
+ 
+-Verify: the corpus gate (`setup_backends.sh --backend-gate zig`) must stay
+-100% and the metric must only go down.
++Verify: the corpus gate must stay 100% and the metric must only go down.
+diff --git a/NATIVE-LOWERING.md b/NATIVE-LOWERING.md
+new file mode 100644
+index 0000000..dfdb43c
+--- /dev/null
++++ b/NATIVE-LOWERING.md
+@@ -0,0 +1,48 @@
++# perl backend: enforce native lowering (the check_qx original intent)
++
++STATUS: OPEN — the failure-driven perl worker's job. The gate is red on
++this until it converges. Do NOT bless/allowlist; grind it green.
++
++## WHY (the policy)
++
++check_qx.pl exists because "This project is sh2perl NOT sh2sh": the perl
++translation must lower shell builtins AND the command set in
++check_qx's @shellout_extras Natively in perl — NOT shell out to bash via
++qx{...} / system('bash','-c',...). Shelling out is a cheat the
++stdout-equivalence gate cannot see (the shell-out IS bash, so stdout
++always matches).
++
++check_qx.pl was blind to the renderer's output because it compared the
++QUOTED first word ("'echo'") against the bare builtin name ("echo").
++That bug is FIXED (check_qx strips leading quotes now) — enforcement is
++live. The gate now FAILS every render that shells out a builtin/extra.
++
++## The task
++
++Grow the perl renderer (src/perl_backend.rs) so every command in the
++flagged set lowers to a NATIVE perl implementation — no qx{...} /
++system() / system('bash','-c',...) shell-outs for them. The stdout
++equivalence vs bash is the oracle: the native lowering must reproduce
++bash's exact stdout for the corpus's actual invocations (flags included).
++
++## The ladder (flagged commands, by occurrence — the worker grinds top-down)
++
++echo, printf, date, seq, ls, wc, cat, grep, sed, awk, find, strings,
++paste, comm, diff, sort, uniq, tee, yes, cut, test, true, false, type,
++wait, time, basename, dirname, expr, hostname, id, readlink, realpath,
++uname, whoami, tty, stat, kill, cp, mv, rm, mkdir, touch, mktemp,
++gunzip, zstd, execvp, dd, read, cd, pwd, local, declare, export ...
++
++Perl primitives to use: File::Copy (cp/mv), unlink (rm), mkdir/rmdir,
++opendir/readdir/sort (ls), while (<>) / print (cat), regex matching
++(grep/awk/sed), Time::HiRes or `sleep`-style (time), scalar ops for
++expr/test, etc. Where perl genuinely cannot reproduce a command's
++semantics natively, the failing case goes to a core-requests boundary
++doc — never a silent qx.
++
++## Acceptance
++
++`bash setup_backends.sh --backend-gate perl` GREEN with the fixed
++check_qx: 0 fail, 0 "anti-cheat" lines, 0 stubs, equivalence intact
++(every native lowering still matches bash's stdout). Run `perl
++check_qx.pl <render>` on any render — 0 violations.
+diff --git a/a.sh b/a.sh
+new file mode 100644
+index 0000000..7898192
+--- /dev/null
++++ b/a.sh
+@@ -0,0 +1 @@
++a
+diff --git a/a.txt b/a.txt
+new file mode 100644
+index 0000000..7898192
+--- /dev/null
++++ b/a.txt
+@@ -0,0 +1 @@
++a
+diff --git a/alpha b/alpha
+new file mode 100644
+index 0000000..4a58007
+--- /dev/null
++++ b/alpha
+@@ -0,0 +1 @@
++alpha
+diff --git a/b.txt b/b.txt
+new file mode 100644
+index 0000000..6178079
+--- /dev/null
++++ b/b.txt
+@@ -0,0 +1 @@
++b
+diff --git a/beta b/beta
+new file mode 100644
+index 0000000..65b2df8
+--- /dev/null
++++ b/beta
+@@ -0,0 +1 @@
++beta
+diff --git a/file.txt b/file.txt
+new file mode 100644
+index 0000000..4eeff4b
+--- /dev/null
++++ b/file.txt
+@@ -0,0 +1,2 @@
++apple
++apple
+diff --git a/gamma b/gamma
+new file mode 100644
+index 0000000..af17f6c
+--- /dev/null
++++ b/gamma
+@@ -0,0 +1 @@
++gamma
+diff --git a/loop-backend-perl.pid b/loop-backend-perl.pid
+new file mode 100644
+index 0000000..3178029
+--- /dev/null
++++ b/loop-backend-perl.pid
+@@ -0,0 +1 @@
++3629888
+diff --git a/note.txt b/note.txt
+new file mode 100644
+index 0000000..f0ad0de
+--- /dev/null
++++ b/note.txt
+@@ -0,0 +1 @@
++hello.txt
+diff --git a/run_worker.sh b/run_worker.sh
+index 3998e84..7f4c276 100755
+--- a/run_worker.sh
++++ b/run_worker.sh
+@@ -1,4 +1,5 @@
+ #!/usr/bin/env bash
+-# Run the rust backend worker from THIS worktree.
++# Run the perl backend worker from THIS worktree.
+ cd "$(dirname "$0")"
+-echo "[rust] backend not implemented yet — scaffold: renderer + runtime + gate + metric in this worktree"
++nohup perl "/home/llm/sh2loop/main_loop_rust.pl" >> "/home/llm/sh2loop/loop-perl.log" 2>&1 &
++echo "perl worker started (PID $!) — log: /home/llm/sh2loop/loop-perl.log"
+diff --git a/s.sh b/s.sh
+new file mode 100644
+index 0000000..6be55cb
+--- /dev/null
++++ b/s.sh
+@@ -0,0 +1 @@
++function f() { echo hi; }
+diff --git a/temp_file1.txt b/temp_file1.txt
+new file mode 100644
+index 0000000..b69c60e
+--- /dev/null
++++ b/temp_file1.txt
+@@ -0,0 +1 @@
++pattern in file1
+diff --git a/temp_file2.txt b/temp_file2.txt
+new file mode 100644
+index 0000000..797948a
+--- /dev/null
++++ b/temp_file2.txt
+@@ -0,0 +1 @@
++no pattern in file2
+diff --git a/temp_file3.txt b/temp_file3.txt
+new file mode 100644
+index 0000000..12f0594
+--- /dev/null
++++ b/temp_file3.txt
+@@ -0,0 +1 @@
++pattern in file3
+diff --git a/test_checksum.txt b/test_checksum.txt
+new file mode 100644
+index 0000000..d670460
+--- /dev/null
++++ b/test_checksum.txt
+@@ -0,0 +1 @@
++test content
+diff --git a/test_file.txt b/test_file.txt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/test_tee.txt b/test_tee.txt
+new file mode 100644
+index 0000000..365c052
+--- /dev/null
++++ b/test_tee.txt
+@@ -0,0 +1 @@
++test output

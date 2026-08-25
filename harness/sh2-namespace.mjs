@@ -1874,6 +1874,17 @@ export const sh2 = {
   // "int")`), so `Case`-pattern comparisons can test either shape.
   typeOf(value) {
     if (Array.isArray(value)) return 'array';
+    // OBJECT REFS carry their declared type: obj#N -> the struct's name
+    // (StrE, LitStr, …), list#N -> 'array'. Named-type assertions
+    // (`x.(*StrE)`) dispatch on this vocabulary.
+    if (typeof value === 'string' && this._objStore) {
+      const o = /^((?:obj|map|list)#)/.test(value) ? this._objStore.get(value) : null;
+      if (o) {
+        if (o.kind === 'struct') return String(o.type ?? 'struct');
+        if (o.kind === 'list') return 'array';
+        if (o.kind === 'map') return 'map';
+      }
+    }
     const t = typeof value;
     if (t === 'number') return Number.isInteger(value) ? 'int' : 'float';
     if (t === 'boolean') return 'bool';
