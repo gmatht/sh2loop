@@ -2372,6 +2372,16 @@ export const sh2 = {
     return String(n);
   },
 
+  // strSlice(s, lo, hi) — Go slice-of-string with EXCLUSIVE hi over
+  // WORD bounds (a bound reading a struct field — len(spec.zig) — has
+  // no ${v:off:len} arithmetic twin). Clamped like Go.
+  strSlice(s, lo, hi) {
+    const str = String(s ?? '');
+    const l = Math.max(0, Number(lo) || 0);
+    const h = Math.min(str.length, hi == null ? str.length : Number(hi) || 0);
+    return str.slice(l, Math.max(l, h));
+  },
+
   // listItems(id) — the ITEMS ARRAY of a list ref (forLoop flattens a
   // single array-valued iter element; range-over-member lowering)
   listItems(id) {
