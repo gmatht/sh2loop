@@ -42,3 +42,4 @@ frontends/*/grammars/*/src/parser.c
 /.check_sh_files_run.log
 /du-xh.log
 /.stash_history.log
+junk/backends/
