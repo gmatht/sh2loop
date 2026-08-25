@@ -12,6 +12,27 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v33: **ForEachLine completion: ingress round-trip + body-var hoisting
+>   + C render.** Audited the Ext(ForEachLine) family end-to-end and found
+>   it unfinished in three layers: (1) `shir_nodes/enc.rs` could not
+>   round-trip `IrExpr::Array` inside ext-node bodies — `cat -n F` failed
+>   at JSON INGRESS before any backend rendered (Array arms added to both
+>   enc directions; convergent with the sibling's uncommitted variant on
+>   main); (2) body helper vars (`cat -n` counter __cnN) now hoist via
+>   collect_store_names/collect_vars_full over fl.body, with
+>   self-increment assigns typed Int (a char* counter printed garbage);
+>   (3) the C render itself (C getline streaming loop, limit-aware, var
+>   hoisted as Str). ForEachLine matrix 9/9 byte-equal vs bash: cat,
+>   cat -n, multi-file cat, tr<, wc -l<, cut, sed s///, grep -c,
+>   head-limit. Also this round: core DSE guard fix offered back per §11
+>   (core-requests/core-bug-dse-guard-a1-export-shape.md —
+>   collect_decl_guard missed the A1 builtin-call export shape, DSE
+>   deleted 'X=…; export X' stores), shopt -u nocasematch clears fold +
+>   nocasematch patterns dequote, BASH_VERSION seeding, native mapfile
+>   from FILE with deferred natives past system(), $PIPESTATUS
+>   state-import tail. Gate 597 → 602/643 across the rounds (one-cell
+>   full-gate flake under sibling load; isolated reruns green). lib tests
+>   378+4 passed / 0 failed.
 > - v32: **backend/c convergence merge + gate 597 → 602/643 (34 reds),
 >   lib tests 382/382.** Follow-up round on top of the convergence: native
 >   `mapfile`/`readarray` from FILE (process-substitution arrays survive —
