@@ -1,0 +1,5 @@
+name: counted-while-forinit
+prereqs: [var_types, purity, loop-control]
+invariant: only an adjacent scalar init plus a while whose final body statement is the sole counter update is rewritten to ForInit; break/continue/return/exit/goto, nested counter writes, and $? reads refuse
+scope: c, go, java, js, python, rust, zig (backends that accept ForInit; perl/sh may reject in their manifests)
+updates: none (first offer)

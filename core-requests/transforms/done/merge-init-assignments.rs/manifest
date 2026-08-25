@@ -1,0 +1,5 @@
+name: merge-init-assignments
+prereqs: [const-vars, purity]
+invariant: only a scalar declaration with a literal default immediately followed by its first plain assignment is folded; the RHS is side-effect-free, does not read the declared variable, and no shell status or control-flow boundary is crossed
+scope: all dynamic and static backends that consume Declare/Assign
+updates: none (first offer)

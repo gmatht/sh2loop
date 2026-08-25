@@ -1,0 +1,551 @@
+000__02_output_formatting_commands.sh	0	1	0	0	0	
+000__03_file_manipulation_commands.sh	1	0	0	0	18	rmdir
+000__04a_basic_command_substitution.sh	0	1	0	0	0	
+000__04b_file_directory_operations.sh	0	1	0	0	0	
+000__04c_text_processing_commands.sh	0	1	0	0	0	
+000__04d_system_utilities.sh	0	1	0	0	0	
+000__04e_file_manipulation.sh	0	1	0	0	0	
+000__04f_output_formatting.sh	0	1	0	0	0	
+000__04g_checksum_commands.sh	0	1	0	0	0	
+000__04h_complex_examples.sh	0	1	0	0	0	
+000__05_system_utilities.sh	0	1	0	0	0	
+000__06_text_processing_commands.sh	0	1	0	0	0	
+000__07_find_path_commands.sh	0	1	0	0	0	
+001_simple.sh	0	1	0	0	0	
+002_control_flow.sh	0	1	0	0	0	
+003_pipeline.sh	1	0	0	0	76	find
+004_test_quoted.sh	0	1	0	0	0	
+005_args.sh	0	1	0	0	0	
+006_misc.sh	0	1	0	0	0	
+007_cat_EOF.sh	0	1	0	0	0	
+008_simple_backup.sh	0	1	0	0	0	
+009_arrays.sh	0	1	0	0	0	
+010_pattern_matching.sh	0	1	0	0	0	
+010_substring_loop.sh	0	1	0	0	0	
+011_brace_expansion.sh	0	1	0	0	0	
+011_substring_loop_param.sh	0	1	0	0	0	
+012_process_substitution.sh	1	0	0	0	36	mapfile
+012_test_const_read.sh	0	1	0	0	0	
+013_parameter_expansion.sh	0	1	0	0	0	
+014_ansi_quoting.sh	0	1	0	0	0	
+015_grep_advanced.sh	0	1	0	0	0	
+016_grep_basic.sh	0	1	0	0	0	
+017_grep_context.sh	1	0	1	1	36	grep
+018_grep_params.sh	0	1	0	0	0	
+019_grep_regex.sh	1	0	0	0	28	echo
+020_ansi_quoting_basic.sh	0	1	0	0	0	
+021_ansi_quoting_escape.sh	0	1	0	0	0	
+022_ansi_quoting_unicode.sh	0	1	0	0	0	
+023_ansi_quoting_practical.sh	0	1	0	0	0	
+024_parameter_expansion_case.sh	0	1	0	0	0	
+025_parameter_expansion_advanced.sh	0	1	0	0	0	
+026_parameter_expansion_more.sh	0	1	0	0	0	
+027_parameter_expansion_defaults.sh	0	1	0	0	0	
+028_arrays_indexed.sh	0	1	0	0	0	
+029_arrays_associative.sh	0	1	0	0	0	
+030_control_flow_if.sh	0	1	0	0	0	
+031_control_flow_loops.sh	0	1	0	0	0	
+032_control_flow_function.sh	0	1	0	0	0	
+033_brace_expansion_basic.sh	0	1	0	0	0	
+034_brace_expansion_advanced.sh	0	1	0	0	0	
+035_brace_expansion_practical.sh	0	1	0	0	0	
+036_pattern_matching_basic.sh	0	1	0	0	0	
+037_pattern_matching_extglob.sh	0	1	0	0	0	
+038_pattern_matching_nocase.sh	0	1	0	0	0	
+039_process_substitution_here.sh	0	1	0	0	0	
+040_process_substitution_comm.sh	0	1	0	0	0	
+041_process_substitution_mapfile.sh	1	0	0	0	36	mapfile
+042_process_substitution_advanced.sh	0	1	0	0	0	
+043_home.sh	0	1	0	0	0	
+045_shell_calling_perl.sh	0	1	0	0	0	
+046_cd..sh	0	1	0	0	0	
+047_for_arithematic.sh	0	1	0	0	0	
+048_subprocess.sh	0	1	0	0	0	
+049_local.sh	0	1	0	0	0	
+050_test_ls_star_dot_sh.sh	0	1	0	0	0	
+051_primes.sh	0	1	0	0	0	
+054_fibonacci.sh	0	1	0	0	0	
+055_factorize.sh	0	1	0	0	0	
+056_send_args.sh	0	1	0	0	0	
+057_case.sh	2	0	0	1	11	pwd,whoami
+058_advanced_bash_idioms.sh	0	1	0	0	0	
+059_issue3.sh	0	1	0	0	0	
+060_issue5.sh	0	1	0	0	0	
+061_test_local_names_preserved.sh	0	1	0	0	0	
+062_01_ambiguous_operators.sh	0	1	0	0	0	
+062_02_complex_parameter_expansions.sh	0	1	0	0	0	
+062_03_complex_heredocs.sh	0	1	0	0	0	
+062_04_nested_arithmetic.sh	0	1	0	0	0	
+062_05_nested_command_substitution.sh	0	1	0	0	0	
+062_06_process_substitution.sh	0	1	0	0	0	
+062_07_complex_brace_expansion.sh	0	1	0	0	0	
+062_08_simple_case.sh	0	1	0	0	0	
+062_09_complex_function.sh	0	1	0	0	0	
+062_10_simple_pipeline.sh	1	0	1	1	37	ls
+062_11_mixed_arithmetic.sh	0	1	0	0	0	
+062_12_complex_string_interpolation.sh	0	1	0	0	0	
+062_13_simple_test_expressions.sh	0	1	0	0	0	
+062_14_complex_array_operations.sh	0	1	0	0	0	
+062_15_complex_local_variables.sh	0	1	0	0	0	
+062_hard_to_lex.sh	1	0	1	1	42	ls
+063_01_deeply_nested_arithmetic.sh	0	1	0	0	0	
+063_02_complex_array_assignments.sh	0	1	0	0	0	
+063_03_nested_command_substitutions.sh	0	1	0	0	0	
+063_04_complex_parameter_expansion.sh	0	1	0	0	0	
+063_05_heredoc_with_complex_content.sh	0	1	0	0	0	
+063_06_complex_pipeline_background.sh	0	1	0	0	0	
+063_07_nested_if_statements.sh	0	1	0	0	0	
+063_08_complex_case_statement.sh	0	1	0	0	0	
+063_09_complex_function_parameter_handling.sh	0	1	0	0	0	
+063_10_complex_for_loop.sh	0	1	0	0	0	
+063_11_complex_while_loop.sh	0	1	0	0	0	
+063_12_complex_eval.sh	0	1	0	0	0	
+063_13_nested_subshells.sh	0	1	0	0	0	
+063_14_complex_redirects.sh	0	1	0	0	0	
+063_15_complex_function_definition.sh	0	1	0	0	0	
+063_16_complex_test_expressions.sh	0	1	0	0	0	
+063_17_nested_brace_expansion.sh	0	1	0	0	0	
+063_18_complex_here_string.sh	1	0	1	1	35	tr
+063_19_complex_function_call.sh	0	1	0	0	0	
+063_20_final_complex_construct.sh	1	0	0	0	50	sort
+063_hard_to_parse.sh	2	0	0	1	85	sort,tr
+064_01_complex_nested_subshells.sh	4	0	0	2	177	grep,sort
+064_02_nested_brace_expansions.sh	0	1	0	0	0	
+064_03_complex_parameter_expansion.sh	0	1	0	0	0	
+064_04_extended_glob_patterns.sh	0	1	0	0	0	
+064_05_complex_case_statement.sh	0	1	0	0	0	
+064_06_nested_arithmetic_expressions.sh	0	1	0	0	0	
+064_07_complex_array_operations.sh	0	1	0	0	0	
+064_08_heredocs_with_variable_interpolation.sh	0	1	0	0	0	
+064_09_process_substitution_pipeline.sh	1	0	0	0	12	head
+064_10_nested_function_definitions.sh	1	0	0	0	12	inner_func
+064_11_complex_test_expressions.sh	0	1	0	0	0	
+064_12_brace_expansion_nested_sequences.sh	0	1	0	0	0	
+064_13_complex_string_manipulation.sh	0	1	0	0	0	
+064_14_nested_command_substitution_arithmetic.sh	0	1	0	0	0	
+064_15_complex_pipeline_multiple_redirects.sh	0	1	0	0	0	
+064_16_function_complex_argument_handling.sh	0	1	0	0	0	
+064_17_complex_while_loop_nested_conditionals.sh	0	1	0	0	0	
+064_18_array_slicing_manipulation.sh	0	1	0	0	0	
+064_19_complex_pattern_matching_extended_globs.sh	0	1	0	0	0	
+064_20_nested_subshells_environment_variables.sh	0	1	0	0	0	
+064_21_complex_string_interpolation_multiple_variables.sh	0	1	0	0	0	
+064_22_function_returning_complex_data_structures.sh	0	1	0	0	0	
+064_23_complex_error_handling_traps.sh	0	1	0	0	0	
+064_24_advanced_parameter_expansion.sh	0	1	0	0	0	
+064_25_complex_command_chaining.sh	0	1	0	0	0	
+064_hard_to_generate.sh	6	0	0	2	222	echo,grep,head,sort
+065_yes_head_while.sh	1	0	1	1	37	yes
+070_cmp_basic.sh	2	0	0	0	72	cmp
+070_gnuisms_thorough.sh	4	0	0	0	186	ln,printf,readlink
+071_while_ifs_read.sh	0	1	0	0	0	
+072_background_fork.sh	0	1	0	0	0	
+073_trap_signal.sh	0	1	0	0	0	
+074_shopt.sh	0	1	0	0	0	
+075_eval_complex.sh	1	0	0	0	34	eval
+076_brace_expansion_mixed.sh	0	1	0	0	0	
+077_backslash_continuation.sh	0	1	0	0	0	
+078_arithmetic_double_paren.sh	0	1	0	0	0	
+079_heredoc_interpolation.sh	0	1	0	0	0	
+080_process_sub_pipeline.sh	0	1	0	0	0	
+081_nested_functions.sh	1	0	0	0	7	inner
+082_sort_locale.sh	0	1	0	0	0	
+083_process_sub_missing_files.sh	0	1	0	0	0	
+084_while_pipeline.sh	0	1	0	0	0	
+086_if_condition_pipe.sh	0	1	0	0	0	
+087_function_cmd_sub.sh	0	1	0	0	0	
+088_while_read_ifs_sort.sh	1	0	0	0	11	sort
+089_for_in_arith.sh	0	1	0	0	0	
+090_nested_if_else.sh	0	1	0	0	0	
+091_while_pipe_var.sh	1	0	0	0	11	head
+092_for_arith_func.sh	0	1	0	0	0	
+093_case_esac.sh	0	1	0	0	0	
+094_until_loop.sh	0	1	0	0	0	
+095_select_menu.sh	0	1	0	0	0	
+096_head_procsub.sh	1	0	0	0	19	head
+100_pipeline_failure_basic.sh	0	1	0	0	0	
+101_pipeline_failure_grep.sh	0	1	0	0	0	
+102_pipeline_failure_sort.sh	0	1	0	0	0	
+103_pipeline_failure_multi.sh	0	1	0	0	0	
+104_pipeline_failure_var_capture.sh	0	1	0	0	0	
+105_background_copy_semantics.sh	0	1	0	0	0	
+900_if2echo.sh	0	1	0	0	0	
+999_pwd.sh	0	1	0	0	0	
+arith-ambiguous-double-paren.sh	1	0	0	0	14	(
+arith-array-index-expr.sh	0	1	0	0	0	
+arith-base-notation.sh	0	1	0	0	0	
+arith-bitwise-shift-operators.sh	0	1	0	0	0	
+arith-postfix-status.sh	0	1	0	0	0	
+arithmetic-bracket-old-syntax.sh	0	1	0	0	0	
+arithmetic-equality.sh	0	1	0	0	0	
+arithmetic-var-ref.sh	0	1	0	0	0	
+arithmetic-vs-command-subshell.sh	0	1	0	0	0	
+array-assignment-variable-subscript.sh	0	1	0	0	0	
+array-subscript.sh	0	1	0	0	0	
+assign-in-args.sh	0	1	0	0	0	
+at-in-test.sh	0	1	0	0	0	
+at-var-default.sh	0	1	0	0	0	
+background-chain.sh	0	1	0	0	0	
+backslash-continuation-dollar-paren.sh	0	1	0	0	0	
+backslash-continuation-in-dollar-paren.sh	0	1	0	0	0	
+backslash-dollar-brace.sh	0	1	0	0	0	
+backslash-gt-test.sh	0	1	0	0	0	
+backslash-newline-dq.sh	0	1	0	0	0	
+backtick-echo-single-quote.sh	0	1	0	0	0	
+backtick-inside-comment.sh	0	1	0	0	0	
+bash-keyword-arg.sh	0	1	0	0	0	
+bc-native-capture.sh	0	1	0	0	0	
+bench-case.sh	0	1	0	0	0	
+bench-cmp.sh	0	1	0	0	0	
+bench-count.sh	0	1	0	0	0	
+bench-cut.sh	0	1	0	0	0	
+bench-echo.sh	0	1	0	0	0	
+bench-func.sh	0	1	0	0	0	
+bench-increment.sh	0	1	0	0	0	
+bench-strlen.sh	0	1	0	0	0	
+bench-strremove.sh	0	1	0	0	0	
+bench-strsubst.sh	0	1	0	0	0	
+bench-subshell.sh	0	1	0	0	0	
+bench-substr.sh	0	1	0	0	0	
+bin-echo-builtin.sh	0	1	0	0	0	
+brace-close-after-subshell.sh	0	1	0	0	0	
+brace-expansion-error.sh	0	1	0	0	0	
+brace-expansion-fail.sh	0	1	0	0	0	
+brace-inside-cmdsubst.sh	0	1	0	0	0	
+brace-unbalanced.sh	0	1	0	0	0	
+builtin-system-open3.sh	1	0	0	0	20	cp
+capture-paren-with-eval.sh	0	1	0	0	0	
+case-arithmetic-body.sh	0	1	0	0	0	
+case-command-subst-pattern.sh	0	1	0	0	0	
+case-double-semicolon.sh	0	1	0	0	0	
+case-nested-esac-semicolon.sh	0	1	0	0	0	
+case-pattern-dollar-paren.sh	0	1	0	0	0	
+case-pattern-empty-assign.sh	0	1	0	0	0	
+case-pattern-paren.sh	0	1	0	0	0	
+case-pattern-pipe-paren.sh	0	1	0	0	0	
+case-pattern-star-pipe.sh	0	1	0	0	0	
+cat-dash-stdin.sh	1	0	1	1	26	cat
+cat-heredoc-pipeline.sh	0	1	0	0	0	
+cd-command-substitution.sh	0	1	0	0	0	
+cd-in-qx.sh	0	1	0	0	0	
+check-qx-aa-exec.sh	1	0	0	0	37	aa-exec
+check-qx-systemd-path.sh	0	1	0	0	0	
+checkqx-open3-builtin.sh	0	1	0	0	0	
+checkqx-qx-var-mv.sh	1	0	0	0	45	mv
+checkqx-qx-var-rm.sh	0	1	0	0	0	
+checkqx-qx-var-which.sh	0	1	0	0	0	
+chmod-standalone.sh	0	1	0	0	0	
+chown-standalone.sh	0	1	0	0	0	
+chown-through-xargs.sh	0	1	0	0	0	
+comment-like-in-string.sh	0	1	0	0	0	
+comment-with-single-quotes.sh	0	1	0	0	0	
+complex-command-substitution.sh	2	0	0	0	57	printf
+complex-pipe-subshell.sh	0	1	0	0	0	
+crlf-line-endings.sh	0	1	0	0	0	
+dead-store-status.sh	0	1	0	0	0	
+declare-let-keyword.sh	0	1	0	0	0	
+dollar-after-dollar.sh	0	1	0	0	0	
+dollar-at-default-quoted.sh	0	1	0	0	0	
+dollar-at-with-default.sh	0	1	0	0	0	
+dollar-bang.sh	0	1	0	0	0	
+dollar-escape-in-interpolate.sh	0	1	0	0	0	
+dollar-followed-by-slash.sh	0	1	0	0	0	
+dollar-minus.sh	0	1	0	0	0	
+dollar-positional-arithmetic.sh	0	1	0	0	0	
+dollar-question-in-bracket.sh	0	1	0	0	0	
+dollar-question-in-test.sh	0	1	0	0	0	
+dollar-question.sh	0	1	0	0	0	
+dot-source-lib.sh	1	0	0	0	18	.
+double-bracket-and-chain.sh	0	1	0	0	0	
+double-bracket-or-chained.sh	0	1	0	0	0	
+double-bracket-or.sh	0	1	0	0	0	
+double-bracket-pipeline.sh	0	1	0	0	0	
+double-equals-in-test.sh	0	1	0	0	0	
+double-paren-subshell.sh	2	0	0	0	57	printf
+double-quote-with-sed-inside.sh	0	1	0	0	0	
+dq-hashbang-multiline-assign.sh	0	1	0	0	0	
+dqs-nested-awk-sed.sh	0	1	0	0	0	
+dqs-nested-dollar.sh	0	1	0	0	0	
+echo-complex-pipeline.sh	0	1	0	0	0	
+echo-hashbang-continuation.sh	0	1	0	0	0	
+echo-hashbang-in-function.sh	0	1	0	0	0	
+echo-in-qx.sh	0	1	0	0	0	
+echo-with-escaped-backtick-and-quotes.sh	0	1	0	0	0	
+echo-with-escaped-backtick.sh	0	1	0	0	0	
+egrep-not-native.sh	0	1	0	0	0	
+eq-string-num-var.sh	0	1	0	0	0	
+escaped-paren-command-subst.sh	0	1	0	0	0	
+escaped-quote-midword.sh	0	1	0	0	0	
+escaped-singlequote-in-doublequote.sh	0	1	0	0	0	
+eval-assign.sh	1	0	0	0	15	eval
+exitScript-after-test.sh	1	0	0	0	16	exitScript
+exitScript-function.sh	0	1	0	0	0	
+for-loop-dollar-at.sh	0	1	0	0	0	
+func-after-or-assign.sh	0	1	0	0	0	
+func-after-test-or.sh	0	1	0	0	0	
+function-space-paren.sh	0	1	0	0	0	
+generator-system-echo-checkqx.sh	0	1	0	0	0	
+gunzip_example.sh	1	0	0	0	55	gunzip
+hash-in-var.sh	0	1	0	0	0	
+heredoc-apostrophe-in-unquoted.sh	0	1	0	0	0	
+heredoc-apostrophe-span.sh	0	1	0	0	0	
+heredoc-apostrophe.sh	0	1	0	0	0	
+heredoc-backtick-quote-span.sh	0	1	0	0	0	
+heredoc-binary-data.sh	0	1	0	0	0	
+heredoc-inside-dollar-paren.sh	0	1	0	0	0	
+heredoc-parse-error.sh	1	0	0	0	5	EOF
+heredoc-python-fstring.sh	0	1	0	0	0	
+heredoc-redirects-same-line.sh	0	1	0	0	0	
+heredoc-singlequote-span.sh	0	1	0	0	0	
+heredoc-subshell-redirects.sh	0	1	0	0	0	
+heredoc-tabs.sh	0	1	0	0	0	
+heredoc-unclosed.sh	0	1	0	0	0	
+heredoc-with-braces.sh	0	1	0	0	0	
+heredoc-with-quotes.sh	0	1	0	0	0	
+heredoc-with-redirect-same-line.sh	0	1	0	0	0	
+hoist-loop-self-update.sh	0	1	0	0	0	
+hot-scalar-accumulator-loop.sh	0	1	0	0	0	
+id-cmdsub.sh	1	0	0	0	5	@@
+interactive-test-minus-t.sh	0	1	0	0	0	
+keyword-in-arg.sh	1	0	0	0	63	dd
+let-builtin.sh	0	1	0	0	0	
+let-plusassign.sh	0	1	0	0	0	
+lex-dot-in-var.sh	0	1	0	0	0	
+lex-unexpected-qmark.sh	0	1	0	0	0	
+lexer-char-minus.sh	0	1	0	0	0	
+ln-symlink.sh	0	1	0	0	0	
+local-declare-redirect.sh	0	1	0	0	0	
+longoption-consumes-quote.sh	0	1	0	0	0	
+mixed-quoting.sh	0	1	0	0	0	
+mul_xy.sh	0	1	0	0	0	
+multiline-assign.sh	0	1	0	0	0	
+multiline-dq-hashbang.sh	0	1	0	0	0	
+multiline-dq-string.sh	0	1	0	0	0	
+multiple-awk-in-dqs.sh	0	1	0	0	0	
+nested-case-esac.sh	0	1	0	0	0	
+nested-heredoc-in-function.sh	0	1	0	0	0	
+nested-subshell-paren.sh	2	0	0	0	57	printf
+not-negation.sh	0	1	0	0	0	
+or-continue.sh	0	1	0	0	0	
+param-expand-default-operator.sh	0	1	0	0	0	
+param-expand-hash-sameline.sh	0	1	0	0	0	
+param-expand-hash.sh	0	1	0	0	0	
+param-expand-hashhash.sh	1	0	0	0	20	exec
+param-expand-multiline.sh	0	1	0	0	0	
+param-expand-question.sh	0	1	0	0	0	
+parameter-expansion-nested.sh	0	1	0	0	0	
+parameter-expansion-pattern.sh	0	1	0	0	0	
+parse-and-or-chain-with-assign.sh	0	1	0	0	0	
+parse-arithmetic-extra-paren.sh	0	1	0	0	0	
+parse-arithmetic-nested-array.sh	0	1	0	0	0	
+parse-array-assignment.sh	0	1	0	0	0	
+parse-array-plusassign.sh	0	1	0	0	0	
+parse-at-slice-param.sh	0	1	0	0	0	
+parse-at-slice.sh	0	1	0	0	0	
+parse-backslash-continuation.sh	0	1	0	0	0	
+parse-backslash-newline-in-string.sh	0	1	0	0	0	
+parse-bare-quote-in-function.sh	0	1	0	0	0	
+parse-brace-close.sh	0	1	0	0	0	
+parse-brace-expansion.sh	0	1	0	0	0	
+parse-brace-in-heredoc.sh	1	0	0	0	5	EOF
+parse-braceclose-unexpected.sh	0	1	0	0	0	
+parse-bracket-chain.sh	0	1	0	0	0	
+parse-bracket-subshell-pipe.sh	0	1	0	0	0	
+parse-bracket-unexpected.sh	0	1	0	0	0	
+parse-break-or.sh	0	1	0	0	0	
+parse-builtin-keywords-in-case-body.sh	0	1	0	0	0	
+parse-case-dollarparen-pattern.sh	0	1	0	0	0	
+parse-case-doublesemicolon.sh	1	0	0	0	7	usage
+parse-case-paren-pattern.sh	0	1	0	0	0	
+parse-case-quoted-pattern.sh	0	1	0	0	0	
+parse-case-subject-complex.sh	0	1	0	0	0	
+parse-cd-command-subst.sh	0	1	0	0	0	
+parse-command-subst-in-test.sh	0	1	0	0	0	
+parse-comment-in-brace.sh	0	1	0	0	0	
+parse-comment-in-dollar-paren.sh	0	1	0	0	0	
+parse-complex-pipeline-quotes.sh	0	1	0	0	0	
+parse-complex-sed-in-dollarparen.sh	0	1	0	0	0	
+parse-complex-test-parens.sh	0	1	0	0	0	
+parse-crlf-shebang.sh	0	1	0	0	0	
+parse-db-status-fmt.sh	0	1	0	0	0	
+parse-default-value-no-colon.sh	0	1	0	0	0	
+parse-default-value-plain-dash.sh	0	1	0	0	0	
+parse-dollar-at-default.sh	0	1	0	0	0	
+parse-dollar-at-end-of-line.sh	0	1	0	0	0	
+parse-dollar-brace-hash-hash.sh	0	1	0	0	0	
+parse-dollar-end-of-string.sh	0	1	0	0	0	
+parse-dollar-in-arithmetic.sh	0	1	0	0	0	
+parse-dollar-in-param-expand.sh	0	1	0	0	0	
+parse-dollar-keyword-var.sh	0	1	0	0	0	
+parse-dollar-paren-or.sh	0	1	0	0	0	
+parse-dollar-paren-pipe.sh	0	1	0	0	0	
+parse-dollar-single-quote.sh	0	1	0	0	0	
+parse-dollars-in-string.sh	0	1	0	0	0	
+parse-done-unexpected.sh	0	1	0	0	0	
+parse-dot-after-var.sh	0	1	0	0	0	
+parse-double-bracket-char-class.sh	0	1	0	0	0	
+parse-double-bracket-newline.sh	0	1	0	0	0	
+parse-double-bracket-or-after-heredoc.sh	0	1	0	0	0	
+parse-double-bracket-or.sh	0	1	0	0	0	
+parse-double-semicolon-in-case.sh	0	1	0	0	0	
+parse-double-semicolon.sh	0	1	0	0	0	
+parse-doublequote-unexpected.sh	0	1	0	0	0	
+parse-ef-test-operator.sh	0	1	0	0	0	
+parse-empty-assign-doublesemicolon.sh	0	1	0	0	0	
+parse-equals-in-variable.sh	0	1	0	0	0	
+parse-error-block-in-pipeline.sh	0	1	0	0	0	
+parse-error-case-bracket.sh	0	1	0	0	0	
+parse-error-dollar-question-in-regex.sh	0	1	0	0	0	
+parse-error-doublesemicolon.sh	0	1	0	0	0	
+parse-error-escaped-dollar.sh	0	1	0	0	0	
+parse-error-export-empty.sh	0	1	0	0	0	
+parse-error-regex-lookbehind.sh	0	1	0	0	0	
+parse-error-test-semicolon.sh	0	1	0	0	0	
+parse-escaped-backtick-case.sh	0	1	0	0	0	
+parse-escaped-quote-in-param-expansion.sh	0	1	0	0	0	
+parse-eval-multiline.sh	1	0	0	0	46	type
+parse-exit-brace-question.sh	0	1	0	0	0	
+parse-for-fi-keyword.sh	0	1	0	0	0	
+parse-function-parentheses-newline.sh	0	1	0	0	0	
+parse-glob-question-in-arg.sh	0	1	0	0	0	
+parse-heredoc-apostrophe.sh	0	1	0	0	0	
+parse-heredoc-before-eof.sh	0	1	0	0	0	
+parse-heredoc-dollar-at.sh	1	0	0	0	31	readarray
+parse-heredoc-dollar-paren.sh	0	1	0	0	0	
+parse-heredoc-dqs-backtick-question.sh	0	1	0	0	0	
+parse-heredoc-eof-unexpected.sh	0	1	0	0	0	
+parse-heredoc-hash-in-brace.sh	0	1	0	0	0	
+parse-heredoc-in-if.sh	0	1	0	0	0	
+parse-heredoc-or-dangling.sh	0	1	0	0	0	
+parse-heredoc-paren.sh	0	1	0	0	0	
+parse-heredoc-redirect-chain.sh	0	1	0	0	0	
+parse-heredoc-tab.sh	0	1	0	0	0	
+parse-herestring.sh	0	1	0	0	0	
+parse-hex-number-argument.sh	0	1	0	0	0	
+parse-hexnumber-in-arg.sh	0	1	0	0	0	
+parse-invalid-redirect.sh	1	0	0	0	11	exec
+parse-lexer-dollar.sh	0	1	0	0	0	
+parse-longoption-with-dollar.sh	0	1	0	0	0	
+parse-multi-command-while-condition.sh	0	1	0	0	0	
+parse-multiline-single-quote.sh	0	1	0	0	0	
+parse-multiline-string.sh	0	1	0	0	0	
+parse-nested-arithmetic.sh	0	1	0	0	0	
+parse-or-continuation.sh	0	1	0	0	0	
+parse-orelse-continuation.sh	0	1	0	0	0	
+parse-param-pattern-match.sh	0	1	0	0	0	
+parse-parameter-expansion-eof.sh	0	1	0	0	0	
+parse-parameter-pattern.sh	0	1	0	0	0	
+parse-paren-after-do.sh	0	1	0	0	0	
+parse-paren-close.sh	0	1	0	0	0	
+parse-posix-case-paren.sh	0	1	0	0	0	
+parse-question-mark.sh	0	1	0	0	0	
+parse-quoted-awk-in-subshell.sh	0	1	0	0	0	
+parse-redirect-clobber.sh	1	0	0	0	18	:
+parse-redirect-in-case-body.sh	1	0	0	0	34	cmd
+parse-redirect-in-case-pattern.sh	0	1	0	0	0	
+parse-redirect-samefile.sh	0	1	0	0	0	
+parse-return-after-if.sh	0	1	0	0	0	
+parse-return-and.sh	0	1	0	0	0	
+parse-return-or.sh	0	1	0	0	0	
+parse-return-pipe.sh	0	1	0	0	0	
+parse-samefile-operator.sh	1	0	0	0	19	ln
+parse-single-quote-in-arg.sh	0	1	0	0	0	
+parse-singlequote-comment.sh	0	1	0	0	0	
+parse-singlequote-unexpected.sh	0	1	0	0	0	
+parse-source-in-test.sh	2	0	0	0	40	.,source
+parse-sq-awk-cmd.sh	0	1	0	0	0	
+parse-sq-awk-while.sh	0	1	0	0	0	
+parse-sq-multiline-awk.sh	0	1	0	0	0	
+parse-sq-with-for.sh	0	1	0	0	0	
+parse-sq-with-while.sh	0	1	0	0	0	
+parse-standalone-redirect.sh	1	0	0	0	15	
+parse-star-case-pattern.sh	0	1	0	0	0	
+parse-substring-double-colon.sh	0	1	0	0	0	
+parse-substring-expansion.sh	0	1	0	0	0	
+parse-test-or.sh	0	1	0	0	0	
+parse-test-semicolon.sh	0	1	0	0	0	
+parse-test-with-source.sh	1	0	0	0	18	.
+parse-unexpected-braceclose.sh	0	1	0	0	0	
+parse-unexpected-end-of-input.sh	0	1	0	0	0	
+parse-unexpected-parenclose.sh	1	0	0	0	3	)
+parse-unterminated-heredoc.sh	0	1	0	0	0	
+parse-variable-default-with-quotes.sh	0	1	0	0	0	
+pid_tempfile.sh	1	0	0	0	29	echo
+pipeline-after-subshell.sh	0	1	0	0	0	
+positional-dollar-at-params.sh	0	1	0	0	0	
+printf-format-and-v.sh	0	1	0	0	0	
+process-substitution.sh	0	1	0	0	0	
+ps-system-call.sh	1	0	0	0	47	ps
+question-in-singlequote.sh	0	1	0	0	0	
+question-param-expand.sh	0	1	0	0	0	
+quoted-case-pattern.sh	0	1	0	0	0	
+qx-scalar-var-with-builtin.sh	0	1	0	0	0	
+qx-sed-in-command-var.sh	0	1	0	0	0	
+qx-uname-in-command-var.sh	0	1	0	0	0	
+qx-var-builtin-cd.sh	0	1	0	0	0	
+qx-var-builtin-echo.sh	0	1	0	0	0	
+qx-var-builtin-sed.sh	0	1	0	0	0	
+qx-var-builtin-uname.sh	0	1	0	0	0	
+readlink_example.sh	0	1	0	0	0	
+readlink_flags.sh	0	1	0	0	0	
+readlink_relative.sh	0	1	0	0	0	
+readonly-cmdsub.sh	1	0	0	0	5	@@
+realpath-cmdsub.sh	6	0	0	0	559	printf,realpath,try
+redirect-all.sh	0	1	0	0	0	
+redirect-in-arithmetic.sh	0	1	0	0	0	
+regex-brace-in-test.sh	0	1	0	0	0	
+regexpattern-eats-close-paren.sh	0	1	0	0	0	
+return-double-semicolon.sh	0	1	0	0	0	
+rmdir-standalone.sh	0	1	0	0	0	
+samefile-operator.sh	0	1	0	0	0	
+sed-backtick.sh	0	1	0	0	0	
+sed-redirect-to-qx.sh	0	1	0	0	0	
+shopt-quiet-flag.sh	0	1	0	0	0	
+single-quote-embed-escape.sh	0	1	0	0	0	
+single-quote-escape.sh	0	1	0	0	0	
+singlequote-escape.sh	0	1	0	0	0	
+sqs-overlap-multiline-awk.sh	0	1	0	0	0	
+sqs-overlap-singleline.sh	0	1	0	0	0	
+subshell-heredoc-close.sh	1	0	0	0	13	eval
+subshell-sed-squote-dquote.sh	0	1	0	0	0	
+sync-direct-call-await.sh	0	1	0	0	0	
+sync-loop-function-call.sh	0	1	0	0	0	
+system-call-builtin-echo.sh	0	1	0	0	0	
+tail-standalone.sh	0	1	0	0	0	
+test-bracket-command-sub.sh	0	1	0	0	0	
+test-bracket-singlequote.sh	0	1	0	0	0	
+test-bracket-unclosed.sh	0	1	0	0	0	
+test-double-bracket.sh	0	1	0	0	0	
+test-escaped-parens-in-function.sh	0	1	0	0	0	
+test-expr-backtick.sh	0	1	0	0	0	
+test-expr-colon.sh	0	1	0	0	0	
+test-expr-dollar-paren.sh	0	1	0	0	0	
+test-expr-float.sh	0	1	0	0	0	
+test-expr-long-option.sh	0	1	0	0	0	
+test-expr-pipe.sh	0	1	0	0	0	
+test-expr-true.sh	0	1	0	0	0	
+test-expression-backslash-continuation.sh	0	1	0	0	0	
+test-operator-S.sh	0	1	0	0	0	
+test-operator-missing.sh	0	1	0	0	0	
+test-string-arith-in-brackets.sh	0	1	0	0	0	
+test_find.sh	0	1	0	0	0	
+test_grep.sh	0	1	0	0	0	
+test_perl_critic.sh	0	1	0	0	0	
+test_simple_function.sh	0	1	0	0	0	
+test_system_builtin.sh	0	1	0	0	0	
+tsv-string-accumulate-loop.sh	0	1	0	0	0	
+tty-cmdsub.sh	10	0	0	0	506	@@,capture
+typeset-cmdsub.sh	5	0	0	0	134	typeset,unset
+uname-in-qx.sh	0	1	0	0	0	
+unclosed-param-expansion.sh	0	1	0	0	0	
+unicode-in-string.sh	0	1	0	0	0	
+unmatched-brace.sh	0	1	0	0	0	
+unset-var-empty-string-test.sh	0	1	0	0	0	
+utf8-non-utf8-content.sh	0	1	0	0	0	
+var-hash-pattern.sh	0	1	0	0	0	
+variable-apostrophe-concat.sh	0	1	0	0	0	
+variable-assignment-concatenated-string.sh	0	1	0	0	0	
+variable-default-with-hash.sh	0	1	0	0	0	
+variable-plus-operator.sh	0	1	0	0	0	
+zsh-style-eval-redirect.sh	0	1	0	0	0	
+zstd_example.sh	1	0	0	0	59	zstd

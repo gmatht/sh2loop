@@ -1,0 +1,11 @@
+The Go application frontends/go-sh/cmd/go-sh/main.go refuses to transpile:
+  go-sh: line 32: unsupported call "golib.Shir" in word position (v2)
+Failing source line:
+  	out, err := golib.Shir(src)
+
+Write a MINIMAL hermetic probe (templates/go/<name>.sig + <name>.go) that
+reproduces THIS construct (one construct per probe; oracle = go run of the
+wrapped snippet). Classify: FRONTEND-GAP | BOUNDARY | DIVERGENCE.
+FRONTEND-GAP → fix it in frontends/go-sh/go-sh.go (in scope).
+BOUNDARY → append a structured request to core-requests/go-sh-dogfood-20260815-contract-boundaries.md.
+Never touch other frontends/ files or the shared core. Stage explicit paths.

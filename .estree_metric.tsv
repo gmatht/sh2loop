@@ -1,0 +1,53 @@
+total	1726
+in_loop	6
+arith	13	
+arithEval	4	
+arrayIndex	30	
+arrayItems	19	
+arrayLen	14	
+assign	11	
+background	8	
+basename	2	
+blockSync	1	
+break	8	
+builtin	573	2
+callDirect	17	
+capture	38	1
+captureSync	78	
+captureWords	2	
+captureWordsSync	4	
+caseMatch	1	
+continue	3	
+cutText	2	
+date	4	
+dirname	5	
+exec	164	2
+fileTest	52	
+fnCall	36	
+forLoop	1	
+forLoopSync	5	
+getVar	45	
+grepMatches	3	
+grepText	20	
+hostname	2	
+idiv	2	
+imod	2	
+listVar	12	
+mktempValue	15	
+param	4	
+pipeline	29	1
+pipelineSync	82	
+readlink	8	
+redirect	49	
+redirectSync	120	
+return	3	
+setArray	16	
+setArrayAppend	5	
+setVar	137	
+subshell	5	
+subshellSync	18	
+test	30	
+uname	9	
+whileLoop	1	
+whileLoopSync	11	
+whoami	3	

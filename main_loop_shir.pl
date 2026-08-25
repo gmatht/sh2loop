@@ -207,26 +207,40 @@ sub verify_transform {
     if (!$edited) { system('rm', '-f', $target); print "  verify: registration anchors not found in transforms.rs\n"; return 0; }
     { open my $fh, '>', $reg or return 0; print $fh $t; close $fh; }
 
-    print "  verify: building debashc with $label...\n";
-    my ($bout, $brc) = run_capture("cd '$sh2perl' && cargo build --manifest-path Cargo.toml --bin debashc 2>&1", 900);
-    if ($brc != 0) {
+    print "  verify: building debashc with $label (isolated target)...\n";
+    # CARGO_TARGET_DIR: NEVER touch the shared main-tree binary — a temp
+    # transform compiled into it would poison the estree worker's next gate
+    # (the phantom-regression class this worker's isolation is about).
+    my $vtarget = "$project_root/.shir-verify-target";
+    my $vbin = "$vtarget/debug/debashc";
+    my ($bout, $brc) = run_capture("CARGO_TARGET_DIR='$vtarget' cargo build --manifest-path '$sh2perl/Cargo.toml' --bin debashc 2>&1", 900);
+    if ($brc != 0 || !-x $vbin) {
         print "  verify: COMPILE ERROR:\n", substr($bout, -400), "\n";
         system('git', '-C', $sh2perl, 'checkout', '--', 'src/transforms.rs');
         system('rm', '-f', $target);
         return 0;
     }
 
-    # gate: shell-outs must go DOWN under this transform
-    my ($gout, $grc) = run_capture("DEBASHC_TRANSFORMS='$label' $gate" . ($prefix ne '' ? " $prefix" : ''), 3600);
+    # gate: shell-outs must go DOWN under this transform (against the
+    # ISOLATED binary, never the shared one)
+    my ($gout, $grc) = run_capture("DEBASHC='$vbin' DEBASHC_TRANSFORMS='$label' $gate" . ($prefix ne '' ? " $prefix" : ''), 3600);
     my $g = parse_summary($gout);
     my $ok = defined $g->{total} && $g->{total} < $want_less;
     print "  verify: fail-shir with transform: total=$g->{total} (was $want_less) bashfree=$g->{bashfree}\n";
     if (!$ok) {
         print "  verify: shell-outs did not decrease — rejecting transform\n";
     } else {
-        # behavioral no-regression: estree corpus must stay at trusted
+        # behavioral no-regression: estree corpus must stay at trusted. The
+        # gate runs against the isolated binary via a symlinked SH2PERL_DIR
+        # (examples + binary in one dir, like the main tree's layout).
         my $trusted = estree_trusted();
-        my ($eout, $erc) = run_capture("DEBASHC_TRANSFORMS='$label' $fail_estree 2>&1", 3600);
+        my $edir = "$project_root/.shir-verify-estree";
+        system('rm', '-rf', $edir);
+        system('mkdir', '-p', "$edir/target/debug");
+        system('ln', '-s', $sh2perl . '/examples', "$edir/examples");
+        system('ln', '-s', $vbin, "$edir/target/debug/debashc");
+        my ($eout, $erc) = run_capture("SH2PERL_DIR='$edir' $fail_estree 2>&1", 3600);
+        system('rm', '-rf', $edir);
         my $efailed = 10_000;
         if ($eout =~ /ESTREE:\s+\d+ passed, (\d+) failed/) { $efailed = $1; }
         print "  verify: fail-estree with transform: estree_failed=$efailed (trusted=$trusted)\n";
@@ -468,6 +482,12 @@ while (1) {
         next;
     }
     update_trusted($summary);
+
+    # per-iteration report for summarize-progress.sh (the fleet convention:
+    # the newest line in gate-reports/<name>.report is the latest report)
+    open my $rfh, '>>', "$project_root/gate-reports/shir.report" or warn "write gate-reports/shir.report: $!";
+    print $rfh localtime(), " shir: $summary->{bashfree}/$summary->{total} bash-free, $summary->{norm_sites} normalisable call sites\n";
+    close $rfh;
 
     poll_outcomes();
 

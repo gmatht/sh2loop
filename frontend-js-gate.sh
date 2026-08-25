@@ -33,14 +33,25 @@ TIMEOUT=20
 
 # per-file verdict cache (lang<TAB>file<TAB>PASS|FAIL|SKIP<TAB>[reason])
 TSV="$ROOT/.frontend_gate.tsv"
-: > "$TSV"
+# A full run (no args) rewrites the cache from scratch; a partial run
+# (lang args) appends so it can extend a cached full run without
+# discarding the already-gated languages.
+LANGS=("$@")
+if [ "${#LANGS[@]}" -eq 0 ]; then
+  LANGS=(sh go py fish zsh pl c cpp rust zig powershell)
+  : > "$TSV"
+fi
 
 # source lang → (testdata dir, native ext, frontend binary | '' = core's sh parser)
-declare -A TD=(  [sh]=posix-sh-go  [go]=go-sh  [py]=py-sh-go  [fish]=fish-sh-go  [zsh]=zsh-sh-go  [pl]=perl-sh-go  [c]=c-sh-go )
-declare -A EXT=( [sh]=sh  [go]=go  [py]=py  [fish]=fish  [zsh]=zsh  [pl]=pl  [c]=c )
-declare -A BIN=( [go]=go-sh  [py]=py-sh-go  [fish]=fish-sh-go  [zsh]=zsh-sh-go  [pl]=perl-sh-go  [c]=c-sh-go )
+declare -A TD=(  [sh]=posix-sh-go  [go]=go-sh  [py]=py-sh-go  [fish]=fish-sh-go  [zsh]=zsh-sh-go  [pl]=perl-sh-go  [c]=c-sh-go  [cpp]=cpp-sh-go  [rust]=rust-frontend  [zig]=zig-sh-go  [powershell]=powershell-sh-go )
+declare -A EXT=( [sh]=sh  [go]=go  [py]=py  [fish]=fish  [zsh]=zsh  [pl]=pl  [c]=c  [cpp]=cc  [rust]=rs  [zig]=zig  [powershell]=ps1 )
+declare -A BIN=( [go]=go-sh  [py]=py-sh-go  [fish]=fish-sh-go  [zsh]=zsh-sh-go  [pl]=perl-sh-go  [c]=c-sh-go  [cpp]=cpp-sh-go  [rust]=target/debug/rust-frontend  [zig]=zig-sh-go  [powershell]=powershell-sh-go )
 
 # Native reference stdout (nonzero exit = un-runnable → skip).
+# cpp/rust/powershell/zig gate exactly like harness/frontend-stdout.sh
+# (the fleet's frontend-stdout gate): cpp/rust compile+run, zig merges
+# stderr (zig's std.debug.print writes there), powershell prefers the
+# direct snap binary (snap-confine fails in containerized workers).
 ref_stdout() {
   local ext="$1" file="$2"
   case "$ext" in
@@ -51,19 +62,34 @@ ref_stdout() {
     zsh)  timeout $TIMEOUT zsh "$file" 2>/dev/null ;;
     pl)   timeout $TIMEOUT perl "$file" 2>/dev/null ;;
     c)    timeout $TIMEOUT gcc "$file" -o "$TMP/refbin" 2>/dev/null && timeout $TIMEOUT "$TMP/refbin" 2>/dev/null ;;
+    cpp)  timeout $TIMEOUT g++ "$file" -o "$TMP/refbin" 2>/dev/null && timeout $TIMEOUT "$TMP/refbin" 2>/dev/null ;;
+    rs)   timeout $TIMEOUT rustc "$file" -o "$TMP/refbin" 2>/dev/null && timeout $TIMEOUT "$TMP/refbin" 2>/dev/null ;;
+    zig)  timeout $TIMEOUT "${ZIGBIN:-zig}" run "$file" 2>&1 ;;
+    ps1)  timeout $TIMEOUT "${PWSHBIN:-pwsh}" -NoProfile -File "$file" 2>/dev/null ;;
   esac
 }
 
 normalize() { printf '%s' "$1" | sed 's/\r$//' | sed '/^[[:space:]]*$/d'; }
 
-LANGS=("$@")
-[ "${#LANGS[@]}" -eq 0 ] && LANGS=(sh go py fish zsh pl c)
+# zig/pwsh: prefer the direct snap binary over the /snap/bin wrapper
+# (snap-confine re-exec fails in containerized workers — the same
+# rationale as harness/frontend-stdout.sh's go/zig/pwsh branches).
+if [ -x /snap/zig/current/zig ]; then ZIGBIN=/snap/zig/current/zig; elif [ -x /snap/zig/current/bin/zig ]; then ZIGBIN=/snap/zig/current/bin/zig; fi
+if [ -x /snap/powershell/current/opt/powershell/pwsh ]; then PWSHBIN=/snap/powershell/current/opt/powershell/pwsh; fi
+
+# per-frontend testdata dir (cpp keeps it in testdata_cpp/, the rest in testdata/)
+declare -A TDD=( [cpp]=testdata_cpp )
 
 for lang in "${LANGS[@]}"; do
   pass=0; skip=0; fail=0; fails=""
-  for f in "$ROOT/frontends/${TD[$lang]}/testdata/"*."${EXT[$lang]}"; do
+  td="${TDD[$lang]:-testdata}"
+  for f in "$ROOT/frontends/${TD[$lang]}/$td/"*."${EXT[$lang]}"; do
     [ -f "$f" ] || continue
     bn=$(basename "$f")
+    # refusal pins (*_refuse.*) are the frontend's negative tests — the
+    # emit MUST fail, asserted by the frontend's own gate; never a FAIL
+    # here (mirrors harness/frontend-stdout.sh's skip).
+    case "$bn" in *_refuse*) printf '%s\t%s\tSKIP\trefusal pin\n' "$lang" "$bn" >> "$TSV"; skip=$((skip+1)); continue ;; esac
     # 1. frontend → A1 (the core's sh parser for sh; the frontend wasm/binary otherwise)
     if [ "$lang" = sh ]; then
       a1=$("$DEBASHC" file --shir "$f" 2>/dev/null)

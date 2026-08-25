@@ -29,7 +29,12 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 ROOT="$(pwd)"
-SUB="$ROOT/sh2perl"
+# The core worker lives in its OWN git worktree (sh2perl/backends/core on
+# backend/core, the fleet's isolation pattern): its WIP, verify-cycles and
+# commits never touch the main tree the estree worker's gate reads. It
+# lands on main ONLY via a green merge. See the estree-worker deadlock
+# this fixes: the split gave role separation without tree separation.
+SUB="$ROOT/sh2perl/backends/core"
 LOG="$ROOT/loop-core-worker.log"
 DEBASHC="$SUB/target/debug/debashc"
 REQS="$ROOT/core-requests"
@@ -177,19 +182,38 @@ PYEOF
   v=$(a1_gate)
   echo "[$(date +%FT%T)] core: A1-native invariant — $v exec-of-builtin violations" >> "$LOG"
 
-  # ── 3. finalize: commit accepted core changes when green ──
-  if [ "$(a1_gate)" -eq 0 ] && "$ROOT/harness/build-lock.sh" --role core -- cargo test --lib \
+  # ── 3. finalize: commit accepted core changes when green (in the WORKTREE) ──
+  # The estree corpus is part of the core worker's green: it must never
+  # land a marketplace change that regresses the estree path (the
+  # array/function regressions that started this — its old gate was only
+  # check_qx_shir + lib tests). SH2PERL_DIR points fail-estree at THIS
+  # worktree's binary.
+  estree_fails=$(SH2PERL_DIR="$SUB" "$ROOT/fail-estree" 2>/dev/null | sed -n 's/.*ESTREE: [0-9]* passed, \([0-9]*\) failed.*/\1/p' | tail -1)
+  estree_fails=${estree_fails:-9999}
+  if [ "$(a1_gate)" -eq 0 ] && [ "$estree_fails" -le 0 ] && \
+       "$ROOT/harness/build-lock.sh" --role core -- cargo test --lib \
        --manifest-path "$SUB/Cargo.toml" >> "$LOG" 2>&1; then
-    echo "[$(date +%FT%T)] core: gate GREEN (A1 native + lib tests)" >> "$LOG"
-    printf '%s core-worker: GREEN (A1-native %s, %s done, %s rejected)\n' "$(date +%FT%T)" "$v" "$(done_count)" "$(rejected_count)" >> "$ROOT/gate-reports/core-worker.report"
+    echo "[$(date +%FT%T)] core: gate GREEN (A1 native + estree corpus + lib tests)" >> "$LOG"
+    printf '%s core-worker: GREEN (A1-native %s, estree %s fails, %s done, %s rejected)\n' "$(date +%FT%T)" "$v" "$estree_fails" "$(done_count)" "$(rejected_count)" >> "$ROOT/gate-reports/core-worker.report"
     if [ -n "$(git -C "$SUB" status --porcelain -- src/ 2>/dev/null)" ]; then
       git -C "$SUB" add src/ 2>/dev/null || true
-      git -C "$SUB" commit -m "core marketplace: accepted transforms (build + invariants green)" 2>/dev/null || true
+      git -C "$SUB" commit -m "core marketplace: accepted transforms (build + invariants + estree corpus green)" 2>/dev/null || true
+    fi
+    # LAND on main ONLY when green, via merge — the estree worker's main
+    # tree stays clean (it never sees this worker's WIP or commits-in-
+    # progress). ff-only: if main moved (estree commits), defer to the next
+    # iteration rather than risk a cross-worker merge conflict.
+    if [ -n "$(git -C "$SUB" log --oneline main..backend/core 2>/dev/null)" ]; then
+      if git -C "$ROOT/sh2perl" merge --ff-only backend/core >> "$LOG" 2>&1; then
+        echo "[$(date +%FT%T)] core: landed backend/core -> main (ff)" >> "$LOG"
+      else
+        echo "[$(date +%FT%T)] core: ff-merge deferred (main moved) — will retry next iteration" >> "$LOG"
+      fi
     fi
     wake_sleepers
   else
-    echo "[$(date +%FT%T)] core: gate RED after acceptance — left for the next iteration (never bless a regression)" >> "$LOG"
-    printf '%s core-worker: RED (A1-native %s, %s done, %s rejected)\n' "$(date +%FT%T)" "$v" "$(done_count)" "$(rejected_count)" >> "$ROOT/gate-reports/core-worker.report"
+    echo "[$(date +%FT%T)] core: gate RED (a1=$v estree=$estree_fails) after acceptance — left for the next iteration (never bless a regression)" >> "$LOG"
+    printf '%s core-worker: RED (A1-native %s, estree %s fails, %s done, %s rejected)\n' "$(date +%FT%T)" "$v" "$estree_fails" "$(done_count)" "$(rejected_count)" >> "$ROOT/gate-reports/core-worker.report"
   fi
   sleep "$WATCH"
 done

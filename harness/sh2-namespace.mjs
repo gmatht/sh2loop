@@ -2312,6 +2312,59 @@ export const sh2 = {
   strContainsRune(s, r) {
     return String(s).indexOf(String.fromCharCode(Number(r))) >= 0;
   },
+  // ── POINTER INDIRECTION (&x / *x over named store slots) ──
+  // &var lowers to addrVar(name): an opaque REFERENCE ID riding the
+  // normal value channels; *p reads lower to derefGet, *p = v writes
+  // to derefSet. References to ARRAY-typed names carry the array value
+  // as a JS array (so append-into and iteration compose); scalars go
+  // through the plain store.
+  addrVar(name) {
+    const nm = String(name);
+    const id = 'ref#' + (++this._objSeq);
+    this._objStore.set(id, { kind: 'ref', name: nm });
+    return id;
+  },
+  _refTarget(id) {
+    const o = this._objStore.get(String(id));
+    return o && o.kind === 'ref' ? o.name : null;
+  },
+  derefGet(id) {
+    const nm = this._refTarget(id);
+    if (nm === null) {
+      // a BOX object (struct-style indirection) or nil
+      const o = this._objStore.get(String(id));
+      if (o && o.kind === 'box') return o.value ?? '';
+      return '';
+    }
+    if (this.arrays.has(nm)) return [...this.arrays.get(nm)];
+    return this.getVar(nm);
+  },
+  derefSet(id, v) {
+    const nm = this._refTarget(id);
+    if (nm === null) {
+      const o = this._objStore.get(String(id));
+      if (o && o.kind === 'box') o.value = v ?? '';
+      return true;
+    }
+    if (Array.isArray(v)) { this.setArray(nm, v); return true; }
+    this.setVar(nm, String(v ?? ''));
+    return true;
+  },
+  // appendTo: `*out = append(*out, vals...)` — appends into the
+  // referenced container, auto-vivifying nil slices (Go semantics).
+  appendTo(id, ...vals) {
+    const nm = this._refTarget(id);
+    if (nm !== null) {
+      let cur = this.arrays.get(nm) ?? [];
+      for (const v of vals) {
+        cur.push(String(Array.isArray(v) ? v.join(' ') : v ?? ''));
+      }
+      this.arrays.set(nm, cur);
+      return id;
+    }
+    // non-ref target: fall back to listPush semantics on boxes
+    return this.listPush(id, ...vals);
+  },
   // strItoa / strAtoi: Go strconv.Itoa/Atoi twins
   strItoa(n) { return String(Number(n)); },
   strAtoi(s) {
@@ -2336,6 +2389,55 @@ export const sh2 = {
   // strLastIndex / strIndex: Go strings.LastIndex/Index twins (numbers)
   strLastIndex(s, sep) { return String(s).lastIndexOf(String(sep)); },
   strIndex(s, sep) { return String(s).indexOf(String(sep)); },
+  // cgoUnsupported(target, ...args) — the CGO-PATH runtime guard: a
+  // shIR CgoCall node renders here on the JS/browser path. These
+  // constructs execute ONLY via the C frontend build (native linkage);
+  // throwing beats silently mis-lowering. See
+  // frontends/go-sh/FRONTEND.md "CGO-PATH node sketch".
+  cgoUnsupported(target) {
+    throw new Error(
+      'debashc: cgo-path construct ' + String(target ?? '') +
+      ' requires the C frontend build (native linkage)'
+    );
+  },
+
+  // joinSep(items, sep) — join array items with an arbitrary separator
+  // (Go strings.Join for non-space separators; the A1 join() builtin
+  // always uses spaces). items arrive as whatever sh2.param("slice",…)
+  // returns — an array of strings.
+  joinSep(items, sep) {
+    if (Array.isArray(items)) return items.map(String).join(String(sep ?? ''));
+    // param("slice",…) returns a space-joined string in some contexts;
+    // for the newline case we can split-and-rejoin
+    const s = String(items ?? '');
+    if (String(sep ?? '') === '\n') return s.split(' ').join('\n');
+    return s;
+  },
+
+  // strReplaceAll(s, old, neu) — replace ALL occurrences of old with
+  // neu (Go strings.ReplaceAll with computed/non-literal operands;
+  // literal ${s//old/new} covers the static case). Splits on `old` and
+  // rejoins so multi-char olds compose without regex escaping.
+  strReplaceAll(s, old, neu) {
+    const parts = String(s ?? '').split(String(old ?? ''));
+    return parts.join(String(neu ?? ''));
+  },
+
+  // strCompare(a, b) — Go strings.Compare: -1 if a<b, 0 if a==b, 1 if a>b
+  strCompare(a, b) {
+    const x = String(a ?? ''), y = String(b ?? '');
+    return x < y ? -1 : x > y ? 1 : 0;
+  },
+
+  // strContainsAny(s, cutset) — true iff s contains ANY character from
+  // the cutset (Go strings.ContainsAny). Membership over a char set.
+  strContainsAny(s, cutset) {
+    const cs = String(cutset ?? '');
+    const t = String(s ?? '');
+    for (const ch of cs) if (t.includes(ch)) return true;
+    return false;
+  },
+
   // strHasPrefix / strHasSuffix: native string-affix tests for operands
   // that aren't store vars (`strings.HasPrefix(src[i:], op)` — a slice
   // expression rides as a word). Return real booleans for native BinOp.
@@ -2453,6 +2555,100 @@ export const sh2 = {
       itf.on('close', () => finish());
       itf.on('error', reject);
       input.on('error', reject);
+    });
+    this.pending.push(p);
+    return p;
+  },
+
+  // ONE line from stdin, newline stripped; EOF → '' (bash `read VAR`
+  // semantics for the single-variable subset). The readline interface is
+  // created lazily and reused across calls.
+  async readLine() {
+    if (!this._stdinRl) {
+      const rlmod = await import('node:readline');
+      this._stdinRl = rlmod.createInterface({ input: process.stdin, crlfDelay: Infinity });
+    }
+    const it = this._stdinRl[Symbol.asyncIterator]();
+    const r = await it.next();
+    return r.done ? '' : r.value;
+  },
+
+  // STREAMING directory walk (docs/shir-primitives.md §WalkDir): GNU find
+  // subset — entries delivered one at a time to cb, file contents never
+  // read. opts: { type: 'f'|'d'|undefined, maxdepth?: number }.
+  walkLines(path, opts, cb) {
+    const p = new Promise((resolve, reject) => {
+      const max = opts && opts.maxdepth != null ? Number(opts.maxdepth) : Infinity;
+      // -name GLOB: fnmatch-style on the BASE NAME (* ? [...] classes)
+      let nameRe = null;
+      if (opts && opts.name) {
+        let re = '';
+        for (let i = 0; i < opts.name.length; i++) {
+          const c = opts.name[i];
+          if (c === '*') re += '[^/]*';
+          else if (c === '?') re += '[^/]';
+          else if (c === '[') {
+            let j = i + 1;
+            if (opts.name[j] === '!' || opts.name[j] === '^') j++;
+            while (j < opts.name.length && opts.name[j] !== ']') j++;
+            if (j >= opts.name.length) { re += '\\['; continue; }
+            let cls = opts.name.slice(i, j + 1);
+            if (cls[1] === '!' || cls[1] === '^') cls = '[' + '^' + cls.slice(2);
+            re += cls;
+            i = j;
+          } else re += c.replace(/[.+^$\\|(){}]/g, '\\$&');
+        }
+        nameRe = new RegExp('^' + re + '$');
+      }
+      const nameOk = (full) =>
+        !nameRe || nameRe.test(full.replace(/^.*\//, ''));
+      let done = false;
+      const fail = (e) => { if (!done) { done = true; reject(e); } };
+      const visit = (dir, depth, prefix) => {
+        if (done) return;
+        let entries;
+        try {
+          entries = fs.readdirSync(dir, { withFileTypes: true });
+        } catch (e) {
+          // GNU find: an unreadable dir is an error, but the walk continues
+          // elsewhere; surface it like find's stderr (stderr is not compared)
+          return;
+        }
+        for (const e of entries) {
+          if (done) return;
+          const full = prefix + e.name;
+          const isDir = e.isDirectory();
+          const wantType =
+            (!opts || !opts.type ||
+            (opts.type === 'f' && e.isFile()) ||
+            (opts.type === 'd' && isDir)) && nameOk(full);
+          if (wantType) {
+            try {
+              cb(full);
+              if (isDir && depth + 1 < max) visit(full + '/', depth + 1, full + '/');
+            } catch (e2) { done = true; fail(e2); return; }
+          } else if (isDir && depth + 1 < max) {
+            visit(full + '/', depth + 1, full + '/');
+          }
+        }
+      };
+      try {
+        // GNU find evaluates the START point against the predicates too
+        // (`find . -type d` lists "." itself)
+        let stStart;
+        try { stStart = fs.statSync(path); } catch { stStart = null; }
+        if (stStart) {
+          const wantStart =
+            (!opts || !opts.type ||
+            (opts.type === 'f' && stStart.isFile()) ||
+            (opts.type === 'd' && stStart.isDirectory())) && nameOk(path);
+          if (wantStart) {
+            try { cb(path); } catch (e2) { done = true; fail(e2); }
+          }
+        }
+        visit(path, 0, path.endsWith('/') ? path : path + '/');
+        if (!done) { done = true; resolve(); }
+      } catch (e) { fail(e); }
     });
     this.pending.push(p);
     return p;

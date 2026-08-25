@@ -119,6 +119,46 @@ pub extern "C" fn otranspilerl_shir(input: *const u8, input_len: usize) -> *mut 
     alloc_string(&ok_json(&crate::shell_to_shir(&input)))
 }
 
+/// `otranspilerl_lex(input, input_len)` — shell source → token dump (the
+/// CLI `lex` command's output: one debug-formatted token per line + a
+/// total). The debashc reactor exposes the same helper; otranspilerl now
+/// does too, so the facade's `lex` doesn't need the legacy debashcl wasm.
+#[no_mangle]
+pub extern "C" fn otranspilerl_lex(input: *const u8, input_len: usize) -> *mut u8 {
+    let input = take_input(input, input_len);
+    let mut lexer = debashl::lexer::Lexer::new(&input);
+    let mut out = String::from("Lexing input:\n");
+    out.push_str(&"=".repeat(50));
+    out.push('\n');
+    let mut count = 0usize;
+    while let Some(token) = lexer.next() {
+        out.push_str(&format!("{token:?}\n"));
+        count += 1;
+    }
+    out.push_str(&"=".repeat(50));
+    out.push_str(&format!("\nTotal tokens: {count}"));
+    alloc_string(&ok_json(&out))
+}
+
+/// `otranspilerl_compile(input, input_len, opts, opts_len)` — shell →
+/// the estree AFTER the moved estreeToJs head passes (the wasm's
+/// prefix), as `{"estree": <estree JSON>}`. The JS side continues at
+/// pass #5 (awaitAsyncDirectCalls) — see PLAN-wasm-estree-pipeline.md.
+#[no_mangle]
+pub extern "C" fn otranspilerl_compile(
+    input: *const u8,
+    input_len: usize,
+    opts: *const u8,
+    opts_len: usize,
+) -> *mut u8 {
+    let input = take_input(input, input_len);
+    let opts = take_input(opts, opts_len);
+    match crate::compile(&input, &opts) {
+        Ok(out) => alloc_string(&ok_json(&out)),
+        Err(e) => alloc_string(&err_json(&e)),
+    }
+}
+
 /// `otranspilerl_render(a1, a1_len, lang, lang_len)` — A1 shIR JSON →
 /// target source, in-process. `lang` is the bare target name.
 #[no_mangle]
