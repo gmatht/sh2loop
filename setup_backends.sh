@@ -256,6 +256,13 @@ Merge discipline:
   phase) — queue, don't fork
 
 Verify: the corpus gate must stay 100% and the metric must only go down.
+
+Policy (2026-08-25, AGENTS.md §Backend worktree discipline — binding):
+merge main before every verification run; translate constructs into
+NATIVE backend idioms (fork/exec is a last-resort fallback, catalogued
+in docs/backend-<lang>-limitations.md); share reusable lowerings as
+drop-in shIR->shIR transforms under src/transforms/ linked via
+build.rs codegen — never fork shared dispatch code.
 EOF
 }
 
