@@ -2283,6 +2283,11 @@ export const sh2 = {
     return id;
   },
   listGet(id, i) {
+    // inline array field value (see listLen)
+    if (Array.isArray(id)) {
+      const idx = Number(i);
+      return idx >= 0 && idx < id.length ? String(id[idx]) : '';
+    }
     const o = this._objStore.get(String(id));
     if (!o || o.kind !== 'list') return '';
     const idx = Number(i);
@@ -2294,6 +2299,9 @@ export const sh2 = {
     return true;
   },
   listLen(id) {
+    // an INLINE array (a struct-literal field value stored verbatim,
+    // not a list#N ref) counts directly
+    if (Array.isArray(id)) return String(id.length);
     const o = this._objStore.get(String(id));
     return o && o.kind === 'list' ? String(o.items.length) : '0';
   },
