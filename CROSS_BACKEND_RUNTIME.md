@@ -171,6 +171,18 @@ improves, the polyfills can use more constructs.
   `cargo test --lib` 386/386. Known remaining gap: the same ref-pattern
   lowering in ECHO position (the `_g` wrap is dropped there — a
   pre-existing echo-path gap, not a regression).
+- 2026-08-26: **M3 progress — glob matching landed** (`globMatch` +
+  `caseMatch`, 16 functions total), transpiled output **byte-identical
+  to bash** on the full battery (star/any/class/negated-class/escape/
+  empty/multi-star + caseMatch first-match). Construct-set findings:
+  `[[ $(fn) == "1" ]]` lowers to a runtime test with a literal `$(...)`
+  — capture into a variable first; the runtime's test treats QUOTED
+  `?`/`*`/`[` as globs (bash treats them literal) — dispatch on
+  metachars via `case "$c" in \*|\?|\[)` (escaped patterns work);
+  `${#p}` in test strings fails — use `(( plen > 1 ))`; nested
+  `${rest:0:${#close}}` slices break the parser — precompute lengths.
+  Limitations (first cut): no extglob, no nocasematch, no
+  pattern-`$()`-expansion.
 - 2026-08-26: **backend consumption guide** — `runtime/README.md`
   (transpile → link → adapter → dependency closure → self-test oracle →
   construct-set constraint → rollout status).

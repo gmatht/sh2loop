@@ -15,7 +15,7 @@ host-bound seam (`exec`, `fs.*`, `pipeline`, `redirect`, `capture`,
 `background`, `subshell`, `exit`, `getVar`/`setVar`, error codes) stays
 per-backend.
 
-Current inventory (14 functions):
+Current inventory (16 functions):
 
 | function | semantics | hand-written ref (sh2-namespace.mjs) |
 |---|---|---|
@@ -31,6 +31,13 @@ Current inventory (14 functions):
 | `strReplaceAll` | literal replace-all | :2539 |
 | `strContainsAny` | any-char membership | :2552 |
 | `joinSep` | join args with separator | :2522 |
+| `globMatch` | recursive glob matcher (lit, `*`, `?`, `[class]`, `\`escape) | :8311 |
+| `caseMatch` | first pattern matching value | :1837 |
+
+`caseMatch`/`globMatch` limitations (first cut): no extglob
+(`?(..)` `*(..)` `+(..)` `@(..)` `!(..)`), no `nocasematch`, no
+pattern-`$()`-expansion — the hand-written runtime's `caseMatch`
+handles those; the polyfill defers them.
 
 ## 2. The build step
 
