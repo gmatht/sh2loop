@@ -12,6 +12,19 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v35: **Session total: gate 541 → 605 peak → 599–604 (37 reds), 30+
+>   commits of C backend improvements on backend/c.** Major features:
+>   native while-read loops with IFS-aware `_sh_read_split()` field
+>   splitting, Ext(ForEachLine) C getline rendering, eval/./source
+>   state-import sites, runtime assoc keys for `$`-bearing subscripts,
+>   `${#arr[@]}` native counts in let conds via `__SHCNT_` token
+>   substitution + `apply_array_counts()` rewrite, printf `-v` native,
+>   flow peeling from and/or chains, expanding param defaults, echo -e
+>   text stages, bare export env sync, extglob test sites, case pattern
+>   dequoting, word-separation fixes (env prefixes, assign values,
+>   interpolated getVar), heredoc terminator ordering, DSE guard fix
+>   offered per §11. Post-merge regression from main's StorageClass/
+>   _sh_mstr landing fixed by reverting to raw char* declarations.
 > - v34: **ForEachLine landed IN CORE; §11 marketplace status recorded.**
 >   The three-layer completion (enc.rs Array round-trip, cat_read counter
 >   zero-init + BinOp-typed increment, c_backend body-var hoisting +
