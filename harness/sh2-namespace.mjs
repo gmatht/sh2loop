@@ -3307,6 +3307,25 @@ export const sh2 = {
     return '[' + elems.map(e => String(e ?? '')).join(',') + ']';
   },
 
+  // assocHas(name, key) — whether an assoc-array (map) has the key
+  // (the golib's `if _, ok := m[k]; !ok` presence checks): "true"/"false".
+  assocHas(name, key) {
+    const nm = String(name);
+    // the key word is resolved at runtime (a member/call key lowers to
+    // its cmdsub — `$(callName e)`, `$(sh2.jsonGet(t, text))`)
+    const ks = String(expandWord(this, String(key)));
+    if (!this.assocNames.has(nm)) {
+      // a dotted struct-member key (`p.struct ...`): resolve the field
+      // list via jsonGet
+      if (this.getVar(nm).startsWith('{')) {
+        return this.jsonGet(nm, ks) !== '' ? 'true' : 'false';
+      }
+      return 'false';
+    }
+    const store = this.assocStore.get(nm);
+    return store && store.has(normAssocKey(ks)) ? 'true' : 'false';
+  },
+
   // jsonGet(name, key) — read a field of a struct (or a key of a map
   // field, or an element of an array field — an array's key is
   // evalArith'd, a map's key is a name). Resolve the name (a JSON value
@@ -7232,11 +7251,55 @@ function runCmdSubst(s, sh) {
   // `)`).
   const sh2re = /\$\(sh2\.([A-Za-z_][A-Za-z0-9_]*)\(/g;
   let out = String(s);
+  // a recursive sh2.* helper evaluator: split args at top-level commas
+  // (tracking paren depth and nested `$(...)`), recursively evaluate
+  // nested sh2.* calls, then dispatch to the runtime helper.
+  const evalSh2 = (inner) => {
+    const call = inner.slice(0, inner.indexOf('('));
+    const fn = call.trim().replace(/^sh2\./, '');
+    const body = inner.slice(inner.indexOf('(') + 1, -1);
+    // split body at top-level commas (depth-aware)
+    const args = [];
+    let depth = 0;
+    let cur = '';
+    for (let i = 0; i < body.length; i++) {
+      const ch = body[i];
+      if (ch === '(') depth++;
+      else if (ch === ')') depth--;
+      if (ch === ',' && depth === 0) { args.push(cur); cur = ''; continue; }
+      cur += ch;
+    }
+    if (cur.trim() !== '') args.push(cur);
+    // resolve each arg (a nested sh2.* call is evaluated recursively;
+    // a `$(...)` cmdsub used as an arg is resolved)
+    const resolved = args.map(a => {
+      a = a.trim();
+      const m2 = /^\$\(sh2\.[A-Za-z_][A-Za-z0-9_]*\([\(]?\)?/;
+      if (/^\$\(sh2\.[A-Za-z_][A-Za-z0-9_]*\(/.test(a)) {
+        // find the helper's body: skip the `$(` opener, locate the
+        // helper's `(`, then match its balanced close.
+        const firstOpen = a.indexOf('(');
+        const bodyStart = a.indexOf('(', firstOpen + 1);
+        let d = 0;
+        let j = bodyStart;
+        for (let k = bodyStart; k < a.length; k++) {
+          if (a[k] === '(') d++;
+          else if (a[k] === ')') { d--; if (d === 0) { j = k; break; } }
+        }
+        return evalSh2(a.slice(2, j + 1));
+      }
+      return a;
+    });
+    let val = '';
+    if (fn === 'byteAt' && resolved.length === 2) val = sh.byteAt(resolved[0], resolved[1]);
+    else if (fn === 'jsonGet' && resolved.length === 2) val = sh.jsonGet(resolved[0], resolved[1]);
+    else if (fn === 'chr' && resolved.length === 1) val = sh.chr(resolved[0]);
+    else if (fn === 'assocGet' && resolved.length === 2) val = sh.assocGet(resolved[0], resolved[1]);
+    return val;
+  };
   let m;
   while ((m = sh2re.exec(out)) !== null) {
     const fn = m[1];
-    // depth = the parens in the matched prefix (`$(sh2.byteAt(` has TWO
-    // opens: the cmdsub's and the call's) — the scan closes them all.
     let depth = 0;
     for (const ch of m[0]) if (ch === '(') depth++;
     let j = m.index + m[0].length;
@@ -7246,17 +7309,9 @@ function runCmdSubst(s, sh) {
       j++;
     }
     const inner = out.slice(m.index + 2, j - 1); // between $( and the final )
-    const args = inner.slice(inner.indexOf('(') + 1, -1).split(',').map(a => a.trim()).filter(a => a !== '');
-    let val = '';
-    if (fn === 'byteAt' && args.length === 2) {
-      val = sh.byteAt(args[0], args[1]);
-    } else if (fn === 'jsonGet' && args.length === 2) {
-      val = sh.jsonGet(args[0], args[1]);
-    } else if (fn === 'chr' && args.length === 1) {
-      val = sh.chr(args[0]);
-    }
+    let val = evalSh2(inner);
     out = out.slice(0, m.index) + val + out.slice(j);
-    sh2re.lastIndex = m.index + val.length;
+    sh2re.lastIndex = m.index + (val === undefined ? 0 : val.length);
   }
   return out.replace(/\$(\(\([\s\S]*?\)\)|\([\s\S]*?\)|`[\s\S]*?`)/g, (mm) => {
     if (mm.startsWith('$(') && !mm.startsWith('$((')) {
@@ -8067,6 +8122,17 @@ function arithExpand(sh, s) {
   });
   out = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, n) => sh.getVar(n));
   out = out.replace(/\$(\d+|[@#*?$])/g, (_, n) => sh.getVar(n));
+  // a struct MEMBER ref (`$p.pos` — the go-sh self-hosting contract):
+  // resolve the field of the struct's JSON object string (a lifted
+  // scalar `$s.X` lower to the dotted getVar, which this falls through
+  // to below).
+  out = out.replace(/\$([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)/g, (_, base, field) => {
+    const v = sh.getVar(base);
+    if (v.startsWith('{')) {
+      try { return JSON.parse(v)[field] ?? ''; } catch { return ''; }
+    }
+    return sh.getVar(`${base}.${field}`);
+  });
   out = out.replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (_, n) => sh.getVar(n));
   // $(cmd) — command substitution (nested arithmetic like
   // `$(( $(wc -l < f) + 1 ))`)
