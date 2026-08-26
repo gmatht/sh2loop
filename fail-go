@@ -118,7 +118,25 @@ measure_once() { # f -> run oracle+JS(+Rust) ONCE; store MO MORC MJ MJRC MJv MR 
   wrp=$(wrap_go "$f")
   tmp=$(mktemp -d)
   printf '%s\n' "$wrp" > "$tmp/main.go"
-  MO="$(cd "$tmp" && timeout "$TIMEOUT" go run main.go </dev/null 2>/dev/null)"; MORC=$?
+  # the app oracle needs the go-sh module context: the golib import
+  # (`github.com/gmatht/sh2loop/frontends/go-sh`) resolves only through
+  # go.mod replace directives (a dependency's own replaces are ignored —
+  # the main module must repeat them). Without this, `go run` dies with
+  # "no required module provides package ..." and the oracle rc=1
+  # masquerades as an app failure. The app is also BUILT (not `go run`):
+  # `go run` wraps any non-zero exit as rc=1 + "exit status N" on stderr,
+  # hiding the app's true exit code from the gate's rc comparison.
+  if grep -q 'gmatht/sh2loop/frontends/go-sh' "$f"; then
+    printf 'module app\n\ngo 1.21\n\nrequire github.com/gmatht/sh2loop/frontends/go-sh v0.0.0\n\nreplace github.com/gmatht/sh2loop/frontends/go-sh => %s\n\nreplace github.com/gmatht/sh2loop/frontends/shir-emit-go => %s\n' \
+      "$ROOT/frontends/go-sh" "$ROOT/frontends/shir-emit-go" > "$tmp/go.mod"
+    if (cd "$tmp" && timeout "$TIMEOUT" go build -o appbin main.go 2>/dev/null); then
+      MO="$(cd "$tmp" && timeout "$TIMEOUT" ./appbin </dev/null 2>/dev/null)"; MORC=$?
+    else
+      MO=""; MORC=1
+    fi
+  else
+    MO="$(cd "$tmp" && timeout "$TIMEOUT" go run main.go </dev/null 2>/dev/null)"; MORC=$?
+  fi
   MO=$(printf '%s' "$MO" | tr '\n' '\036')   # record separator, keep exact bytes-ish
   # ── JS target ──
   a1=$(timeout "$TIMEOUT" "$GOSH" --shir "$f" --raw 2>/dev/null); jrc=$?
@@ -128,7 +146,11 @@ measure_once() { # f -> run oracle+JS(+Rust) ONCE; store MO MORC MJ MJRC MJv MR 
     e=$(printf '%s' "$a1" | "$DEBASHC" --shir-in-estree - 2>/dev/null); jrc=$?
     if [ $jrc -ne 0 ]; then J="TARGET-ERR"; reason="A1->estree failed";
     else
-      J=$(cd "$tmp" && timeout "$TIMEOUT" node "$RUNNER" /dev/stdin --source "$f" <<<"$e" 2>/dev/null | tr '\n' '\036'); jrc=$?
+      # capture node's rc directly (a pipeline's rc is the LAST command's
+      # — `tr` would mask the JS exit code, which the verdict now compares
+      # against the oracle's).
+      (cd "$tmp" && timeout "$TIMEOUT" node "$RUNNER" /dev/stdin --source "$f" <<<"$e" 2>/dev/null) > "$tmp/js.out"; jrc=$?
+      J=$(tr '\n' '\036' < "$tmp/js.out")
       [ $jrc -ge 128 ] && { J="CRASH"; reason="js crashed (rc $jrc)"; }
     fi
   fi
@@ -162,7 +184,9 @@ measure_once() { # f -> run oracle+JS(+Rust) ONCE; store MO MORC MJ MJRC MJv MR 
   # a trailing separator from both sides before comparing.
   o="${MO%$'\036'}"; MO="$o"
   J="${J%$'\036'}"; R="${R%$'\036'}"
-  if [ "$MO" = "$J" ]; then Jv=PASS; else [ "$J" = "EMIT-FAIL" -o "$J" = "REFUSE" -o "$J" = "TARGET-ERR" -o "$J" = "CRASH" ] && Jv="$J" || Jv=MISMATCH; fi
+  # PASS requires stdout AND exit code to match the oracle (the app's
+  # `os.Exit(2)` on usage errors is part of its observable behavior).
+  if [ "$MO" = "$J" ] && [ "$MORC" = "$jrc" ]; then Jv=PASS; else [ "$J" = "EMIT-FAIL" -o "$J" = "REFUSE" -o "$J" = "TARGET-ERR" -o "$J" = "CRASH" ] && Jv="$J" || Jv=MISMATCH; fi
   if [ "$MO" = "$R" ]; then Rv=PASS; else [ "$R" = "EMIT-FAIL" -o "$R" = "TARGET-ERR" -o "$R" = "RUST-COMPILE-FAIL" -o "$R" = "CRASH" -o "$R" = "n/a" ] && Rv="$R" || Rv=MISMATCH; fi
   rm -rf "$tmp"
   MJ="$J"; MJRC=$jrc; MJv="$Jv"; MREASON="$reason"
@@ -205,7 +229,7 @@ for f in "$CORPUS"/*.go; do
 done
 
 export -f one wrap_go measure_once
-export GOSH DEBASHC OTRANS RUSTBIN RUNNER TIMEOUT RUST
+export GOSH DEBASHC OTRANS RUSTBIN RUNNER TIMEOUT RUST ROOT
 # ── run ──────────────────────────────────────────────────────────────
 tmpd=$(mktemp -d)
 printf '%s\n' "${files[@]}" | xargs -P "$JOBS" -I{} bash -c 'one "$1"' _ {} > "$tmpd/out.tsv" 2>/dev/null
