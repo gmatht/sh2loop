@@ -282,26 +282,32 @@ globMatch() {
       local plen=${#p}
       if (( plen > 1 )); then
         local c2="${p:1:1}"
-        if [[ "$c2" == "${v:0:1}" ]]; then
-          local r
-          r=$(globMatch "${p:2}" "${v:1}")
-          if [[ "$r" == "1" ]]; then
-            echo "1"
-            return
-          fi
-        fi
+        local vc="${v:0:1}"
+        case "$c2" in
+          "$vc")
+            local r
+            r=$(globMatch "${p:2}" "${v:1}")
+            if [[ "$r" == "1" ]]; then
+              echo "1"
+              return
+            fi
+            ;;
+        esac
       fi
       echo "0"
       ;;
     *)
-      if [[ "$c" == "${v:0:1}" ]]; then
-        local r
-        r=$(globMatch "${p:1}" "${v:1}")
-        if [[ "$r" == "1" ]]; then
-          echo "1"
-          return
-        fi
-      fi
+      local vc="${v:0:1}"
+      case "$c" in
+        "$vc")
+          local r
+          r=$(globMatch "${p:1}" "${v:1}")
+          if [[ "$r" == "1" ]]; then
+            echo "1"
+            return
+          fi
+          ;;
+      esac
       echo "0"
       ;;
   esac
@@ -461,6 +467,272 @@ param() {
   esac
 }
 
+
+# test — evaluate a test expression (the sh2.test self-containment
+# keystone: every [[ ]] in the polyfill lowers to sh2.test). The expr
+# has VALUES pre-baked (the adapter expands store-bound $refs); the
+# tokenizer/parser/evaluator here are pure.
+# Construct-set: char-class checks via case with escaped patterns /
+# char classes (the runtime's test treats quoted operator chars as
+# operators); parser state via SHARED GLOBALS (statement calls, not
+# $(...) substitution — a subshell forks the index/result state); the
+# heredoc token access relies on the runtime's fresh read cursor per
+# redirect. Ops: -z -n == != = < > and -a -o ! ( parens.
+tokenizeTest() {
+  local expr="$1"
+  local i=0
+  local n=${#expr}
+  while (( i < n )); do
+    local c="${expr:$i:1}"
+    if [[ "$c" == " " ]]; then
+      i=$((i + 1))
+      continue
+    fi
+    case "$c" in
+      [\(\)])
+        echo "$c"
+        i=$((i + 1))
+        continue
+        ;;
+    esac
+    case "$c" in
+      [x!])
+        if [[ "$c" == "x" ]]; then
+          :
+        else
+          local nx="${expr:$i+1:1}"
+          case "$nx" in
+            \=) echo "!="; i=$((i + 2)) ;;
+            *) echo "!"; i=$((i + 1)) ;;
+          esac
+          continue
+        fi
+        ;;
+    esac
+    case "$c" in
+      \=)
+        local nx="${expr:$i+1:1}"
+        case "$nx" in
+          \=) echo "=="; i=$((i + 2)) ;;
+          *) echo "="; i=$((i + 1)) ;;
+        esac
+        continue
+        ;;
+    esac
+    case "$c" in
+      \<|\>)
+        echo "$c"
+        i=$((i + 1))
+        continue
+        ;;
+    esac
+    local tok=""
+    while (( i < n )); do
+      local ch="${expr:$i:1}"
+      if [[ "$ch" == " " ]]; then
+        break
+      fi
+      case "$ch" in
+        [\(\)]) break ;;
+      esac
+      case "$ch" in
+        \=|\<|\>) break ;;
+      esac
+      case "$ch" in
+        [x!])
+          if [[ "$ch" == "x" ]]; then
+            :
+          else
+            local nx="${expr:$i+1:1}"
+            case "$nx" in
+              [\(\)]) tok="${tok}${ch}"; i=$((i + 1)) ;;
+              *) break ;;
+            esac
+            continue
+          fi
+          ;;
+      esac
+      case "$ch" in
+        \"|\')
+          local q="$ch"
+          i=$((i + 1))
+          local qdone=0
+          while (( i < n && qdone == 0 )); do
+            local qc="${expr:$i:1}"
+            case "$qc" in
+              \"|\')
+                case "$q" in
+                  \")
+                    case "$qc" in
+                      \") qdone=1; i=$((i + 1)) ;;
+                    esac
+                    ;;
+                  \')
+                    case "$qc" in
+                      \') qdone=1; i=$((i + 1)) ;;
+                    esac
+                    ;;
+                esac
+                ;;
+            esac
+            if (( qdone == 1 )); then
+              break
+            fi
+            case "$qc" in
+              '\\\\')
+                if (( i + 1 < n )); then
+                  tok="${tok}${expr:$i+1:1}"
+                  i=$((i + 2))
+                  continue
+                fi
+                ;;
+            esac
+            tok="${tok}${qc}"
+            i=$((i + 1))
+          done
+          ;;
+        *)
+          tok="${tok}${ch}"
+          i=$((i + 1))
+          ;;
+      esac
+    done
+    echo "$tok"
+  done
+}
+__toks=""
+__ti=0
+__result=""
+__tokval=""
+__peeked=""
+tok_at() {
+  local idx="$1"
+  local i=0
+  local line
+  while IFS= read -r line; do
+    if (( i == idx )); then
+      __tokval="$line"
+      return
+    fi
+    i=$((i + 1))
+  done <<< "$__toks"
+}
+peek() {
+  tok_at "$__ti"
+  __peeked="$__tokval"
+}
+eval_or() {
+  eval_and
+  peek
+  while [[ "$__peeked" == "-o" ]]; do
+    __ti=$((__ti + 1))
+    local left="$__result"
+    eval_and
+    local right="$__result"
+    if [[ "$left" == "1" || "$right" == "1" ]]; then
+      __result="1"
+    else
+      __result="0"
+    fi
+    peek
+  done
+}
+eval_and() {
+  eval_not
+  peek
+  while [[ "$__peeked" == "-a" ]]; do
+    __ti=$((__ti + 1))
+    local left="$__result"
+    eval_not
+    local right="$__result"
+    if [[ "$left" == "1" && "$right" == "1" ]]; then
+      __result="1"
+    else
+      __result="0"
+    fi
+    peek
+  done
+}
+eval_not() {
+  peek
+  if [[ "$__peeked" == "!" ]]; then
+    __ti=$((__ti + 1))
+    eval_not
+    if [[ "$__result" == "1" ]]; then
+      __result="0"
+    else
+      __result="1"
+    fi
+    return
+  fi
+  eval_primary
+}
+eval_primary() {
+  peek
+  local t="$__peeked"
+  if [[ -z "$t" ]]; then
+    __result="0"
+    return
+  fi
+  if [[ "$t" == "(" ]]; then
+    __ti=$((__ti + 1))
+    eval_or
+    __ti=$((__ti + 1))
+    return
+  fi
+  if [[ "$t" == -z || "$t" == -n ]]; then
+    __ti=$((__ti + 1))
+    peek
+    local arg="$__peeked"
+    __ti=$((__ti + 1))
+    if [[ "$t" == "-z" ]]; then
+      if [[ -z "$arg" ]]; then __result="1"; else __result="0"; fi
+    else
+      if [[ -n "$arg" ]]; then __result="1"; else __result="0"; fi
+    fi
+    return
+  fi
+  local l="$t"
+  __ti=$((__ti + 1))
+  peek
+  local op="$__peeked"
+  if [[ "$op" == "==" || "$op" == "=" || "$op" == "!=" || "$op" == "<" || "$op" == ">" ]]; then
+    __ti=$((__ti + 1))
+    peek
+    local r="$__peeked"
+    __ti=$((__ti + 1))
+    case "$op" in
+      ==|=)
+        local m
+        m=$(globMatch "$r" "$l")
+        if [[ "$m" == "1" ]]; then __result="1"; else __result="0"; fi
+        ;;
+      '!=')
+        local m
+        m=$(globMatch "$r" "$l")
+        if [[ "$m" == "1" ]]; then __result="0"; else __result="1"; fi
+        ;;
+      '<')
+        if [[ "$l" < "$r" ]]; then __result="1"; else __result="0"; fi
+        ;;
+      '>')
+        if [[ "$l" > "$r" ]]; then __result="1"; else __result="0"; fi
+        ;;
+    esac
+    return
+  fi
+  if [[ -n "$l" ]]; then __result="1"; else __result="0"; fi
+}
+test() {
+  local expr="$1"
+  local toks
+  toks=$(tokenizeTest "$expr")
+  __toks="$toks"
+  __ti=0
+  eval_or
+  echo "$__result"
+}
+
 # ── self-test calls (force emission + correctness oracle) ─────────────
 basename /foo
 basename a/b
@@ -542,3 +814,20 @@ param '/' x "-" "+" "a-b-c"
 param slice x "1" "3" "hello"
 param slice x "2" "" "hello"
 param unknown x "" "" "keep"
+test '"hello"==*/ -a "hello"!="/"'
+test '"abc"==*"an"*'
+test '"a"=='''*''''
+test '"h"=='''!''' -o "h"=='''^''''
+test '"hello"=="hello"'
+test '"hello"!="world"'
+test '"hello"<"world"'
+test '"hello">"world"'
+test '-z ""'
+test '-n "x"'
+test '! -z "x"'
+test '("a"=="a") -a ("b"=="b")'
+test '"a"=="b" -o "c"=="c"'
+test '"x"=="y"'
+test '"hello"==*"lo"*'
+test '"a"!="a"'
+

@@ -82,10 +82,23 @@ future transpiler fix or a different tokenizer strategy.
 
 ## Status
 
-- 17 polyfill functions landed (basename, dirname, strLen,
-  strHasPrefix/Suffix, contains, strSlice, strCompare, strIndex/
-  LastIndex, strCount, strReplaceAll, strContainsAny, joinSep,
-  globMatch, caseMatch, param) — all byte-identical to bash.
-- `test` blocked by the above; `brace` (dynamic-groups case) and the
-  param limitations (extglob, nocasematch, `:=`/`:?`, `$ref`-expansion)
-  remain.
+- 18 polyfill functions landed (basename, dirname, strLen,
+  strHasPrefix, strHasSuffix, strContains, strSlice, strCompare,
+  strIndex, strLastIndex, strCount, strReplaceAll, strContainsAny,
+  joinSep, globMatch, caseMatch, param, test) — all byte-identical to
+  bash.
+- **`test` LANDED (2026-08-27)** — the blockers were resolved:
+  1. The `<<< "$var"` herestring target folded to "" because the
+     never-written/dead-store analyses missed redirect-target reads
+     (ir.rs `collect_vars_in_stmt/expr` + dead_store_elim's three
+     walkers now walk `redirects[].target` and getVar names).
+  2. The runtime's read builtin cached its line cursor in readBufs
+     keyed by content — a second `<<<` with the same text resumed
+     mid-string (harness/sh2-namespace.mjs: a new string redirect
+     deletes the cursor).
+  3. `case "$op" in ==|=)` emitted `String(x) === "==|="` — bash case
+     patterns are alternations on unquoted `|`; `split_case_alternatives`
+     now splits before classifying (quoted/escaped/paren-grouped pipes
+     stay intact).
+- Remaining: `brace` (dynamic-groups case) and the param limitations
+  (extglob, nocasematch, `:=`/`:?`, `$ref`-expansion).
