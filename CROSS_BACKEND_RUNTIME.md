@@ -228,7 +228,131 @@ improves, the polyfills can use more constructs.
   test lowering lands; the strLen result (21×) shows the gap is
   mostly adapter + dispatch, not computation.
 
-## 8. Findings so far (construct-set + runtime notes)
+## 8. Polyfill speedup plan — cross-backend shIR→shIR transforms (M2 follow-up)
+
+Fresh benchmark (2026-08-27, current emitter — the M2 table above is
+stale, it predates the native test lowering): every benchmarked polyfill
+is still 39–650× slower than the hand-written ESTree runtime
+(`runtime/bench-polyfills.mjs`): contains ~650×, basename ~300×,
+strHasPrefix ~234×, dirname ~164×, strLen ~39×. The unbenchmarked ones
+(globMatch, caseMatch, param #/##/%/%%, strCount, strReplaceAll,
+strContainsAny) are structurally worse — loops + recursion + nested
+calls. Call-site census of the transpiled polyfill (current emitter):
+16 `sh2.test` string dispatches, 194 `sh2.lastExit` writes, 92
+`sh2.fnCall`, 38 `sh2.positional` reads, 22 `sh2.setVar`, 52
+`process.stdout.write`.
+
+Three cross-backend shIR→shIR transforms attack the overhead, cheap
+high-value first. All live in `src/transforms/` (one file, self-
+contained, REFUSE > GUESS, every backend benefits); the estree-side
+renderer hooks are listed per transform.
+
+### 8.1 T1 — test-lowering: glob-affix `[[ ]]` → native primitives
+
+**Problem.** The polyfill's hot conditions are glob-affix tests with
+VARIABLE patterns — `[[ "$s" == "$p"* ]]`, `[[ "$s" == *"$p"* ]]`,
+`[[ "$s" == *"$p" ]]` — and they all dispatch `sh2.test("...")` with
+the test as a STRING (runtime tokenize + parse + glob match per
+evaluation). The emitter's native test lowering (`try_native_glob_test`)
+only handles LITERAL patterns (`[ "$x" = *P* ]` → `.includes(P)`); a
+`$`-containing pattern is refused (`glob_to_regex` rejects it), and
+`str_operand` reads only `is_lifted_str` (a local-lifted var — the
+polyfill's `local s="$1"` — is not in that set, so even literal-pattern
+tests like `[[ "$s" == */ ]]` stay runtime).
+
+**Transform.** `src/transforms/test_lowering.rs` rewrites a `test` Call
+whose text is a glob-affix shape with plain-var/literal operands to a
+boolean-returning primitive call:
+
+| test text | rewrite |
+|---|---|
+| `"$s"=="$p"*` | `strHasPrefix(s, p)` |
+| `"$s"==*"$p"*` | `contains(s, p)` |
+| `"$s"==*"$p"` | `strHasSuffix(s, p)` |
+| `"$s"==*/` | `strHasSuffix(s, "/")` |
+| `"$s"==/*` | `strHasPrefix(s, "/")` |
+| `!=` variants | `Not(...)` of the above |
+
+Guards: (a) fires only in If/While cond position whose status write is
+provably unread (a simplified Plan-4 backward scan — the polyfill never
+reads `$?` after a test); (b) refuses when the enclosing function is the
+target primitive itself (the polyfill's own `contains` body must not
+call `sh2.contains` — the adapter would recurse infinitely).
+
+**Renderer hooks.** The estree emitter already lowers `Call "contains"`
+natively (`String(h).includes(n)`, status-recording inside `&&`/`||`);
+add the twin arms for `strHasPrefix`/`strHasSuffix` (`startsWith`/
+`endsWith`). Also fix `str_operand` to read local-lifted vars (the
+literal-pattern tests then lower natively too).
+
+### 8.2 T2 — lastExit dead-store elimination
+
+The `sh2.lastExit` writes are EMITTER-synthesized (the shIR has no
+status nodes), so the cross-backend form is an ANALYSIS transform
+(per-statement "status write is dead" verdicts into a static, like
+`sync-ok-loops`) + per-backend renderer hooks that skip the write. The
+estree side already has Plan 4 (`compute_lastexit_deadness` in
+`shir.rs` — covers native `(( ))`, echo/printf, bare `[ ]` tests,
+empty-else ifs); the polyfill's remaining writes come from the
+native-decl `builtin("local")` path (`try_native_local_decl_stmt`'s
+trailing `(sh2.lastExit = 0, true)`) and the loop wrappers. Extend Plan
+4 to mark those dead when unread and consult in the emission.
+
+### 8.3 T3 — echo-return lifting (value-returning function convention)
+
+The bash function convention (positional in, stdout out) forces the
+adapter's stdout sink + newline strip — the dominant cost (strLen's
+one-liner body is still 39×, almost all adapter). The runtime already
+has the value-returning dispatch (`sh2.fnValue`, used by the C
+frontend). The transform recognizes the "echo a value and return" tail
+shape (pure-output body, single echo tail, no other stdout writes),
+rewrites the tail to a native value return, and rewrites in-program
+call sites `fnCall` → `fnValue`. The per-backend adapter must switch to
+`fnValue` for the marked functions (linking concern, documented per
+backend). Bigger change (calling convention); design + recognition
+analysis first, renderer wiring per backend.
+
+### 8.4 Status
+
+- 2026-08-27: **T1 landed** — `src/transforms/test_lowering.rs`
+  (glob-affix `[[ ]]` tests with variable patterns →
+  `strHasPrefix`/`strHasSuffix`/`contains`; guards: status-liveness
+  backward scan (Plan 4's lastexit_scan_top_read), self-recursion
+  guard) + emitter hooks (`str_operand` reads local-lifted vars;
+  native `strHasPrefix`/`strHasSuffix` arms mirroring `contains` →
+  `startsWith`/`endsWith`). Polyfill self-test diff identical; estree
+  corpus 545/551 (the 6 reds are pre-existing, confirmed on baseline);
+  perl corpus 266/285 (baseline-identical); lib tests 390/390.
+  Benchmark (`runtime/bench-polyfills.mjs`, current emitter):
+  basename 21.2K → 868K ops/s (~41×), dirname 15.2K → 847K (~56×),
+  strLen 487K → 1.39M (~2.9×), contains 13.4K → 37K (~2.8×),
+  strHasPrefix 28.1K → 44K (~1.6×). The `sh2.test` string dispatches
+  dropped 16 → 7 (the 7 remaining are the self-recursion-guarded
+  primitive bodies, param-slice operands, and liveness-guarded nested
+  conds). The strCount/strReplaceAll/strContainsAny/strIndex/strLastIndex
+  loops and the basename/dirname loop guards now lower natively
+  (`.includes`/`.endsWith` — no per-iteration test-string parse).
+
+- 2026-08-27: **T2 landed (estree side)** — lastExit dead-store
+  elimination extended to the native-decl `local`/`declare` path
+  (`try_native_local_decl_stmt_dead` twin) and made function-body-
+  aware: the define arrow CLONES the body, so the global pointer-keyed
+  deadness map never matched the clone's statements (a latent Plan 4
+  gap — dead-write drops never fired inside function bodies). The
+  Function arm now computes the clone's deadness into the
+  `ARROW_BODY_DEAD`/`ARROW_BODY_COND_DEAD` statics for the duration of
+  the arrow construction (save/restore; the clone's statements are alive
+  then — the pointer keys cannot collide; the optimistic body emission
+  in `fn_call_sync_set` skips — its clones are dropped right after).
+  Polyfill lastExit writes 194 → ~139; the `_g` status protocol on the
+  loop conds is gone (bare boolean conditions). Benchmark adds ~1.5× on
+  top of T1. The cross-backend analysis-transform form (verdict statics
+  + per-backend renderer hooks) remains the follow-up for C/Go/…
+
+- 2026-08-27: **T3 (echo-return lifting) documented** — design in §8.3;
+  recognition analysis + renderer wiring pending.
+
+## 9. Findings so far (construct-set + runtime notes)
 
 - `[[ "$x" == *"$y"* ]]` transpiles correctly; `case "$x" in *"$y"*)`
   does NOT (pattern emitted literally, `$y` unexpanded).
