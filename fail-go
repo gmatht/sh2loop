@@ -118,18 +118,29 @@ measure_once() { # f -> run oracle+JS(+Rust) ONCE; store MO MORC MJ MJRC MJv MR 
   wrp=$(wrap_go "$f")
   tmp=$(mktemp -d)
   printf '%s\n' "$wrp" > "$tmp/main.go"
-  # the app oracle needs the go-sh module context: the golib import
-  # (`github.com/gmatht/sh2loop/frontends/go-sh`) resolves only through
-  # go.mod replace directives (a dependency's own replaces are ignored —
-  # the main module must repeat them). Without this, `go run` dies with
-  # "no required module provides package ..." and the oracle rc=1
-  # masquerades as an app failure. The app is also BUILT (not `go run`):
-  # `go run` wraps any non-zero exit as rc=1 + "exit status N" on stderr,
-  # hiding the app's true exit code from the gate's rc comparison.
-  if grep -q 'gmatht/sh2loop/frontends/go-sh' "$f"; then
-    printf 'module app\n\ngo 1.21\n\nrequire github.com/gmatht/sh2loop/frontends/go-sh v0.0.0\n\nreplace github.com/gmatht/sh2loop/frontends/go-sh => %s\n\nreplace github.com/gmatht/sh2loop/frontends/shir-emit-go => %s\n' \
-      "$ROOT/frontends/go-sh" "$ROOT/frontends/shir-emit-go" > "$tmp/go.mod"
-    if (cd "$tmp" && timeout "$TIMEOUT" go build -o appbin main.go 2>/dev/null); then
+  # the app oracle needs the frontend module context: the golib/cppshgo
+  # import resolves only through go.mod replace directives (a
+  # dependency's own replaces are ignored — the main module must repeat
+  # them). Derive the module + replaces from the frontend's own go.mod
+  # (go-sh: shir-emit-go; cpp-sh-go: c-sh-go + shir-emit-go + the
+  # tree-sitter indirect require, which -mod=mod resolves from the
+  # module cache). The app is also BUILT (not `go run`): `go run` wraps
+  # any non-zero exit as rc=1 + "exit status N" on stderr, hiding the
+  # app's true exit code from the gate's rc comparison.
+  MODDIR=""
+  grep -q 'gmatht/sh2loop/frontends/go-sh' "$f" && MODDIR="$ROOT/frontends/go-sh"
+  grep -q 'gmatht/sh2loop/frontends/cpp-sh-go' "$f" && MODDIR="$ROOT/frontends/cpp-sh-go"
+  if [ -n "$MODDIR" ]; then
+    mod=$(grep '^module ' "$MODDIR/go.mod" | awk '{print $2}')
+    {
+      printf 'module app\n\ngo 1.21\n\nrequire %s v0.0.0\n\n' "$mod"
+      # the frontend module itself + its own replaces (absolute paths)
+      printf 'replace %s => %s\n' "$mod" "$(cd "$MODDIR" && pwd)"
+      grep '^replace ' "$MODDIR/go.mod" | while read -r _ from _ to; do
+        printf 'replace %s => %s\n' "$from" "$(cd "$MODDIR" && pwd)/$to"
+      done
+    } > "$tmp/go.mod"
+    if (cd "$tmp" && GOFLAGS=-mod=mod timeout "$TIMEOUT" go build -o appbin main.go 2>/dev/null); then
       MO="$(cd "$tmp" && timeout "$TIMEOUT" ./appbin </dev/null 2>/dev/null)"; MORC=$?
     else
       MO=""; MORC=1
