@@ -208,6 +208,134 @@ joinSep() {
 
 # globMatch — recursive glob matcher (lit, *, ?, [class], \escape).
 # Echoes 1/0. No extglob (?(..) *(..) +(..) @(..) !(..)) yet.
+ext_alt_match() {
+  local inner="$1" pre="$2"
+  local cur="" adepth=0
+  local i=0
+  local n=${#inner}
+  while (( i <= n )); do
+    local ch="${inner:$i:1}"
+    if (( i == n )); then
+      ch="|"
+    fi
+    local lp="(" rp=")"
+    case "$ch" in
+      "$lp") adepth=$((adepth + 1)) ;;
+      "$rp") adepth=$((adepth - 1)) ;;
+    esac
+    if [[ "$ch" == "|" && $adepth == 0 ]]; then
+      local m
+      m=$(globMatch "$cur" "$pre")
+      if [[ "$m" == "1" ]]; then echo "1"; return; fi
+      cur=""
+    else
+      cur="${cur}${ch}"
+    fi
+    i=$((i + 1))
+  done
+  echo "0"
+}
+ext_match() {
+  local op="$1" p="$2" v="$3"
+  local end=-1 gdepth=1
+  local n=${#p}
+  local i=2
+  while (( i < n )); do
+    local ch="${p:$i:1}"
+    local lp="(" rp=")"
+    case "$ch" in
+      "$lp") gdepth=$((gdepth + 1)) ;;
+      "$rp")
+        gdepth=$((gdepth - 1))
+        if (( gdepth == 0 )); then
+          end=$i
+          break
+        fi
+        ;;
+    esac
+    i=$((i + 1))
+  done
+  if (( end < 0 )); then
+    echo "0"
+    return
+  fi
+  local inner="${p:2:$((end - 2))}"
+  local rest="${p:$((end + 1))}"
+  case "$op" in
+    \@)
+      local k=0
+      local nv=${#v}
+      while (( k <= nv )); do
+        local pre="${v:0:$k}" suf="${v:$k}"
+        local a
+        a=$(ext_alt_match "$inner" "$pre")
+        if [[ "$a" == "1" ]]; then
+          local r
+          r=$(globMatch "$rest" "$suf")
+          if [[ "$r" == "1" ]]; then echo "1"; return; fi
+        fi
+        k=$((k + 1))
+      done
+      echo "0"
+      ;;
+    \?)
+      local k=0
+      local nv=${#v}
+      while (( k <= nv )); do
+        local pre="${v:0:$k}" suf="${v:$k}"
+        local a
+        a=$(ext_alt_match "$inner" "$pre")
+        if [[ "$a" == "1" ]]; then
+          local r
+          r=$(globMatch "$rest" "$suf")
+          if [[ "$r" == "1" ]]; then echo "1"; return; fi
+        fi
+        k=$((k + 1))
+      done
+      local r
+      r=$(globMatch "$rest" "$v")
+      if [[ "$r" == "1" ]]; then echo "1"; else echo "0"; fi
+      ;;
+    \!)
+      local k=0
+      local nv=${#v}
+      while (( k <= nv )); do
+        local pre="${v:0:$k}" suf="${v:$k}"
+        local a
+        a=$(ext_alt_match "$inner" "$pre")
+        if [[ "$a" != "1" ]]; then
+          local r
+          r=$(globMatch "$rest" "$suf")
+          if [[ "$r" == "1" ]]; then echo "1"; return; fi
+        fi
+        k=$((k + 1))
+      done
+      echo "0"
+      ;;
+    \*|\+)
+      local r
+      r=$(globMatch "$rest" "$v")
+      case "$op" in
+        \*)
+          if [[ "$r" == "1" ]]; then echo "1"; return; fi
+          ;;
+      esac
+      local k=1
+      local nv=${#v}
+      while (( k <= nv )); do
+        local pre="${v:0:$k}" suf="${v:$k}"
+        local a
+        a=$(ext_alt_match "$inner" "$pre")
+        if [[ "$a" == "1" ]]; then
+          r=$(globMatch "*(${inner})${rest}" "$suf")
+          if [[ "$r" == "1" ]]; then echo "1"; return; fi
+        fi
+        k=$((k + 1))
+      done
+      echo "0"
+      ;;
+  esac
+}
 globMatch() {
   local p="$1" v="$2"
   if [[ -z "$p" ]]; then
@@ -219,6 +347,20 @@ globMatch() {
     return
   fi
   local c="${p:0:1}"
+  # extglob groups (?(..) *(..) +(..) @(..) !(..)) — the op char followed
+  # by '('
+  case "$c" in
+    \?|\*|\+|\@|\!)
+      local nx="${p:1:1}"
+      local lp="("
+      case "$nx" in
+        "$lp")
+          ext_match "$c" "$p" "$v"
+          return
+          ;;
+      esac
+      ;;
+  esac
   case "$c" in
     \*)
       local r
@@ -830,4 +972,14 @@ test '"a"=="b" -o "c"=="c"'
 test '"x"=="y"'
 test '"hello"==*"lo"*'
 test '"a"!="a"'
+globMatch "@(a|b)" "a"
+globMatch "@(a|b)x" "ax"
+globMatch "?(a)b" "b"
+globMatch "+(a)b" "aab"
+globMatch "+(a)b" "b"
+globMatch "*(a)b" "b"
+globMatch "*(a)b" "aab"
+globMatch "!(a)b" "cb"
+globMatch "!(a)b" "ab"
+
 
