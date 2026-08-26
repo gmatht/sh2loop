@@ -36,6 +36,8 @@ Current inventory (18 functions + 2 extglob helpers):
 | `param` | parameter-expansion dispatcher (len, case mods, `:-`, `#`/`##`/`%`/`%%` glob strips, `/`/`//` literal replace, slice) | :3266 |
 | `test` | test-expression evaluator (`-z`/`-n`, `==`/`!=`/`=`/`<`/`>`, `-a`/`-o`/`!`/parens, glob matching) | :1312 |
 | `ext_alt_match` / `ext_match` | extglob helpers (`?(..)` `*(..)` `+(..)` `@(..)` `!(..)` in globMatch) | :8311 |
+| `wcLines` / `headLines` / `tailLines` | pure line-processing cores of the wc/head/tail builtins (newline count, first/last n lines) — the first IO-composition polyfills: expressed in terms of the string primitives (strCount/strIndex/strSlice), so backends without a full runtime get the capture-lift data path | :2360/:6156 |
+| `test` | test-expression evaluator (now with `nocasematch` via the third `nocase` arg — the adapter passes the shopt state) | :1312 |
 
 `caseMatch`/`globMatch`/`param` limitations (first cut): no `nocasematch`, no
 pattern-`$()`-expansion, no `:=`/`:?` side effects, no `$ref`-expansion

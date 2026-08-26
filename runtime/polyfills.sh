@@ -744,6 +744,7 @@ tokenizeTest() {
 }
 __toks=""
 __ti=0
+__nocase=""
 __result=""
 __tokval=""
 __peeked=""
@@ -845,13 +846,23 @@ eval_primary() {
     __ti=$((__ti + 1))
     case "$op" in
       ==|=)
+        local rl="$l" rr="$r"
+        if [[ "$__nocase" == "1" ]]; then
+          rl="${l,,}"
+          rr="${r,,}"
+        fi
         local m
-        m=$(globMatch "$r" "$l")
+        m=$(globMatch "$rr" "$rl")
         if [[ "$m" == "1" ]]; then __result="1"; else __result="0"; fi
         ;;
       '!=')
+        local rl="$l" rr="$r"
+        if [[ "$__nocase" == "1" ]]; then
+          rl="${l,,}"
+          rr="${r,,}"
+        fi
         local m
-        m=$(globMatch "$r" "$l")
+        m=$(globMatch "$rr" "$rl")
         if [[ "$m" == "1" ]]; then __result="0"; else __result="1"; fi
         ;;
       '<')
@@ -866,7 +877,8 @@ eval_primary() {
   if [[ -n "$l" ]]; then __result="1"; else __result="0"; fi
 }
 test() {
-  local expr="$1"
+  local expr="$1" nocase="$3"
+  __nocase="$nocase"
   local toks
   toks=$(tokenizeTest "$expr")
   __toks="$toks"
@@ -875,7 +887,97 @@ test() {
   echo "$__result"
 }
 
+
+# wcLines — count lines in s (the wc -l data core: newline count)
+wcLines() {
+  local s="$1"
+  if [[ -z "$s" ]]; then
+    echo "0"
+    return
+  fi
+  local r
+  r=$(strCount "$s" "$(printf '\n')")
+  echo "$r"
+}
+# headLines — the first n lines of s
+headLines() {
+  local s="$1" n="$2"
+  if [[ -z "$n" ]]; then
+    echo "$s"
+    return
+  fi
+  local r
+  r=$(strIndex "$s" "$(printf '\n')")
+  if [[ "$r" == "-1" ]]; then
+    echo "$s"
+    return
+  fi
+  local i=0
+  local rest="$s"
+  while (( i < n )); do
+    local ix
+    ix=$(strIndex "$rest" "$(printf '\n')")
+    if [[ "$ix" == "-1" ]]; then
+      echo "$rest"
+      return
+    fi
+    local line
+    line=$(strSlice "$rest" "0" "$ix")
+    echo "$line"
+    rest=$(strSlice "$rest" "$((ix + 1))" "")
+    i=$((i + 1))
+  done
+}
+# tailLines — the LAST n lines of s
+tailLines() {
+  local s="$1" n="$2"
+  if [[ -z "$n" ]]; then
+    echo "$s"
+    return
+  fi
+  local total
+  total=$(wcLines "$s")
+  if (( total <= n )); then
+    echo "$s"
+    return
+  fi
+  local skip=$((total - n))
+  local rest="$s"
+  local i=0
+  while (( i < skip )); do
+    local ix
+    ix=$(strIndex "$rest" "$(printf '\n')")
+    if [[ "$ix" == "-1" ]]; then
+      echo "$rest"
+      return
+    fi
+    rest=$(strSlice "$rest" "$((ix + 1))" "")
+    i=$((i + 1))
+  done
+  echo "$rest"
+}
+
 # ── self-test calls (force emission + correctness oracle) ─────────────
+wcLines "a
+b
+c"
+wcLines ""
+headLines "a
+b
+c" "2"
+headLines "a
+b
+c" "5"
+headLines "single" "2"
+tailLines "a
+b
+c
+d" "2"
+tailLines "a
+b
+c
+d" "5"
+
 basename /foo
 basename a/b
 basename foo
@@ -972,6 +1074,10 @@ test '"a"=="b" -o "c"=="c"'
 test '"x"=="y"'
 test '"hello"==*"lo"*'
 test '"a"!="a"'
+test '"HELLO"=="hello"' '' 1
+test '"HELLO"!="hello"' '' 1
+test '"ABC"=="*b*"' '' 1
+
 globMatch "@(a|b)" "a"
 globMatch "@(a|b)x" "ax"
 globMatch "?(a)b" "b"
