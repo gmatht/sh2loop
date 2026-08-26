@@ -88,6 +88,17 @@ Covers three related work items:
 >   backflow (mapfile arrays), PIPESTATUS, traps, background copy-at-fork,
 >   $0/script-name, assoc iteration order — all catalogued as runtime-
 >   limitation classes, none hidden.
+> - v32: **Storage-class selection landed in core (cross-backend) + Phase 1–3
+>   implementation.** StorageClass enum (Numeric/InlineBuffer/ManagedString/
+>   CaptureResult/Escaped/ConstLiteral) added to core ir.rs; populated by
+>   select_storage_classes in shir.rs from existing analyses; emit_var_decl
+>   dispatches per class. escape_classes Store verdict wired into the C
+>   renderer. output_type hints on all 30 ext nodes. Gate at 572/643
+>   (89%) — fluctuates with sibling merges. REFERENCES_to_POINTERS.md and
+>   FAT_POINTERS.md document the five-representation design, trust-boundary
+>   model (CopyOnAssign vs PointerAliasing), and 66-site sh2_str integration
+>   path. Phase 3 ptr-type tests added (4 unit tests). Remaining reds are
+>   documented per-class in c-backend-limitations.md.
 > - v31: **C-backend natural-node push: 538 → 580/643 corpus cells, zero
 > compile errors, zero stub markers on corpus; limitations catalogued**
 > (`sh2perl/docs/c-backend-limitations.md`). Native-codegen replacements
