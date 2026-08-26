@@ -15,7 +15,7 @@ host-bound seam (`exec`, `fs.*`, `pipeline`, `redirect`, `capture`,
 `background`, `subshell`, `exit`, `getVar`/`setVar`, error codes) stays
 per-backend.
 
-Current inventory (18 functions):
+Current inventory (18 functions + 2 extglob helpers):
 
 | function | semantics | hand-written ref (sh2-namespace.mjs) |
 |---|---|---|
@@ -35,9 +35,9 @@ Current inventory (18 functions):
 | `caseMatch` | first pattern matching value | :1837 |
 | `param` | parameter-expansion dispatcher (len, case mods, `:-`, `#`/`##`/`%`/`%%` glob strips, `/`/`//` literal replace, slice) | :3266 |
 | `test` | test-expression evaluator (`-z`/`-n`, `==`/`!=`/`=`/`<`/`>`, `-a`/`-o`/`!`/parens, glob matching) | :1312 |
+| `ext_alt_match` / `ext_match` | extglob helpers (`?(..)` `*(..)` `+(..)` `@(..)` `!(..)` in globMatch) | :8311 |
 
-`caseMatch`/`globMatch`/`param` limitations (first cut): no extglob
-(`?(..)` `*(..)` `+(..)` `@(..)` `!(..)`), no `nocasematch`, no
+`caseMatch`/`globMatch`/`param` limitations (first cut): no `nocasematch`, no
 pattern-`$()`-expansion, no `:=`/`:?` side effects, no `$ref`-expansion
 in defaults/patterns — the hand-written runtime handles those; the
 polyfill defers them.
