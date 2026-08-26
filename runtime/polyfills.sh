@@ -513,6 +513,24 @@ param() {
         echo "$a"
       fi
       ;;
+    ':=')
+      # default-assign: echo the computed value; the ADAPTER applies the
+      # store write (pure polyfills cannot write the store)
+      if [[ -n "$v" ]]; then
+        echo "$v"
+      else
+        echo "$a"
+      fi
+      ;;
+    ':?')
+      # error-if-unset: echo an error marker; the ADAPTER emits the
+      # message and exits 1 (pure polyfills cannot exit)
+      if [[ -n "$v" ]]; then
+        echo "$v"
+      else
+        echo "__sh2_param_error:${name}:${a}"
+      fi
+      ;;
     '#')
       local i=0
       local n=${#v}
@@ -1163,6 +1181,11 @@ param '/' x "-" "+" "a-b-c"
 param slice x "1" "3" "hello"
 param slice x "2" "" "hello"
 param unknown x "" "" "keep"
+param := x "default" "" ""
+param := x "default" "" "value"
+param :? x "custom message" "" ""
+param :? x "custom message" "" "value"
+
 test '"hello"==*/ -a "hello"!="/"'
 test '"abc"==*"an"*'
 test '"a"=='''*''''
