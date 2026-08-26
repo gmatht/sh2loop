@@ -17,6 +17,9 @@ string/array/text ops — is the *subtle* half (param expansion is the
 hardest part of bash semantics) and it is duplicated per backend, with
 drift risk.
 
+**Backend consumption guide: `runtime/README.md`** — how to transpile,
+link, adapt, and verify the polyfills per backend.
+
 ## 2. The idea
 
 Write the pure-CPU runtime functions **once in bash** (the source
@@ -152,6 +155,25 @@ improves, the polyfills can use more constructs.
   transpiled output **byte-identical to bash** on the full battery
   (16 paths × basename/dirname vs GNU tools, strLen, prefix/suffix,
   contains incl. empty-string edges).
+- 2026-08-26: **M3 progress — string-primitive batch landed**
+  (`runtime/polyfills.sh` now 14 functions: +strSlice, strCompare,
+  strIndex, strLastIndex, strCount, strReplaceAll, strContainsAny,
+  joinSep), transpiled output **byte-identical to bash** on the full
+  self-test battery. Three transpiler fixes landed to get there:
+  (a) `interp_pattern_expr` — param patterns with `$ref`s
+  (`${s%%"$sep"*}`) now lower natively (the runtime's stripGlob* never
+  expands patterns); full shape matrix (P / *P / P* × #/##/%/%%),
+  store-var single-eval wrap applied to every shape; (b) the
+  module-level string lift excludes function-local names (a stale
+  program-level binding was hoisted for store-bound locals); (c) the
+  local-lift is all-or-nothing per multi-var decl + mixed decls split
+  (lifted names → native bindings, rest → runtime local call).
+  `cargo test --lib` 386/386. Known remaining gap: the same ref-pattern
+  lowering in ECHO position (the `_g` wrap is dropped there — a
+  pre-existing echo-path gap, not a regression).
+- 2026-08-26: **backend consumption guide** — `runtime/README.md`
+  (transpile → link → adapter → dependency closure → self-test oracle →
+  construct-set constraint → rollout status).
 - 2026-08-26: **M2 benchmark (ESTree/JS) — polyfill vs hand-written**
   (`runtime/bench-polyfills.mjs`):
 

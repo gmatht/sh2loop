@@ -89,6 +89,123 @@ contains() {
   fi
 }
 
+# strSlice — s[lo:hi] (lo clamped >= 0; hi empty = to end; hi < lo = empty)
+strSlice() {
+  local s="$1" lo="$2" hi="$3"
+  local l=0
+  if (( lo > 0 )); then
+    l=$lo
+  fi
+  if [[ -z "$hi" ]]; then
+    echo "${s:$l}"
+  else
+    local len=$((hi - l))
+    if (( len < 0 )); then
+      len=0
+    fi
+    echo "${s:$l:$len}"
+  fi
+}
+
+# strCompare — -1 if a<b, 0 if a==b, 1 if a>b (string order)
+strCompare() {
+  local a="$1" b="$2"
+  if [[ "$a" == "$b" ]]; then
+    echo "0"
+  elif [[ "$a" < "$b" ]]; then
+    echo "-1"
+  else
+    echo "1"
+  fi
+}
+
+# strIndex — index of the FIRST occurrence of sep in s (-1 if absent)
+strIndex() {
+  local s="$1" sep="$2"
+  if [[ "$s" == *"$sep"* ]]; then
+    local pre="${s%%"$sep"*}"
+    echo "${#pre}"
+  else
+    echo "-1"
+  fi
+}
+
+# strLastIndex — index of the LAST occurrence of sep in s (-1 if absent)
+strLastIndex() {
+  local s="$1" sep="$2"
+  if [[ "$s" == *"$sep"* ]]; then
+    local pre="${s%"$sep"*}"
+    echo "${#pre}"
+  else
+    echo "-1"
+  fi
+}
+
+# strCount — NON-OVERLAPPING instances of sub in s (0 when sub empty)
+strCount() {
+  local s="$1"
+  local sub="$2"
+  if [[ -z "$sub" ]]; then
+    echo "0"
+    return
+  fi
+  local n=0
+  local rest="$s"
+  while [[ "$rest" == *"$sub"* ]]; do
+    n=$((n + 1))
+    rest="${rest#*"$sub"}"
+  done
+  echo "$n"
+}
+
+# strReplaceAll — replace ALL literal occurrences of old with neu
+strReplaceAll() {
+  local s="$1"
+  local old="$2"
+  local neu="$3"
+  if [[ -z "$old" ]]; then
+    echo "$s"
+    return
+  fi
+  local out=""
+  local rest="$s"
+  while [[ "$rest" == *"$old"* ]]; do
+    out="${out}${rest%%"$old"*}${neu}"
+    rest="${rest#*"$old"}"
+  done
+  echo "${out}${rest}"
+}
+
+# strContainsAny — 1 iff s contains ANY character from cutset
+strContainsAny() {
+  local s="$1" cutset="$2"
+  local i
+  for ((i = 0; i < ${#cutset}; i++)); do
+    local c="${cutset:$i:1}"
+    if [[ "$s" == *"$c"* ]]; then
+      echo "1"
+      return
+    fi
+  done
+  echo "0"
+}
+
+# joinSep — join the remaining args with sep
+joinSep() {
+  local sep="$1"
+  shift
+  local out="" first=1 item
+  for item in "$@"; do
+    if (( first == 1 )); then
+      out="$item"
+      first=0
+    else
+      out="${out}${sep}${item}"
+    fi
+  done
+  echo "$out"
+}
+
 # ── self-test calls (force emission + correctness oracle) ─────────────
 basename /foo
 basename a/b
@@ -111,3 +228,27 @@ strHasSuffix hello x
 contains "hello world" "lo w"
 contains "hello world" "xyz"
 contains "" ""
+strSlice hello 1 3
+strSlice hello 0 5
+strSlice hello 2
+strSlice hello 5 2
+strCompare a b
+strCompare b a
+strCompare a a
+strIndex "hello world" "o"
+strIndex "hello world" "xyz"
+strIndex "hello" ""
+strLastIndex "hello world" "o"
+strLastIndex "hello" "xyz"
+strCount "banana" "an"
+strCount "aaaa" "aa"
+strCount "hello" ""
+strReplaceAll "a-b-c" "-" "+"
+strReplaceAll "hello" "l" ""
+strReplaceAll "abc" "" "x"
+strContainsAny "hello" "xyz"
+strContainsAny "hello" "ae"
+strContainsAny "hello" ""
+joinSep "," a b c
+joinSep "-" x
+joinSep ","
