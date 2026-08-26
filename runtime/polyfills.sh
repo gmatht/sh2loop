@@ -323,6 +323,144 @@ caseMatch() {
   done
 }
 
+# param — parameter expansion dispatcher: param(op, name, a, b, value).
+# The value is passed explicitly (the adapter fills it from the store).
+# Ops: len, ^^, ,, ^, ,, :-, #, ##, %, %%, //, /, slice. No `:=`/`:?`
+# side effects, no `$ref`-expansion in defaults/patterns yet.
+param() {
+  local op="$1" name="$2" a="$3" b="$4" value="$5"
+  local v="$value"
+  case "$op" in
+    len)
+      echo "${#v}"
+      ;;
+    ^^)
+      echo "${v^^}"
+      ;;
+    ,,)
+      echo "${v,,}"
+      ;;
+    ^)
+      if [[ -n "$v" ]]; then
+        local first="${v:0:1}"
+        local rest="${v:1}"
+        echo "${first^^}${rest}"
+      else
+        echo ""
+      fi
+      ;;
+    ,)
+      if [[ -n "$v" ]]; then
+        local first="${v:0:1}"
+        local rest="${v:1}"
+        echo "${first,,}${rest}"
+      else
+        echo ""
+      fi
+      ;;
+    :-)
+      if [[ -n "$v" ]]; then
+        echo "$v"
+      else
+        echo "$a"
+      fi
+      ;;
+    '#')
+      local i=0
+      local n=${#v}
+      while (( i <= n )); do
+        local pre="${v:0:$i}"
+        local r
+        r=$(globMatch "$a" "$pre")
+        if [[ "$r" == "1" ]]; then
+          echo "${v:$i}"
+          return
+        fi
+        i=$((i + 1))
+      done
+      echo "$v"
+      ;;
+    '##')
+      local i=0
+      local n=${#v}
+      local found=""
+      while (( i <= n )); do
+        local pre="${v:0:$i}"
+        local r
+        r=$(globMatch "$a" "$pre")
+        if [[ "$r" == "1" ]]; then
+          found="${v:$i}"
+        fi
+        i=$((i + 1))
+      done
+      if [[ -n "$found" ]]; then
+        echo "$found"
+      else
+        echo "$v"
+      fi
+      ;;
+    '%')
+      local i=0
+      local n=${#v}
+      local found=""
+      while (( i <= n )); do
+        local suf="${v:$i}"
+        local r
+        r=$(globMatch "$a" "$suf")
+        if [[ "$r" == "1" ]]; then
+          found="${v:0:$i}"
+        fi
+        i=$((i + 1))
+      done
+      if [[ -n "$found" ]]; then
+        echo "$found"
+      else
+        echo "$v"
+      fi
+      ;;
+    '%%')
+      local i=0
+      local n=${#v}
+      while (( i <= n )); do
+        local suf="${v:$i}"
+        local r
+        r=$(globMatch "$a" "$suf")
+        if [[ "$r" == "1" ]]; then
+          echo "${v:0:$i}"
+          return
+        fi
+        i=$((i + 1))
+      done
+      echo "$v"
+      ;;
+    '//')
+      local r
+      r=$(strReplaceAll "$v" "$a" "$b")
+      echo "$r"
+      ;;
+    '/')
+      local pre="${v%%"$a"*}"
+      if [[ "$pre" == "$v" ]]; then
+        echo "$v"
+      else
+        local rest="${v#*"$a"}"
+        echo "${pre}${b}${rest}"
+      fi
+      ;;
+    slice)
+      local off="$a" len="$b"
+      if [[ -z "$len" ]]; then
+        echo "${v:$off}"
+      else
+        echo "${v:$off:$len}"
+      fi
+      ;;
+    *)
+      echo "$v"
+      ;;
+  esac
+}
+
 # ── self-test calls (force emission + correctness oracle) ─────────────
 basename /foo
 basename a/b
@@ -387,3 +525,20 @@ caseMatch "file.txt" "*.md" "*.txt"
 caseMatch "file.md" "*.md" "*.txt"
 caseMatch "hello" "h*" "*o"
 caseMatch "hello" "x*" "y*"
+param len x "" "" "hello"
+param ^^ x "" "" "hello"
+param ,, x "" "" "HELLO"
+param ^ x "" "" "hello"
+param , x "" "" "HELLO"
+param :- x "default" "" ""
+param :- x "default" "" "value"
+param '#' x "*.txt" "" "file.txt"
+param '#' x "*.txt" "" "file.md"
+param '##' x "*/" "" "a/b/c"
+param '%' x ".txt" "" "file.txt"
+param '%%' x "/*" "" "a/b/c"
+param '//' x "-" "+" "a-b-c"
+param '/' x "-" "+" "a-b-c"
+param slice x "1" "3" "hello"
+param slice x "2" "" "hello"
+param unknown x "" "" "keep"
