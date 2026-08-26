@@ -1640,6 +1640,13 @@ export const sh2 = {
           if (s.interpolate) content = expandWord(this, content);
         }
         this.fdTargets[fd] = { kind: 'string', content };
+        // A NEW redirect with string content must start a FRESH read
+        // cursor: the read builtin caches its line position in readBufs
+        // keyed by content, so a second `<<< "$x"` (or heredoc) with the
+        // same text would otherwise resume mid-string (the while-read
+        // inside the first redirect consumed lines). The cursor belongs
+        // to the redirect's lifetime — re-establishing the fd resets it.
+        this.readBufs.delete('s:' + content);
       } else if (s.mode === 'r' || s.mode === 'r+') {
         const target = expandWord(this, String(s.target));
         if (check && !fs.existsSync(target)) {
