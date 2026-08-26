@@ -135,6 +135,26 @@ improves, the polyfills can use more constructs.
 
 ## 7. Current status
 
+- 2026-08-27: **M3 COMPLETE — all planned polyfills landed**
+  (`runtime/polyfills.sh`, 21 functions + 4 helpers): `test` (the
+  self-containment keystone — tokenizer + parser + evaluator),
+  `brace` (dynamic groups, cross-product; interface prefix/suffix/
+  ngroups/groups — the adapter maps sh2.brace's array shape), `param`
+  extglob + nocasematch (test's third arg). Plus the first
+  IO-composition helpers: `wcLines`/`headLines`/`tailLines` (pure
+  line cores of wc/head/tail via the string primitives) and
+  `line_count`/`line_at` (newline-separated string access). All
+  byte-identical to bash on the full self-test battery. Host-bound
+  param ops (`:=`/`:?` side effects, `$ref`-expansion) are ADAPTER
+  responsibilities — pure polyfills cannot write the store or exit.
+- 2026-08-27: **transpiler/runtime fixes landed** (each with tests):
+  heredoc/herestring `$var` targets counted as reads (never-written
+  fold + dead-store-elim); runtime read-cursor reset per string
+  redirect; case-pattern alternation splitting (`==|=` → `==` or `=`);
+  native-echo capture sites + call-graph closure (recursive matcher
+  output leaked); `$((...))` slice wrapper; dead-fn-elim ForInit
+  bodies walked. These unblocked the `test`/extglob/brace polyfills.
+- 2026-08-26: pipeline proven end-to-end
 - 2026-08-26: pipeline proven end-to-end — a bash function transpiles
   via `debashc file --estree` → ESTree JSON → `estree-runner.mjs` →
   runs; function definition (`sh2.functions.set`) + call

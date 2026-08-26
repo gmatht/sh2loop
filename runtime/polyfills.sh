@@ -957,7 +957,112 @@ tailLines() {
   echo "$rest"
 }
 
+
+# line_count / line_at — newline-separated string access (the heredoc
+# read pattern from tok_at; the runtime's fresh read cursor per redirect
+# keeps repeated calls correct).
+line_count() {
+  local s="$1"
+  local n=0
+  local line
+  while IFS= read -r line; do
+    n=$((n + 1))
+  done <<< "$s"
+  echo "$n"
+}
+line_at() {
+  local s="$1" idx="$2"
+  local i=0
+  local line
+  while IFS= read -r line; do
+    if (( i == idx )); then
+      echo "$line"
+      return
+    fi
+    i=$((i + 1))
+  done <<< "$s"
+}
+# brace — brace expansion cross-product. Interface: prefix, suffix,
+# ngroups, then the group strings (the adapter maps the sh2.brace
+# (prefix, groups[], middles[], suffix) call to this shape; middles are
+# not supported in the first cut). Each group is a comma-separated
+# alternative list. Echoes one expansion per line. String-based combos
+# (newline-separated); accumulated vars use EXPLICIT resets (the local
+# builtin's store write does not reach lifted module bindings); the
+# multi-line join uses a literal newline (the $'\n' ANSI-C in a concat
+# is dropped by the parser).
+brace() {
+  local prefix="$1" suffix="$2" ngroups="$3"
+  shift 3
+  local combos="$prefix"
+  local i=0
+  for g in "$@"; do
+    if (( i >= ngroups )); then
+      break
+    fi
+    items=""
+    cur=""
+    j=0
+    first_item=1
+    local n=${#g}
+    while (( j <= n )); do
+      local ch="${g:$j:1}"
+      if (( j == n )); then
+        ch=","
+      fi
+      if [[ "$ch" == "," ]]; then
+        if (( first_item == 1 )); then
+          items="$cur"
+          first_item=0
+        else
+          items="${items}
+${cur}"
+        fi
+        cur=""
+      else
+        cur="${cur}${ch}"
+      fi
+      j=$((j + 1))
+    done
+    local nc ni
+    nc=$(line_count "$combos")
+    ni=$(line_count "$items")
+    newcombos=""
+    first_new=1
+    local ci ii
+    for ((ci = 0; ci < nc; ci++)); do
+      local c
+      c=$(line_at "$combos" "$ci")
+      for ((ii = 0; ii < ni; ii++)); do
+        local it
+        it=$(line_at "$items" "$ii")
+        if (( first_new == 1 )); then
+          newcombos="${c}${it}"
+          first_new=0
+        else
+          newcombos="${newcombos}
+${c}${it}"
+        fi
+      done
+    done
+    combos="$newcombos"
+    i=$((i + 1))
+  done
+  local nc
+  nc=$(line_count "$combos")
+  local ci
+  for ((ci = 0; ci < nc; ci++)); do
+    local c
+    c=$(line_at "$combos" "$ci")
+    echo "${c}${suffix}"
+  done
+}
+
 # ── self-test calls (force emission + correctness oracle) ─────────────
+brace "x" "!" "2" "a,b" "c,d"
+brace "" "" "1" "1,2"
+brace "pre" "-post" "2" "A,B" "1,2"
+
 wcLines "a
 b
 c"

@@ -15,7 +15,7 @@ host-bound seam (`exec`, `fs.*`, `pipeline`, `redirect`, `capture`,
 `background`, `subshell`, `exit`, `getVar`/`setVar`, error codes) stays
 per-backend.
 
-Current inventory (18 functions + 2 extglob helpers):
+Current inventory (21 functions + 4 helpers):
 
 | function | semantics | hand-written ref (sh2-namespace.mjs) |
 |---|---|---|
@@ -36,7 +36,9 @@ Current inventory (18 functions + 2 extglob helpers):
 | `param` | parameter-expansion dispatcher (len, case mods, `:-`, `#`/`##`/`%`/`%%` glob strips, `/`/`//` literal replace, slice) | :3266 |
 | `test` | test-expression evaluator (`-z`/`-n`, `==`/`!=`/`=`/`<`/`>`, `-a`/`-o`/`!`/parens, glob matching) | :1312 |
 | `ext_alt_match` / `ext_match` | extglob helpers (`?(..)` `*(..)` `+(..)` `@(..)` `!(..)` in globMatch) | :8311 |
-| `wcLines` / `headLines` / `tailLines` | pure line-processing cores of the wc/head/tail builtins (newline count, first/last n lines) — the first IO-composition polyfills: expressed in terms of the string primitives (strCount/strIndex/strSlice), so backends without a full runtime get the capture-lift data path | :2360/:6156 |
+| `line_count` / `line_at` | newline-separated string access (heredoc read pattern) | — |
+| `brace` | brace expansion cross-product (prefix, suffix, ngroups, groups...; the adapter maps sh2.brace's groups[]/middles[]/suffix shape) | :3699 |
+| `wcLines` / `headLines` / `tailLines` | pure line-content cores of the wc/head/tail builtins (newline count, first/last n lines) — the first IO-composition polyfills: expressed in terms of the string primitives (strCount/strIndex/strSlice), so backends without a full runtime get the capture-lift data path | :2360/:6156 |
 | `test` | test-expression evaluator (now with `nocasematch` via the third `nocase` arg — the adapter passes the shopt state) | :1312 |
 
 `caseMatch`/`globMatch`/`param` limitations (first cut): no `nocasematch`, no
