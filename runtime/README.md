@@ -80,16 +80,35 @@ just another program.
 Generated code calls `sh2.<name>(...)` with the **runtime's call-site
 convention** (JS values in, value/boolean out). The transpiled polyfill
 function uses the bash convention (positional in, stdout out). A thin
-per-backend adapter maps one to the other:
+per-backend adapter maps one to the other.
+
+**Post echo-return-lifting** (CROSS_BACKEND_RUNTIME.md §8.3 — the
+echo-return transform is ON for the current polyfill): the eligible
+functions RETURN their value natively (`sh2.fnValue` dispatch — no
+stdout sink, no newline strip). The adapter becomes:
 
 ```js
 // JS adapter (the pattern used by runtime/bench-polyfills.mjs)
+const polyValue = (name, args) => sh2.fnValue(name, args);
+// drop-in replacements
+sh2.basename = (x) => polyValue("basename", [x]);
+sh2.contains = (h, n) => polyValue("contains", [h, n]) === "1";
+```
+
+The functions whose bodies were NOT lifted (globMatch/caseMatch/param —
+captures + returns inside loops) keep the stdout convention; their
+adapters keep the stdout-sink form below (the bench does not touch
+them).
+
+### Legacy stdout-sink adapter (unlifted functions)
+
+```js
 let __buf = '';
 const polyValue = (name, args) => {
   const saved = process.stdout.write;
   process.stdout.write = (s) => { __buf += String(s); return true; };
   try {
-    sh2.fnCall(name, args);            // sets positional, dispatches
+    sh2.fnCall(name, args);
     const v = __buf.replace(/\n+$/, ''); // strip the echo newline
     __buf = '';
     return v;
@@ -97,9 +116,6 @@ const polyValue = (name, args) => {
     process.stdout.write = saved;
   }
 };
-// drop-in replacements
-sh2.basename = (x) => polyValue("basename", [x]);
-sh2.contains = (h, n) => polyValue("contains", [h, n]) === "1";
 ```
 
 Notes:

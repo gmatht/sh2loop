@@ -312,6 +312,41 @@ call sites `fnCall` → `fnValue`. The per-backend adapter must switch to
 backend). Bigger change (calling convention); design + recognition
 analysis first, renderer wiring per backend.
 
+**Design (implemented, `src/transforms/echo_return.rs`):**
+
+1. **Recognition** — a function whose body is pure (no exec/capture/
+   redirect/background/subshell/file-write/`$?`) and where EVERY path
+   through the body emits EXACTLY ONE single-arg `echo` (no `-n`/`-e`,
+   no multi-word output). A small state machine over {Need, Done, Dead}
+   tracks each live path's echo count: an If unions over its arms; a
+   loop whose body never reaches `Done` (an echo without a return would
+   re-echo per iteration) is allowed; a bare `return` is only legal
+   AFTER an echo on its path (a no-output return path loses the value).
+   REFUSE > GUESS: any impure construct, a 0/2+-echo path, or a return
+   inside a loop body (the runtime-loop callback lowers a return to the
+   `sh2.return` SIGNAL — the value channel is lost there) refuses.
+2. **Body rewrite** — every value echo becomes `Return(Some(value))`;
+   the trailing bare `return`s are dropped (unreachable). The estree
+   emitter renders `Return` natively (no new arms) and `Call("fnValue")`
+   via the general call path (`sh2.fnValue(...)`); the perl renderer
+   gained the `fnValue` sub-call arms (statement + expression paths in
+   `ir.rs`). The recognized bodies are provably await-free, so the
+   define arrows stay on the SYNC path — `fnValue` returns the raw
+   value, not a Promise.
+3. **Call-site rewrite** — every call of a recognized function (the
+   shIR `exec("f", [args])` / `fnCall` shape) becomes
+   `exec("echo", [fnValue("f", [args])])` — the value + newline the
+   original echo produced, and the echo's status (0) == the original
+   function's status. A CAPTURE of an eligible function collapses to
+   the bare `fnValue` result (no stdout round-trip). The rewrite
+   descends into function bodies (the param/globMatch dispatchers'
+   captures of now-eligible primitives) and `case` bodies.
+
+**Benchmark (fnValue adapter, current emitter):** T3 adds on top of
+T1+T2: strLen ~5.5×, basename/dirname ~2.6-3×, contains/strHasPrefix
+~1.8-2×. Cumulative vs the pre-T1 baseline: basename ~107×, dirname
+~167×, strLen ~16×, contains ~5×, strHasPrefix ~3×.
+
 ### 8.4 Status
 
 - 2026-08-27: **T1 landed** — `src/transforms/test_lowering.rs`
@@ -349,8 +384,16 @@ analysis first, renderer wiring per backend.
   top of T1. The cross-backend analysis-transform form (verdict statics
   + per-backend renderer hooks) remains the follow-up for C/Go/…
 
-- 2026-08-27: **T3 (echo-return lifting) documented** — design in §8.3;
-  recognition analysis + renderer wiring pending.
+- 2026-08-27: **T3 landed** — `src/transforms/echo_return.rs`
+  (recognition + body rewrite to native `Return(Some(v))` + call-site
+  rewrite to `exec("echo", [fnValue(...)])` / capture-collapse to the
+  bare `fnValue`), the perl renderer's `fnValue` sub-call arms
+  (`src/ir.rs`), and the bench adapter switched to `sh2.fnValue`.
+  Polyfill self-test diff identical; estree corpus 545/551 (the 6 reds
+  pre-existing); perl corpus 267/284 (baseline 266/285 — one MORE pass,
+  zero regressions); lib tests 398/398 (3 new echo-return tests).
+  Benchmark: see §8.3 — cumulative basename ~107×, dirname ~167×,
+  strLen ~16×, contains ~5×, strHasPrefix ~3× vs the pre-T1 baseline.
 
 ## 9. Findings so far (construct-set + runtime notes)
 
