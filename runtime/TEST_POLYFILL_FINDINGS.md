@@ -60,14 +60,22 @@ future transpiler fix or a different tokenizer strategy.
 
 ## The path forward
 
-- **Transpiler fix (preferred):** native lowering for `[[ "$c" ==
-  "(" ]]`-style comparisons — recognize quoted literals in test
-  operands (the emitter's `eq_test_operand` already refuses glob
-  metachars; extend it to operator chars). This unblocks char-level
-  logic everywhere.
-- **Or a different tokenizer strategy:** regex-based tokenization via
-  a helper (the case-pattern lowering can't express the char classes
-  needed).
+- **Transpiler fix (landed 2026-08-27, sh2perl 448e78d):** native
+  lowering for quoted-literal test operands — `has_unquoted_paren`
+  (quote-aware paren scan), `try_native_compound_test` refuses only
+  GROUPING parens, `split_test_connector` skips single-quoted regions
+  (the `'('` in `\'('\'` was counted as grouping depth, hiding the
+  `-a`/`-o` connector). `[[ "$c" == '(' || "$c" == ')' ]]` now lowers
+  to `String(c) === "(" || String(c) === ")"` — verified byte-identical
+  to bash on all quoted operator chars `(` `)` `!` `=` `<` `>` space
+  `"` `'` `\` and compound `&&`/`||`/`!=` mixes; `cargo test --lib`
+  386/386.
+- **Remaining blocker:** the tokenizer STOPS in the capture context
+  (`toks=$(tokenizeTest ...)`) after a quoted `!` token when more input
+  follows — a break/continue signal interaction in the nested while
+  loops inside `captureSync` (the tokenizer's own `[[ ]]` conditions
+  are case statements now, so this is the capture/break interaction,
+  not the operator-char issue).
 - **Or defer:** the polyfill's own conditions could avoid `[[ ]]`
   entirely (use the string primitives + case), shrinking the test
   polyfill's scope to the adapter's needs.
