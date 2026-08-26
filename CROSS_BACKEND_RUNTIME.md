@@ -183,6 +183,20 @@ improves, the polyfills can use more constructs.
   `${rest:0:${#close}}` slices break the parser — precompute lengths.
   Limitations (first cut): no extglob, no nocasematch, no
   pattern-`$()`-expansion.
+- 2026-08-26: **M3 progress — param dispatcher landed** (17 functions
+  total): len, case mods (`^^`/`,,`/`^`/`,`), `:-` default, `#`/`##`/
+  `%`/`%%` glob strips (scan + globMatch), `/`/`//` literal replace,
+  slice — byte-identical to bash. Construct-set findings: `#)`/`##)`
+  case patterns are COMMENT STARTERS in bash — quote them (`'#'`);
+  `${v,}` (first-char lowercase) is a parser gap — use
+  `${first,,}${rest}` manually.
+- 2026-08-26: **M4 pilot — C backend blocker found.** The polyfills
+  transpile to C (1501 lines, compiles) but the C renderer ABORTS on
+  the while-loop + param self-assignment (`s="${s%/}"` in basename):
+  the var is declared as raw `char*` (storage-class selection) but the
+  loop assignment emits `_sh_mstr_set(&s, ...)` (managed) — a
+  storage-class inconsistency in `src/c_backend.rs` (the C workers'
+  territory). M4 wiring is blocked until the C renderer fixes it.
 - 2026-08-26: **backend consumption guide** — `runtime/README.md`
   (transpile → link → adapter → dependency closure → self-test oracle →
   construct-set constraint → rollout status).
