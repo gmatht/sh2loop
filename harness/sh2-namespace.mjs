@@ -2568,6 +2568,27 @@ export const sh2 = {
   // expression rides as a word). Return real booleans for native BinOp.
   strHasPrefix(s, p) { return String(s).startsWith(String(p)); },
   strHasSuffix(s, p) { return String(s).endsWith(String(p)); },
+  strContains(s, p) { return String(s).includes(String(p)); },
+  // pathDir/pathExt: Go filepath.Dir/Ext twins for non-literal operands
+  // (the golib's own foldPureLiteralCall path ops over closure args)
+  pathDir(p) {
+    const s = String(p ?? '');
+    if (s === '') return '.';
+    let i = s.length;
+    while (i > 1 && s[i - 1] === '/') i--;
+    const j = s.lastIndexOf('/', i - 1);
+    let d = j < 0 ? s.slice(0, i) : s.slice(0, j);
+    if (d === '' || d.startsWith('..')) return d === '' ? '/' : d;
+    while (d.endsWith('/') && d.length > 1) d = d.slice(0, -1);
+    d = d.replace(/\/+/g, '/');
+    return d === '' ? '/' : d;
+  },
+  pathExt(p) {
+    const s = String(p ?? '');
+    const b = s.slice(s.lastIndexOf('/') + 1);
+    const i = b.lastIndexOf('.');
+    return i < 0 ? '' : b.slice(i);
+  },
   // objAdd: numeric RMW over an object field (`p.pos++`, `p.pos += n`)
   // — the A1 arith forms address STORE vars only, so the read-modify-
   // write rides one call.
@@ -3289,8 +3310,19 @@ export const sh2 = {
     }
     if (op === 'len') return String(v.length); // ${#name}
     // `${x:off:len}` offsets may be arithmetic expressions (`${x:j:1}`)
+    // the emitter passes slice offsets/lengths that were ARITHMETIC in
+    // the source as their raw text — including the `$(( ... ))` wrapper
+    // (`${p:2:$((end - 2))}` → param("slice", "p", "2", "$((end - 2))")).
+    // evalArith expects the INNER text; strip one `$((...))` wrapper.
+    const unwrapArith = (t) => {
+      const s2 = String(t).trim();
+      if (s2.startsWith('$((') && s2.endsWith('))')) {
+        return s2.slice(3, -2);
+      }
+      return s2;
+    };
     const sliceOff = (s) => {
-      const t = String(s).trim();
+      const t = unwrapArith(s);
       if (/^-?\d+$/.test(t)) return Number(t);
       try { return evalArith(t, this); } catch { return 0; }
     };
@@ -3299,7 +3331,7 @@ export const sh2 = {
     // hi minus lo); Number(b)||0 silently yielded empty slices for any
     // non-digit length (the zig-sh-go format-spec match spun on it).
     const sliceLen = (s) => {
-      const t = String(s ?? '').trim();
+      const t = unwrapArith(s ?? '');
       if (/^\d+$/.test(t)) return Number(t);
       if (t === '') return null;
       try { return evalArith(t, this); } catch { return 0; }
