@@ -33,8 +33,8 @@ Current inventory (21 functions + 4 helpers):
 | `joinSep` | join args with separator | :2522 |
 | `globMatch` | recursive glob matcher (lit, `*`, `?`, `[class]`, `\`escape) | :8311 |
 | `caseMatch` | first pattern matching value | :1837 |
-| `param` | parameter-expansion dispatcher (len, case mods, `:-`, `#`/`##`/`%`/`%%` glob strips, `/`/`//` literal replace, slice) | :3266 |
-| `test` | test-expression evaluator (`-z`/`-n`, `==`/`!=`/`=`/`<`/`>`, `-a`/`-o`/`!`/parens, glob matching) | :1312 |
+| `param` | parameter-expansion dispatcher (len, case mods, `:-`/`:=`, `#`/`##`/`%`/`%%` glob strips incl. extglob, `/`/`//` literal replace, `:?` error marker, slice) | :3266 |
+| `test` | test-expression evaluator (`-z`/`-n`, `==`/`!=`/`=`/`<`/`>`, `-a`/`-o`/`!`/parens, glob matching, `nocasematch` via the third `nocase` arg) | :1312 |
 | `ext_alt_match` / `ext_match` | extglob helpers (`?(..)` `*(..)` `+(..)` `@(..)` `!(..)` in globMatch) | :8311 |
 | `line_count` / `line_at` | newline-separated string access (heredoc read pattern) | — |
 | `brace` | brace expansion cross-product (prefix, suffix, ngroups, groups...; the adapter maps sh2.brace's groups[]/middles[]/suffix shape) | :3699 |
