@@ -206,6 +206,123 @@ joinSep() {
   echo "$out"
 }
 
+# globMatch — recursive glob matcher (lit, *, ?, [class], \escape).
+# Echoes 1/0. No extglob (?(..) *(..) +(..) @(..) !(..)) yet.
+globMatch() {
+  local p="$1" v="$2"
+  if [[ -z "$p" ]]; then
+    if [[ -z "$v" ]]; then
+      echo "1"
+    else
+      echo "0"
+    fi
+    return
+  fi
+  local c="${p:0:1}"
+  case "$c" in
+    \*)
+      local r
+      r=$(globMatch "${p:1}" "$v")
+      if [[ "$r" == "1" ]]; then
+        echo "1"
+        return
+      fi
+      if [[ -n "$v" ]]; then
+        r=$(globMatch "$p" "${v:1}")
+        if [[ "$r" == "1" ]]; then
+          echo "1"
+          return
+        fi
+      fi
+      echo "0"
+      ;;
+    \?)
+      if [[ -n "$v" ]]; then
+        local r
+        r=$(globMatch "${p:1}" "${v:1}")
+        if [[ "$r" == "1" ]]; then
+          echo "1"
+          return
+        fi
+      fi
+      echo "0"
+      ;;
+    \[)
+      local rest="${p:1}"
+      local close="${rest%%]*}"
+      if [[ "$close" != "$rest" ]]; then
+        local clen=${#close}
+        local cls="${rest:0:$clen}"
+        local aoff=$((clen + 1))
+        local after="${rest:$aoff}"
+        local neg=0
+        if [[ "${cls:0:1}" == '!' || "${cls:0:1}" == '^' ]]; then
+          neg=1
+          cls="${cls:1}"
+        fi
+        local ch="${v:0:1}"
+        local matched=0
+        if [[ -n "$ch" ]]; then
+          if [[ "$cls" == *"$ch"* ]]; then
+            matched=1
+          fi
+        fi
+        if (( matched == 1 && neg == 0 )) || (( matched == 0 && neg == 1 )); then
+          local r
+          r=$(globMatch "$after" "${v:1}")
+          if [[ "$r" == "1" ]]; then
+            echo "1"
+            return
+          fi
+        fi
+      fi
+      echo "0"
+      ;;
+    \\)
+      local plen=${#p}
+      if (( plen > 1 )); then
+        local c2="${p:1:1}"
+        if [[ "$c2" == "${v:0:1}" ]]; then
+          local r
+          r=$(globMatch "${p:2}" "${v:1}")
+          if [[ "$r" == "1" ]]; then
+            echo "1"
+            return
+          fi
+        fi
+      fi
+      echo "0"
+      ;;
+    *)
+      if [[ "$c" == "${v:0:1}" ]]; then
+        local r
+        r=$(globMatch "${p:1}" "${v:1}")
+        if [[ "$r" == "1" ]]; then
+          echo "1"
+          return
+        fi
+      fi
+      echo "0"
+      ;;
+  esac
+}
+
+# caseMatch — the first pattern matching value (echoes the pattern, or
+# nothing). No nocasematch / pattern-`$()`-expansion yet.
+caseMatch() {
+  local value="$1"
+  shift
+  local p
+  for p in "$@"; do
+    local r
+    r=$(globMatch "$p" "$value")
+    if [[ "$r" == "1" ]]; then
+      echo "$p"
+      return
+    fi
+  done
+}
+
 # ── self-test calls (force emission + correctness oracle) ─────────────
 basename /foo
 basename a/b
@@ -252,3 +369,21 @@ strContainsAny "hello" ""
 joinSep "," a b c
 joinSep "-" x
 joinSep ","
+globMatch "*.txt" "file.txt"
+globMatch "*.txt" "file.md"
+globMatch "a?c" "abc"
+globMatch "a?c" "ac"
+globMatch "[abc]*" "apple"
+globMatch "[abc]*" "zebra"
+globMatch "[!a]*" "zebra"
+globMatch "[!a]*" "apple"
+globMatch "a\\*b" "a*b"
+globMatch "a\\*b" "axb"
+globMatch "*" ""
+globMatch "" ""
+globMatch "a*b*c" "aXbYc"
+globMatch "**" "anything"
+caseMatch "file.txt" "*.md" "*.txt"
+caseMatch "file.md" "*.md" "*.txt"
+caseMatch "hello" "h*" "*o"
+caseMatch "hello" "x*" "y*"
