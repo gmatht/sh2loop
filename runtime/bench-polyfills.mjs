@@ -51,19 +51,13 @@ const bench = (label, fn, inputs, iters) => {
 // convention) — via the NATIVE echo path (process.stdout.write), which
 // bypasses the runtime's captureSync (fdTargets). The adapter sinks
 // process.stdout.write into a buffer and returns the captured value.
-let __buf = '';
-const polyValue = (name, args) => {
-  const saved = process.stdout.write;
-  process.stdout.write = (s) => { __buf += String(s); return true; };
-  try {
-    sh2.fnCall(name, args);
-    const v = __buf.replace(/\\n+$/, '');
-    __buf = '';
-    return v;
-  } finally {
-    process.stdout.write = saved;
-  }
-};
+// POST echo-return-lifting (CROSS_BACKEND_RUNTIME.md §8.3): the
+// eligible functions RETURN their value natively, so the adapter
+// dispatches through sh2.fnValue directly — no stdout sink, no
+// newline strip (the benchmarked five are all lifted;
+// globMatch/caseMatch/param keep the stdout convention — the bench
+// does not touch them).
+const polyValue = (name, args) => sh2.fnValue(name, args);
 
 const paths = ["/foo", "a/b", "foo", "a/b/", "/", "", "a//b", "a///b", "a/b//", "//", "///", "a//", "a/", "a/b/c", "/a/b/", "x/y/z/"];
 const strs = ["hello", "", "a b c", "hello world", "the quick brown fox", "x".repeat(100), "a".repeat(1000)];
