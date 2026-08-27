@@ -84,13 +84,32 @@ against real bash builtins); `make coverage` checks every sh2perl
 builtin is covered by bash or C.
 
 **Adapters** — thin per-backend adapters map the sh2.* call-site
-convention to the C polyfills:
+convention to the C polyfills. Each adapter links/loads `libsh2poly`
+and runs the shared oracle battery (`adapters/battery.txt`) in the C
+self-test's output format; `make adapters` builds and verifies all of
+them against the C oracle (`make selftest`, byte-identical to real bash
+builtins):
 
 - `adapters/c/polyfill-cli.c` — the C backend's adapter (a transpiled C
   program links `libsh2poly.a` and calls `sh2poly_dispatch` for every
   builtin it lowers to the seam).
+- `adapters/rust/main.rs` — the Rust backend's adapter. `rustc -L . -l
+  static=sh2poly` links the static archive directly; `main` reads
+  `battery.txt`, calls `sh2poly_dispatch` per entry.
+- `adapters/zig/main.zig` — the Zig backend's adapter. `zig build-exe
+  ... -lsh2poly -lc` links the library directly; `main` reads
+  `battery.txt`, calls `sh2poly_dispatch` per entry.
+- `adapters/go/main.go` — the Go backend's adapter. cgo calls
+  `sh2poly_dispatch`; linked against the static archive
+  (`-l:libsh2poly.a`) so the binary is self-contained.
+- `adapters/perl/polyfills.pl` — the Perl backend's adapter.
+  `FFI::Platypus` loads `libsh2poly.so` and calls `sh2poly_dispatch`.
 - `adapters/python/polyfills.py` — the Python backend's adapter
   (ctypes over `libsh2poly.so`; `from polyfills import sh2`).
+- `adapters/java/` — the Java backend's adapter: `Polyfills.java`
+  (reads `battery.txt`, calls a native method) over
+  `polyfills_jni.c` (a JNI shim that links `libsh2poly.a` and forwards
+  to `sh2poly_dispatch`).
 
 **Out of scope** — the browser/WASI path cannot use the C seam: WASI
 has no fork/exec, so the IO-bound polyfills would be stubs there. The
@@ -266,13 +285,15 @@ findings (see CROSS_BACKEND_RUNTIME.md §8):
   correctness for backends that lack one.
 - **M3 done**: `test`, `caseMatch`, `brace`, `param` (the hot pure-CPU
   callees) landed — see CROSS_BACKEND_RUNTIME.md §7.
-- **M4 (C polyfills) done**: `polyfills.c` (the host-bound/IO seam +
-  IO/state builtins) landed with the build wiring (`Makefile`), the
-  self-test oracle (`make selftest` — byte-identical to real bash
-  builtins), the coverage check (`make coverage` — all 68 builtins
-  covered, zero gaps), and the thin adapters (`adapters/c`,
-  `adapters/python`). The browser/WASI path is documented out of scope
-  (no fork/exec). Per-backend transpilation of the bash polyfills for
-  backends that lack a runtime remains the follow-up (C is the natural
-  first target — its transpiler already emits the polyfill functions as
-  C functions).
+- **M5 (backend adapter wiring) done**: the Rust, Zig, Go, Perl, and
+  Java adapters landed and verified against the same oracle battery as
+  the C and Python adapters (`make adapters` — all seven backends
+  reproduce the C self-test output byte-for-byte on
+  `adapters/battery.txt`). The C-renderer integration (c_backend.rs
+  emitting `sh2poly_*` calls instead of `bash -c` shell-outs) is
+  explicitly **out of scope** for this step and tracked as a separate
+  follow-up: today the adapters are the consumption contract, the
+  C backend still lowers builtins to `bash -c`. Per-backend
+  transpilation of the bash polyfills for backends that lack a runtime
+  remains the wider follow-up (C is the natural first target — its
+  transpiler already emits the polyfill functions as C functions).
