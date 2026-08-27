@@ -292,31 +292,36 @@ polyfill ships its own `test`. Status per backend, assessed
   original M4-pilot renderer bugs are fixed (the storage-class
   inconsistency where a raw `char*` is assigned via `_sh_mstr_set`;
   the `sh2_fnValue` conflicting-types forward declaration; array-type
-  assignments). Two further renderer bugs found and fixed during M4:
+  assignments). Three further renderer bugs found and fixed during M4:
   `local x="$var"` into a fixed buffer was emitted as a no-op clear
   (the `value_c` RHS `(name ? name : "")` was not classified stringy
   by `emit_guarded_copy`, so the buffer was zeroed instead of copied);
-  and `local off="$a" len="$b"` dropped the `len` value (the
+  `local off="$a" len="$b"` dropped the `len` value (the
   `declare_words` value-expr lookahead refused a `Str` word carrying a
-  `$var`). **But the full self-test battery is BLOCKED by two
-  architectural limits of the C backend's pseudo-global variable
-  model** (no fix in the three-bug scope resolves them): (1) command-
-  substitution recursion has no per-call stack frame — every function's
-  locals are file-scope, so `$(globalMatch …)` (and any `$(fn …)`)
-  recurses infinitely / corrupts state (confirmed via gdb: `strHasPrefix`
-  → `_sh_capture_fn(strHasPrefix, …)` → `strHasPrefix` infinite loop;
-  `globMatch` genuinely self-recurses via `$(globMatch "${p:1}" "$v")`);
-  (2) cross-function global-variable collisions — many polyfill
-  functions share short names (`i`, `n`, `c`, `ch`, `line`) hoisted to
-  file scope for capture helpers, so a call from one function clobbers
-  another's locals. A recent *relax of the test-lowering self-recursion
-  guard* (staged WIP, not part of M4) additionally lowers
-  `strHasPrefix`/`contains`/`strHasSuffix` OWN bodies to recursive calls
-  — valid for ESTree (`startsWith`/`includes`) but fatal for C (renders
-  as `$(strHasPrefix …)`). Isolated functions (single fn, no cross-
-  calls) transpile byte-identical to bash. **M4 for C requires stack-
-  frame / per-function-local isolation** — a backend-architecture change
-  tracked separately, not a renderer-bug fix.
+  `$var`); and `strHasPrefix`/`strHasSuffix`/`contains` calls (the
+  test-lowering transform's glob-affix output, CROSS_BACKEND_RUNTIME.md
+  §8.1) were lowered to recursive `$(fn …)` calls — now lowered to
+  native `strncmp`/`strcmp`/`strstr` (ESTree already did this; the C
+  hook was missing, so a function whose own body lowers to
+  `$(strHasPrefix …)` recursed infinitely under the pseudo-global
+  model — confirmed via gdb). **But the full self-test battery is still
+  BLOCKED by deeper limits** (verified 2026-08-27, each needs an
+  architecture/analysis change, not a renderer-bug fix): (1) the `test`
+  /`tokenizeTest` tokenizer's fixed-buffer length analysis
+  **under-bounds** a buffer — debug build asserts `strlen(_s1251) <= 0`
+  (a `char[1]` written with content), NDEBUG truncates and corrupts the
+  tokenizer; (2) command-substitution recursion has no per-call stack
+  frame — `globMatch` genuinely self-recurses via `$(globMatch "${p:1}"
+  "$v")` and every function's locals are file-scope, so it recurses
+  infinitely / corrupts state (gdb: `globMatch` → `_sh_capture_fn` →
+  `globMatch`); (3) cross-function global-variable collisions — many
+  polyfill functions share short names (`i`, `n`, `c`, `ch`, `line`)
+  hoisted to file scope for capture helpers, so a call from one function
+  clobbers another's locals. Isolated functions (single fn, no cross-
+  calls) transpile byte-identical to bash. **M4 for C requires**
+  fixed-buffer length analysis for the `test` tokenizer + stack-frame /
+  per-function-local isolation — backend-architecture changes tracked
+  separately.
 - **Go** — emits ~1981 lines but **40 `TODO` markers** for the `sh2.*`
   runtime helpers (`harness/sh2-namespace.json`); not runnable as-is.
 - **Zig** — emits ~1710 lines but **278 `TODO` markers** for the `sh2.*`
