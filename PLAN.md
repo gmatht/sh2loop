@@ -12,6 +12,15 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v36: **Runtime optimization items 1–3 (CROSS_BACKEND_RUNTIME.md §8.4):
+>   item 1 (return-in-loop → flag+break) landed earlier; item 2's SCC
+>   recognition landed as a SHARED analysis (`shir_passes/scc.rs` —
+>   call-graph Tarjan + `FunctionScc` PassContext wiring, the test-parser
+>   cluster recognized as one SCC); item 3 (glob-matcher lift) LANDED via
+>   SCC-based echo-return recognition — globMatch/ext_match/ext_alt_match/
+>   param echo-return-lifted, polyfill self-test byte-identical, perl
+>   corpus 268/283 (2 more passes), estree 545/551, lib 406/407 (the 1
+>   red is the concurrent worker's in-flight sh_backend grep_p test).**
 > - v35: **Session total: gate 541 → 605 peak → 599–604 (37 reds), 30+
 >   commits of C backend improvements on backend/c.** Major features:
 >   native while-read loops with IFS-aware `_sh_read_split()` field

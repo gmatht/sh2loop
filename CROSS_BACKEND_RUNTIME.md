@@ -428,27 +428,41 @@ T1+T2: strLen ~5.5×, basename/dirname ~2.6-3×, contains/strHasPrefix
     version would print an empty line where bash prints nothing).
     Verified: self-test identical; estree 545/551; perl 267/284;
     lib 401/401 (2 new tests).
-  - **Item 2 (test-parser token-accumulation) DEFERRED** — the
-    polyfills.sh is the concurrent worker's actively-changing keystone
-    (5 commits in the hour, the file changes under us); a
-    token-accumulation rewrite of tokenizeTest would conflict with the
-    worker's in-flight edits. Revisit when the worker's test-polyfill
-    work settles.
-  - **Item 3 (glob-matcher pattern lift) BLOCKED** — two approaches
-    tried and reverted: (a) a `direct_calls` extension (coinductive
-    self-recursion purity + control-flow statements + exec-form unwrap)
-    made the recursion in-process, but the emitter renders the
-    Capture{Call} as `sh2.globMatch(...)` — the runtime's NATIVE
-    matcher (no extglob, different edge cases), not the polyfill's
-    function — the self-test diff broke; (b) an echo-return
-    self-recursion extension (a capture of the function itself is
-    pure) — the matchers form a MUTUAL-recursion SCC (globMatch ↔
-    ext_alt_match ↔ ext_match), which the coinductive self-check
-    cannot break, so nothing fired. The real fix (collapse the
-    recursion into a native glob primitive) is blocked by the DYNAMIC
-    patterns (the recursion passes `${p:1}` slices — not compile-time
-    literals) and the worker's active extglob changes. Revisit with an
-    SCC-based recognition once the worker's matcher work settles.
+  - **Item 2 (test-parser token-accumulation) DEFERRED — SCC
+    recognition LANDED** — the token-accumulation rewrite of
+    tokenizeTest remains the concurrent worker's territory (the test
+    polyfill is its self-containment keystone; the file changes under
+    us). What landed instead is the recognition that makes that work
+    easier: `src/shir_passes/scc.rs` — a shared call-graph
+    strongly-connected-component analysis (Tarjan; `build_call_graph`,
+    `tarjan_sccs`, `scc_index`/`scc_of`), wired into the pipeline as
+    the `FunctionScc` analysis populating `PassContext.function_sccs`.
+    The `test` parser's evaluator cluster (`eval_or` ↔ `eval_and` ↔
+    `eval_not` ↔ `eval_primary`) is recognized as ONE SCC (unit-tested),
+    so a transform can reason about the whole parser cluster at once
+    instead of being defeated by a single-function fixpoint.
+  - **Item 3 (glob-matcher pattern lift) LANDED (SCC-based
+    echo-return)** — the echo-return eligibility fixpoint now iterates
+    over the call graph's SCCs (the shared `shir_passes::scc` Tarjan)
+    instead of single functions: the matchers' MUTUAL recursion
+    (globMatch ↔ ext_alt_match ↔ ext_match) is recognized as a WHOLE
+    under the coinductive assumption that same-SCC captures are pure.
+    Two enablers: (a) `loop_return_lift` descends into `case` clause
+    bodies (the matchers' `if [[ "$m" == "1" ]]; then echo 1;
+    return; fi` lives inside a case clause); (b) `rewrite_stmt` no
+    longer shadows the bare-call-to-eligible arm behind the value-echo
+    arm — the bare `ext_match "$c" "$p" "$v"` recursion inside
+    globMatch was left for pass 3 to wrap in an ECHO (printing the
+    value instead of returning it — the extra-`0` self-test
+    regression); it is now a value return of the fnValue result.
+    Result: globMatch/ext_match/ext_alt_match/param echo-return-lifted
+    (native value return, no stdout sink); polyfill self-test
+    byte-identical; perl corpus 268/283 (2 more passes:
+    040_process_substitution_comm, 061_test_local_names_preserved);
+    estree 545/551; lib 406/407 (the 1 red is the concurrent worker's
+    in-flight sh_backend grep_p test, red on baseline too).
+    `caseMatch` stays non-liftable (its no-match path emits nothing —
+    the same value-channel limitation as `line_at`).
 
 ## 9. Findings so far (construct-set + runtime notes)
 
