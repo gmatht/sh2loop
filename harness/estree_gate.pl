@@ -17,14 +17,14 @@ use warnings;
 use JSON::PP;
 
 my %whitelist = map { $_ => 1 } qw(
-    exec getVar setVar test pipeline capture captureWords fieldSplit mktemp redirect caseMatch param arith brace setArray setArrayAppend assign arrayItems arrayLen arrayIndex join setLastExit arithEval idiv imod guard not contains builtin grepText grepMatches cutText bcSqrt fileTest fnCall fnValue callDirect callUndefined
+    exec getVar setVar test pipeline capture captureWords fieldSplit mktemp redirect caseMatch param arith brace setArray setArrayAppend assign arrayItems arrayValues arrayLen arrayIndex join setLastExit arithEval idiv imod guard not contains builtin grepText grepMatches cutText bcSqrt fileTest fnCall fnValue callDirect callUndefined
     define subshell background block whileLoop whileLoopSync whileLoopBatch cstyleFor cstyleForSync forLoop forLoopSync forLoopBatch listVar and or
     subshellSync blockSync captureSync captureWordsSync pipelineSync redirectSync
     shopt return break continue unsupported
     typeOf isType
     pipelineInputLines
     makeChan recv send select
-    trimCapture dirname basename uname date readlink hostname whoami mktempValue split readFile writeFile appendFile lstat access unlink rm mkdir mkdtemp addrOf memLoad memStore walkLines readLine
+    trimCapture dirname basename uname date readlink hostname whoami mktempValue split readFile writeFile appendFile lstat access unlink rm mkdir mkdtemp addrOf memLoad memStore walkLines readLine eachLine
     memAlloc memFree ternary arrayStore memAdvance memTest line
     assocSet assocGet assocNames assocValues
 );
