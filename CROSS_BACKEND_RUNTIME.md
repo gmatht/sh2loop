@@ -415,6 +415,41 @@ T1+T2: strLen ~5.5×, basename/dirname ~2.6-3×, contains/strHasPrefix
   Benchmark: see §8.3 — cumulative basename ~107×, dirname ~167×,
   strLen ~16×, contains ~5×, strHasPrefix ~3× vs the pre-T1 baseline.
 
+- 2026-08-27: **follow-up items 1–3 (the remaining structural gaps)**:
+  - **Item 1 (return-in-loop → flag+break) LANDED** —
+    `src/transforms/loop_return_lift.rs` (registered before
+    echo-return): a loop whose body has `if C; then echo "$v";
+    return; fi` is rewritten to a fresh `__sh2_found` flag + `break`,
+    with the post-loop statements moved into the new if's else.
+    `strContainsAny` is now echo-return-lifted (native value return,
+    no stdout sink). `line_at` gets the flag+break (no more
+    return-in-loop) but stays NON-liftable: its no-match path emits
+    NOTHING, which the value channel cannot express (a value-returning
+    version would print an empty line where bash prints nothing).
+    Verified: self-test identical; estree 545/551; perl 267/284;
+    lib 401/401 (2 new tests).
+  - **Item 2 (test-parser token-accumulation) DEFERRED** — the
+    polyfills.sh is the concurrent worker's actively-changing keystone
+    (5 commits in the hour, the file changes under us); a
+    token-accumulation rewrite of tokenizeTest would conflict with the
+    worker's in-flight edits. Revisit when the worker's test-polyfill
+    work settles.
+  - **Item 3 (glob-matcher pattern lift) BLOCKED** — two approaches
+    tried and reverted: (a) a `direct_calls` extension (coinductive
+    self-recursion purity + control-flow statements + exec-form unwrap)
+    made the recursion in-process, but the emitter renders the
+    Capture{Call} as `sh2.globMatch(...)` — the runtime's NATIVE
+    matcher (no extglob, different edge cases), not the polyfill's
+    function — the self-test diff broke; (b) an echo-return
+    self-recursion extension (a capture of the function itself is
+    pure) — the matchers form a MUTUAL-recursion SCC (globMatch ↔
+    ext_alt_match ↔ ext_match), which the coinductive self-check
+    cannot break, so nothing fired. The real fix (collapse the
+    recursion into a native glob primitive) is blocked by the DYNAMIC
+    patterns (the recursion passes `${p:1}` slices — not compile-time
+    literals) and the worker's active extglob changes. Revisit with an
+    SCC-based recognition once the worker's matcher work settles.
+
 ## 9. Findings so far (construct-set + runtime notes)
 
 - `[[ "$x" == *"$y"* ]]` transpiles correctly; `case "$x" in *"$y"*)`
