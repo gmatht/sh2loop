@@ -2324,6 +2324,93 @@ export const sh2 = {
     return o && o.kind === 'list' ? String(o.items.length) : '0';
   },
 
+  // jsonObject(keys, vals) — build a plain JS object from parallel
+  // key/value arrays (the go-sh frontend's MapLiteral / assoc-builder
+  // lowering). Values that are object/list/assoc refs (obj#N / list#N /
+  // assoc#N) are resolved recursively. Returns the object so callers can
+  // index it directly (e.g. `jsonObject(...)[key]`).
+  jsonObject(keys, vals) {
+    const self = this;
+    const resolve = (v) => {
+      const s = String(v ?? '');
+      if (/^obj#\d+$/.test(s)) return self._serObj(s);
+      if (/^list#\d+$/.test(s)) return self._serList(s);
+      if (/^assoc#\d+$/.test(s)) return self._serAssoc(s);
+      return s;
+    };
+    const o = {};
+    const ks = Array.isArray(keys) ? keys : [];
+    const vs = Array.isArray(vals) ? vals : [];
+    for (let i = 0; i < ks.length; i++) o[String(ks[i])] = resolve(vs[i]);
+    return o;
+  },
+
+  // jsonMarshal(name) — serialize the A1 program (or any assoc/object/
+  // value) to JSON with encoding/json parity: alphabetically-sorted
+  // object keys, recursive arrays/objects, and best-effort scalar typing.
+  // The A1 contract is strings-only, so the few numeric fields
+  // (contract_version, line, start, end, …) are type-inferred; see
+  // DOGFOOD.md encoding/json boundary.
+  jsonMarshal(name) {
+    const self = this;
+    const nm = String(name);
+    if (self.assocNames.has(nm) || self.assocStore.has(nm)) {
+      return self._serAssoc(nm);
+    }
+    if (typeof name === 'object' && name !== null) return JSON.stringify(name);
+    return JSON.stringify(self._scalar(null, nm));
+  },
+
+  _serAssoc(nm) {
+    const self = this;
+    const store = self.assocStore.get(nm);
+    if (!store) return '{}';
+    const keys = [...store.keys()].sort();
+    const parts = keys.map(k => JSON.stringify(k) + ':' + self._serVal(k, store.get(k)));
+    return '{' + parts.join(',') + '}';
+  },
+  _serList(id) {
+    const o = this._objStore.get(String(id));
+    if (o && o.kind === 'list') return '[' + o.items.map(it => this._serVal(null, it)).join(',') + ']';
+    const arr = this.arrays.get(String(id));
+    if (arr) return '[' + arr.map(it => this._serVal(null, it)).join(',') + ']';
+    return '[]';
+  },
+  _serVal(k, v) {
+    const s = String(v ?? '');
+    if (/^obj#\d+$/.test(s)) return this._serObj(s);
+    if (/^list#\d+$/.test(s)) return this._serList(s);
+    if (/^assoc#\d+$/.test(s)) return this._serAssoc(s);
+    if (/^(obj|list|assoc)#\d+( [,#] (obj|list|assoc)#\d+)*$/.test(s)) {
+      const arr = s.split(/[ ,]+/).map(id => {
+        if (/^obj#/.test(id)) return this._serObj(id);
+        if (/^list#/.test(id)) return this._serList(id);
+        return this._serAssoc(id);
+      });
+      return '[' + arr.join(',') + ']';
+    }
+    return this._scalar(k, s);
+  },
+  _serObj(id) {
+    const o = this._objStore.get(String(id));
+    if (!o || o.kind !== 'struct') return '{}';
+    const f = o.f;
+    const keys = Object.keys(f).sort();
+    const parts = keys.map(k => JSON.stringify(k) + ':' + this._serVal(k, f[k]));
+    return '{' + parts.join(',') + '}';
+  },
+  _scalar(k, s) {
+    const NUMERIC = new Set(['contract_version', 'line', 'start', 'end', 'stmt', 'rc', 'idx']);
+    if (k != null && NUMERIC.has(k) && /^-?\d+$/.test(s)) return String(Number(s));
+    if (s === '') return '[]';
+    if (s === 'true') return 'true';
+    if (s === 'false') return 'false';
+    if (s === 'null') return 'null';
+    if (/^-?\d+$/.test(s)) return String(Number(s));
+    if (/^-?\d+\.\d+$/.test(s)) return String(Number(s));
+    return JSON.stringify(s);
+  },
+
   // listSlice(id, lo, hi) — Go slice-of-list with EXCLUSIVE hi (the
   // frontend emits listLen(id) for an open end). Returns a NEW list
   // ref holding the copied items; the source list is untouched
@@ -3113,6 +3200,16 @@ export const sh2 = {
     if (this.assocNames.has(nm)) return this.assocKeys(nm);
     return [...(this.arrays.get(nm) ?? [])];
   },
+  // `${arr[@]}` (VALUES) — the twin of arrayItems (keys). bash expands
+  // the VALUES for `${map[@]}` and the KEYS for `${!map[@]}`; arrayItems
+  // is the keys form, so the values form needs its own method (the
+  // transpiler's `${arr[@]}` swap used arrayItems, which returned the
+  // keys for an assoc array — 064_07_complex_array_operations).
+  arrayValues(name) {
+    const nm = String(name);
+    if (this.assocNames.has(nm)) return this.assocValues(nm);
+    return [...(this.arrays.get(nm) ?? [])];
+  },
   arrayKeys(name) {
     const nm = String(name);
     if (this.assocNames.has(nm)) return this.assocKeys(nm);
@@ -3460,7 +3557,7 @@ export const sh2 = {
             : list.slice(start);
           return name === '@' ? [...sl] : sl.join(' ');
         }
-        if (a === '@' || a === '*') return this.arrayItems(name); // ${arr[@]} — exec flattens; template literals join via sh2.join
+        if (a === '@' || a === '*') return this.arrayValues(name); // ${arr[@]} — exec flattens; template literals join via sh2.join
         // Extended slice step (core request py-sh-go-sliceop): the A1
         // 5th arg is the optional STEP for `a[i:j:k]` (the frontend
         // emits `param("slice", name, start, len, step)`). Only the
