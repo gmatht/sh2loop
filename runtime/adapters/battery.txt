@@ -1,0 +1,76 @@
+# battery.txt — the shared oracle battery for the C polyfill adapters.
+#
+# One polyfill call per line: fields TAB-separated (`name<TAB>arg1<TAB>...`).
+# Within a field: `\\` → literal backslash, `\n` → newline. Args may
+# contain spaces (they are within a TAB-delimited field).
+#
+# Each adapter's main reads this file, sets up the deterministic stdin
+# (see below), dispatches every call, and prints the C self-test format:
+#
+#   == <name>
+#   <polyfill stdout>
+#   status=<exit status>
+#
+# The reference output is the C self-test (cc -DSH2POLY_SELFTEST
+# polyfills.c), which is byte-identical to real bash builtins on the
+# same battery (polyfills-c-ref.sh). Every adapter must produce that
+# exact output.
+#
+# stdin: the runner writes the fixed input below to
+# /tmp/sh2poly_selftest_in.txt and redirects stdin from it before
+# dispatching (the read/readarray calls consume it; the C polyfill's
+# read reads all of stdin, so the first read consumes the file — the
+# output is unaffected, both return 0).
+echo	hello	world
+echo	-n	no-newline
+echo	-e	a\\tb\\n
+printf	%s-%d\\n	x	42
+printf	%05d\\n	7
+printf	%b	a\\tb\\n
+printf	%q	a b
+seq	5
+seq	2	2	8
+seq	-s	,	3
+let	2+3*4
+let	10	0
+true
+false
+:
+pwd
+cd	/tmp
+pwd
+fs_write	/tmp/sh2poly_selftest.txt	line1\nline2\n
+fs_read	/tmp/sh2poly_selftest.txt
+fs_stat	/tmp/sh2poly_selftest.txt
+fs_read	/tmp/sh2poly_missing.txt
+exec	true
+exec	false
+exec	sh	-c	echo exec-ok
+capture	echo	captured
+pipeline	echo	hi	|	tr	a-z	A-Z
+redirect	1	>	/tmp/sh2poly_redir.txt	echo	redir-ok
+fs_read	/tmp/sh2poly_redir.txt
+wc	-l	/tmp/sh2poly_selftest.txt
+head	-1	/tmp/sh2poly_selftest.txt
+tail	-1	/tmp/sh2poly_selftest.txt
+grep	line	/tmp/sh2poly_selftest.txt
+sort	/tmp/sh2poly_selftest.txt
+cat	/tmp/sh2poly_selftest.txt
+touch	/tmp/sh2poly_touched.txt
+fs_stat	/tmp/sh2poly_touched.txt
+rm	/tmp/sh2poly_touched.txt
+uname
+whoami
+hostname
+pwd
+export	SH2POLY_TEST=hello
+declare	SH2POLY_DECL=world
+unset	SH2POLY_DECL
+type	echo
+type	ls
+which	ls
+read	SH2POLY_READVAR
+readarray	SH2POLY_ARR
+rm	-f	/tmp/sh2poly_selftest.txt
+rm	-f	/tmp/sh2poly_redir.txt
+rm	-f	/tmp/sh2poly_selftest_in.txt

@@ -5,3 +5,11 @@
 polyfills-selftest
 adapters/c/polyfill-cli
 __pycache__/
+
+# per-backend adapter build artifacts
+adapters/rust/sh2poly-adapter
+adapters/zig/sh2poly-adapter
+adapters/go/sh2poly-adapter
+adapters/java/*.class
+adapters/java/Polyfills.h
+adapters/java/libpolyfills_jni.so

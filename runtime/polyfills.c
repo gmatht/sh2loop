@@ -74,6 +74,15 @@ static sh2poly_poscount_fn sh2poly_poscount = NULL;
 static sh2poly_exit_fn    sh2poly_exitfn  = NULL;
 static sh2poly_error_fn   sh2poly_errorfn = NULL;
 
+/* sh2poly_init — call once at startup in an embedding program. Unbuffers
+ * stdout/stderr so the polyfills' own writes (and child processes' direct
+ * fd-1 writes) interleave correctly with the host's output — the same
+ * setvbuf the C self-test applies. Safe to call multiple times. */
+void sh2poly_init(void) {
+    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
+}
+
 void sh2poly_set_callbacks(
     sh2poly_getvar_fn gv, sh2poly_setvar_fn sv,
     sh2poly_getpos_fn gp, sh2poly_setpos_fn sp, sh2poly_poscount_fn pc,
@@ -1079,9 +1088,9 @@ static void run(const char *name, ...) {
 #define RUN(n, ...) run(n, ##__VA_ARGS__, NULL)
 
 int main(void) {
-    /* unbuffered stdout: child processes write to fd 1 directly, so the
-     * parent's stdio buffer would reorder their output after ours */
-    setvbuf(stdout, NULL, _IONBF, 0);
+    sh2poly_init();  /* unbuffered stdout: child processes write to fd 1
+                      * directly, so the parent's stdio buffer would
+                      * reorder their output after ours */
     /* deterministic stdin for the read/readarray tests */
     FILE *in = fopen("/tmp/sh2poly_selftest_in.txt", "w");
     if (in) { fputs("alpha beta gamma\n", in); fputs("one\ntwo\nthree\n", in); fclose(in); }
