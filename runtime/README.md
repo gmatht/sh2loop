@@ -2,7 +2,9 @@
 
 The pure-CPU core of the `sh2.*` runtime is authored **once in bash**
 (`polyfills.sh` in this directory) and **transpiled per-backend** by the
-same pipeline that compiles user programs. This doc is the consumption
+same pipeline that compiles user programs. The host-bound/IO seam is
+authored **once in C** (`polyfills.c` in this directory) and **linked
+per-backend** (native POSIX/glibc). This doc is the consumption
 contract for backend implementers. The design rationale and roadmap live
 in `CROSS_BACKEND_RUNTIME.md` (workspace root).
 
@@ -45,6 +47,70 @@ Current inventory (21 functions + 4 helpers):
 pattern-`$()`-expansion, no `:=`/`:?` side effects, no `$ref`-expansion
 in defaults/patterns — the hand-written runtime handles those; the
 polyfill defers them.
+
+## 1b. The C polyfills (the host-bound/IO seam)
+
+`polyfills.c` is the **C-implemented complement**: the parts bash cannot
+express without recursing (the polyfills' own I/O would lower to sh2.*
+calls). It covers the host-bound seam and the IO-bound builtins:
+
+- **The seam (native C over POSIX)**: `exec`, `capture`, `fs_read`,
+  `fs_write`, `fs_stat`, `pipeline`, `redirect`, `background`,
+  `subshell`, `exit` — fork/exec, pipe, open/read/write/stat.
+- **IO-bound builtins** (cat, ls, grep, sed, sort, wc, head, tail, cp,
+  mv, rm, mkdir, date, uname, ...): thin wrappers over the host's
+  standard tools — the host IS the implementation; the polyfill
+  provides the builtin contract.
+- **Shell-state builtins** (declare, export, local, set, shift, unset,
+  read, readarray, ...): through the host callbacks below — the
+  embedding backend owns the variable/positional store.
+- **Native-C builtins** (echo, printf, seq, let, true, false, `:`, cd,
+  pwd): implemented directly in C.
+
+**Interface** — the same bash function convention as the transpiled
+polyfills: `int sh2poly_<name>(int argc, char **argv)` (positional args
+in, stdout out, exit status returned). `sh2poly_dispatch(argc, argv)`
+with `argv[0]` = the builtin name dispatches by name.
+
+**Host callbacks** — the state registers stay per-backend; the C
+polyfills reach them through `sh2poly_set_callbacks(getvar, setvar,
+getpos, setpos, poscount, exit, error)`. The defaults are process-level
+(environ + exit), so the library is usable standalone.
+
+**Build** — `make` in this directory produces `libsh2poly.a` (link
+directly: C, Rust, Zig, Go) and `libsh2poly.so` (FFI: Python ctypes,
+Perl FFI::Platypus, Java JNI). `make selftest` runs the oracle (diff
+against real bash builtins); `make coverage` checks every sh2perl
+builtin is covered by bash or C.
+
+**Adapters** — thin per-backend adapters map the sh2.* call-site
+convention to the C polyfills:
+
+- `adapters/c/polyfill-cli.c` — the C backend's adapter (a transpiled C
+  program links `libsh2poly.a` and calls `sh2poly_dispatch` for every
+  builtin it lowers to the seam).
+- `adapters/python/polyfills.py` — the Python backend's adapter
+  (ctypes over `libsh2poly.so`; `from polyfills import sh2`).
+
+**Out of scope** — the browser/WASI path cannot use the C seam: WASI
+has no fork/exec, so the IO-bound polyfills would be stubs there. The
+browser keeps its hand-written JS runtime (`harness/sh2-namespace.mjs`)
+for the seam; the pure-CPU polyfills still transpile to JS as before.
+This is a documented boundary, not a half-wiring.
+
+## 1c. Builtin coverage (bash + C = all 68)
+
+`check-coverage.py` (run via `make coverage`) maps every entry of
+`sh2perl/data/sh2-builtins.json` (the A4 sync_builtins) to an
+implementation in either `polyfills.sh` or `polyfills.c`:
+
+| source | builtins |
+|---|---|
+| **bash** (pure-CPU core) | basename, dirname, test, wc, head, tail (line cores) |
+| **C** (seam + IO + state) | the other 62: the seam (exec, capture, fs.*, pipeline, redirect, background, subshell, exit), the IO builtins (cat, ls, grep, sed, sort, ...), the native builtins (echo, printf, seq, let, ...), the state builtins (declare, export, read, ...) |
+
+Zero gaps: every sh2perl builtin has an implementation in one of the
+two polyfill sources.
 
 ## 2. The build step
 
@@ -198,8 +264,15 @@ findings (see CROSS_BACKEND_RUNTIME.md §8):
   is 20–370× slower on JS (adapter + dispatch overhead) — JS keeps its
   hand-written runtime; the polyfill's value is single-source
   correctness for backends that lack one.
-- **M3 in progress**: `test`, `caseMatch`, `brace`, `param` (the hot
-  pure-CPU callees) are the next additions.
-- **M4 pending**: per-backend transpilation + linking for backends that
-  lack a runtime (C is the natural first target — its transpiler already
-  emits the polyfill functions as C functions).
+- **M3 done**: `test`, `caseMatch`, `brace`, `param` (the hot pure-CPU
+  callees) landed — see CROSS_BACKEND_RUNTIME.md §7.
+- **M4 (C polyfills) done**: `polyfills.c` (the host-bound/IO seam +
+  IO/state builtins) landed with the build wiring (`Makefile`), the
+  self-test oracle (`make selftest` — byte-identical to real bash
+  builtins), the coverage check (`make coverage` — all 68 builtins
+  covered, zero gaps), and the thin adapters (`adapters/c`,
+  `adapters/python`). The browser/WASI path is documented out of scope
+  (no fork/exec). Per-backend transpilation of the bash polyfills for
+  backends that lack a runtime remains the follow-up (C is the natural
+  first target — its transpiler already emits the polyfill functions as
+  C functions).
