@@ -135,6 +135,33 @@ improves, the polyfills can use more constructs.
 
 ## 7. Current status
 
+- 2026-08-27: **M4 pilot — C renderer bugs fixed; full battery
+  blocked on the pseudo-global variable model.** The three original
+  M4-pilot renderer bugs are fixed (storage-class inconsistency where a
+  raw `char*` is assigned via `_sh_mstr_set`; the `sh2_fnValue`
+  conflicting-types forward declaration; array-type assignments), plus
+  two more found during M4: `local x="$var"` into a fixed buffer was
+  emitted as a no-op clear (the `value_c` RHS `(name ? name : "")` was
+  not classified stringy by `emit_guarded_copy`), and `local off="$a"
+  len="$b"` dropped the `len` value. The polyfills transpile to C
+  (~3330 lines) and **compile**; isolated functions run byte-identical to
+  bash. **But the full self-test battery is blocked by two architectural
+  limits of the C backend's pseudo-global variable model** (no per-call
+  stack frame for command-substitution recursion — `$(globMatch …)` /
+  any `$(fn …)` recurses infinitely / corrupts state with file-scope
+  locals; confirmed via gdb backtrace; and cross-function collisions on
+  shared short globals `i`/`n`/`c`/`ch`/`line`). A staged relaxation of
+  the test-lowering self-recursion guard (WIP, separate from M4) also
+  lowers strHasPrefix/contains/strHasSuffix OWN bodies to recursive
+  calls — valid for ESTree (`startsWith`/`includes`) but fatal for C
+  (renders as `$(strHasPrefix …)`). M4 for C needs stack-frame /
+  per-function-local isolation — a backend-architecture change tracked
+  separately, not a renderer-bug fix. Other backends assessed:
+  Go (40 `sh2.*` TODO markers), Zig (278 TODO), Sh (`command call not
+  renderable`), Java (`param` not in the v1 Java subset),
+  Rust (`rs`→`rust` CLI-normalization bug), Python (emits ~53 KB,
+  ungated), JS/ESTree (keeps hand-written runtime). See
+  runtime/README.md §8.
 - 2026-08-27: **M3 COMPLETE — all planned polyfills landed**
   (`runtime/polyfills.sh`, 21 functions + 4 helpers): `test` (the
   self-containment keystone — tokenizer + parser + evaluator),
