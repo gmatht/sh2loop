@@ -1,0 +1,7 @@
+# C polyfill build artifacts (make)
+*.o
+*.a
+*.so
+polyfills-selftest
+adapters/c/polyfill-cli
+__pycache__/
