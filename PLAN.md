@@ -12,6 +12,44 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v37: **py-sh-go bigint regime — t86_factor + t87_bignum (Python ints are
+>   unbounded, so every integer whose value cannot be PROVEN within ±2^53
+>   lowers to exact JS BigInt arithmetic; proven ones stay on the Number
+>   fast path).** Frontend (frontends/py-sh-go): interval analysis (exact
+>   big.Int constant folds + interprocedural param ranges from the folded
+>   call sites); the domains emit — literals as Cast(Int64, Num) (exact
+>   BigInt("N") literals; a >i64 literal as a Horner digit chain), proven-big
+>   vars read raw from their lifted BigInt bindings, Python floor division /
+>   modulo composed ((a − ((a%b)+b)%b) / b) when signs are unproven (plain
+>   ops when proven-nonneg — JS truncation agrees), `**` native. Float math
+>   (int(n**0.5), the t86 isqrt idiom) lowers to the runtime arith-string
+>   (sh2.arith / evalArith — Math.sqrt is exactly rounded, matching glibc's
+>   correctly-rounded pow(x, 0.5); other float pows REFUSE); the param
+>   positional is referenced as $1 in the arith text so the param keeps its
+>   lifted binding (a store-marked param re-parses per iteration). A param
+>   materializes at function entry (p = $1 arith — fixes the pre-existing
+>   unset-param-in-arith bug; string/unfoldable call sites keep the string
+>   redirect). `set()/add()/sorted()/list()` lower set-semantics to the
+>   shell surface: append now, `printf '%s\n' "${x[@]}" | sort -n -u | awk`
+>   (real GNU sort, arbitrary precision; awk joins ", ") — print(list)
+>   renders the Python repr. Computed-bound range()
+>   (range(1, int(n**0.5)+1)) lowers to a While over an int counter with a
+>   native arith comparison and a native IncDec step (67M-iteration
+>   divisibility loop: 5.9 s vs native python3's 8.3 s). Core
+>   (sh2perl/src/shir.rs): the ZERO-COMPARE pattern `X == 0` with div/mod in
+>   X renders natively — a zero divisor's NaN fails `== 0` exactly like
+>   bash's abort→false, so the per-iteration imod/idiv helper dispatch AND
+>   the arithEval string-truthiness wrapper drop (the wrapper's "0" is
+>   truthy — the second bug this fixed: bare arith If/While conds now
+>   coerce numerically via cond_to_estree, Number("")=NaN falsy = the bash
+>   abort semantics); the `/` lowering gains a bigint taint (any operand
+>   with an Int64 cast or a var read — Math.trunc(BigInt) throws where the
+>   runtime helper coerces; `%` stays native, it is BigInt-safe). Runtime
+>   (harness/sh2-namespace.mjs + sh2-trace.mjs): idiv/imod are BigInt-aware
+>   (coerce via BigInt(...), the native BigInt operators — bash Number
+>   semantics identical). Gates: py-sh-go 84/84 (incl. t86 + t87), c-sh-go
+>   105/105, estree corpus 552/552, lib tests unchanged (2 pre-existing
+>   mid-WIP reds from the concurrent C-backend work).
 > - v36: **Runtime optimization items 1–3 (CROSS_BACKEND_RUNTIME.md §8.4):
 >   item 1 (return-in-loop → flag+break) landed earlier; item 2's SCC
 >   recognition landed as a SHARED analysis (`shir_passes/scc.rs` —
