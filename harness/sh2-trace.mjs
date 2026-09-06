@@ -1962,12 +1962,19 @@ export const sh2 = {
   // Integer division / modulo with bash's truncating semantics; a zero
   // divisor throws so the error aborts the whole expansion (JS bitwise ops
   // would silently absorb a NaN result).
+  // BigInt-aware (py-sh-go bigint regime — mirror of sh2-namespace.mjs).
   idiv(a, b) {
-    if (b === 0) throw new Error('arith: division by 0');
+    if (b === 0 || b === 0n) throw new Error('arith: division by 0');
+    if (typeof a === 'bigint' || typeof b === 'bigint') {
+      return BigInt(a) / BigInt(b);
+    }
     return Math.trunc(a / b);
   },
   imod(a, b) {
-    if (b === 0) throw new Error('arith: division by 0');
+    if (b === 0 || b === 0n) throw new Error('arith: division by 0');
+    if (typeof a === 'bigint' || typeof b === 'bigint') {
+      return BigInt(a) % BigInt(b);
+    }
     return a % b;
   },
 

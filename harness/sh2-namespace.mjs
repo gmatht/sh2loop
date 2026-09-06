@@ -3789,12 +3789,24 @@ export const sh2 = {
   // Integer division / modulo with bash's truncating semantics; a zero
   // divisor throws so the error aborts the whole expansion (JS bitwise ops
   // would silently absorb a NaN result).
+  // BigInt-aware (py-sh-go bigint regime, 2026-09): when either operand is
+  // a BigInt (the bigint-domain arith the Python frontend renders — exact
+  // values past 2^53), both coerce via BigInt(...) and the native BigInt
+  // operators run (truncating `/`, dividend-sign `%` — the bash semantics
+  // the helpers own). A fractional Number operand BigInt(...) THROWS —
+  // bash arith is integer-valued, so that path is unreachable there.
   idiv(a, b) {
-    if (b === 0) throw new Error('arith: division by 0');
+    if (b === 0 || b === 0n) throw new Error('arith: division by 0');
+    if (typeof a === 'bigint' || typeof b === 'bigint') {
+      return BigInt(a) / BigInt(b);
+    }
     return Math.trunc(a / b);
   },
   imod(a, b) {
-    if (b === 0) throw new Error('arith: division by 0');
+    if (b === 0 || b === 0n) throw new Error('arith: division by 0');
+    if (typeof a === 'bigint' || typeof b === 'bigint') {
+      return BigInt(a) % BigInt(b);
+    }
     return a % b;
   },
 
