@@ -253,7 +253,7 @@ sub build_prompt {
 You are fixing the ESTree backend of the sh2perl transpiler (see PLAN.md §1–§2).
 
 ARCHITECTURE
-- \`debashc file --estree <file.sh>\` emits standard ESTree JSON that lowers
+- \`otranspilerl-cli --target estree <file.sh>\` emits standard ESTree JSON that lowers
   shell semantics to calls into a documented \`sh2.*\` runtime namespace.
 - The reference executor (harness/sh2-namespace.mjs) implements \`sh2.*\` in
   node (real child_process + fs). harness/estree-gen.mjs prints ESTree JSON to
@@ -285,7 +285,7 @@ PROMPT
 
     $prompt .= <<"PROMPT";
 VERIFY
-- Rust changes: cd sh2perl && cargo build --bin debashc && cargo test --lib
+- Rust changes: cd sh2perl && cd otranspilerl && cargo build --bin otranspilerl-cli && cargo test --lib
   (the estree unit tests assert no sh2.unsupported leaks and determinism)
 - Subset: ./fail-estree <prefix>   (e.g. ./fail-estree 010_pattern)
 - Full:  ./fail-estree
@@ -501,7 +501,7 @@ PROMPT
     $prompt .= <<"PROMPT";
 
 VERIFY (mandatory, exactly like fix mode):
-- Rust: cd sh2perl && cargo build --bin debashc && cargo test --lib  (determinism asserted)
+- Rust: cd sh2perl && cd otranspilerl && cargo build --bin otranspilerl-cli && cargo test --lib  (determinism asserted)
 - Full corpus: ./fail-estree  — must stay 100% (the correctness oracle; a test
   that previously passed now failing means your lowering is wrong — fix or revert)
 - Structural gate stays green; NEW sh2.* names need estree_gate.pl whitelist
@@ -823,7 +823,7 @@ sub scoped_commit {
     my @root = root_changed_paths();
     if (@sub) {
         # FULL-WORKSPACE BUILD GATE: the corpus gate (fail-estree) only
-        # builds --bin debashc, but the backend workers build the WHOLE
+        # builds --bin otranspilerl-cli, but the backend workers build the WHOLE
         # workspace (debashl + its bins: glsl_dump, dump_*, ...). Commit
         # core changes only when the full build passes, so committed HEAD
         # is healthy for every consumer (2026-08-14: HEAD was committed
@@ -834,7 +834,7 @@ sub scoped_commit {
         # estree worker's commit gate never queues behind a backend build.
         my $build_out = `'$project_root/harness/build-lock.sh' --role core --timeout 180 -- bash -c 'cd "$1" && cargo build --manifest-path Cargo.toml' _ '$sh2perl' 2>&1`;
         if ($? != 0) {
-            print "\nFULL-WORKSPACE BUILD FAILED — NOT committing (fail-estree only builds debashc; the backend gates need the whole workspace). WIP left in the tree:\n";
+            print "\nFULL-WORKSPACE BUILD FAILED — NOT committing (fail-estree only builds otranspilerl-cli; the backend gates need the whole workspace). WIP left in the tree:\n";
             print substr($build_out, -500);
             print "\n";
             return;
