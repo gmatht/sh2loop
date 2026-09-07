@@ -150,6 +150,13 @@ sub run_one_test {
     # Extract Perl code: the whole stdout (otranspilerl has no banner)
     my $perl_code = $gen_out;
 
+    # The generated programs' external-command seam (UU-FFI.md): point the
+    # BEGIN probe at the built libcoreutils_ffi.so when present, so the
+    # gate exercises the in-process coreutils arm; absent/invalid → the
+    # guarded fork/exec fallback still runs (both-mode parity checked in
+    # runtime/tests/).
+    local $ENV{SH2_UU_LIB} = "$root/sh2perl/runtime/lib/libcoreutils_ffi.so";
+
     # Gate: reject the bash-wrapper fallback. When debashc cannot parse a
     # script it emits `system('bash', '<file>')` instead of real Perl
     # (src/main.rs "falling back to bash wrapper"); the stdout comparison

@@ -224,6 +224,12 @@ for my $file (@ARGV ? @ARGV : glob($EXAMPLES_GLOB)) {
         }
     }
 
+    # sh2perl's __sh_run_ext seam (UU-FFI.md): the bash -c inside the
+    # marker-delimited block is a FEATURE-GUARDED fallback (uu-ffi .so
+    # absent ⇒ fork/exec, one-time warning) — never the unconditional
+    # wrap this gate exists to reject. Strip the block before scanning.
+    $code =~ s/^# __SH_RUN_EXT_BEGIN.*?^# __SH_RUN_EXT_END\n//ms;
+
     # Pattern 1a: qx{builtin ...} (curly braces)
     while ($code =~ /qx\{([^}]*)\}/g) {
         my $qx_body = $1;
