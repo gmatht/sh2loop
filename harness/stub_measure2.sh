@@ -5,7 +5,7 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SUB="$ROOT/sh2perl"
-BIN="$SUB/target/debug/debashc"
+BIN="$SUB/otranspilerl/target/debug/otranspilerl-cli"
 CORPUS="${1:-$SUB/examples}"
 LANGS="${2:-c go python rust zig sh java js perl}"
 

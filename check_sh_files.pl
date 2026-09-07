@@ -22,7 +22,7 @@ use constant MAX_WORKERS => 8;
 
 my $ROOT      = realpath("$FindBin::RealBin");
 my $SH_DIR    = "$ROOT/sh";
-my $SH2PERL   = "$ROOT/sh2perl/target/debug/debashc";
+my $SH2PERL   = "$ROOT/sh2perl/otranspilerl/target/debug/otranspilerl-cli";
 my $CHECK_QX  = "$ROOT/check_qx.pl";
 my $CRITIC_WRAPPER = "$ROOT/sh2perl/perlcritic_wrapper.pl";
 my $CRITIC_PROFILE = "$ROOT/sh2perl/docs/perlcritic.conf";

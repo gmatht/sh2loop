@@ -794,7 +794,7 @@ Covers three related work items:
 | `sh2perl` entry in superproject index | gitlink (mode `160000`) at `09f6a4f6`, **no `.gitmodules`** → broken/unofficial submodule |
 | `sh2perl` (primary repo) | origin `git@github.com:gmatht/sh2perl.git`, own CI (`.github/workflows/test.yml`); working tree at `febb301`, dirty scratch files; **tracks a `fail -> ../fail` symlink** (violates the one-way rule — must be removed) |
 | `sh2runtime` | exists at `gmatht/sh2runtime`; node v22 available; already runs async JS commands + `.js` files in `/commands/` against its virtual FS; WASI via `@wasmer/wasi` for third-party wasm tools |
-| sh2perl backends | Perl only. `src/ir.rs` = Perl-specific IR with `RawText` bridges; `pub mod mir` commented out. **ESTree emitter exists** (`sh2perl core::estree::ast_to_estree_json`, v0 `sh2.*` namespace) and passes the full corpus. Workspace layering: `sh2perl core` (core lib) ← `otranspilerl` (CLI lib, member `cli/`) ← `otranspilerl-cli` (3-line bin). WASI: `build-wasi.sh` → `otranspilerl-cli.wasm` (command, `_start`) + `sh2perl core.wasm` (library, `wasi-lib` feature, C-ABI `debashc_to_perl`/`debashc_to_estree`) + **`otranspilerl.wasm`** (library, `wasi-cli` feature, C-ABI `debashc_cli_run(_json/_with_input)` — the full CLI as a library call, "otranspilerl-cli in three lines of JS"; deployed with README + examples to `~/js/`). |
+| sh2perl backends | Perl only. `src/ir.rs` = Perl-specific IR with `RawText` bridges; `pub mod mir` commented out. **ESTree emitter exists** (`sh2perl core::estree::ast_to_estree_json`, v0 `sh2.*` namespace) and passes the full corpus. Workspace layering: `sh2perl core` (core lib) ← `otranspilerl` (CLI lib, member `cli/`) ← `otranspilerl-cli` (3-line bin). WASI: `build-wasi.sh` → `otranspilerl-cli.wasm` (command, `_start`) + `sh2perl core.wasm` (library, `wasi-lib` feature, C-ABI `otranspilerl-cli_to_perl`/`otranspilerl-cli_to_estree`) + **`otranspilerl.wasm`** (library, `wasi-cli` feature, C-ABI `otranspilerl-cli_cli_run(_json/_with_input)` — the full CLI as a library call, "otranspilerl-cli in three lines of JS"; deployed with README + examples to `~/js/`). |
 | Tests | `fail`: otranspilerl-cli → Perl → `check_qx.pl` gate → run vs `bash` → normalized stdout + side-effect compare. 516 examples, **PERL 432/84, ESTREE 516/516 (100%)**. `fail-estree`: perl + estree verdicts per example (Stage A); `--gate` Stage B (strict: a failing test is a bug — no failing-test allowlist; the M5 blessed-fail list was removed as a guardrail violation, see revision history); `--metric` sh2.* call-site tallies (improvement-mode awareness). |
 
 Key docs:
@@ -1375,7 +1375,7 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
 - **2026-08-01 — otranspilerl.wasm: the full CLI as a WASI library call.**
   otranspilerl-cli.wasm was command-only (`_start`; node:wasi has no fs preopens) and
   sh2perl core.wasm skipped the CLI — the otranspilerl crate had zero `#[no_mangle]`
-  exports. New `wasi-cli` feature exports `debashc_cli_run(argc, argv)` /
+  exports. New `wasi-cli` feature exports `otranspilerl-cli_cli_run(argc, argv)` /
   `_run_json` / `_run_with_input` (file commands via the `-` stdin
   convention + virtual stdin, since node:wasi can't preopen files) over the
   real `main_with_args` dispatch; `file --estree -` byte-identical to native.
@@ -1793,20 +1793,20 @@ The LLM's remaining role in the workspace moves to the PROPOSERS: the
 backend that knows its transform writes it and reads its own verdicts.
 The core is scheduled (cron/loop), not prompted.
 
-### 11.10 debashc/debashcl deleted — otranspilerl is the only CLI (landed)
+### 11.10 otranspilerl-cli/otranspilerl deleted — otranspilerl is the only CLI (landed)
 
-The two-crate ancient CLI layer (sh2perl `cli/`: `debashc` flag-level bin +
-`debashcl` processor; the in-repo `otranspiler` bin that spawned a sibling
-`debashc` for every stage) is deleted. Fold result:
+The two-crate ancient CLI layer (sh2perl `cli/`: `otranspilerl-cli` flag-level bin +
+`otranspilerl` processor; the in-repo `otranspiler` bin that spawned a sibling
+`otranspilerl-cli` for every stage) is deleted. Fold result:
 
 - **otranspilerl-cli** (workspace crate) is the only user-facing CLI; the
   harness (`fail`, `fail-estree`, `fail-shir`, backend gates) runs it
-  exclusively. Flags folded in: `--target estree` (debashc's direct
+  exclusively. Flags folded in: `--target estree` (otranspilerl-cli's direct
   `file --estree` path, byte-verified), `--true64`/`--bigint`.
 - **`shir_render`** (src/bin/, core crate) — the generic A1→target
   renderer; the backend worktree gate's entry (`--target <lang>`, stdin
   `-`). The per-backend `*_backend` bins stay (workers' library-path).
-- **Workspace harness migrated**: `debashc --shir` → `otranspilerl-cli
+- **Workspace harness migrated**: `otranspilerl-cli --shir` → `otranspilerl-cli
   --target shir`; `--shir-in-<lang>` → `shir_render --target <lang>`;
   `DEBASHC_TRANSFORMS` → `SH2_TRANSFORMS` (legacy name still read as an
   alias inside transforms::apply). Isolated-verify builds now compile
@@ -1814,11 +1814,11 @@ The two-crate ancient CLI layer (sh2perl `cli/`: `debashc` flag-level bin +
 - **Legacy deleted**: 19 dump/debug bins, the 36k-line legacy generator +
   `legacy-generator` feature (its one hook, `ir::generator_emulate_command`,
   is now the permanent None arm — emulation moves into the perl renderer
-  proper), the wasi-cli/debashc_cli_run wasm layer (otranspilerl's
+  proper), the wasi-cli/otranspilerl-cli_cli_run wasm layer (otranspilerl's
   `otranspilerl_cli` export supersedes it), build-wasi.sh rewritten to two
   artifacts (otranspilerl-cli.wasm + the core/unified ABI libs).
 - sh2perl is now a library-only crate (lib + worker bins + convert_examples
-  + shir_render). `debashc`/`debashcl` mentions purged from code, docs,
+  + shir_render). `otranspilerl-cli`/`otranspilerl` mentions purged from code, docs,
   scripts, and generated-code markers (`die "otranspilerl: ..."`).
 
 Parity at the fold: estree byte-identical vs `file --estree` (547/552; the

@@ -6,7 +6,7 @@ cd /home/llm/sh2loop
 EX=$1
 BASE=$(basename "$EX" .sh)
 TMP=$(mktemp -d /tmp/dbg-XXXX)
-cd sh2perl && ./target/release/debashc file --estree "../$EX" > "$TMP/prog.estree.json" 2>"$TMP/emit-err.txt"
+cd sh2perl && ./target/release/otranspilerl-cli --target estree "../$EX" > "$TMP/prog.estree.json" 2>"$TMP/emit-err.txt"
 EMIT=$?
 cd /home/llm/sh2loop
 if [ $EMIT -ne 0 ] || ! grep -q '"type":"Program"' "$TMP/prog.estree.json"; then

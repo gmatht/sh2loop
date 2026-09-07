@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { globSync } from 'node:fs';
 
 const root = '/home/llm/sh2loop';
-const debashc = `${root}/sh2perl/target/debug/debashc`;
+const otranspilerl-cli = `${root}/sh2perl/otranspilerl/target/debug/otranspilerl-cli`;
 
 function pp(node) {
   if (node == null) return String(node);
@@ -41,7 +41,7 @@ for (const f of tests) {
   const base = f.split('/').pop();
   let json;
   try {
-    json = JSON.parse(execFileSync(debashc, ['file', '--estree', f], { cwd: `${root}/sh2perl`, stdio: ['ignore', 'pipe', 'ignore'] }).toString());
+    json = JSON.parse(execFileSync(otranspilerl-cli, ['file', '--estree', f], { cwd: `${root}/sh2perl`, stdio: ['ignore', 'pipe', 'ignore'] }).toString());
   } catch { continue; }
   const hits = [];
   const walk = (node, inLoop) => {

@@ -5,7 +5,7 @@
 set -u
 ROOT=/home/llm/sh2loop
 SUB=$ROOT/sh2perl
-CORE=${CORE_BIN:-$SUB/target/debug/debashc}
+CORE=${CORE_BIN:-$SUB/otranspilerl/target/debug/otranspilerl-cli}
 CC=cc
 JOBS=${JOBS:-8}
 if [ "${1:-}" = "jobs" ]; then JOBS=$2; shift 2; fi

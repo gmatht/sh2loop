@@ -11,7 +11,7 @@
 #   Zig output   -> zig build-exe (compiles)
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DEB="$ROOT/sh2perl/target/debug/debashc"
+DEB="$ROOT/sh2perl/otranspilerl/target/debug/otranspilerl-cli"
 GEN="$ROOT/harness/estree-gen.mjs"
 ESLINT="${ESLINT:-/nvme/ai/.npm-global/bin/eslint}"
 RUFF="${RUFF:-/nvme/ai/.local/bin/ruff}"
@@ -46,25 +46,25 @@ lint_one() {
   shir=$($DEB --shir "$f" --raw 2>/dev/null)
   [ -z "$shir" ] && { echo "  backends: (core unparseable — skipped)"; return; }
   # C
-  if printf '%s' "$shir" | "$ROOT/sh2perl/backends/c/target/debug/debashc" --shir-in-c - > "$TMP/o.c" 2>/dev/null; then
+  if printf '%s' "$shir" | "$ROOT/sh2perl/backends/c/otranspilerl/target/debug/otranspilerl-cli" --shir-in-c - > "$TMP/o.c" 2>/dev/null; then
     gcc -Wall -Werror -c "$TMP/o.c" -o /tmp/o_c.o 2>/dev/null && echo "  c: gcc -Wall ✓" || echo "  c: gcc -Wall findings"
   else
     echo "  c: (renderer err — a backend gap)"
   fi
   # Go
-  if printf '%s' "$shir" | "$ROOT/sh2perl/backends/go/target/debug/debashc" --shir-in-go - > "$TMP/o.go" 2>/dev/null; then
+  if printf '%s' "$shir" | "$ROOT/sh2perl/backends/go/otranspilerl/target/debug/otranspilerl-cli" --shir-in-go - > "$TMP/o.go" 2>/dev/null; then
     [ -z "$(gofmt -l "$TMP/o.go" 2>/dev/null)" ] && echo "  go: gofmt ✓" || echo "  go: gofmt findings"
   else
     echo "  go: (renderer err)"
   fi
   # Python
-  if printf '%s' "$shir" | "$ROOT/sh2perl/backends/python/target/debug/debashc" --shir-in-python - > "$TMP/o.py" 2>/dev/null; then
+  if printf '%s' "$shir" | "$ROOT/sh2perl/backends/python/otranspilerl/target/debug/otranspilerl-cli" --shir-in-python - > "$TMP/o.py" 2>/dev/null; then
     "$RUFF" check "$TMP/o.py" >/dev/null 2>&1 && echo "  python: ruff ✓" || echo "  python: ruff findings"
   else
     echo "  python: (renderer err)"
   fi
   # Zig
-  if printf '%s' "$shir" | "$ROOT/sh2perl/backends/zig/target/debug/debashc" --shir-in-zig - > "$TMP/o.zig" 2>/dev/null; then
+  if printf '%s' "$shir" | "$ROOT/sh2perl/backends/zig/otranspilerl/target/debug/otranspilerl-cli" --shir-in-zig - > "$TMP/o.zig" 2>/dev/null; then
     zig build-exe "$TMP/o.zig" -O ReleaseSmall --name o_zig -femit-bin=/tmp/o_zig 2>/dev/null && echo "  zig: compiles ✓" || echo "  zig: compile findings"
   else
     echo "  zig: (renderer err)"

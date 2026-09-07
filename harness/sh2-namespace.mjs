@@ -2606,7 +2606,7 @@ export const sh2 = {
   // frontends/go-sh/FRONTEND.md "CGO-PATH node sketch".
   cgoUnsupported(target) {
     throw new Error(
-      'debashc: cgo-path construct ' + String(target ?? '') +
+      'otranspilerl-cli: cgo-path construct ' + String(target ?? '') +
       ' requires the C frontend build (native linkage)'
     );
   },

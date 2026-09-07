@@ -6,9 +6,9 @@
 # Backends (probed; skipped with a note when the worktree binary isn't
 # built yet):
 #   bash    the original script (baseline)
-#   perl    production backend            debashc file --perl
-#   c       shir_to_c (backends/c) + gcc  debashc file --shir | shir_to_c
-#   js      --estree -> estree-runner.mjs debashc file --estree | node runner
+#   perl    production backend            otranspilerl-cli --target pl
+#   c       shir_to_c (backends/c) + gcc  otranspilerl-cli --target shir | shir_to_c
+#   js      --estree -> estree-runner.mjs otranspilerl-cli --target estree | node runner
 #   go      backends/go --shir-in-go      (ShIR JSON in -> Go source)
 #   rust    backends/rust file --shir-in-rust
 #   zig     backends/zig --shir-in-zig    (needs the zig toolchain)
@@ -25,14 +25,14 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-DEBASHC="$ROOT/sh2perl/target/debug/debashc"
+DEBASHC="$ROOT/sh2perl/otranspilerl/target/debug/otranspilerl-cli"
 WT="$ROOT/sh2perl/backends"
 SRC="${1:-$ROOT/sh2perl/sqrt1337.sh}"
 OUT=/tmp/sqrt_langs
 CODE="${CODE:-0}"
 KEEP="${KEEP:-0}"
 
-[ -x "$DEBASHC" ] || { echo "debashc not built: cargo build --bin debashc (sh2perl)"; exit 1; }
+[ -x "$DEBASHC" ] || { echo "otranspilerl-cli not built: cd otranspilerl && cargo build --bin otranspilerl-cli (sh2perl)"; exit 1; }
 [ -f "$SRC" ] || { echo "no such source: $SRC"; exit 1; }
 mkdir -p "$OUT"
 [ "$KEEP" = 1 ] || rm -f "$OUT"/*
@@ -110,8 +110,8 @@ else
 fi
 
 # ---------- go: --shir-in-go ----------
-if [ -x "$WT/go/target/debug/debashc" ] && command -v go >/dev/null; then
-  if "$DEBASHC" file --shir "$SRC" 2>/dev/null | "$WT/go/target/debug/debashc" --shir-in-go - > "$OUT/sqrt1337.go" 2>/dev/null; then
+if [ -x "$WT/go/otranspilerl/target/debug/otranspilerl-cli" ] && command -v go >/dev/null; then
+  if "$DEBASHC" file --shir "$SRC" 2>/dev/null | "$WT/go/otranspilerl/target/debug/otranspilerl-cli" --shir-in-go - > "$OUT/sqrt1337.go" 2>/dev/null; then
     if go build -o "$OUT/sqrt1337_go" "$OUT/sqrt1337.go" 2>"$OUT/go.err"; then
       show_code "$OUT/sqrt1337.go"
       check go "$("$OUT/sqrt1337_go" 2>&1)" ""
@@ -126,9 +126,9 @@ else
 fi
 
 # ---------- rust: file --shir-in-rust ----------
-if [ -x "$WT/rust/target/debug/debashc" ] && command -v rustc >/dev/null; then
+if [ -x "$WT/rust/otranspilerl/target/debug/otranspilerl-cli" ] && command -v rustc >/dev/null; then
   if "$DEBASHC" file --shir "$SRC" 2>/dev/null > "$OUT/sqrt1337.shir.json" \
-     && "$WT/rust/target/debug/debashc" file --shir-in-rust "$OUT/sqrt1337.shir.json" > "$OUT/sqrt1337.rs" 2>/dev/null \
+     && "$WT/rust/otranspilerl/target/debug/otranspilerl-cli" file --shir-in-rust "$OUT/sqrt1337.shir.json" > "$OUT/sqrt1337.rs" 2>/dev/null \
      && rustc "$OUT/sqrt1337.rs" -o "$OUT/sqrt1337_rust" 2>"$OUT/rust.err"; then
     show_code "$OUT/sqrt1337.rs"
     check rust "$("$OUT/sqrt1337_rust" 2>&1)" ""
@@ -144,8 +144,8 @@ else
 fi
 
 # ---------- zig: --shir-in-zig ----------
-if [ -x "$WT/zig/target/debug/debashc" ] && command -v zig >/dev/null; then
-  if "$DEBASHC" file --shir "$SRC" 2>/dev/null | "$WT/zig/target/debug/debashc" --shir-in-zig - > "$OUT/sqrt1337.zig" 2>/dev/null \
+if [ -x "$WT/zig/otranspilerl/target/debug/otranspilerl-cli" ] && command -v zig >/dev/null; then
+  if "$DEBASHC" file --shir "$SRC" 2>/dev/null | "$WT/zig/otranspilerl/target/debug/otranspilerl-cli" --shir-in-zig - > "$OUT/sqrt1337.zig" 2>/dev/null \
      && zig build-exe "$OUT/sqrt1337.zig" -O ReleaseSafe -femit-bin="$OUT/sqrt1337_zig" 2>"$OUT/zig.err"; then
     show_code "$OUT/sqrt1337.zig"
     check zig "$("$OUT/sqrt1337_zig" 2>&1)" ""

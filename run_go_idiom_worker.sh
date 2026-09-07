@@ -170,7 +170,7 @@ app_transpile() {
       return 0   # one refusal per pass
     fi
     # renders — execute vs the oracle (main packages only)
-    e=$(printf '%s' "$a1" | "$WORKSPACE/sh2perl/target/debug/debashc" --shir-in-estree - 2>/dev/null || true)
+    e=$(printf '%s' "$a1" | "$WORKSPACE/sh2perl/otranspilerl/target/debug/otranspilerl-cli" --shir-in-estree - 2>/dev/null || true)
     js=$(cd "$PROBES" && printf '%s' "$e" | timeout 20 node "$WORKSPACE/harness/estree-runner.mjs" /dev/stdin --source "$f" 2>/dev/null || true)
     native=$(cd "$PROBES" && timeout 20 go run "$WORKSPACE/$f" 2>/dev/null || true)
     if [ "$js" = "$native" ]; then

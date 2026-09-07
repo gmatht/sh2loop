@@ -5,8 +5,8 @@ set -u
 ROOT=/home/llm/sh2loop
 SUB=$ROOT/sh2perl
 WT=$SUB/backends/c
-CORE=${CORE_BIN:-$SUB/target/debug/debashc}
-WBIN=$WT/target/debug/debashc
+CORE=${CORE_BIN:-$SUB/otranspilerl/target/debug/otranspilerl-cli}
+WBIN=$WT/otranspilerl/target/debug/otranspilerl-cli
 CC=cc
 pass=0; fail=0; skip=0; fails=""
 if [ $# -gt 0 ]; then corpus="$@"; else corpus=$(ls $SUB/examples/*.sh $ROOT/frontends/*/testdata/*.sh 2>/dev/null); fi

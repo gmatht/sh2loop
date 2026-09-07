@@ -2,13 +2,13 @@
 // site_dump.mjs — dump sh2.* call sites per test file with surrounding code,
 // for improvement-mode triage. Usage:
 //   node harness/site_dump.mjs [--shir] [PREFIX] [--names a,b,c]
-// Reads the same ESTree JSON as fail-estree (debashc file --estree <file>).
+// Reads the same ESTree JSON as fail-estree (otranspilerl-cli --target estree <file>).
 import { execFileSync } from 'node:child_process';
 import { globSync } from 'node:fs';
 import { readFileSync } from 'node:fs';
 
 const root = '/home/llm/sh2loop';
-const debashc = `${root}/sh2perl/target/debug/debashc`;
+const otranspilerl-cli = `${root}/sh2perl/otranspilerl/target/debug/otranspilerl-cli`;
 const namesArg = process.argv.indexOf('--names');
 const want = namesArg >= 0 ? new Set(process.argv[namesArg + 1].split(',')) : null;
 const prefixes = process.argv.slice(2).filter(a => !a.startsWith('--') && !(namesArg >= 0 && a === process.argv[namesArg + 1]));
@@ -54,7 +54,7 @@ for (const f of tests) {
   if (prefixes.length && !prefixes.some(p => base.startsWith(p))) continue;
   let json;
   try {
-    json = JSON.parse(execFileSync(debashc, ['file', '--estree', f], { cwd: `${root}/sh2perl`, stdio: ['ignore', 'pipe', 'ignore'] }).toString());
+    json = JSON.parse(execFileSync(otranspilerl-cli, ['file', '--estree', f], { cwd: `${root}/sh2perl`, stdio: ['ignore', 'pipe', 'ignore'] }).toString());
   } catch { continue; }
   const hits = [];
   const walk = (node, inLoop) => {

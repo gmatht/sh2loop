@@ -5,7 +5,7 @@
 # usage: harness/repro-pair.sh bat-sh-go t36_redirect_var.bat perl
 set -u
 ROOT=/home/llm/sh2loop
-DEBASHC="$ROOT/sh2perl/target/debug/debashc"
+DEBASHC="$ROOT/sh2perl/otranspilerl/target/debug/otranspilerl-cli"
 RUNNER="$ROOT/harness/estree-runner.mjs"
 FE="$1"; EX="$2"; BE="$3"
 FE_DIR="$ROOT/frontends/$FE"

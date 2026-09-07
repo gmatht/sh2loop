@@ -4,14 +4,14 @@
 # For each testdata example of the given frontend:
 #   1. run the example natively  (python3 / go run / perl / bash / fish / zsh)
 #   2. run the frontend's A1 shIR through the ESTree backend
-#      (debashc --shir-in-estree -> estree-runner.mjs under node)
+#      (otranspilerl-cli --source-lang shir --target estree -> estree-runner.mjs under node)
 #   3. compare normalized stdout (mirrors ./fail: strip \r, trim edges)
 #
 # The JS/ESTree backend is the execution target: the A1->Perl round-trip is
 # not yet compile-clean (see core-requests), while --shir-in-estree renders
 # and runs end-to-end today.
 #
-# Usage: frontend-stdout.sh <lang> <bin> <testdata-dir> <debashc>
+# Usage: frontend-stdout.sh <lang> <bin> <testdata-dir> <otranspilerl-cli>
 #   lang: py|go|sh|pl|fish|zsh     bin: frontend binary (path as make sees it)
 # Torn-write guard: frontend pi sessions rewrite this shared script IN
 # PLACE (2026-08-12 13:13: rust-frontend adding run_estree while the
@@ -46,27 +46,27 @@ if [ -z "${FS_SNAPSHOT:-}" ]; then
 fi
 
 set -u
-lang=$1; bin=$2; dir=$3; debashc=$4
+lang=$1; bin=$2; dir=$3; otranspilerl-cli=$4
 root=${FS_ORIG_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}
 runner="$root/harness/estree-runner.mjs"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"; rm -f "${FS_SNAPSHOT:-}"' EXIT
-# Oracle stability: target/debug/debashc is rebuilt CONCURRENTLY by the
+# Oracle stability: otranspilerl/target/debug/otranspilerl-cli is rebuilt CONCURRENTLY by the
 # estree worker (core changes) and by other gates' self-heal rules; a
 # relink mid-gate tears the shared binary and fails exactly one test with
 # a misleading "(A1 -> ESTree conversion)" (zsh-sh-go t71_var_name_mods
-# 2026-08-12 20:55:24, debashc relinked 4s earlier; fish-sh-go t40 18:04;
+# 2026-08-12 20:55:24, otranspilerl-cli relinked 4s earlier; fish-sh-go t40 18:04;
 # go-sh t02; estree worker log: "the binary is GONE", "binary was
 # replaced under me"). Snapshot + functionally verify ONCE at gate
-# start (harness/snapshot-debashc.sh); every conversion below then runs
+# start (harness/snapshot-otranspilerl-cli.sh); every conversion below then runs
 # the stable copy, so a concurrent relink can never corrupt a mid-gate
 # invocation. A genuinely unavailable oracle fails fast with a clear
 # message instead of a random per-test FAIL.
-snap="$tmp/debashc.snap"
-if ! "$root/harness/snapshot-debashc.sh" "$debashc" "$snap" 2>"$tmp/snap.err"; then
-  echo "frontend-stdout.sh: debashc oracle unavailable: $(head -c 200 "$tmp/snap.err" | tr '\n' ' ')" >&2
+snap="$tmp/otranspilerl-cli.snap"
+if ! "$root/harness/snapshot-otranspilerl-cli.sh" "$otranspilerl-cli" "$snap" 2>"$tmp/snap.err"; then
+  echo "frontend-stdout.sh: otranspilerl-cli oracle unavailable: $(head -c 200 "$tmp/snap.err" | tr '\n' ' ')" >&2
   exit 1
 fi
-# frontend binary: same tear class as debashc — the frontend's own gate
+# frontend binary: same tear class as otranspilerl-cli — the frontend's own gate
 # (`make test` = rm + rebuild, or an in-place `go build -o`) can remove
 # or replace $bin mid-run when a concurrent gate/coverage run overlaps
 # this one, so an emit can hit "No such file or directory" or exec a
@@ -427,7 +427,7 @@ EOF
   # OOM-killed for EXACTLY ONE test (go-sh t02_assign_str at 16:56:55,
   # 1-in-36 gate runs, transpiled side empty). On mismatch, retry both
   # sides once — a real deterministic regression fails the retry too and is
-  # still reported as DIFF/FAIL (same policy as the debashc relink retry
+  # still reported as DIFF/FAIL (same policy as the otranspilerl-cli relink retry
   # above; recorded-limit natives are never re-run).
   if [ "$(normalize "$native_out")" != "$(normalize "$trans_out")" ]; then
     sleep 1
@@ -436,7 +436,7 @@ EOF
     fi
     trans_out=$(run_estree "$tmp/e.json" "$f")
   fi
-  # Second chance: the core's debashc binary is rebuilt CONCURRENTLY by
+  # Second chance: the core's otranspilerl-cli binary is rebuilt CONCURRENTLY by
   # the estree worker while implementing core requests (src/estree.rs,
   # src/shir.rs held mid-edit). A snapshot taken from such a build can
   # render exit-0-but-UNRUNNABLE ESTree for real programs (a SyntaxError
@@ -450,7 +450,7 @@ EOF
   # deterministic regression fails this tier too and is still reported
   # as DIFF/FAIL (same policy as the relink retries above).
   if [ "$(normalize "$native_out")" != "$(normalize "$trans_out")" ]; then
-    if "$root/harness/snapshot-debashc.sh" "$debashc" "$snap" 2>/dev/null && \
+    if "$root/harness/snapshot-otranspilerl-cli.sh" "$otranspilerl-cli" "$snap" 2>/dev/null && \
        "$snap" --shir-in-estree "$tmp/a1.json" > "$tmp/e.json" 2>/dev/null; then
       if [ "$native_ran" -eq 1 ]; then
         native_out=$(run_native "$f") || true
@@ -469,7 +469,7 @@ EOF
     # "Cannot find module"). Show it: an all-empty DIFF row is otherwise
     # indistinguishable from a real regression (c-sh-go 2026-08-15
     # 17:23 gate: every test DIFFed empty while the estree worker's
-    # concurrent cargo rebuild of debashc starved/OOM-killed node).
+    # concurrent cargo rebuild of otranspilerl-cli starved/OOM-killed node).
     # empty_fails feeds the system-wide transient guard below: a broken
     # or starved shared oracle makes the transpiled side produce NOTHING
     # for (nearly) every test — the "no output at all" signature.
@@ -487,7 +487,7 @@ echo "--- frontend-stdout [$lang]: $((total-fails-skips))/$total match, $fails F
 }
 
 # System-wide transient guard (c-sh-go 2026-08-15 17:23 gate FAIL): the
-# estree worker's concurrent `cargo build` of the shared debashc oracle
+# estree worker's concurrent `cargo build` of the shared otranspilerl-cli oracle
 # (a multi-GB rustc) starved/OOM-killed EVERY node execution in the phase
 # — 0/103 transpiled runs produced output, so the per-test retry (above)
 # could not help: the whole window was affected and every test DIFFed

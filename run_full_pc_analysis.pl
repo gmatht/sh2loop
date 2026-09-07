@@ -16,7 +16,7 @@ use POSIX qw(:sys_wait_h);
 
 my $ROOT     = realpath("$FindBin::RealBin");
 my $SH_DIR   = "$ROOT/sh";
-my $DEBASHC  = "$ROOT/sh2perl/target/release/debashc";
+my $DEBASHC  = "$ROOT/sh2perl/otranspilerl/target/release/otranspilerl-cli";
 
 die "ERROR: $SH_DIR not found\n" unless -d $SH_DIR;
 die "ERROR: $DEBASHC not found\n" unless -x $DEBASHC;

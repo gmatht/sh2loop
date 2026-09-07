@@ -100,7 +100,7 @@ apply_bundles() {
       tf="$tf src/transforms/$tname.rs"
     done
     # 3. build + gate the PAIR
-    if "$LOCK" --role backend --timeout 1800 -- bash -c 'cd "$1" && cargo build --manifest-path Cargo.toml --bin debashc' _ "$ROOT/sh2perl" >> "$LOG" 2>&1; then
+    if "$LOCK" --role backend --timeout 1800 -- bash -c 'cd "$1" && cargo build --manifest-path Cargo.toml --bin otranspilerl-cli' _ "$ROOT/sh2perl" >> "$LOG" 2>&1; then
       verdict="PASS"
       detail="node + transforms built$tf"
     else
@@ -133,7 +133,7 @@ echo "[core-sweep] start epoch=$epoch backends='$backends'"
 
 # 1. the shared core (one build, dedup'd — the estree loop and every
 #    backend gate share sh2perl/target)
-if ! "$LOCK" --role core --timeout 300 -- bash -c 'cd "$1" && cargo build --manifest-path Cargo.toml --bin debashc' _ "$ROOT/sh2perl" >> "$LOG" 2>&1; then
+if ! "$LOCK" --role core --timeout 300 -- bash -c 'cd "$1" && cargo build --manifest-path Cargo.toml --bin otranspilerl-cli' _ "$ROOT/sh2perl" >> "$LOG" 2>&1; then
   echo "[core-sweep] core build FAILED" >> "$LOG"
   exit 1
 fi

@@ -41,7 +41,7 @@ REPORT="$TRIAGE/report.json"
 MDREPORT="$TRIAGE/report.md"
 mkdir -p "$TRIAGE"
 
-DEBASHC="$ROOT/sh2perl/target/debug/debashc"      # shared core (the estree reference)
+DEBASHC="$ROOT/sh2perl/otranspilerl/target/debug/otranspilerl-cli"      # shared core (the estree reference)
 RUNNER="$ROOT/harness/estree-runner.mjs"
 NOW() { date +%s; }
 NOWI() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -61,23 +61,23 @@ go-sh|testdata|sh,go|./go-sh|go-wrap
 powershell-sh-go|testdata|ps1|./powershell-sh-go|run:pwsh
 rust-frontend|testdata|rs|./target/debug/rust-frontend|compile:rustc
 zig-sh-go|testdata|zig|./zig-sh-go|run:zig
-# sh2perl — the SHARED sh corpus (bash → A1 via the core debashc),
+# sh2perl — the SHARED sh corpus (bash → A1 via the core otranspilerl-cli),
 # swept through every backend so the GUI's sh→X buttons get a verdict
 # for targets with no backend pass set. The corpus + emit bin are
 # ABSOLUTE paths (fe_abs/fe_cd_dir below handle them).
-sh2perl|$ROOT/sh2perl/examples|sh|$ROOT/sh2perl/target/debug/debashc|run:bash
+sh2perl|$ROOT/sh2perl/examples|sh|$ROOT/sh2perl/otranspilerl/target/debug/otranspilerl-cli|run:bash
 "
-# backend: debashc-bin|flag|run("" = render-only)|label
+# backend: otranspilerl-cli-bin|flag|run("" = render-only)|label
 BACKENDS="
-js|$ROOT/sh2perl/backends/js/target/debug/debashc|--shir-in-js|run:node:js|production
-perl|$ROOT/sh2perl/backends/perl/target/debug/debashc|--shir-in-perl|run:perl|production
-sh|$ROOT/sh2perl/backends/sh/target/debug/debashc|--shir-in-sh|run:bash|production
-c|$ROOT/sh2perl/backends/c/target/debug/debashc|--shir-in-c|compile:cc:c|production
-go|$ROOT/sh2perl/backends/go/target/debug/debashc|--shir-in-go|compile:go:go|production
-python|$ROOT/sh2perl/backends/python/target/debug/debashc|--shir-in-python|run:python3:py|production
-java|$ROOT/sh2perl/backends/java/target/debug/debashc|--shir-in-java|run:java:java|production
-rust|$ROOT/sh2perl/backends/rust/target/debug/debashc|--shir-in-rust|compile:rustc:rs|production
-zig|$ROOT/sh2perl/backends/zig/target/debug/debashc|--shir-in-zig||scaffold
+js|$ROOT/sh2perl/backends/js/otranspilerl/target/debug/otranspilerl-cli|--shir-in-js|run:node:js|production
+perl|$ROOT/sh2perl/backends/perl/otranspilerl/target/debug/otranspilerl-cli|--shir-in-perl|run:perl|production
+sh|$ROOT/sh2perl/backends/sh/otranspilerl/target/debug/otranspilerl-cli|--shir-in-sh|run:bash|production
+c|$ROOT/sh2perl/backends/c/otranspilerl/target/debug/otranspilerl-cli|--shir-in-c|compile:cc:c|production
+go|$ROOT/sh2perl/backends/go/otranspilerl/target/debug/otranspilerl-cli|--shir-in-go|compile:go:go|production
+python|$ROOT/sh2perl/backends/python/otranspilerl/target/debug/otranspilerl-cli|--shir-in-python|run:python3:py|production
+java|$ROOT/sh2perl/backends/java/otranspilerl/target/debug/otranspilerl-cli|--shir-in-java|run:java:java|production
+rust|$ROOT/sh2perl/backends/rust/otranspilerl/target/debug/otranspilerl-cli|--shir-in-rust|compile:rustc:rs|production
+zig|$ROOT/sh2perl/backends/zig/otranspilerl/target/debug/otranspilerl-cli|--shir-in-zig||scaffold
 "
 
 frontend_info() { echo "$FRONTENDS" | awk -F'|' -v n="$1" '$1==n {print $2"|"$3"|"$4"|"$5}'; }
@@ -113,7 +113,7 @@ emit_a1() {  # frontend example-file -> A1 JSON on stdout (transformed)
   # `build` target; the zsh-sh-go/cpp-sh-go ones publish atomically via
   # PID-unique temp + mv, so this is safe against concurrent worker
   # builds). A genuine build failure still surfaces as FAIL-FRONTEND-EMIT.
-  # The sh2perl "frontend" is the core debashc itself (absolute bin) —
+  # The sh2perl "frontend" is the core otranspilerl-cli itself (absolute bin) —
   # no per-frontend build/cd.
   if [ "${bin:0:1}" != "/" ] && \
      { [ ! -x "$absbin" ] || \

@@ -4,8 +4,8 @@
 set -u
 SUB=/home/llm/sh2loop/sh2perl
 WT=/home/llm/sh2loop/sh2perl/backends/c
-CORE_BIN="$SUB/target/debug/debashc"
-C_BIN="$WT/target/debug/debashc"
+CORE_BIN="$SUB/otranspilerl/target/debug/otranspilerl-cli"
+C_BIN="$WT/otranspilerl/target/debug/otranspilerl-cli"
 CORPUS=${*:-$(ls "$SUB"/examples/*.sh /home/llm/sh2loop/frontends/*/testdata/*.sh 2>/dev/null)}
 mkdir -p /tmp/ctr
 rm -f /tmp/ctr/*.txt

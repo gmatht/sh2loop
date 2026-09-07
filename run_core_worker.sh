@@ -36,7 +36,7 @@ ROOT="$(pwd)"
 # this fixes: the split gave role separation without tree separation.
 SUB="$ROOT/sh2perl/backends/core"
 LOG="$ROOT/loop-core-worker.log"
-DEBASHC="$SUB/target/debug/debashc"
+DEBASHC="$SUB/otranspilerl/target/debug/otranspilerl-cli"
 REQS="$ROOT/core-requests"
 WATCH="${WATCH:-600}"
 
@@ -156,7 +156,7 @@ PYEOF
       fi
     fi
     if ! "$ROOT/harness/build-lock.sh" --role core -- cargo build \
-         --manifest-path "$SUB/Cargo.toml" --bin debashc >> "$LOG" 2>&1; then
+         --manifest-path "$SUB/Cargo.toml" --bin otranspilerl-cli >> "$LOG" 2>&1; then
       echo "[$(date +%FT%T)] core: $name does not compile — REJECT (submodule src reverted)" >> "$LOG"
       git -C "$SUB" checkout -- src/ 2>/dev/null || true
       mv "$bundle" "$REQS/transforms/rejected/"
