@@ -14,20 +14,20 @@ SUB=/home/llm/sh2loop/sh2perl
 WT=/home/llm/sh2loop/sh2perl/backends/java
 # private copy: other workers rebuild the shared core mid-gate, which
 # shows up as spurious emit-empty skips — pin one snapshot per run
-CORE="/tmp/java_core_debashc.$$"
-cp "$SUB/target/debug/debashc" "$CORE"
+CORE="/tmp/java_core_otranspilerl.$$"
+cp "$ROOT/otranspilerl/target/debug/otranspilerl-cli" "$CORE"
 trap 'rm -f "$CORE"' EXIT
-BIN="$WT/target/debug/debashc"
+BIN="$WT/target/debug/shir_render"
 corpus=$(ls "$SUB"/examples/*.sh /home/llm/sh2loop/frontends/*/testdata/*.sh 2>/dev/null)
 pass=0; skip=0; fail=0; stub=0; fails=""; outdir=/tmp/javagate_$$
 mkdir -p "$outdir"
 i=0
 for f in $corpus; do
   i=$((i+1))
-  shir=$("$CORE" --shir "$f" --raw 2>/dev/null)
+  shir=$("$CORE" --target shir "$f" 2>/dev/null)
   if [ -z "$shir" ]; then skip=$((skip+1)); continue; fi
   if ! bash -n "$f" 2>/dev/null; then skip=$((skip+1)); continue; fi
-  g_out=$(printf '%s' "$shir" | "$BIN" --shir-in-java - 2>/dev/null)
+  g_out=$(printf '%s' "$shir" | "$BIN" --target java - 2>/dev/null)
   if [ -z "$g_out" ]; then fail=$((fail+1)); fails="$f(render-empty) $fails"; continue; fi
   s=$(printf '%s' "$g_out" | grep -cE 'TODO\(unsupported\)|sh2[A-Za-z_]' || true)
   if [ "$s" -gt 0 ]; then stub=$((stub+1)); fail=$((fail+1)); fails="$f(stub) $fails"; continue; fi

@@ -15,18 +15,18 @@
 # the SAME argv0 ("prog.sh") — the binary via `exec -a`.
 SUB=/home/llm/sh2loop/sh2perl
 WT=/home/llm/sh2loop/sh2perl/backends/rust
-CORE="$SUB/target/debug/debashc"
-BIN="$WT/target/debug/debashc"
+CORE=/home/llm/sh2loop/otranspilerl/target/debug/otranspilerl-cli
+BIN="$WT/target/debug/shir_render"
 corpus=$(ls "$SUB"/examples/*.sh /home/llm/sh2loop/frontends/*/testdata/*.sh 2>/dev/null)
 pass=0; skip=0; fail=0; stub=0; fails=""; outdir=/tmp/rustgate_$$
 mkdir -p "$outdir"
 i=0
 for f in $corpus; do
   i=$((i+1))
-  shir=$("$CORE" --shir "$f" --raw 2>/dev/null)
+  shir=$("$CORE" --target shir "$f" 2>/dev/null)
   if [ -z "$shir" ]; then skip=$((skip+1)); continue; fi
   if ! bash -n "$f" 2>/dev/null; then skip=$((skip+1)); continue; fi
-  g_out=$(printf '%s' "$shir" | "$BIN" --shir-in-rust - 2>/dev/null)
+  g_out=$(printf '%s' "$shir" | "$BIN" --target rust - 2>/dev/null)
   if [ -z "$g_out" ]; then fail=$((fail+1)); fails="$f $fails"; continue; fi
   s=$(printf '%s' "$g_out" | grep -cE "TODO\(unsupported\)|sh2[A-Za-z_]" || true)
   if [ "$s" -gt 0 ]; then stub=$((stub+1)); fail=$((fail+1)); fails="$f $fails"; continue; fi

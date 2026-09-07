@@ -36,7 +36,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 SUB="$ROOT/sh2perl"
-DEBASHC="$SUB/target/debug/debashc"
+OTRANS="$SUB/../otranspilerl/target/debug/otranspilerl-cli"
 OTRANS="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
 RUNNER="$ROOT/harness/estree-runner.mjs"
 TPLDIR="${TPLDIR:-$ROOT/templates}"
@@ -115,7 +115,7 @@ run_target() { # file -> target stdout; rc signals the gap class
   [ -n "$a1" ] || return 12                                   # core/refuse: nothing
   case "$TARGET" in
     estree)
-      e=$(printf '%s' "$a1" | "$DEBASHC" --shir-in-estree - 2>/dev/null) || return 13
+      e=$(printf '%s' "$a1" | "$OTRANS" --source-lang shir --target estree - 2>/dev/null) || return 13
       timeout "$TIMEOUT" node "$RUNNER" /dev/stdin --source "$1" <<<"$e" 2>/dev/null ;;
     rust)
       e=$(printf '%s' "$a1" | "$OTRANS" - - --target rust 2>/dev/null) || return 13
@@ -124,7 +124,7 @@ run_target() { # file -> target stdout; rc signals the gap class
       (cd "$tmp" && timeout "$TIMEOUT" rustc -o main main.rs 2>/dev/null \
         && timeout "$TIMEOUT" ./main) </dev/null 2>/dev/null ;;
     perl)
-      e=$(printf '%s' "$a1" | "$DEBASHC" --shir-in-perl - 2>/dev/null) || return 13
+      e=$(printf '%s' "$a1" | "$OTRANS" --source-lang shir --target perl - 2>/dev/null) || return 13
       timeout "$TIMEOUT" perl -e "$e" 2>/dev/null ;;
     c|sh|go|py|zig|java)
       # otranspilerl target names differ (python, not py); map them
@@ -153,7 +153,7 @@ probe_one() { # file -> verdict line (TAB-separated)
   esac
   if [ "$BYTEQ" = 1 ]; then   # byte-equality oracle for sh/zsh (secondary)
     mine=$("$FBIN" --shir "$f" --raw 2>/dev/null)
-    core=$("$DEBASHC" --shir "$f" --raw 2>/dev/null)
+    core=$("$OTRANS" --target shir "$f" 2>/dev/null)
     if [ -n "$mine" ] && [ -n "$core" ] && [ "$mine" = "$core" ]; then byteq=BEQ; else byteq=beq-diff; fi
   fi
   printf '%s\t%s\t%s\n' "$n" "$v" "$byteq"
@@ -238,7 +238,7 @@ ACTUAL (target output):
 $(printf '%s' "$tgt")
 
 SOURCE LANGUAGE: $SLANG    TARGET: $TARGET
-Frontend: $FBIN (parse source -> A1 shIR JSON)   Core: $DEBASHC
+Frontend: $FBIN (parse source -> A1 shIR JSON)   Core: $OTRANS
 
 DISCIPLINE (TRANSLATE_ONE_APPLICATION.md):
 - Cheapest correct lowering first: native expression < sync runtime call

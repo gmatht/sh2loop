@@ -25,7 +25,7 @@
 
 set -u
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-DEBASHC="$ROOT/sh2perl/target/debug/debashc"
+OTRANSPILERL="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
 RUNNER="$ROOT/harness/estree-runner.mjs"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -92,14 +92,14 @@ for lang in "${LANGS[@]}"; do
     case "$bn" in *_refuse*) printf '%s\t%s\tSKIP\trefusal pin\n' "$lang" "$bn" >> "$TSV"; skip=$((skip+1)); continue ;; esac
     # 1. frontend → A1 (the core's sh parser for sh; the frontend wasm/binary otherwise)
     if [ "$lang" = sh ]; then
-      a1=$("$DEBASHC" file --shir "$f" 2>/dev/null)
+      a1=$("$OTRANSPILERL" --target shir "$f" 2>/dev/null)
     else
       a1=$("$ROOT/frontends/${BIN[$lang]}/${BIN[$lang]}" --shir "$f" 2>/dev/null)
     fi
     if [ -z "$a1" ]; then fail=$((fail+1)); fails="$fails $bn(parse)"; printf '%s\t%s\tFAIL\tparse\n' "$lang" "$bn" >> "$TSV"; continue; fi
     # 2. A1 → estree (default js render)
     printf '%s' "$a1" > "$TMP/a1.json"
-    if ! "$DEBASHC" --shir-in-estree "$TMP/a1.json" > "$TMP/estree.json" 2>/dev/null; then
+    if ! "$OTRANSPILERL" --source-lang shir --target estree "$TMP/a1.json" > "$TMP/estree.json" 2>/dev/null; then
       fail=$((fail+1)); fails="$fails $bn(render)"; printf '%s\t%s\tFAIL\trender\n' "$lang" "$bn" >> "$TSV"; continue
     fi
     # 3. run the generated js

@@ -490,7 +490,7 @@ Covers three related work items:
 >   the reconstruction) — fixes the whole diff/comm-vs-`<(...)` class
 >   (012/042/083/064_01/063_14/process-substitution); subshell env snapshots
 >   use the @ sigil for indexed arrays (064_hard_to_generate compiles and
->   runs, matching bash except the documented $HOSTNAME line); (8) debashc
+>   runs, matching bash except the documented $HOSTNAME line); (8) otranspilerl-cli
 >   reads scripts lossily-with-PUA-markers and string literals re-emit
 >   non-UTF-8 bytes as `\xNN` byte escapes (utf8-non-utf8-content passes —
 >   bash treats scripts as byte streams); also `ls -A` shows dotfiles minus
@@ -567,7 +567,7 @@ Covers three related work items:
 >   sets argv0 = the source path (what `bash '$test_file'` sees) and empties
 >   @ARGV. Old-generator echo fix: bare `$0`/`$1`/… in echo rendered as
 >   `$ENV{0}`/`$ENV{1}` (never set) in four echo renderers — now `$0`/`$ARGV`.
->   Both semantics are now SELECTABLE: `debashc --argv0-source <name>` bakes
+>   Both semantics are now SELECTABLE: `otranspilerl-cli --argv0-source <name>` bakes
 >   the source name into the output (Perl `$0 = '<name>'`; estree emits a
 >   leading `sh2.argv0 = '<name>'` assignment) — the translation-product
 >   semantic (the JS shell executing foo.sh should say "foo.sh", not the
@@ -645,7 +645,7 @@ Covers three related work items:
 >   New testdata across all six frontends (9 features × 6 languages): param
 >   default, string substitution, array element write, array append, array
 >   count, seq-range for, until loop, grep→contains idiom, while-read loop.
->   Every file probe-verified through the core (`debashc --shir` emits valid
+>   Every file probe-verified through the core (`otranspilerl-cli --shir` emits valid
 >   A1 + estree-runner == native stdout) before landing; native oracles
 >   confirmed for all 54. Go wrapper (`frontend-stdout.sh`) gains `strings`
 >   import detection. **Decision — array base (0 vs 1): canonical 0-based in
@@ -794,8 +794,8 @@ Covers three related work items:
 | `sh2perl` entry in superproject index | gitlink (mode `160000`) at `09f6a4f6`, **no `.gitmodules`** → broken/unofficial submodule |
 | `sh2perl` (primary repo) | origin `git@github.com:gmatht/sh2perl.git`, own CI (`.github/workflows/test.yml`); working tree at `febb301`, dirty scratch files; **tracks a `fail -> ../fail` symlink** (violates the one-way rule — must be removed) |
 | `sh2runtime` | exists at `gmatht/sh2runtime`; node v22 available; already runs async JS commands + `.js` files in `/commands/` against its virtual FS; WASI via `@wasmer/wasi` for third-party wasm tools |
-| sh2perl backends | Perl only. `src/ir.rs` = Perl-specific IR with `RawText` bridges; `pub mod mir` commented out. **ESTree emitter exists** (`debashl::estree::ast_to_estree_json`, v0 `sh2.*` namespace) and passes the full corpus. Workspace layering: `debashl` (core lib) ← `debashcl` (CLI lib, member `cli/`) ← `debashc` (3-line bin). WASI: `build-wasi.sh` → `debashc.wasm` (command, `_start`) + `debashl.wasm` (library, `wasi-lib` feature, C-ABI `debashc_to_perl`/`debashc_to_estree`) + **`debashcl.wasm`** (library, `wasi-cli` feature, C-ABI `debashc_cli_run(_json/_with_input)` — the full CLI as a library call, "debashc in three lines of JS"; deployed with README + examples to `~/js/`). |
-| Tests | `fail`: debashc → Perl → `check_qx.pl` gate → run vs `bash` → normalized stdout + side-effect compare. 516 examples, **PERL 432/84, ESTREE 516/516 (100%)**. `fail-estree`: perl + estree verdicts per example (Stage A); `--gate` Stage B (strict: a failing test is a bug — no failing-test allowlist; the M5 blessed-fail list was removed as a guardrail violation, see revision history); `--metric` sh2.* call-site tallies (improvement-mode awareness). |
+| sh2perl backends | Perl only. `src/ir.rs` = Perl-specific IR with `RawText` bridges; `pub mod mir` commented out. **ESTree emitter exists** (`sh2perl core::estree::ast_to_estree_json`, v0 `sh2.*` namespace) and passes the full corpus. Workspace layering: `sh2perl core` (core lib) ← `otranspilerl` (CLI lib, member `cli/`) ← `otranspilerl-cli` (3-line bin). WASI: `build-wasi.sh` → `otranspilerl-cli.wasm` (command, `_start`) + `sh2perl core.wasm` (library, `wasi-lib` feature, C-ABI `debashc_to_perl`/`debashc_to_estree`) + **`otranspilerl.wasm`** (library, `wasi-cli` feature, C-ABI `debashc_cli_run(_json/_with_input)` — the full CLI as a library call, "otranspilerl-cli in three lines of JS"; deployed with README + examples to `~/js/`). |
+| Tests | `fail`: otranspilerl-cli → Perl → `check_qx.pl` gate → run vs `bash` → normalized stdout + side-effect compare. 516 examples, **PERL 432/84, ESTREE 516/516 (100%)**. `fail-estree`: perl + estree verdicts per example (Stage A); `--gate` Stage B (strict: a failing test is a bug — no failing-test allowlist; the M5 blessed-fail list was removed as a guardrail violation, see revision history); `--metric` sh2.* call-site tallies (improvement-mode awareness). |
 
 Key docs:
 - `sh2perl/docs/ir-design.md` — Perl IR + "two-layer IR (future)" (ShIR between AST and language IRs).
@@ -810,7 +810,7 @@ Key docs:
 ### 1.1 The dependency rule (one-way)
 
 - **sh2loop → sh2perl:** the workspace depends on and *modifies* sh2perl (the
-  harness drives debashc, blesses examples, bumps the gitlink). sh2perl is a
+  harness drives otranspilerl-cli, blesses examples, bumps the gitlink). sh2perl is a
   **properly registered submodule** of sh2loop.
 - **sh2perl → sh2loop: forbidden.** sh2perl must never reference or write into
   the workspace. Concretely: remove the **tracked `fail -> ../fail` symlink**
@@ -822,7 +822,7 @@ Key docs:
 
 ### 1.2 The contract
 
-- **sh2perl emits standard ESTree JSON** (`debashc --estree file.sh`). No JS
+- **sh2perl emits standard ESTree JSON** (`otranspilerl-cli --target estree file.sh`). No JS
   text, no `@babel/generator` inside sh2perl, no imports into sh2runtime — it's
   a pure data emitter.
 - Shell semantics are expressed in the ESTree as calls into a **documented
@@ -865,7 +865,7 @@ No sh2runtime submodule is created anywhere.
 - **sh2perl CI** stays self-contained: cargo tests, purify, perl-critic — no
   external checkouts.
 - **sh2loop CI** (needs a remote first): checks out the submodule, builds
-  debashc, runs `fail` + `fail-estree` (the corpus gate).
+  otranspilerl-cli, runs `fail` + `fail-estree` (the corpus gate).
 - **sh2runtime CI**: checks out `gmatht/sh2perl@<sha>` to pull corpus fixtures
   + expected outputs; validates the ESTree it consumes is exactly what sh2perl
   emits (schema + round-trip), then runs it against the virtual FS.
@@ -881,9 +881,9 @@ No sh2runtime submodule is created anywhere.
 Two executors consume the same ESTree JSON; both must agree with `bash`:
 
 ```
-test.sh ── debashc ──► Perl ───────► perl <tmp/test.pl> ───────────► stdout ──► vs ──► bash
+test.sh ── otranspilerl-cli ──► Perl ───────► perl <tmp/test.pl> ───────────► stdout ──► vs ──► bash
    │
-   └── debashc --estree ──► test.estree.json
+   └── otranspilerl-cli --target estree ──► test.estree.json
                               │
               ┌───────────────┴────────────────┐
               ▼                                ▼
@@ -914,7 +914,7 @@ Rollout (do **not** gate on the new backend on day one — it starts at ~0% vs
   snapshot pin, `update_blessed.sh` → `ensure_examples_snapshot.pl`.)
 - **Stage C — hard gate:** remove the allowlist. End state.
 
-### 2.2 debashc side: `--estree` output mode
+### 2.2 otranspilerl-cli side: `--estree` output mode
 
 1. New `src/estree.rs`: ESTree node structs with `#[derive(Serialize)]`
    (`Program`, `ExpressionStatement`, `CallExpression`, `TemplateLiteral`,
@@ -977,7 +977,7 @@ The reference executor and the gate runners live in **sh2loop**, alongside the
 existing `fail`/`check_qx.pl` test scripts (sh2loop is the harness; it modifies
 sh2perl — never the reverse):
 
-- `fail` gains `--estree` mode (or a sibling `fail-estree`): `debashc
+- `fail` gains `--estree` mode (or a sibling `fail-estree`): `otranspilerl-cli
   --estree` → structural gate → `estree-runner.mjs` → compare vs `bash`.
 - Stage B: `fail` returns PASS only when both verdicts pass; reasons tagged
   `[perl]` / `[estree]`.
@@ -990,13 +990,13 @@ sh2perl — never the reverse):
 - **sh2perl CI** (`sh2perl/.github/workflows/test.yml`): unchanged — cargo
   tests, purify, perl-critic. Self-contained; no external checkouts.
 - **sh2loop CI** (new workflow; requires adding a remote to the superproject):
-  checks out the sh2perl submodule, builds debashc, runs `fail` + `fail-estree`:
+  checks out the sh2perl submodule, builds otranspilerl-cli, runs `fail` + `fail-estree`:
   ```yaml
   - uses: actions/checkout@v4
     with: { submodules: true }
   - uses: actions/setup-node@v4
     with: { node-version: 22 }
-  - run: cd sh2perl && cargo build --bin debashc
+  - run: cd sh2perl && cd otranspilerl && cargo build --bin otranspilerl-cli
   - run: ./fail                       # Perl baseline
   - run: ./fail-estree                # ESTree metric / gate
   ```
@@ -1054,8 +1054,8 @@ parked until a statically-typed backend lands, per docs §8).
 
 - Separate `shir-rs` crate for future frontends (Batch/POSIX)? (Recommend: no,
   until a second frontend is real.)
-- Does `--estree` belong in the `debashc` binary or a separate
-  `debashc-estree` bin? (Recommend: same binary, `--estree` flag, so CI and
+- Does `--estree` belong in the `otranspilerl-cli` binary or a separate
+  `otranspilerl-cli-estree` bin? (Recommend: same binary, `--estree` flag, so CI and
   users share one build.)
 
 ---
@@ -1073,7 +1073,7 @@ parked until a statically-typed backend lands, per docs §8).
 3. **M3 — IR generalization (pure refactor):** `ir.rs` → language-neutral ShIR;
    Perl backend unchanged; 517 tests still pass; `RawText` intact.
 4. **M4 — ESTree emitter + reference executor:** `shir_to_estree()` +
-   `debashc --estree`; `tests/estree-runner.mjs` (@babel/generator + node
+   `otranspilerl-cli --target estree`; `tests/estree-runner.mjs` (@babel/generator + node
    `sh2.*` namespace); structural gate (schema + callee whitelist + no `*Sync`);
    `fail-estree`. Stage A: parallel metric, zero gating.
 5. **M5 — Gate:** per-test `perl && estree` verdicts. (A blessed-fail
@@ -1162,7 +1162,7 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
    (output-preserving refactors only, never bless a regression, check `git
    stash list`, never `git add .` — the tree is full of scratch files).
 2. **`sh2perl/AGENTS.md`** (standalone — **no sh2loop paths or references**):
-   build/test commands (`cargo build --bin debashc`, `cargo test`), IR
+   build/test commands (`cd otranspilerl && cargo build --bin otranspilerl-cli`, `cargo test`), IR
    migration status (`src/ir.rs` → ShIR, `RawText` policy), `check_qx.pl` gate
    (external, invoked from the workspace), where the ESTree emitter lands
    (`src/estree.rs`), the `sh2.*` namespace contract.
@@ -1193,7 +1193,7 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
   need re-bumping after that loop settles.
 - **2026-07-31 — ESTree v0 emitter (M4 partial).** `sh2perl/src/estree.rs`
   (new; lowered from the raw AST to avoid the concurrently-edited `ir.rs`),
-  `debashc file --estree <file.sh>` emits standard ESTree JSON with an `sh2.*`
+  `otranspilerl-cli --target estree <file.sh>` emits standard ESTree JSON with an `sh2.*`
   runtime namespace; unlowered constructs → `sh2.unsupported(...)` (valid,
   deterministic, gate-flagable). 8 unit tests pass. **Baseline metric
   (Stage A): 169/516 examples lower with zero unsupported calls.** Next:
@@ -1372,9 +1372,9 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
   (10k-iter grep-in-loop): JS 1m50s → 0.6s (~180× vs bash 1m23s), output
   identical. Conservative: literal BRE-free patterns, no flags, both fds
   discarded; statement/&&-position pipelines keep `$?` semantics.
-- **2026-08-01 — debashcl.wasm: the full CLI as a WASI library call.**
-  debashc.wasm was command-only (`_start`; node:wasi has no fs preopens) and
-  debashl.wasm skipped the CLI — the debashcl crate had zero `#[no_mangle]`
+- **2026-08-01 — otranspilerl.wasm: the full CLI as a WASI library call.**
+  otranspilerl-cli.wasm was command-only (`_start`; node:wasi has no fs preopens) and
+  sh2perl core.wasm skipped the CLI — the otranspilerl crate had zero `#[no_mangle]`
   exports. New `wasi-cli` feature exports `debashc_cli_run(argc, argv)` /
   `_run_json` / `_run_with_input` (file commands via the `-` stdin
   convention + virtual stdin, since node:wasi can't preopen files) over the
@@ -1530,11 +1530,11 @@ replaced" (mechanically gated); (b) context = A1 shIR markup for the snippet
 host-side membership sidecar; (c) spec in `sh2perl/docs/embed-contract.md`,
 record schema in `frontends/shir-contract/schema.json` (`embed_block`).
 
-**Why:** purify.pl's live path is `debashc parse --inline` — the legacy
+**Why:** purify.pl's live path is `otranspilerl-cli parse --inline` — the legacy
 `Generator`, whose HashSet-ordered emission is **nondeterministic run-to-run**
 (verified 30/30 differing outputs; purify output is nondeterministic and the
 purify CI job exercises it). purify then applies ~10 regex/PPI patches to each
-fragment and skips debashc entirely for backticks containing Perl vars
+fragment and skips otranspilerl-cli entirely for backticks containing Perl vars
 (FIX.md Bug 3). All of that is context the transpiler never received.
 
 ### Stage 1 (landed, this revision)
@@ -1563,7 +1563,7 @@ fragment and skips debashc entirely for backticks containing Perl vars
 - `cargo test --lib` 300/301 (the glsl failure is the pre-existing in-flight
   worker WIP). New tests: `embed_*` ×7 (determinism, bindings gate,
   copy-in, no-preamble, main_exit collapse, English normalization,
-  refusals). CLI hook: `debashc parse --perl-embed` (`PURIFY_SCOPE` env =
+  refusals). CLI hook: `otranspilerl-cli parse --perl-embed` (`PURIFY_SCOPE` env =
   host membership list, manual testing).
 
 ### Stage 2 (landed, this revision)
@@ -1759,7 +1759,7 @@ and a re-entrancy guard. CORE builds (the estree loop + every backend
 gate) share `sh2perl/target` — the dep + core crate compile once for all
 of them (replacing the per-worktree `target-core` split that existed only
 to dodge cargo's file-lock churn). WORKTREE builds keep `$g_wt/target`
-(their `debashc` bin collides with the main checkout's). Rationale: the
+(their `otranspilerl-cli` bin collides with the main checkout's). Rationale: the
 workspace is CPU-bound more than lock-bound, so serialization is
 acceptable; sccache stays a measured fallback (its stale-artifact
 correctness risk and WSL2/overlay surface are documented risks, not
@@ -1792,3 +1792,37 @@ read — no pi. Two new artifacts:
 The LLM's remaining role in the workspace moves to the PROPOSERS: the
 backend that knows its transform writes it and reads its own verdicts.
 The core is scheduled (cron/loop), not prompted.
+
+### 11.10 debashc/debashcl deleted — otranspilerl is the only CLI (landed)
+
+The two-crate ancient CLI layer (sh2perl `cli/`: `debashc` flag-level bin +
+`debashcl` processor; the in-repo `otranspiler` bin that spawned a sibling
+`debashc` for every stage) is deleted. Fold result:
+
+- **otranspilerl-cli** (workspace crate) is the only user-facing CLI; the
+  harness (`fail`, `fail-estree`, `fail-shir`, backend gates) runs it
+  exclusively. Flags folded in: `--target estree` (debashc's direct
+  `file --estree` path, byte-verified), `--true64`/`--bigint`.
+- **`shir_render`** (src/bin/, core crate) — the generic A1→target
+  renderer; the backend worktree gate's entry (`--target <lang>`, stdin
+  `-`). The per-backend `*_backend` bins stay (workers' library-path).
+- **Workspace harness migrated**: `debashc --shir` → `otranspilerl-cli
+  --target shir`; `--shir-in-<lang>` → `shir_render --target <lang>`;
+  `DEBASHC_TRANSFORMS` → `SH2_TRANSFORMS` (legacy name still read as an
+  alias inside transforms::apply). Isolated-verify builds now compile
+  otranspilerl-cli; fail-shir's override env is `OTRANSPILERL`.
+- **Legacy deleted**: 19 dump/debug bins, the 36k-line legacy generator +
+  `legacy-generator` feature (its one hook, `ir::generator_emulate_command`,
+  is now the permanent None arm — emulation moves into the perl renderer
+  proper), the wasi-cli/debashc_cli_run wasm layer (otranspilerl's
+  `otranspilerl_cli` export supersedes it), build-wasi.sh rewritten to two
+  artifacts (otranspilerl-cli.wasm + the core/unified ABI libs).
+- sh2perl is now a library-only crate (lib + worker bins + convert_examples
+  + shir_render). `debashc`/`debashcl` mentions purged from code, docs,
+  scripts, and generated-code markers (`die "otranspilerl: ..."`).
+
+Parity at the fold: estree byte-identical vs `file --estree` (547/552; the
+5 parse-error cases improve — the old path leaked `Parse error:` onto
+stdout mixed with the JSON); A1 and perl renders are otranspilerl's
+already-gated forms (old path leaked DBG lines / banners / dropped
+stmt_lines).

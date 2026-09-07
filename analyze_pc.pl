@@ -10,7 +10,7 @@ use JSON::PP;
 # analyze_pc.pl - Analyze Perl Critic violations across all generated Perl files
 #
 # Tests all sh/ files by:
-#   1. Converting to Perl via debashc
+#   1. Converting to Perl via otranspilerl
 #   2. Running perlcritic with NO exemptions (--severity 1)
 #   3. Categorizing all violations
 #   4. Comparing with currently exempted policies
@@ -18,10 +18,10 @@ use JSON::PP;
 
 my $ROOT     = realpath("$FindBin::RealBin");
 my $SH_DIR   = "$ROOT/sh";
-my $DEBASHC  = "$ROOT/sh2perl/target/release/debashc";
+my $OTRANSPILERL = "$ROOT/otranspilerl/target/release/otranspilerl-cli";
 
 die "ERROR: $SH_DIR not found\n" unless -d $SH_DIR;
-die "ERROR: $DEBASHC not found\n" unless -x $DEBASHC;
+die "ERROR: $OTRANSPILERL not found\n" unless -x $OTRANSPILERL;
 
 # Read the current perlcritic.conf to get exempted policies
 my $CONF_FILE = "$ROOT/sh2perl/docs/perlcritic.conf";
@@ -66,7 +66,7 @@ foreach my $sh_file (@sh_files) {
     close $tmp_fh;
     
     # Convert to Perl
-    my $gen_cmd = "$DEBASHC -i '$sh_file' -o '$tmp_path' 2>/dev/null";
+    my $gen_cmd = "$OTRANSPILERL '$sh_file' '$tmp_path' 2>/dev/null";
     my $gen_out = `$gen_cmd`;
     if ($? != 0 || !-s $tmp_path) {
         $failed++;

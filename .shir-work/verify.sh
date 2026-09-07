@@ -23,11 +23,11 @@ if f'("{label}"' not in t:
     t = t.replace(anchor, f'("{label}", {mod}::transform),\n        {anchor}', 1)
 open(p,'w').write(t)
 PY
-echo "building isolated debashc..."
-CARGO_TARGET_DIR="$VTARGET" cargo build --manifest-path "$SH2PERL/Cargo.toml" --bin debashc 2>&1 | tail -3
-VBIN="$VTARGET/debug/debashc"
+echo "building isolated otranspilerl-cli..."
+CARGO_TARGET_DIR="$VTARGET" cargo build --manifest-path "$ROOT/otranspilerl/Cargo.toml" --bin otranspilerl-cli 2>&1 | tail -3
+VBIN="$VTARGET/debug/otranspilerl-cli"
 echo "=== fail-shir (isolated, label=$LABEL) ==="
-DEBASHC="$VBIN" DEBASHC_TRANSFORMS="$LABEL" "$ROOT/fail-shir" 2>/dev/null | grep ^SHIR
+OTRANSPILERL="$VBIN" SH2_TRANSFORMS="$LABEL" "$ROOT/fail-shir" 2>/dev/null | grep ^SHIR
 # restore
 git -C "$SH2PERL" checkout -- src/transforms.rs
 rm -f "$DST"

@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# fail-go-app — the go-sh DOGFOOD app gate: the go frontend transpiles
+# ITSELF (cmd/go-sh/main.go + go-sh.go + shir-emit-go/emit.go — the
+# concatenated package the CLI's PACKAGE MODE sees) into JS, and the JS
+# CLI must produce the SAME A1 JSON as the native go-sh binary.
+#
+#   oracle: frontends/go-sh/go-sh --shir <input.go> --raw   (the original)
+#   js    : <concat> --shir → otranspilerl --source-lang shir --target estree → estree-runner.mjs
+#           run with --args --shir <input.go> --raw
+#
+# A test passes only on oracle == js stdout (byte-for-byte). The corpus
+# inputs are frontends/go-sh/testdata/*.go (the same ladder the corpus
+# gate uses).
+#
+# Usage: ./fail-go-app [--gate] [PREFIX]
+set -u
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+GOSH="$ROOT/frontends/go-sh/go-sh"
+OTRANS="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
+RUNNER="$ROOT/harness/estree-runner.mjs"
+CONCAT="$ROOT/frontends/go-sh/cmd/go-sh/main.go $ROOT/frontends/go-sh/go-sh.go $ROOT/frontends/shir-emit-go/emit.go"
+CORPUS="$ROOT/frontends/go-sh/testdata"
+TIMEOUT=180
+GATE=0; PREFIX=""
+for a in "$@"; do
+  case "$a" in
+    --gate) GATE=1 ;;
+    -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) [ -z "$PREFIX" ] && PREFIX="$a" ;;
+  esac
+done
+
+[ -x "$OTRANS" ] || { echo "oracle otranspilerl-cli missing" >&2; exit 1; }
+
+tmpd=$(mktemp -d)
+cat $CONCAT > "$tmpd/app.go"
+# transpile the app ONCE (the same A1/estree for every input)
+if ! timeout 120 "$GOSH" --shir "$tmpd/app.go" --raw > "$tmpd/app.a1.json" 2>"$tmpd/a1.err"; then
+  echo "FAIL: the go frontend cannot parse its own sources:" >&2
+  head -3 "$tmpd/a1.err" >&2
+  exit 1
+fi
+if ! timeout 180 "$OTRANS" --source-lang shir --target estree - < "$tmpd/app.a1.json" > "$tmpd/app.estree.json" 2>"$tmpd/estree.err"; then
+  echo "FAIL: the app's A1 is rejected by the estree ingress:" >&2
+  head -3 "$tmpd/estree.err" >&2
+  exit 1
+fi
+
+pass=0; fail=0; total=0
+for f in "$CORPUS"/*.go; do
+  [ -f "$f" ] || continue
+  bn=$(basename "$f")
+  [ -n "$PREFIX" ] && [[ "$bn" == "$PREFIX"* ]] || [ -z "$PREFIX" ] || continue
+  total=$((total+1))
+  # oracle: the native go-sh binary
+  oracle=$(timeout 60 "$GOSH" --shir "$f" --raw 2>/dev/null)
+  # js: the transpiled CLI run with the same args
+  js=$(timeout "$TIMEOUT" node "$RUNNER" "$tmpd/app.estree.json" --source "$tmpd/app.go" \
+       --args --shir "$f" --raw 2>/dev/null)
+  if [ "$oracle" = "$js" ]; then
+    pass=$((pass+1))
+  else
+    fail=$((fail+1))
+    echo "  $bn MISMATCH (oracle ${#oracle}B vs js ${#js}B)"
+  fi
+done
+echo "=== fail-go-app: $pass/$total js pass (the go frontend transpiles itself) ==="
+rm -rf "$tmpd"
+[ "$GATE" = 1 ] && [ "$fail" -gt 0 ] && exit 1
+exit 0

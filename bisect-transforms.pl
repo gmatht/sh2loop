@@ -7,8 +7,8 @@
 # transform names, binary-search which one(s) push a backend gate's failure
 # count above the trusted baseline. It never rebuilds — every candidate is
 # already compiled into the crate and gated at RUNTIME by the
-# `DEBASHC_TRANSFORMS` env var (empty/unset = ALL registered), so each step
-# is just a gate run with `DEBASHC_TRANSFORMS=<subset>`.
+# `SH2_TRANSFORMS` env var (empty/unset = ALL registered), so each step
+# is just a gate run with `SH2_TRANSFORMS=<subset>`.
 #
 # Unlike the worker's single-pass blame, this script iterates: it removes
 # each blamed transform from the candidate set and re-bisects the remainder,
@@ -32,7 +32,7 @@
 #   --baseline-file F   read baseline from a file (first whitespace/tab field)
 #                   (default auto-chosen by --field: estree->.estree_trusted_count,
 #                    shir->.shir_trusted_count, perl->.perl_gen_trusted_count)
-#   --measure       instead, run the gate ONCE with DEBASHC_TRANSFORMS empty
+#   --measure       instead, run the gate ONCE with SH2_TRANSFORMS empty
 #                   and use that count as the baseline (the right choice when
 #                   the candidates are NOT yet staged/registered: empty=ALL
 #                   already excludes them, equal to the pre-addition state)
@@ -105,7 +105,7 @@ for my $t (@transforms) {
 $baseline_file //= trusted_file($field);
 if ($measure) {
     $base = run_gate('');                      # empty = ALL registered
-    print "baseline (all registered, DEBASHC_TRANSFORMS=empty): failures=$base\n";
+    print "baseline (all registered, SH2_TRANSFORMS=empty): failures=$base\n";
 } elsif (defined $baseline) {
     $base = $baseline;
 } elsif ($baseline_file && -e $baseline_file) {
@@ -162,17 +162,17 @@ print "\nNo offending transform — the candidate set is green within tolerance.
 exit 0;
 
 # ── helpers ──────────────────────────────────────────────────────────
-# Run the gate with a DEBASHC_TRANSFORMS subset; return the failure count.
+# Run the gate with a SH2_TRANSFORMS subset; return the failure count.
 sub run_gate {
     my ($subset) = @_;
     my $full = (@always_on ? join(',', @always_on) . ($subset ne '' ? ",$subset" : '') : $subset);
     my $cmd = resolve_gate($gate);
     $cmd .= " $prefix" if defined $prefix && length $prefix;
-    print "  [run] DEBASHC_TRANSFORMS=", (length $full ? $full : '(empty/all)'),
+    print "  [run] SH2_TRANSFORMS=", (length $full ? $full : '(empty/all)'),
         " $cmd\n" unless $dry_run;
     return 0 if $dry_run;                       # dry-run: report only
 
-    my $env = { %ENV, DEBASHC_TRANSFORMS => $full };
+    my $env = { %ENV, SH2_TRANSFORMS => $full };
     # A first-run gate may spend its whole budget compiling the toolchain
     # (otranspilerl-cli) and return truncated output; that is NOT a
     # regression. Retry unparseable runs before falling back to the
@@ -270,7 +270,7 @@ sub registered_names {
     return () unless -e $file;
     open my $fh, '<', $file or die "read $file: $!";
     local $/; my $t = <$fh>; close $fh;
-    # only the `all()` body, so a registry-looking name like ("DEBASHC_TRANSFORMS")
+    # only the `all()` body, so a registry-looking name like ("SH2_TRANSFORMS")
     # from an env-var doc elsewhere in the file can't leak into the candidate set.
     $t =~ /pub fn all\(\)[\s\S]*?vec!\[(.*?)\n\s*\]/s;
     return () unless defined $1;
@@ -309,7 +309,7 @@ Options:
   --baseline N      trusted failure count
   --baseline-file F file whose first field is the baseline
                     (default auto: .estree/.shir/.perl_gen_trusted_count)
-  --measure         baseline = one gate run with DEBASHC_TRANSFORMS empty
+  --measure         baseline = one gate run with SH2_TRANSFORMS empty
   --tol N           regression tolerance above baseline (default: 3)
   --timeout S       per-gate timeout, seconds (default: 1800)
   --dry-run         print the plan, run nothing

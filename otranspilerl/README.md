@@ -1,7 +1,7 @@
 # otranspilerl
 
 The Rust port of the Go `otranspiler` wrapper: one library that statically
-links the `debashl` core (shell → A1 shIR) and **all nine backend renderers**
+links the `sh2perl core` core (shell → A1 shIR) and **all nine backend renderers**
 (c, go, java, js/estree, perl, python, rust, sh, zig) into a single artifact
 exposing the full otranspiler functionality — including the CLI, so the CLI
 binary is a three-line wrapper. Builds natively (rlib + cdylib + bin) and to
@@ -33,10 +33,10 @@ The renderers live in two places:
 Backend changes made in a worktree do **not** flow into otranspilerl
 automatically — the merged renderer must be re-copied (and adapted) into
 `../sh2perl/src/*_backend.rs` first. Once that's done, `cargo build` picks up
-the `debashl` path dependency automatically:
+the `sh2perl core` path dependency automatically:
 
 ```sh
-cd otranspilerl && cargo build          # native (recompiles the debashl path dep)
+cd otranspilerl && cargo build          # native (recompiles the sh2perl core crate path dep)
 cargo build --target wasm32-wasip1      # wasm
 ```
 
@@ -45,7 +45,7 @@ cargo build --target wasm32-wasip1      # wasm
 The wasm build is a reactor exporting the library ABI (`otranspilerl_alloc`,
 `otranspilerl_shir`, `otranspilerl_render`, `otranspilerl_transpile`,
 `otranspilerl_cli`, `otranspilerl_str_len`, `otranspilerl_free`). String
-buffers follow the debashl contract: `[u32 data_len LE][data][0]`, inputs
+buffers follow the sh2perl core crate contract: `[u32 data_len LE][data][0]`, inputs
 written via `otranspilerl_alloc`. See `src/wasi.rs`.
 
 ## Known limitation

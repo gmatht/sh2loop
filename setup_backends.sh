@@ -665,9 +665,8 @@ case "${1:-}" in
                     printf '     the target''s int type, Str -> its string, missing -> the runtime store), and\n'
                     printf '     emits a compile-able sh2.* stub or a /* TODO */ marker for anything outside\n'
                     printf '     the lowable subset — the output ALWAYS compiles.\n'
-                    printf '  2. ENTRY: wire --shir-in-%s in the worktree''s cli/src/lib.rs — mirror the\n' "$fix_lang"
-                    printf '     --shir-in-perl arm (~line 661): read the file (or stdin via `-`) ->\n'
-                    printf '     shir_json_in::shir_json_to_ir -> shir_to_%s -> print.\n' "$fix_lang"
+                    printf '  2. ENTRY: shir_render --target %s — the generic core-crate bin; the gate probes it.\n' "$fix_lang"
+                    printf '     (A %s_backend bin taking the .sh file directly is the alternative.)\n' "$fix_lang"
                     printf '  3. BOOTSTRAP ORDER: get the gate GREEN on the MINIMAL subset FIRST (Output +\n'
                     printf '     Assign only — the corpus loop starts tiny), then grow (If/While/arith/test).\n'
                     printf '     Never aim for the whole corpus in one shot — land the first green, commit,\n'
@@ -835,15 +834,17 @@ EOF
                   #          through the harness's estree→js implementation
                   #          (estree-runner.mjs + the real sh2.* runtime).
                   #   scaffolds (c go python rust zig sh java) -> the WORKTREE must
-                  #          have a renderer: a --shir-in-<lang> flag wired
-                  #          into its debashc (cli/src/lib.rs dispatch), or a
-                  #          <lang>_backend bin (c's pattern). Neither -> FAIL:
-                  #          the old `*) ok=1` was vacuous (never failed, so
-                  #          the scaffold workers idled at the shared commit).
+                  #          have a renderer: shir_render --target <lang> (the
+                  #          generic core-crate renderer bin, present in every
+                  #          synced worktree) or a <lang>_backend bin (c's
+                  #          pattern). Neither -> FAIL: the old `*) ok=1` was
+                  #          vacuous (never failed, so the scaffold workers
+                  #          idled at the shared commit).
                   # Usage: setup_backends.sh --backend-gate <lang>
                   shift; g_lang="$1"
                   g_wt="$BT/$g_lang"
-                  g_bin="$SUB/target/debug/debashc"; g_flag=""; g_binmode=0; g_stubgate=0; g_eq=0
+                  g_otrans="$ROOT/otranspilerl/target/debug/otranspilerl-cli"   # the CORE A1 emitter (main tree)
+                  g_bin="$g_wt/target/debug/shir_render"; g_flag=""; g_binmode=0; g_stubgate=0; g_eq=0
                   case "$g_lang" in
                     js|perl)
                       # production backends: consume the SHARED core binary
@@ -852,13 +853,14 @@ EOF
                       # the core owner (estree worker) edits src/ constantly
                       # — mid-edit windows are TRANSIENT build breaks; retry
                       # before giving up (this gate builds the shared
-                      # main-checkout debashc, which the estree worker churns).
+                      # main-checkout emitter, which the core worker churns).
                       core_build_ok=0
                       for try in 1 2 3; do
-                        # --bin debashc only: the gate needs just the CLI;
-                        # building the whole workspace fails on the core
-                        # owner's in-flight extra bins (glsl_dump etc.).
-                        if "$ROOT/harness/build-lock.sh" --role backend -- cargo build --manifest-path "$SUB/Cargo.toml" --bin debashc >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
+                        # the gate needs just the core A1 emitter
+                        # (otranspilerl-cli, workspace crate) + the worktree's
+                        # shir_render; building the whole workspace fails on
+                        # the core owner's in-flight extra bins.
+                        if "$ROOT/harness/build-lock.sh" --role backend -- cargo build --manifest-path "$ROOT/otranspilerl/Cargo.toml" --bin otranspilerl-cli >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
                           core_build_ok=1; break
                         fi
                         echo "  [$g_lang] backend gate: core build attempt $try FAILED (estree-worker churn) — retrying in 20s" >> "$WORKSPACE/loop-backend-$g_lang.log"
@@ -867,39 +869,37 @@ EOF
                       if [ $core_build_ok -ne 1 ]; then
                         echo "  [$g_lang] backend gate: core build FAILED"; exit 1
                       fi
-                      # js's + perl's renderers live in the WORKTREES
-                      # (--shir-in-js / --shir-in-perl, worktree-local —
-                      # mirrors the c_backend pattern): the old empty-flag
-                      # arm hit the cli's shell-command fallback (never read
-                      # stdin), which SIGPIPE-races the corpus pipe under
-                      # load (rc=141 false fails). Probe them like the
-                      # scaffolds. (perl's worktree renderer — src/
+                      # js's + perl's renderers live in the WORKTREES (via
+                      # their crate copies; the single-owner core files
+                      # converge through --sync): the generic shir_render bin
+                      # is the entry. Probe it like the scaffolds. (perl's worktree renderer — src/
                       # perl_backend.rs, shir_to_perl — renders the full ShIR
                       # vocabulary without panicking, unlike the shared
                       # core's legacy ir_to_perl which still has
                       # ESTree-path-only unreachable! arms; see
                       # core-requests/perl-*.md.)
                       if [ "$g_lang" = "js" ] || [ "$g_lang" = "perl" ]; then
-                        if ! "$ROOT/harness/build-lock.sh" --role backend --share-target "$g_wt/target" -- cargo build --manifest-path "$g_wt/Cargo.toml" >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
+                        if ! "$ROOT/harness/build-lock.sh" --role backend --share-target "$g_wt/target" -- cargo build --manifest-path "$g_wt/Cargo.toml" --bin shir_render >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
                           echo "  [$g_lang] backend gate: worktree build FAILED"; exit 1
                         fi
-                        g_bin="$g_wt/target/debug/debashc"
+                        g_bin="$g_wt/target/debug/shir_render"
+                        g_flag="--target $g_lang"
                         # probe: feed an invalid shIR JSON — the deserializer's
-                        # "ShIR JSON ingress" marker proves --shir-in-js is wired.
-                        # The probe is EXPECTED to exit 1 (ingress error), so it
-                        # must stay inside an `if` condition — set -e (and the
-                        # scaffolds' probes, which return 0 only via the
-                        # shell-command fallback) would otherwise kill the gate.
+                        # "ShIR JSON ingress" marker proves the render path is
+                        # wired. The probe is EXPECTED to exit 1 (ingress
+                        # error), so it must stay inside an `if` condition —
+                        # set -e would otherwise kill the gate.
                         if printf '%s' '{"contract_version":1,"imports":[],"requires":[],"stmts":[],"subs":[],"var_types":[],"stmt_lines":[]}' \
-                          | "$g_bin" "--shir-in-$g_lang" - >/dev/null 2>/tmp/gate_probe_$$; then
-                          g_flag="--shir-in-$g_lang"
-                        elif grep -q "ShIR JSON ingress" /tmp/gate_probe_$$; then
-                          g_flag="--shir-in-$g_lang"
+                          | "$g_bin" $g_flag - >/dev/null 2>/tmp/gate_probe_$$; then
+                          : # probe rc=0 — fall through to the marker check
+                        fi
+                        if grep -q "ShIR JSON ingress" /tmp/gate_probe_$$; then
+                          : # flag confirmed
                         elif [ -x "$g_wt/target/debug/${g_lang}_backend" ]; then
                           g_binmode=1
                         else
                           rm -f /tmp/gate_probe_$$
-                          echo "  [$g_lang] backend gate: NO RENDERER — wire --shir-in-$g_lang into the worktree's cli/src/lib.rs dispatch (mirroring --shir-in-perl) or add a ${g_lang}_backend bin (c's pattern). The gate lands with the renderer."
+                          echo "  [$g_lang] backend gate: NO RENDERER — sync the worktree (setup_backends.sh --sync) for the shir_render bin, or add a ${g_lang}_backend bin (c's pattern). The gate lands with the renderer."
                           exit 1
                         fi
                         rm -f /tmp/gate_probe_$$
@@ -927,33 +927,35 @@ EOF
                       # per-worktree target-core split existed to dodge cargo's
                       # "Blocking waiting for file lock" — the wrapper's
                       # priority lock replaces that workaround). Worktree
-                      # builds keep their own $g_wt/target (their debashc bin
-                      # name collides with the main checkout's).
+                      # builds keep their own $g_wt/target (their shir_render
+                      # bin name is per-worktree).
                       if ! "$ROOT/harness/build-lock.sh" --role backend -- cargo build --manifest-path "$SUB/Cargo.toml" >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
                         echo "  [$g_lang] backend gate: core build FAILED"; exit 1
                       fi
-                      # build the worktree (the branch's core + its renderer)
-                      if ! "$ROOT/harness/build-lock.sh" --role backend --share-target "$g_wt/target" -- cargo build --manifest-path "$g_wt/Cargo.toml" >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
+                      # build the worktree (the branch's core + its renderer;
+                      # only the generic shir_render bin is needed)
+                      if ! "$ROOT/harness/build-lock.sh" --role backend --share-target "$g_wt/target" -- cargo build --manifest-path "$g_wt/Cargo.toml" --bin shir_render >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
                         echo "  [$g_lang] backend gate: worktree build FAILED"; exit 1
                       fi
-                      g_bin="$g_wt/target/debug/debashc"
+                      g_bin="$g_wt/target/debug/shir_render"
+                      g_flag="--target $g_lang"
                       # probe: feed an invalid shIR JSON — the deserializer's
-                      # "ShIR JSON ingress" marker proves --shir-in-<lang> is
-                      # wired into the worktree's CLI. The probe exits 1 by
-                      # design (ingress error), so it MUST stay inside an `if`
+                      # "ShIR JSON ingress" marker proves the render path is
+                      # wired into the worktree. The probe exits 1 by design
+                      # (ingress error), so it MUST stay inside an `if`
                       # condition — set -e + pipefail would otherwise kill the
                       # whole gate before the corpus runs.
                       if printf '%s' '{"contract_version":1,"imports":[],"requires":[],"stmts":[],"subs":[],"var_types":[],"stmt_lines":[]}' \
-                        | "$g_bin" "--shir-in-$g_lang" - >/dev/null 2>/tmp/gate_probe_$$; then
+                        | "$g_bin" $g_flag - >/dev/null 2>/tmp/gate_probe_$$; then
                         : # probe rc=0 — fall through to the marker check
                       fi
                       if grep -q "ShIR JSON ingress" /tmp/gate_probe_$$; then
-                        g_flag="--shir-in-$g_lang"
+                        : # flag confirmed
                       elif [ -x "$g_wt/target/debug/${g_lang}_backend" ]; then
                         g_binmode=1
                       else
                         rm -f /tmp/gate_probe_$$
-                        echo "  [$g_lang] backend gate: NO RENDERER — wire --shir-in-$g_lang into the worktree's cli/src/lib.rs dispatch (mirroring --shir-in-perl) or add a ${g_lang}_backend bin (c's pattern). The gate lands with the renderer."
+                        echo "  [$g_lang] backend gate: NO RENDERER — sync the worktree (setup_backends.sh --sync) for the shir_render bin, or add a ${g_lang}_backend bin (c's pattern). The gate lands with the renderer."
                         exit 1
                       fi
                       # the sh2.*/TODO stub gate applies to every backend
@@ -1026,7 +1028,7 @@ EOF
                     # shIR emit from the CORE (the A1 contract source of truth):
                     # if the core emits nothing (rc!=0 or empty JSON — the 4
                     # parse-error examples), SKIP (not a backend gap). The emit
-                    # must be failure-tolerant: $SUB's debashc is rebuilt by the
+                    # must be failure-tolerant: the core A1 emitter is rebuilt by
                     # estree worker CONSTANTLY, so a mid-relink window (or a WIP
                     # binary that crashes on one input) makes --shir exit
                     # nonzero — and under set -euo pipefail the unguarded
@@ -1036,8 +1038,8 @@ EOF
                     # skip keeps the gate alive and leaves the file + rc in the
                     # log; an anomalous skip count is the visible signal (core-
                     # emit health is the estree gate's job, not this gate's).
-                    shir=$("$SUB/target/debug/debashc" --shir "$f" --raw 2>/dev/null) || {
-                      echo "  [$g_lang] backend gate: shir emit failed for $f (rc=$?) — core binary transient/mid-rebuild — counted as skip"
+                    shir=$("$g_otrans" --target shir "$f" 2>/dev/null) || {
+                      echo "  [$g_lang] backend gate: shir emit failed for $f (rc=$?) — core emitter transient/mid-rebuild — counted as skip"
                       skip=$((skip+1)); continue
                     }
                     if [ -z "$shir" ]; then
@@ -1264,7 +1266,7 @@ EOF
                   # worker's work list. Skipped gracefully where the sh-gate
                   # deployment (the sudo rule + harness script) is absent.
                   if [ "$g_lang" = "sh" ] && command -v sh-gate >/dev/null 2>&1 && [ -x "$WORKSPACE/harness/chimera-gate.sh" ]; then
-                    if bash "$WORKSPACE/harness/chimera-gate.sh" "$g_wt/target/debug/debashc" "$WORKSPACE"; then
+                    if bash "$WORKSPACE/harness/chimera-gate.sh" "$g_wt/target/debug/shir_render" "$WORKSPACE"; then
                       echo "  [sh] backend gate: chimera green (passes under Ubuntu AND Chimera)"
                     else
                       chimera_rc=$?

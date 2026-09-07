@@ -9,7 +9,7 @@ Run from the workspace root (`/nvme/ai/sh2loop`).
 
 ## Build
 
-- `cd sh2perl && cargo build --bin debashc`
+- `cd sh2perl && cd otranspilerl && cargo build --bin otranspilerl-cli`
 
 ## Test
 
@@ -35,7 +35,7 @@ Run from the workspace root (`/nvme/ai/sh2loop`).
 
 ## ESTree backend (planned)
 
-- `debashc --estree` should emit standard ESTree JSON with shell semantics
+- `otranspilerl-cli --target estree` should emit standard ESTree JSON with shell semantics
   lowered to a `sh2.*` runtime namespace (see PLAN.md §1/§2).
 - Reference executor: `harness/estree-runner.mjs` (@babel/generator + node
   `sh2.*` namespace over `node:fs/promises` + `child_process`).
