@@ -182,14 +182,14 @@ pub fn shell_to_shir(content: &str) -> String {
     debashl::shir_json::shir_to_shir_json(&prog)
 }
 
-/// The debashc-canonical parse-error ESTree fallback: a Program whose only
+/// The canonical parse-error ESTree fallback: a Program whose only
 /// statement is `process.exit(2)` — the estree runner executes it and exits
 /// 2, matching bash's syntax-error verdict. The plain empty Program would
 /// exit 0 ("exit code (bash=2 estree=0)" gate failures on
 /// parse-double-semicolon.sh etc.).
 pub fn parse_error_estree_fallback() -> String {
     // static (otranspilerl has no direct serde_json dep — this mirrors the
-    // debashc CLI's fallback byte-for-byte)
+    // old CLI's fallback byte-for-byte)
     r#"{"type":"Program","sourceType":"module","body":[{"type":"ExpressionStatement","expression":{"type":"CallExpression","callee":{"type":"MemberExpression","object":{"type":"Identifier","name":"process"},"property":{"type":"Identifier","name":"exit"},"computed":false,"optional":false},"arguments":[{"type":"Literal","value":2,"raw":"2"}],"optional":false}}]}"#.to_string()
 }
 
@@ -289,7 +289,7 @@ fn ingest(a1: &str, lang: &str) -> Result<(debashl::ir::IrProgram, String), Stri
     // pass — the CLI's --shir-in-estree/--shir-in-perl run the same
     // restructure_goto_only; without it frontend A1 carrying C `goto`
     // reaches the renderers' Label/Goto arms instead of DoWhile/While).
-    // The ESTREE target SKIPS both passes — debashc's `file --estree` is
+    // The ESTREE target SKIPS both passes — the direct `--target estree` is
     // ast_to_ir → shir_to_estree_json DIRECTLY, and the estree emitter
     // handles goto/cfor natively; restructuring changed the output for
     // goto/cfor-bearing examples (gate "stdout mismatch" deltas).
@@ -485,7 +485,7 @@ pub fn cli_at(
             "--english" => embed_opts.english = true,
             // true64 (bash is int64-wrapped; exact i64 homes for the wide
             // vars) and --bigint (bignum-language sources — a superset of
-            // true64). Folded from debashcl's flag handling.
+            // true64). Folded from the old CLI's flag handling.
             "--true64" | "--bigint" => debashl::shir::set_true64(true),
             "--source-lang" => {
                 if i + 1 < args.len() {
@@ -580,13 +580,14 @@ pub fn cli_at(
         return write_out(stdout, stderr, &output, a1.as_bytes());
     }
 
-    // ESTree parity with debashc's DIRECT path: the corpus baseline
+    // ESTree parity with the OLD CLI's DIRECT path: the corpus baseline
     // (`file --estree`) is ast_to_ir → shir_to_estree_json with NO shIR
-    // JSON round-trip — even debashc's own --shir-in-estree round-trip
-    // differs from it. For shell sources, replicate the direct path
-    // exactly (byte-marked reads; parse error → the process.exit(2)
-    // fallback above).
-    if tgt_lang == "estree" && src_lang == "sh" && input != "-" {
+    // JSON round-trip — even the old --shir-in-estree round-trip differs
+    // from it. For shell sources, replicate the direct path exactly
+    // (byte-marked reads; parse error → the process.exit(2) fallback).
+    // `--target js` takes the same direct path, then prints REAL
+    // JavaScript via the estree-gen printer (the estree_json_to_js fold).
+    if (tgt_lang == "estree" || tgt_lang == "js") && src_lang == "sh" && input != "-" {
         let content = match read_source(&input) {
             Ok(c) => c,
             Err(e) => {
@@ -597,12 +598,18 @@ pub fn cli_at(
         let commands = match debashl::Parser::new(&content).parse() {
             Ok(c) => c,
             Err(_) => {
-                return write_out(
-                    stdout,
-                    stderr,
-                    &output,
-                    parse_error_estree_fallback().as_bytes(),
-                );
+                let fallback = parse_error_estree_fallback();
+                return if tgt_lang == "js" {
+                    match estree_json_to_js(root, &fallback) {
+                        Ok(js) => write_out(stdout, stderr, &output, js.as_bytes()),
+                        Err(e) => {
+                            let _ = writeln!(stderr, "otranspiler: {e}");
+                            1
+                        }
+                    }
+                } else {
+                    write_out(stdout, stderr, &output, fallback.as_bytes())
+                };
             }
         };
         // the corpus baseline (`file --estree`) is the estree module's
@@ -610,7 +617,19 @@ pub fn cli_at(
         // shIR path (shir_to_estree_json); they differ on process
         // substitution etc. (verified on 012_process_substitution.sh).
         return match debashl::estree::ast_to_estree_json(&commands) {
-            Ok(json) => write_out(stdout, stderr, &output, json.as_bytes()),
+            Ok(json) => {
+                if tgt_lang == "js" {
+                    match estree_json_to_js(root, &json) {
+                        Ok(js) => write_out(stdout, stderr, &output, js.as_bytes()),
+                        Err(e) => {
+                            let _ = writeln!(stderr, "otranspiler: {e}");
+                            1
+                        }
+                    }
+                } else {
+                    write_out(stdout, stderr, &output, json.as_bytes())
+                }
+            }
             Err(e) => {
                 let _ = writeln!(stderr, "otranspiler: estree: {e}");
                 1
@@ -626,7 +645,7 @@ pub fn cli_at(
             return 1;
         }
     };
-    // ESTree parse-error parity with debashc: a shell source that fails to
+    // ESTree parse-error parity with the old CLI: a shell source that fails to
     // parse renders the process.exit(2) fallback (the plain empty Program
     // exits 0 — gate "exit code (bash=2 estree=0)" failures). Only for
     // in-process shell sources (a `-`/`.shir` A1 input has no parse).
@@ -653,7 +672,72 @@ pub fn cli_at(
     if tgt_lang == "js" && do_run {
         return run_estree(root, &input, out.as_bytes(), stderr);
     }
+    // `--target js` (no --run): the ESTree JSON printed as REAL JavaScript
+    // source via the vendored estree-gen.mjs printer (the old CLI's
+    // `estree_json_to_js` fold — node subprocess, converter path from the
+    // workspace root; SH2_ESTREE_CONVERTER overrides it).
+    if tgt_lang == "js" {
+        return match estree_json_to_js(root, &out) {
+            Ok(js) => write_out(stdout, stderr, &output, js.as_bytes()),
+            Err(e) => {
+                let _ = writeln!(stderr, "otranspiler: {e}");
+                1
+            }
+        };
+    }
     write_out(stdout, stderr, &output, out.as_bytes())
+}
+
+/// ESTree JSON → JavaScript source, via `harness/estree-gen.mjs#generate`
+/// (node subprocess; the same printer estree-runner.mjs uses before it
+/// executes). The node-less fallback returns the JSON unchanged with a
+/// stderr note — the JSON is still the consumable contract.
+fn estree_json_to_js(root: &Path, estree_json: &str) -> Result<String, String> {
+    #[cfg(not(target_family = "wasm"))]
+    {
+        use std::io::Read as _;
+        use std::io::Write as _;
+        let gen = root.join("harness/estree-gen.mjs");
+        if !gen.exists() {
+            return Err(format!("estree-gen printer not found at {}", gen.display()));
+        }
+        let script = "const { generate } = await import(process.env.SH2_ESTREE_GEN);\
+            const chunks = [];\
+            process.stdin.on('data', (c) => chunks.push(c));\
+            process.stdin.on('end', () => {\
+                try { process.stdout.write(generate(JSON.parse(Buffer.concat(chunks).toString('utf8')))); }\
+                catch (e) { process.stderr.write(String(e)); process.exit(1); }\
+            });";
+        let mut child = std::process::Command::new("node")
+            .arg("--input-type=module")
+            .arg("-e")
+            .arg(script)
+            .env("SH2_ESTREE_GEN", &gen)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("spawn node estree-gen: {e}"))?;
+        child
+            .stdin
+            .take()
+            .expect("stdin")
+            .write_all(estree_json.as_bytes())
+            .map_err(|e| format!("write estree json: {e}"))?;
+        let out = child.wait_with_output().map_err(|e| format!("estree-gen: {e}"))?;
+        if !out.status.success() {
+            return Err(format!(
+                "estree-gen failed: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    }
+    #[cfg(target_family = "wasm")]
+    {
+        let _ = root;
+        Ok(estree_json.to_string())
+    }
 }
 
 /// `--run`: execute the emitted ESTree via the reference runner.

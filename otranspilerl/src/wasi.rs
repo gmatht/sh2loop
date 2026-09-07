@@ -121,8 +121,8 @@ pub extern "C" fn otranspilerl_shir(input: *const u8, input_len: usize) -> *mut 
 
 /// `otranspilerl_lex(input, input_len)` — shell source → token dump (the
 /// CLI `lex` command's output: one debug-formatted token per line + a
-/// total). The debashc reactor exposes the same helper; otranspilerl now
-/// does too, so the facade's `lex` doesn't need the legacy debashcl wasm.
+/// total). The old CLI reactor exposed the same helper; otranspilerl now
+/// does too, so the facade's `lex` doesn't need a separate wasm build.
 #[no_mangle]
 pub extern "C" fn otranspilerl_lex(input: *const u8, input_len: usize) -> *mut u8 {
     let input = take_input(input, input_len);
