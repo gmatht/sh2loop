@@ -5,7 +5,7 @@
 # sites, verify them locally, and submit them to the CORE worker via the
 # established channel (core-requests/transforms/<name>.rs — the core worker
 # compile-ins, gates, keeps/rejects; see main_loop_estree.pl
-# process_core_transforms + src/transforms.rs DEBASHC_TRANSFORMS gating).
+# process_core_transforms + src/transforms.rs SH2_TRANSFORMS gating).
 #
 # This worker NEVER edits the core (no sh2perl/src changes, no gitlink
 # bumps): it produces self-contained `pub fn transform(&mut Vec<IrStmt>) ->
@@ -22,8 +22,8 @@
 #   3. pick the top actionable system()-call pattern (normalisable files,
 #      or the top tally command)
 #   4. invoke pi to WRITE one self-contained transform .rs
-#   5. verify locally: temp compile-in + cargo build --bin debashc +
-#      DEBASHC_TRANSFORMS=<name> ./fail-shir (must improve) +
+#   5. verify locally: temp compile-in + cargo build --bin otranspilerl-cli +
+#      SH2_TRANSFORMS=<name> ./fail-shir (must improve) +
 #      ./fail-estree (must stay at the trusted estree count); then REVERT
 #   6. verified -> submit to core-requests/transforms/shir-<ts>-<name>.rs
 #      (the core worker picks it up); not verified -> log + discard
@@ -47,6 +47,7 @@ STDERR->autoflush(1);
 
 my $project_root = $FindBin::RealBin;
 my $sh2perl = "$project_root/sh2perl";
+my $otranspilerl = "$project_root/otranspilerl";
 my $gate     = "$project_root/fail-shir";
 my $fail_estree = "$project_root/fail-estree";
 my $results_file = "$project_root/.shir_failures.tsv";
@@ -207,13 +208,13 @@ sub verify_transform {
     if (!$edited) { system('rm', '-f', $target); print "  verify: registration anchors not found in transforms.rs\n"; return 0; }
     { open my $fh, '>', $reg or return 0; print $fh $t; close $fh; }
 
-    print "  verify: building debashc with $label (isolated target)...\n";
+    print "  verify: building otranspilerl-cli with $label (isolated target)...\n";
     # CARGO_TARGET_DIR: NEVER touch the shared main-tree binary — a temp
     # transform compiled into it would poison the estree worker's next gate
     # (the phantom-regression class this worker's isolation is about).
     my $vtarget = "$project_root/.shir-verify-target";
-    my $vbin = "$vtarget/debug/debashc";
-    my ($bout, $brc) = run_capture("CARGO_TARGET_DIR='$vtarget' cargo build --manifest-path '$sh2perl/Cargo.toml' --bin debashc 2>&1", 900);
+    my $vbin = "$vtarget/debug/otranspilerl-cli";
+    my ($bout, $brc) = run_capture("CARGO_TARGET_DIR='$vtarget' cargo build --manifest-path '$otranspilerl/Cargo.toml' --bin otranspilerl-cli 2>&1", 900);
     if ($brc != 0 || !-x $vbin) {
         print "  verify: COMPILE ERROR:\n", substr($bout, -400), "\n";
         system('git', '-C', $sh2perl, 'checkout', '--', 'src/transforms.rs');
@@ -223,7 +224,7 @@ sub verify_transform {
 
     # gate: shell-outs must go DOWN under this transform (against the
     # ISOLATED binary, never the shared one)
-    my ($gout, $grc) = run_capture("DEBASHC='$vbin' DEBASHC_TRANSFORMS='$label' $gate" . ($prefix ne '' ? " $prefix" : ''), 3600);
+    my ($gout, $grc) = run_capture("OTRANSPILERL='$vbin' SH2_TRANSFORMS='$label' $gate" . ($prefix ne '' ? " $prefix" : ''), 3600);
     my $g = parse_summary($gout);
     my $ok = defined $g->{total} && $g->{total} < $want_less;
     print "  verify: fail-shir with transform: total=$g->{total} (was $want_less) bashfree=$g->{bashfree}\n";
@@ -238,7 +239,7 @@ sub verify_transform {
         system('rm', '-rf', $edir);
         system('mkdir', '-p', "$edir/target/debug");
         system('ln', '-s', $sh2perl . '/examples', "$edir/examples");
-        system('ln', '-s', $vbin, "$edir/target/debug/debashc");
+        system('ln', '-s', $vbin, "$edir/target/debug/otranspilerl-cli");
         my ($eout, $erc) = run_capture("SH2PERL_DIR='$edir' $fail_estree 2>&1", 3600);
         system('rm', '-rf', $edir);
         my $efailed = 10_000;
@@ -285,7 +286,7 @@ sh2perl/src/transforms/arith_forms.rs for the reference shape):
 - Self-contained: imports from \`crate::ir\` / \`crate::shir\` only (the same
   imports arith_forms.rs uses). No new modules, no core edits.
 - The core worker registers it as ("shir-<name>", shir_<name>::transform)
-  and gates it via DEBASHC_TRANSFORMS — your file must compile when dropped
+  and gates it via SH2_TRANSFORMS — your file must compile when dropped
   into src/transforms/ with a \`pub mod shir_<name>;\` line added.
 
 WHAT TO TARGET — the cheapest correct pattern that removes system() calls:
@@ -304,9 +305,9 @@ WHAT TO TARGET — the cheapest correct pattern that removes system() calls:
   rejected by the gates (fail-estree must stay green).
 
 VERIFY YOURSELF (the worker re-verifies with the full gates):
-- cd sh2perl && cargo build --bin debashc && cargo test --lib
+- cd otranspilerl && cargo build --bin otranspilerl-cli && cd sh2perl && cargo test --lib
 - You CANNOT run the corpus gates (the worker does: temp compile-in +
-  DEBASHC_TRANSFORMS=<label> ./fail-shir must show FEWER shell-outs +
+  SH2_TRANSFORMS=<label> ./fail-shir must show FEWER shell-outs +
   ./fail-estree must stay at the trusted estree failure count). If your
   transform doesn't reduce shell-outs or regresses estree, it will be
   rejected — iterate on the shape, don't force it.
@@ -464,7 +465,7 @@ if ($seed || !-e $trusted_file) {
         update_trusted($summary);
         print "Seeded trusted baseline: bashfree=$summary->{bashfree} shellouts=$summary->{total}\n";
     } else {
-        print "WARNING: seed run produced no summary — is the corpus populated and debashc built?\n";
+        print "WARNING: seed run produced no summary — is the corpus populated and otranspilerl-cli built?\n";
     }
     release_lock();
     exit 0;

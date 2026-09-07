@@ -281,7 +281,7 @@ fn ingest(a1: &str, lang: &str) -> Result<(debashl::ir::IrProgram, String), Stri
     let mut prog = debashl::shir_json_in::shir_json_to_ir(a1)?;
     // FRONTEND A1 ingress: the same worker-submitted transforms the bash
     // path runs in ast_to_ir — this is how zsh/fish/java/zig sources get
-    // the text_ops primitive reductions. Gated by DEBASHC_TRANSFORMS
+    // the text_ops primitive reductions. Gated by SH2_TRANSFORMS
     // inside apply() (text-ops is opt-in there), so default behavior is
     // byte-identical.
     debashl::transforms::apply(&mut prog.stmts);
@@ -429,7 +429,9 @@ const USAGE: &str = "otranspiler <input> [<output>] [flags]
   --scope-vars a,b,c  embed: names the host program declares in the
                     enclosing scope (reused as bare `$x`)
   --backtick        embed: Perl-qx semantics (preserve trailing newlines)
-  --english         embed: emit English.pm names instead of $/ $! $@";
+  --english         embed: emit English.pm names instead of $/ $! $@
+  --true64          exact 64-bit bash arithmetic (see docs/true64.md);
+                    --bigint = the same plus bignum-source semantics";
 
 /// Run the full CLI for an explicitly-located workspace root, writing to
 /// the provided stdout/stderr sinks. Returns the process exit code.
@@ -481,6 +483,10 @@ pub fn cli_at(
             }
             "--backtick" => embed_opts.backtick = true,
             "--english" => embed_opts.english = true,
+            // true64 (bash is int64-wrapped; exact i64 homes for the wide
+            // vars) and --bigint (bignum-language sources — a superset of
+            // true64). Folded from debashcl's flag handling.
+            "--true64" | "--bigint" => debashl::shir::set_true64(true),
             "--source-lang" => {
                 if i + 1 < args.len() {
                     force_src = args[i + 1].clone();

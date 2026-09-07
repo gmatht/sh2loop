@@ -221,7 +221,7 @@ sub unsupported_tally {
         next unless $entry =~ /gate/;
         my ($file) = split /\t/, $entry;
         next unless -e "$sh2perl/examples/$file";
-        my $json = `timeout 20 sh -c 'cd "$sh2perl" && ./target/debug/debashc file --estree "$sh2perl/examples/$file" 2>/dev/null'`;
+        my $json = `timeout 20 sh -c '"$project_root/otranspilerl/target/debug/otranspilerl-cli" --target estree "$sh2perl/examples/$file" 2>/dev/null'`;
         while ($json =~ /"value":"([^"]*?): not yet lowered to ESTree"/g) {
             my $v = $1;
             $v =~ s/\(.*//; # ParameterExpansion(ParameterExpansion { ... }) → ParameterExpansion
@@ -1063,9 +1063,9 @@ sub estree_trusted {
 #   1. compile-in: copy to src/transforms/<sanitized>.rs + register in
 #      all(). cargo build ONCE (all transforms registered).
 #      Compile error -> the compiler names the file -> send back (rejected/).
-#   2. gate: run fail-estree with all enabled (DEBASHC_TRANSFORMS empty).
+#   2. gate: run fail-estree with all enabled (SH2_TRANSFORMS empty).
 #      Green -> keep (commit the compile-in) + move to done/.
-#      Regressed -> bisect: binary search on DEBASHC_TRANSFORMS=first-n
+#      Regressed -> bisect: binary search on SH2_TRANSFORMS=first-n
 #      (NO rebuild per step — the transforms are env-gated), blame the
 #      first transform whose inclusion regresses, send it back (rejected/),
 #      re-test the remainder.
@@ -1168,7 +1168,7 @@ sub process_core_transforms {
     my $trusted = estree_trusted();
     my $all_green = 0;
     {
-        local $ENV{DEBASHC_TRANSFORMS} = '';
+        local $ENV{SH2_TRANSFORMS} = '';
         my ($out, $code) = run_fail_estree();
         my $s = parse_summary($out);
         my $failed = defined $s->{estree_failed} ? $s->{estree_failed} : 10_000;
@@ -1193,7 +1193,7 @@ sub process_core_transforms {
     while ($lo < $hi) {
         my $mid = int(($lo + $hi) / 2);
         my $subset = join(',', @names[0 .. $mid-1]);
-        local $ENV{DEBASHC_TRANSFORMS} = $subset;
+        local $ENV{SH2_TRANSFORMS} = $subset;
         my ($out, $code) = run_fail_estree();
         my $s = parse_summary($out);
         my $failed = defined $s->{estree_failed} ? $s->{estree_failed} : 10_000;

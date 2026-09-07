@@ -4,7 +4,7 @@
 #
 #   * dash:        real dash running the original script (spawns seq+grep
 #                  per iteration)
-#   * auto-js:     debashc --estree -> estree-runner (the transpiled JS:
+#   * auto-js:     otranspilerl --target estree -> estree-runner (the transpiled JS:
 #                  native arith + String(...).includes, no spawns)
 #   * hand-js:     a hand-written native JS equivalent (the fully-inlined
 #                  ideal the transpiler is converging toward)
@@ -15,7 +15,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-DEBASHC="$ROOT/sh2perl/target/debug/debashc"
+OTRANSPILERL="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
 RUNNER="node $ROOT/harness/estree-runner.mjs"
 SRC="${SRC:-$HOME/sqrt1337.sh}"
 RUNS="${RUNS:-3}"
@@ -25,7 +25,7 @@ AUTO_JSON=/tmp/sqrt_auto.json
 
 # generate the transpiled program once (process-substitution fds are
 # single-use, so the timing loop needs a real file)
-"$DEBASHC" file --estree "$SRC" 2>/dev/null > "$AUTO_JSON"
+"$OTRANSPILERL" --target estree "$SRC" 2>/dev/null > "$AUTO_JSON"
 
 t_sec() { # seconds (median over RUNS) for a command
   local runs=$1; shift

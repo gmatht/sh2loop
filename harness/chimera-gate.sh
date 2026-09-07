@@ -26,11 +26,11 @@
 #                       environments (no Ubuntu-vs-Chimera information),
 #                       so it is excluded from the chimera corpus + reported
 #
-# Usage: chimera-gate.sh <backend-debashc-bin> <workspace> [staging-dir]
+# Usage: chimera-gate.sh <backend-renderer-bin> <workspace> [staging-dir]
 # stdout: summary + classification + fail lists (the worker's log tail);
 # exit 0 = all chimera tests pass, 1 = any fail, 2 = deployment missing.
 set -u
-BIN=${1:?backend debashc bin (backends/sh/target/debug/debashc)}
+BIN=${1:?backend renderer bin (backends/sh/target/debug/shir_render)}
 WORKSPACE=${2:?workspace root}
 GATE=${3:-/home/llm/sh-gate-full}
 SH_GATE=${SH_GATE:-/usr/local/bin/sh-gate}

@@ -7,7 +7,8 @@ revision history).
 ## Layout & dependency rule (one-way)
 
 - `sh2perl/` — **submodule** (`git@github.com:gmatht/sh2perl.git`). The
-  workspace modifies it (the harness drives debashc, blesses examples) and
+  workspace modifies it (the harness drives otranspilerl-cli, blesses
+  examples) and
   bumps the gitlink. **sh2perl must never reference or write into this
   workspace** — its CI is self-contained.
 - `sh2runtime/` — **not a submodule**. Separate repo; coupled only via the
@@ -36,7 +37,8 @@ revision history).
 
 ## Common commands
 
-- `cd sh2perl && cargo build --bin debashc`
+- `cd otranspilerl && cargo build --bin otranspilerl-cli` (the CLI; the
+  sh2perl core builds via `cd sh2perl && cargo build --lib`)
 - `./fail` — full corpus gate (517 examples; generated Perl vs bash stdout)
 - The shIR shared library lives at `sh2perl/src/shir_passes/` (PLAN §3,
   design note in `sh2perl/docs/ir-design.md` §"The sh2.* boundary"):

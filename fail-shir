@@ -42,20 +42,20 @@ $| = 1;
 
 my $root    = dirname(abs_path($0));
 my $sh2perl = "$root/sh2perl";
-# DEBASHC override: a worker verifying a transform in ITS OWN build (the
-# shir worker's .shir-verify-target) must gate against that binary, never
-# the shared main-tree one — a temp transform compiled into the shared
-# binary would poison the estree worker's next gate run (the phantom-
-# regression class the core-worker worktree fixed).
-my $debashc = $ENV{DEBASHC} // "$sh2perl/target/debug/debashc";
+# OTRANSPILERL override: a worker verifying a transform in ITS OWN build
+# (the shir worker's .shir-verify-target) must gate against that binary,
+# never the shared main-tree one — a temp transform compiled into the
+# shared binary would poison the estree worker's next gate run (the
+# phantom-regression class the core-worker worktree fixed).
+my $otranspilerl = $ENV{OTRANSPILERL} // "$root/otranspilerl/target/debug/otranspilerl-cli";
 my $examples = "$sh2perl/examples";
 my $whitelist_file = "$root/harness/shir-whitelist.txt";
 my $tsv     = "$root/.shir_failures.tsv";
 my $prefix  = shift @ARGV // '';
-my $timeout = 20;   # seconds per debashc invocation
+my $timeout = 20;   # seconds per otranspilerl invocation
 
 -d $examples or die "no corpus at $examples (run: git submodule update --init)\n";
--x $debashc or die "no debashc at $debashc (run: cd sh2perl && cargo build --bin debashc)\n";
+-x $otranspilerl or die "no otranspilerl-cli at $otranspilerl (run: cd otranspilerl && cargo build --bin otranspilerl-cli)\n";
 
 # ── whitelist ────────────────────────────────────────────────────────
 my %wl;
@@ -175,7 +175,7 @@ open my $tfh, '>', $tsv or warn "write $tsv: $!";
 for my $f (@files) {
     my $path = "$examples/$f";
     print STDERR "  [scan] $f\n" if $. % 100 == 0;
-    my ($a1, $rc1) = sh(qq{"$debashc" --shir "$path"});
+    my ($a1, $rc1) = sh(qq{"$otranspilerl" --target shir "$path"});
     if ($rc1 != 0 || $a1 !~ /"type":"Program"/) {
         print $tfh "$f\tERR\t0\t0\t0\t(no A1)\n";
         next;
@@ -184,7 +184,7 @@ for my $f (@files) {
     my $tmp = "$root/.shir_gate_$$.a1.json";
     open my $tf, '>', $tmp or warn "write $tmp: $!" and next;
     print $tf $a1; close $tf;
-    my ($perl, $rc2) = sh(qq{"$debashc" --shir-in-perl "$tmp"});
+    my ($perl, $rc2) = sh(qq{"$otranspilerl" --source-lang shir --target perl "$tmp"});
     unlink $tmp;
     if ($rc2 != 0 || $perl !~ /^#!/) {
         print $tfh "$f\tERR\t0\t0\t0\t(no perl render)\n";
