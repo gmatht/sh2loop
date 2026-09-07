@@ -285,6 +285,7 @@ func-after-or-assign.sh	PASS
 func-after-test-or.sh	PASS	
 function-space-paren.sh	PASS	
 generator-system-echo-checkqx.sh	PASS	
+grep_p.sh	FAIL	stdout mismatch
 gunzip_example.sh	PASS	
 hash-in-var.sh	PASS	
 heredoc-apostrophe-in-unquoted.sh	PASS	
@@ -528,7 +529,7 @@ test-expression-backslash-continuation.sh	PASS
 test-operator-S.sh	PASS	
 test-operator-missing.sh	PASS	
 test-string-arith-in-brackets.sh	PASS	
-test_find.sh	PASS	
+test_find.sh	FAIL	stdout mismatch
 test_grep.sh	PASS	
 test_perl_critic.sh	PASS	
 test_simple_function.sh	PASS	

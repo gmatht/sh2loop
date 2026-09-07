@@ -598,8 +598,12 @@ export const sh2 = {
     // `#name` — the LENGTH of a variable. Both zsh (`$#a`, `${#s}`) and
     // bash (`${#s}` unquoted) lower to getVar("#name") in A1: arrays
     // count elements, scalars count characters. (`$#` alone — the
-    // positional count — is the `#` case in the switch below.)
-    const lm = /^#([A-Za-z_][A-Za-z0-9_]*)$/.exec(name);
+    // positional count — is the `#` case in the switch below.) `#N`
+    // (a digit) is the length of positional N's VALUE — the go-sh
+    // frontend's `len(src)` over a param (`i < len(src)` lexer loops)
+    // lowers to getVar("#1") and the runtime must count the caller's
+    // argument, not read a never-written store var.
+    const lm = /^#([A-Za-z_][A-Za-z0-9_]*|[1-9]\d*)$/.exec(name);
     if (lm) {
       const real = lm[1];
       if (this.arrays.has(real) || this.assocNames.has(real)) return String(this.arrayLen(real));
@@ -3096,36 +3100,25 @@ export const sh2 = {
     }
     const out = [];
     for (const e of elements ?? []) {
-      // Unquoted `$var`/`$(...)` elements carry the A1 `split` marker,
-      // which the estree lowering emits as a NATIVE JS array of already
-      // IFS-split strings (e.g. x="a b"; arr=($x) → ["a","b"]). Splice
-      // them like bash's field-splitting instead of String()-joining them
-      // into one element ("a,b").
+      // A1 field-split elements arrive PRE-SPLIT: the emitter lowers an
+      // unquoted expansion (`arr=($(cmd))`, `arr=($x)`, `arr+=(pre$(c)suf)`)
+      // to a NATIVE JS array of already-IFS-split strings (captureWords /
+      // split), and the `$@`/`$*` positional form to a native array of the
+      // positionals. Splice those directly (bash field-splitting). A SCALAR
+      // element is ONE array entry — its runtime *value* is treated as data,
+      // NEVER re-scanned for `$`/`(`/`backtick` syntax and word-split: a
+      // scalar whose value happens to contain `$(` (e.g. a file's text, or
+      // the go-sh dogfood CLI's concatenated source) must append as a
+      // single element, and scanning millions of such characters for a
+      // content marker both mis-splits and overflows the call stack on huge
+      // values (`arr.push(...s.split(...))` with s ~ 4 MB → RangeError).
       if (Array.isArray(e)) { out.push(...e); continue; }
-      // `arr=(`cmd`)` — the parser folds a backtick capture into a single
-      // literal element (backticks included). bash captures the command's
-      // stdout and word-splits it into elements; execute through
-      // shellCapture (same recovery as `$(...)` inside test expressions).
-      if (String(e).startsWith('`') && String(e).endsWith('`')) {
-        const cap = shellCapture(String(e).slice(1, -1));
-        out.push(...cap.split(/\s+/).filter(w => w.length > 0));
-        continue;
-      }
-      // `arr=("$@")` — each positional is one element (check the RAW
-      // element: expandWord would have already joined the positionals)
       if (String(e) === '$@' || String(e) === '$*') {
         out.push(...this.positional.map(String));
         continue;
       }
       const s = expandWord(this, String(e));
-      // `arr=("${src[@]:1:2}")` — the slice pattern expands to multiple
-      // elements when unquoted in bash; an unquoted `$(...)` element is
-      // word-split on IFS too (`sorted=($(sort ...))`)
-      if (String(e).includes('[@]') || String(e).includes('$(') || String(e).includes('`')) {
-        out.push(...s.split(/\s+/).filter(w => w.length > 0));
-      } else {
-        out.push(s);
-      }
+      out.push(s);
     }
     this.arrays.set(nm, out);
     return ARRAY_LIT_MAGIC;
@@ -3144,20 +3137,20 @@ export const sh2 = {
     }
     const arr = this.arrays.get(nm) ?? [];
     for (const e of elements ?? []) {
-      // A1 `split`-marked elements arrive as native JS arrays of already
-      // IFS-split strings — splice them (bash field-splitting) instead of
-      // String()-joining into one element.
+      // A1 field-split elements arrive PRE-SPLIT as native JS arrays (the
+      // emitter's captureWords/split lowering) — splice them (bash
+      // field-splitting) instead of String()-joining into one element. A
+      // SCALAR element is ONE array entry; its runtime value is data and
+      // is never re-scanned for syntax markers and word-split (unlike
+      // setArray above) — that mis-splits values containing `$(` and
+      // overflows the stack on large values like the dogfood CLI's source.
       if (Array.isArray(e)) { arr.push(...e); continue; }
       if (String(e) === '$@' || String(e) === '$*') {
         arr.push(...this.positional.map(String));
         continue;
       }
       const s = expandWord(this, String(e));
-      if (String(e).includes('[@]') || String(e).includes('$(') || String(e).includes('`')) {
-        arr.push(...s.split(/\s+/).filter(w => w.length > 0));
-      } else {
-        arr.push(s);
-      }
+      arr.push(s);
     }
     this.arrays.set(nm, arr);
     return ARRAY_LIT_MAGIC;
