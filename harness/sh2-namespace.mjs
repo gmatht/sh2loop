@@ -3924,6 +3924,18 @@ export const sh2 = {
     return '[' + elems.map(e => String(e ?? '')).join(',') + ']';
   },
 
+  // jsonHas(name, field, key) — whether a STRUCT's map field has the
+  // key (the golib's `_, ok := p.structFields[callName(e)]`): "true"/"false".
+  jsonHas(name, field, key) {
+    try {
+      const obj = JSON.parse(this.getVar(String(name)));
+      const fieldJson = obj[field];
+      if (fieldJson === undefined || fieldJson === null || fieldJson === '') return 'false';
+      const k = String(expandWord(this, String(key)));
+      return JSON.parse(fieldJson)[k] !== undefined ? 'true' : 'false';
+    } catch { return 'false'; }
+  },
+
   // assocHas(name, key) — whether an assoc-array (map) has the key
   // (the golib's `if _, ok := m[k]; !ok` presence checks): "true"/"false".
   assocHas(name, key) {
