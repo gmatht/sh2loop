@@ -1472,14 +1472,14 @@ $strings_result = do { local $CHILD_ERROR = 0; my $_pipeline_result = do {
     my $output_printed_63;
     my $pipeline_success_63 = 1;
     my $input_data;
-    if ( open my $fh, '<', 'target/debug/debashc.exe' ) {
+    if ( open my $fh, '<', 'otranspilerl/target/debug/otranspilerl-cli.exe' ) {
         local $INPUT_RECORD_SEPARATOR = undef;    # Read entire file at once
         $input_data = <$fh>;
         close $fh
           or croak "Close failed: $ERRNO";
     }
     else {
-        print {*STDERR} "strings: 'target/debug/debashc.exe': No such file\n";
+        print {*STDERR} "strings: 'otranspilerl/target/debug/otranspilerl-cli.exe': No such file\n";
         $input_data = q{};
     }
     my @result;
