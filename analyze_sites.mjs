@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 
 const root = '/home/llm/sh2loop';
-const debashc = `${root}/sh2perl/target/debug/debashc`;
+const otranspilerl-cli = `${root}/sh2perl/target/debug/otranspilerl-cli`;
 const examples = `${root}/sh2perl/examples`;
 const filter = process.argv[2] || '--all';
 
@@ -26,7 +26,7 @@ function count(name, file, inLoop, snippet) {
 for (const f of files) {
   let json;
   try {
-    json = execFileSync(debashc, ['file', '--estree', path.join(examples, f)], { encoding: 'utf8', timeout: 30000 });
+    json = execFileSync(otranspilerl-cli, ['file', '--estree', path.join(examples, f)], { encoding: 'utf8', timeout: 30000 });
   } catch (e) { continue; }
   let data;
   try { data = JSON.parse(json); } catch { continue; }

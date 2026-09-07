@@ -2,13 +2,13 @@
 # snapshot-otranspilerl-cli.sh <src-binary> <dst-path>
 #
 # Copy the otranspilerl-cli oracle binary to a private per-gate path and VERIFY it
-# functionally (--shir-in-estree on a minimal A1 program must exit 0).
+# functionally (`- --target estree` on a minimal A1 program must exit 0).
 # Exits 0 with a verified snapshot at <dst-path>; exits 1 if no good
 # binary is obtainable within the retry window.
 #
 # WHY: otranspilerl/target/debug/otranspilerl-cli is a shared, racy resource. The estree worker
 # rebuilds it while implementing core requests, and any frontend gate's
-# self-heal rule (`$(DEBASHC):` in the Makefiles) rebuilds it when it goes
+# self-heal rule (`$(CLI):` in the Makefiles) rebuilds it when it goes
 # missing; two concurrent cargo builds on one target dir can leave the
 # file truncated/absent/torn for seconds (estree worker log: "the binary
 # is GONE", "binary was replaced under me", "the run raced with
@@ -31,7 +31,7 @@ for _try in $(seq 1 30); do
   # cp over a pre-existing destination PRESERVES the destination mode
   # (a 644 source leaves a non-executable copy, failing every verify
   # with "Permission denied"); force the exec bit explicitly.
-  if cp "$src" "$dst" 2>/dev/null && chmod +x "$dst" 2>/dev/null && "$dst" --shir-in-estree "$min" > /dev/null 2>&1; then
+  if cp "$src" "$dst" 2>/dev/null && chmod +x "$dst" 2>/dev/null && "$dst" - --target estree < "$min" > /dev/null 2>&1; then
     rm -f "$min"
     exit 0
   fi

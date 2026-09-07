@@ -4,7 +4,7 @@
 # For each testdata example of the given frontend:
 #   1. run the example natively  (python3 / go run / perl / bash / fish / zsh)
 #   2. run the frontend's A1 shIR through the ESTree backend
-#      (otranspilerl-cli --source-lang shir --target estree -> estree-runner.mjs under node)
+#      (otranspilerl-cli - --target estree < A1 -> estree-runner.mjs under node)
 #   3. compare normalized stdout (mirrors ./fail: strip \r, trim edges)
 #
 # The JS/ESTree backend is the execution target: the A1->Perl round-trip is
@@ -46,7 +46,7 @@ if [ -z "${FS_SNAPSHOT:-}" ]; then
 fi
 
 set -u
-lang=$1; bin=$2; dir=$3; otranspilerl-cli=$4
+lang=$1; bin=$2; dir=$3; otranspilerl_cli=$4
 root=${FS_ORIG_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}
 runner="$root/harness/estree-runner.mjs"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"; rm -f "${FS_SNAPSHOT:-}"' EXIT
@@ -62,7 +62,7 @@ tmp=$(mktemp -d); trap 'rm -rf "$tmp"; rm -f "${FS_SNAPSHOT:-}"' EXIT
 # invocation. A genuinely unavailable oracle fails fast with a clear
 # message instead of a random per-test FAIL.
 snap="$tmp/otranspilerl-cli.snap"
-if ! "$root/harness/snapshot-otranspilerl-cli.sh" "$otranspilerl-cli" "$snap" 2>"$tmp/snap.err"; then
+if ! "$root/harness/snapshot-otranspilerl-cli.sh" "$otranspilerl_cli" "$snap" 2>"$tmp/snap.err"; then
   echo "frontend-stdout.sh: otranspilerl-cli oracle unavailable: $(head -c 200 "$tmp/snap.err" | tr '\n' ' ')" >&2
   exit 1
 fi
@@ -411,9 +411,9 @@ EOF
   # functionally verified, so this normally cannot fail; keep the retry
   # as defense-in-depth for a pathological snapshot (a real deterministic
   # regression fails the retry too and is still reported as FAIL).
-  if ! "$snap" --shir-in-estree "$tmp/a1.json" > "$tmp/e.json" 2>/dev/null; then
+  if ! "$snap" - --target estree < "$tmp/a1.json" > "$tmp/e.json" 2>/dev/null; then
     sleep 3
-    if ! "$snap" --shir-in-estree "$tmp/a1.json" > "$tmp/e.json" 2>/dev/null; then
+    if ! "$snap" - --target estree < "$tmp/a1.json" > "$tmp/e.json" 2>/dev/null; then
       echo "FAIL $bn (A1 -> ESTree conversion)"
       record FAIL; fails=$((fails+1)); continue
     fi
@@ -450,8 +450,8 @@ EOF
   # deterministic regression fails this tier too and is still reported
   # as DIFF/FAIL (same policy as the relink retries above).
   if [ "$(normalize "$native_out")" != "$(normalize "$trans_out")" ]; then
-    if "$root/harness/snapshot-otranspilerl-cli.sh" "$otranspilerl-cli" "$snap" 2>/dev/null && \
-       "$snap" --shir-in-estree "$tmp/a1.json" > "$tmp/e.json" 2>/dev/null; then
+    if "$root/harness/snapshot-otranspilerl-cli.sh" "$otranspilerl_cli" "$snap" 2>/dev/null && \
+       "$snap" - --target estree < "$tmp/a1.json" > "$tmp/e.json" 2>/dev/null; then
       if [ "$native_ran" -eq 1 ]; then
         native_out=$(run_native "$f") || true
       fi

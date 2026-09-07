@@ -5,13 +5,13 @@
 # usage: harness/repro-pair.sh bat-sh-go t36_redirect_var.bat perl
 set -u
 ROOT=/home/llm/sh2loop
-DEBASHC="$ROOT/sh2perl/otranspilerl/target/debug/otranspilerl-cli"
+CLI="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
 RUNNER="$ROOT/harness/estree-runner.mjs"
 FE="$1"; EX="$2"; BE="$3"
 FE_DIR="$ROOT/frontends/$FE"
 SRC=""
 case "$FE" in
-  sh2perl) SRC="$ROOT/sh2perl/examples/$EX"; A1=$("$DEBASHC" --shir "$SRC" --raw 2>/dev/null);;
+  sh2perl) SRC="$ROOT/sh2perl/examples/$EX"; A1=$("$CLI" "$SRC" --source-lang sh --target shir --raw 2>/dev/null);;
   *)
     case "$FE" in
       c-sh-go) BIN="$FE_DIR/c-sh-go"; EXT=c;;
@@ -46,7 +46,7 @@ esac
 echo "== native rc=$? out: $(head -c 200 "$TMP/native" | tr '\n' '|')"
 
 # estree reference
-if "$DEBASHC" --shir-in-estree "$TMP/a1.json" > "$TMP/e.json" 2>/dev/null; then
+if "$CLI" - --target estree < "$TMP/a1.json" > "$TMP/e.json" 2>/dev/null; then
   out=$(timeout 30 node "$RUNNER" "$TMP/e.json" --source "$SRC" 2>/dev/null)
   if diff -q <(printf '%s' "$out") "$TMP/native" >/dev/null 2>&1; then
     echo "== estree: MATCHES native"
@@ -59,17 +59,17 @@ fi
 
 # backend mirror render
 case "$BE" in
-  js) FLAG=--shir-in-js;;
-  perl) FLAG=--shir-in-perl;;
-  sh) FLAG=--shir-in-sh;;
-  c) FLAG=--shir-in-c;;
-  go) FLAG=--shir-in-go;;
-  python) FLAG=--shir-in-python;;
-  java) FLAG=--shir-in-java;;
-  rust) FLAG=--shir-in-rust;;
-  zig) FLAG=--shir-in-zig;;
+  js) TGT=js;;
+  perl) TGT=pl;;
+  sh) TGT=sh;;
+  c) TGT=c;;
+  go) TGT=go;;
+  python) TGT=py;;
+  java) TGT=java;;
+  rust) TGT=rs;;
+  zig) TGT=zig;;
 esac
-if ! "$DEBASHC" "$FLAG" "$TMP/a1.json" > "$TMP/rendered" 2>"$TMP/render.err"; then
+if ! "$CLI" - --target "$TGT" < "$TMP/a1.json" > "$TMP/rendered" 2>"$TMP/render.err"; then
   echo "== $BE: RENDER-FAIL: $(head -c 200 "$TMP/render.err" | tr '\n' '|')"
   exit 0
 fi

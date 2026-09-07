@@ -13,7 +13,7 @@ my $root = dirname(abs_path($0));
 my $sh2perl = "$root/sh2perl";
 # The transpiler CLI is otranspilerl (the Optimising Transpiler — PLAN
 # §11.8 / "migrate to otranspiler only"): it renders the same shIR
-# pipeline (byte-identical output, verified) without the legacy debashc
+# pipeline (byte-identical output, verified) without the legacy CLI
 # Generator paths.
 my $otranspilerl = "$root/otranspilerl/target/debug/otranspilerl-cli";
 # Corpus override: FAIL_CORPUS=/path/to/dir runs only that corpus (used by
@@ -136,15 +136,15 @@ sub run_one_test {
     my $before_snapshot = @$tmp_paths ? snapshot_paths($tmp_paths) : undef;
 
     # Step 1: Run otranspilerl to generate Perl code (the whole stdout IS
-    # the Perl — no debashc banner to strip)
+    # the Perl — no banner to strip)
     my $gen_out = `timeout $timeout_per_test sh -c '"$otranspilerl" --target pl "$test_file" 2>/dev/null'`;
     if ($? != 0 && !defined $gen_out) {
         remove_tree($tmp_dir);
-        return { status => 'FAIL', detail => 'debashc timed out' };
+        return { status => 'FAIL', detail => 'otranspilerl timed out' };
     }
     if ($? != 0) {
         remove_tree($tmp_dir);
-        return { status => 'FAIL', detail => 'debashc failed to generate code' };
+        return { status => 'FAIL', detail => 'otranspilerl failed to generate code' };
     }
 
     # Extract Perl code: the whole stdout (otranspilerl has no banner)
@@ -157,14 +157,14 @@ sub run_one_test {
     # runtime/tests/).
     local $ENV{SH2_UU_LIB} = "$root/sh2perl/runtime/lib/libcoreutils_ffi.so";
 
-    # Gate: reject the bash-wrapper fallback. When debashc cannot parse a
+    # Gate: reject the bash-wrapper fallback. When the parser cannot parse a
     # script it emits `system('bash', '<file>')` instead of real Perl
     # (src/main.rs "falling back to bash wrapper"); the stdout comparison
     # would then match bash trivially, hiding the parser gap. Treat it as
     # a FAIL so parser gaps stay visible (see tests/coreutils/README.md).
     if ($perl_code =~ /system\('bash',\s*'[^']*'\)/) {
         remove_tree($tmp_dir);
-        return { status => 'FAIL', detail => 'debashc parser fallback (script wrapped in bash call)' };
+        return { status => 'FAIL', detail => 'parser fallback (script wrapped in bash call)' };
     }
 
     # Step 2: Write Perl code to temp file and run it

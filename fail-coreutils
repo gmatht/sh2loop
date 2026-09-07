@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Run the GNU coreutils-derived regression corpus (tests/coreutils/*.sh)
-# through the same debashc → Perl → vs-bash gate as the main examples
+# through the same otranspilerl-cli → Perl → vs-bash gate as the main examples
 # corpus. See tests/coreutils/README.md for what each test documents.
 #
 # These are deliberately RED tests: they document known parser/transpiler
-# gaps found by running the GNU coreutils test suite through debashc. Each
+# gaps found by running the GNU coreutils test suite through otranspilerl-cli. Each
 # goes green as the corresponding fix lands (fix targets in the README).
 # They must never be blessed or allowlisted — that would hide a transpiler
 # bug (AGENTS.md guardrail).

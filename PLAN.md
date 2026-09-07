@@ -1826,3 +1826,18 @@ Parity at the fold: estree byte-identical vs `file --estree` (547/552; the
 stdout mixed with the JSON); A1 and perl renders are otranspilerl's
 already-gated forms (old path leaked DBG lines / banners / dropped
 stmt_lines).
+
+### 11.11 uu-ffi perl adoption = the auto-decide seam (landed)
+
+The perl backend's external commands route through `__sh_uu_capture`/
+`__sh_uu_run` (ir.rs `SH_RUN_EXT_PREAMBLE`): BEGIN probes for
+`libcoreutils_ffi.so` (SH2_UU_LIB → workspace walk → soname) and
+attaches `uu_run` via FFI::Platypus; absent ⇒ one stderr warning +
+guarded fork/exec fallback. Capture = temp-file fd-1 redirect around
+the in-process call (no pipe ⇒ no drain deadlock; no C wrapper .so for
+perl). Renders carry both arms — byte-deterministic across boxes.
+check_qx strips the marker block (guarded fallback ≠ the qx-cheat);
+`fail` exports SH2_UU_LIB. Corpus: fail 277→291 (the date/capture
+check_qx class cleared). Residue: `basename $(pwd)` (cmdsub-in-args —
+complex path, honest), the .so FEATURES list (date/sha256sum/uname
+exist in uutils, not yet built), and the both-mode parity gate.

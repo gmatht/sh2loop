@@ -4,7 +4,7 @@
 # usage: batch-triage.sh [pairs-file]  (default: stdin lines "fe ex be")
 set -u
 ROOT=/home/llm/sh2loop
-DEBASHC="$ROOT/sh2perl/otranspilerl/target/debug/otranspilerl-cli"
+CLI="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
 RUNNER="$ROOT/harness/estree-runner.mjs"
 TRIAGE="${TRIAGE:-$ROOT/triage}"
 norm() { tr -d '\r' | sed 's/[[:space:]]*$//' | awk 'NF'; }
@@ -27,7 +27,7 @@ be_run() {  # be rendered-file -> executed output
 fe_emit() {  # fe example -> A1 json on stdout
   local fe="$1" ex="$2" bin
   case "$fe" in
-    sh2perl) "$DEBASHC" --shir "$ROOT/sh2perl/examples/$ex" --raw 2>/dev/null;;
+    sh2perl) "$CLI" "$ROOT/sh2perl/examples/$ex" --source-lang sh --target shir --raw 2>/dev/null;;
     c-sh-go) bin="$ROOT/frontends/c-sh-go/c-sh-go";;
     cpp-sh-go) bin="$ROOT/frontends/cpp-sh-go/cpp-sh-go";;
     bat-sh-go) bin="$ROOT/frontends/bat-sh-go/bat-sh-go";;
@@ -69,7 +69,7 @@ while read -r fe ex be; do
   T=$(mktemp -d "$TRIAGE/.bp.XXXXXX")
   printf '%s' "$a1" > "$T/a1.json"
   # estree reference
-  if ! "$DEBASHC" --shir-in-estree "$T/a1.json" > "$T/e.json" 2>/dev/null; then
+  if ! "$CLI" - --target estree < "$T/a1.json" > "$T/e.json" 2>/dev/null; then
     echo "SKIP-ESTREE-REF $fe/$ex/$be (render failed)"; rm -rf "$T"; continue
   fi
   src=""
@@ -83,11 +83,11 @@ while read -r fe ex be; do
   [ -z "$nnorm" ] && nnorm="$enorm"
   # backend render
   case "$be" in
-    js) flag=--shir-in-js;; perl) flag=--shir-in-perl;; sh) flag=--shir-in-sh;;
-    c) flag=--shir-in-c;; go) flag=--shir-in-go;; python) flag=--shir-in-python;;
-    java) flag=--shir-in-java;; rust) flag=--shir-in-rust;; zig) flag=--shir-in-zig;;
+    js) tgt=js;; perl) tgt=pl;; sh) tgt=sh;;
+    c) tgt=c;; go) tgt=go;; python) tgt=py;;
+    java) tgt=java;; rust) tgt=rs;; zig) tgt=zig;;
   esac
-  if ! "$DEBASHC" "$flag" "$T/a1.json" > "$T/rendered" 2>"$T/render.err"; then
+  if ! "$CLI" - --target "$tgt" < "$T/a1.json" > "$T/rendered" 2>"$T/render.err"; then
     err=$(head -c 120 "$T/render.err")
     echo "FAIL-BACKEND $fe/$ex/$be (render failed: $err)"
   elif head -c 120 "$T/rendered" | grep -qiE "refuse|unsupported"; then

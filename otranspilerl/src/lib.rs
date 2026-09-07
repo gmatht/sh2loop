@@ -182,6 +182,25 @@ pub fn shell_to_shir(content: &str) -> String {
     debashl::shir_json::shir_to_shir_json(&prog)
 }
 
+/// Byte-equality oracle mode — the deleted CLI layer's `--shir FILE
+/// --raw` contract ("the long-standing --shir --raw lie"): the payload
+/// is the FULL pipeline (`ast_to_ir` — no stmt_lines — plus
+/// `shir_to_shir_json` with the A2 annotations attached); the "raw"
+/// meant only the SUPPRESSED TRAILING NEWLINE, which the caller (the
+/// CLI's --raw arm) handles. A parse failure emits the canonical empty
+/// Program — never empty stdout (frontends byte-match the core on this
+/// shape for unparseable inputs).
+pub fn shell_to_shir_contract(content: &str) -> String {
+    let commands = match debashl::Parser::new(content).parse() {
+        Ok(c) => c,
+        Err(_) => {
+            return debashl::shir_json::shir_to_shir_json(&debashl::shir::ast_to_ir(&[]));
+        }
+    };
+    let prog = debashl::shir::ast_to_ir(&commands);
+    debashl::shir_json::shir_to_shir_json(&prog)
+}
+
 /// The canonical parse-error ESTree fallback: a Program whose only
 /// statement is `process.exit(2)` — the estree runner executes it and exits
 /// 2, matching bash's syntax-error verdict. The plain empty Program would
@@ -279,12 +298,21 @@ fn ingest(a1: &str, lang: &str) -> Result<(debashl::ir::IrProgram, String), Stri
             format!("target {lang:?} not wired (known: js, pl, c, go, py, sh, java, rs, zig, glsl, glslv, shir)")
         })?;
     let mut prog = debashl::shir_json_in::shir_json_to_ir(a1)?;
-    // FRONTEND A1 ingress: the same worker-submitted transforms the bash
-    // path runs in ast_to_ir — this is how zsh/fish/java/zig sources get
-    // the text_ops primitive reductions. Gated by SH2_TRANSFORMS
-    // inside apply() (text-ops is opt-in there), so default behavior is
-    // byte-identical.
-    debashl::transforms::apply(&mut prog.stmts);
+    // FRONTEND A1 ingress — the deleted CLI layer's --shir-in-* contract:
+    // process_subst + OPT-IN text-ops, NEVER the full transform set (the
+    // full set fires echo-return on frontend-emitted Function nodes and
+    // breaks the estree runtime's call vocabulary — py-sh-go t52_full_prog
+    // emitted empty stdout; the old CLI's lib.rs documented the same
+    // "changed constructs that were already passing" rationale). The bash
+    // source path applies the worker transforms INSIDE ast_to_ir; a
+    // frontend contract is already-lowered IR, not shell to re-lower.
+    debashl::transforms::process_subst::transform_program(&mut prog);
+    if std::env::var("SH2_TRANSFORMS")
+        .map(|v| v.split(',').any(|s| s.trim() == "text-ops"))
+        .unwrap_or(false)
+    {
+        debashl::transforms::text_ops::normalize_frontend_constructs(&mut prog.stmts);
+    }
     // A1 ingress: restructure Label/Goto into structured flow (the shared
     // pass — the CLI's --shir-in-estree/--shir-in-perl run the same
     // restructure_goto_only; without it frontend A1 carrying C `goto`
@@ -420,6 +448,9 @@ const USAGE: &str = "otranspiler <input> [<output>] [flags]
   --target L        force the target language
   --run             JS target: execute via the estree runner
   --shir            output the raw A1 contract (same as output ext .shir)
+  --raw             with --shir: the byte-equality oracle path (shell →
+                    ast_to_ir → shir_to_shir_json, no stmt_lines; the old
+                    `debashc --shir F --raw` contract — no trailing newline)
   --embed-perl      Perl target: render an EMBEDDABLE fragment (purify design,
                     PLAN §10) — no preamble/exit; fragment on stdout,
                     REQUIRED/REFUSE diagnostics on stderr
@@ -446,6 +477,7 @@ pub fn cli_at(
     let mut do_run = false;
     let mut embed = false;
     let mut literal = false;
+    let mut raw = false;
     let mut embed_opts = EmbedOpts::default();
     let mut positional: Vec<String> = Vec::new();
 
@@ -459,6 +491,10 @@ pub fn cli_at(
             }
             "--run" => do_run = true,
             "--shir" => force_tgt = "shir".into(),
+            // byte-equality oracle mode (the deleted CLI layer's
+            // `--shir FILE --raw`): shell-parse → ast_to_ir_raw →
+            // shir_to_shir_json_raw — no stmt_lines, no optimizations.
+            "--raw" => raw = true,
             "--embed-perl" => {
                 embed = true;
                 force_tgt = "perl".into();
@@ -485,8 +521,14 @@ pub fn cli_at(
             "--english" => embed_opts.english = true,
             // true64 (bash is int64-wrapped; exact i64 homes for the wide
             // vars) and --bigint (bignum-language sources — a superset of
-            // true64). Folded from the old CLI's flag handling.
+            // true64). DEFAULT-ON for shell input (docs/arith-homes.md:
+            // the faithful default — f64 was the known divergence); the
+            // gate evidence: 32/32 differing corpus files
+            // execute-equivalent with the flag on, estree 551/552 both
+            // modes. SH2_TRUE64=0 restores the old Number(f64) default
+            // (bisecting "is it the true64 homes or the lowering").
             "--true64" | "--bigint" => debashl::shir::set_true64(true),
+            "--no-true64" => debashl::shir::set_true64(false),
             "--source-lang" => {
                 if i + 1 < args.len() {
                     force_src = args[i + 1].clone();
@@ -510,6 +552,17 @@ pub fn cli_at(
         i += 1;
     }
 
+    // shell input defaults to true64 (docs/arith-homes.md): bash
+    // arithmetic IS int64-wrapped — the faithful home is i64, and f64
+    // was the known divergence. An explicit --no-true64 (or
+    // SH2_TRUE64=0) restores the Number default. Non-shell sources
+    // (py/JS-origin A1s) keep their own defaults — the matrix.
+    {
+        let t64_default = std::env::var("SH2_TRUE64")
+            .map(|v| v != "0")
+            .unwrap_or(true);
+        debashl::shir::set_true64(t64_default);
+    }
     if positional.is_empty() {
         let _ = writeln!(stderr, "{USAGE}");
         return 2;
@@ -570,6 +623,22 @@ pub fn cli_at(
 
     if tgt_lang == "shir" {
         // emit the neutral A1: run the frontend (or pass .shir input through)
+        // `--raw`: the byte-equality oracle path — in-process shell sources
+        // (src_lang `sh` or unknown → the core parser) take the FULL
+        // pipeline with no stmt_lines (the deleted CLI layer's
+        // `export_shir(raw=true)` — see shell_to_shir_contract).
+        // Frontend-source langs (.py/.go/…) ignore it: their binaries own
+        // their emit.
+        if raw && src_lang == "sh" {
+            let content = match read_source(&input) {
+                Ok(c) => c,
+                Err(e) => {
+                    let _ = writeln!(stderr, "otranspiler: {e}");
+                    return 1;
+                }
+            };
+            return write_out(stdout, stderr, &output, shell_to_shir_contract(&content).as_bytes());
+        }
         let a1 = match shir_from(root, &input, &src_lang) {
             Ok(a1) => a1,
             Err(e) => {

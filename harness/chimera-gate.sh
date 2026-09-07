@@ -30,7 +30,7 @@
 # stdout: summary + classification + fail lists (the worker's log tail);
 # exit 0 = all chimera tests pass, 1 = any fail, 2 = deployment missing.
 set -u
-BIN=${1:?backend renderer bin (backends/sh/target/debug/shir_render)}
+BIN=${1:?backend renderer bin (otranspilerl/target/debug/otranspilerl-cli)}
 WORKSPACE=${2:?workspace root}
 GATE=${3:-/home/llm/sh-gate-full}
 SH_GATE=${SH_GATE:-/usr/local/bin/sh-gate}
@@ -54,13 +54,13 @@ for f in "$WORKSPACE"/sh2perl/examples/*.sh "$WORKSPACE"/frontends/*/testdata/*.
   [ -f "$f" ] || continue
   n=$((n+1))
   bn=$(basename "$f" .sh)
-  shir=$(timeout 30 "$BIN" --shir "$f" --raw 2>/dev/null)
+  shir=$(timeout 30 "$BIN" "$f" --source-lang sh --target shir --raw 2>/dev/null)
   if [ -z "$shir" ]; then
     core_skip=$((core_skip+1))
     echo "$bn (core --shir empty)" >> "$GATE/cannot_translate.txt"
     continue
   fi
-  if ! printf '%s' "$shir" | timeout 30 "$BIN" --shir-in-sh - > "$GATE/corpus/$bn.sh" 2>/dev/null; then
+  if ! printf '%s' "$shir" | timeout 30 "$BIN" - --target sh > "$GATE/corpus/$bn.sh" 2>/dev/null; then
     rm -f "$GATE/corpus/$bn.sh"
     refused=$((refused+1))
     echo "$bn (render refused)" >> "$GATE/cannot_translate.txt"

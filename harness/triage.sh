@@ -41,7 +41,7 @@ REPORT="$TRIAGE/report.json"
 MDREPORT="$TRIAGE/report.md"
 mkdir -p "$TRIAGE"
 
-DEBASHC="$ROOT/sh2perl/otranspilerl/target/debug/otranspilerl-cli"      # shared core (the estree reference)
+CLI="$ROOT/otranspilerl/target/debug/otranspilerl-cli"      # shared core (the estree reference)
 RUNNER="$ROOT/harness/estree-runner.mjs"
 NOW() { date +%s; }
 NOWI() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -65,19 +65,19 @@ zig-sh-go|testdata|zig|./zig-sh-go|run:zig
 # swept through every backend so the GUI's sh→X buttons get a verdict
 # for targets with no backend pass set. The corpus + emit bin are
 # ABSOLUTE paths (fe_abs/fe_cd_dir below handle them).
-sh2perl|$ROOT/sh2perl/examples|sh|$ROOT/sh2perl/otranspilerl/target/debug/otranspilerl-cli|run:bash
+sh2perl|$ROOT/sh2perl/examples|sh|$ROOT/otranspilerl/target/debug/otranspilerl-cli|run:bash
 "
 # backend: otranspilerl-cli-bin|flag|run("" = render-only)|label
 BACKENDS="
-js|$ROOT/sh2perl/backends/js/otranspilerl/target/debug/otranspilerl-cli|--shir-in-js|run:node:js|production
-perl|$ROOT/sh2perl/backends/perl/otranspilerl/target/debug/otranspilerl-cli|--shir-in-perl|run:perl|production
-sh|$ROOT/sh2perl/backends/sh/otranspilerl/target/debug/otranspilerl-cli|--shir-in-sh|run:bash|production
-c|$ROOT/sh2perl/backends/c/otranspilerl/target/debug/otranspilerl-cli|--shir-in-c|compile:cc:c|production
-go|$ROOT/sh2perl/backends/go/otranspilerl/target/debug/otranspilerl-cli|--shir-in-go|compile:go:go|production
-python|$ROOT/sh2perl/backends/python/otranspilerl/target/debug/otranspilerl-cli|--shir-in-python|run:python3:py|production
-java|$ROOT/sh2perl/backends/java/otranspilerl/target/debug/otranspilerl-cli|--shir-in-java|run:java:java|production
-rust|$ROOT/sh2perl/backends/rust/otranspilerl/target/debug/otranspilerl-cli|--shir-in-rust|compile:rustc:rs|production
-zig|$ROOT/sh2perl/backends/zig/otranspilerl/target/debug/otranspilerl-cli|--shir-in-zig||scaffold
+js|$ROOT/otranspilerl/target/debug/otranspilerl-cli|js|run:node:js|production
+perl|$ROOT/otranspilerl/target/debug/otranspilerl-cli|pl|run:perl|production
+sh|$ROOT/otranspilerl/target/debug/otranspilerl-cli|sh|run:bash|production
+c|$ROOT/otranspilerl/target/debug/otranspilerl-cli|c|compile:cc:c|production
+go|$ROOT/otranspilerl/target/debug/otranspilerl-cli|go|compile:go:go|production
+python|$ROOT/otranspilerl/target/debug/otranspilerl-cli|py|run:python3:py|production
+java|$ROOT/otranspilerl/target/debug/otranspilerl-cli|java|run:java:java|production
+rust|$ROOT/otranspilerl/target/debug/otranspilerl-cli|rs|compile:rustc:rs|production
+zig|$ROOT/otranspilerl/target/debug/otranspilerl-cli|zig||scaffold
 "
 
 frontend_info() { echo "$FRONTENDS" | awk -F'|' -v n="$1" '$1==n {print $2"|"$3"|"$4"|"$5}'; }
@@ -122,7 +122,13 @@ emit_a1() {  # frontend example-file -> A1 JSON on stdout (transformed)
                 -print -quit 2>/dev/null)" ]; }; then
     ( cd "$ROOT/frontends/$fe" && make build >/dev/null 2>&1 ) || true
   fi
-  ( "$absbin" --shir "$f" --raw 2>/dev/null ) > "$tmp/a1.json" || { rm -rf "$tmp"; return 1; }
+  # frontends speak `--shir F --raw`; the core otranspilerl-cli (the
+  # sh2perl row's absolute bin) speaks `--source-lang/--target`.
+  if [ "${bin:0:1}" = "/" ]; then
+    ( "$absbin" "$f" --source-lang sh --target shir --raw 2>/dev/null ) > "$tmp/a1.json" || { rm -rf "$tmp"; return 1; }
+  else
+    ( "$absbin" --shir "$f" --raw 2>/dev/null ) > "$tmp/a1.json" || { rm -rf "$tmp"; return 1; }
+  fi
   # c/cpp: the out-param transform (the frontend gates apply it before ingress)
   if [ "$ext" = c ] || [ "$ext" = cc ]; then
     python3 "$ROOT/harness/outparam_to_returns.py" < "$tmp/a1.json" > "$tmp/a1b.json" 2>/dev/null \
@@ -181,7 +187,7 @@ estree_ref_out() {  # a1-file [source-file] -> the estree-proxy executed output
   # read as garbage → the pair got SKIP-ESTREE-REF). The .referr err file
   # was already unique; the output file wasn't.
   local refout; refout=$(mktemp "$TRIAGE/.ref.estree.XXXXXX")
-  if ! "$DEBASHC" --shir-in-estree "$a1" > "$refout" 2>/dev/null; then
+  if ! "$CLI" - --target estree < "$a1" > "$refout" 2>/dev/null; then
     rm -f "$refout"
     echo "__ESTREE_REF_FAIL__ core ingress/render failed"
     return 0
@@ -284,7 +290,7 @@ classify_pair() {  # fe ex be a1-file native-out proxy-out
   rm -rf "$work"; mkdir -p "$work"
 
   # render through the backend
-  if ! "$bdeb" "$bflag" "$a1f" > "$work/rendered" 2>"$work/render.err"; then
+  if ! "$bdeb" - --target "$bflag" < "$a1f" > "$work/rendered" 2>"$work/render.err"; then
     local err; err=$(head -c 160 "$work/render.err")
     if echo "$err" | grep -qiE "refuse|unsupported|not supported|not wired|subset"; then
       record "$fe" "$be" "$ex" "SKIP-REFUSE" "$err"; echo "SKIP-REFUSE $fe/$ex/$be ($err)"
