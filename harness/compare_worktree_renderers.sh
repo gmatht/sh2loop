@@ -6,7 +6,7 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SUB="$ROOT/sh2perl"
-MAIN_BIN="$SUB/target/debug/debashc"
+MAIN_BIN="$SUB/otranspilerl/target/debug/otranspilerl-cli"
 CORPUS="$SUB/examples"
 
 measure() {
@@ -28,7 +28,7 @@ for lang in c go rust python zig sh java perl; do
   mc=$(measure "$MAIN_BIN" "$lang")
   echo "  main renderer:        $mc stubs"
   wt="$SUB/backends/$lang"
-  wtbin="$wt/target/debug/debashc"
+  wtbin="$wt/otranspilerl/target/debug/otranspilerl-cli"
   if [ -x "$wtbin" ]; then
     c=$(measure "$wtbin" "$lang")
     behind=$(git -C "$SUB" rev-list --count backend/$lang..main 2>/dev/null)

@@ -21,7 +21,7 @@
 #                   $ROOT/sh2perl/target — the main checkout's dir, so the
 #                   estree loop and the backend gates' CORE builds dedupe
 #                   deps. Worktree builds pass --share-target "$g_wt/target"
-#                   (their bin name collides with the main debashc, so they
+#                   (their bin name collides with the main otranspilerl-cli, so they
 #                   keep their own dir).
 #
 # Env: BUILD_LOCK_HELD=1 (internal re-entrancy guard — a nested

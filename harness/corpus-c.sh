@@ -4,16 +4,16 @@
 # prints diagnostic output, and is judged ONLY on executed stdout —
 #   oracle : native gcc compile+run of the .c source
 #   targets: every installed backend renderer fed the C frontend's A1:
-#     perl    debashc --shir-in-perl   → perl
-#     python  debashc --shir-in-python → python3
-#     sh      debashc --shir-in-sh     → bash
-#     estree  debashc --shir-in-estree → estree-runner.mjs (node)
-#     js      debashc --shir-in-js     → node
-#     go      debashc --shir-in-go     → go build+run
-#     rust    debashc --shir-in-rust   → rustc+run
-#     java    debashc --shir-in-java   → javac+java
-#     zig     debashc --shir-in-zig    → zig run
-#     c       debashc --shir-in-c      → gcc (round-trip)
+#     perl    otranspilerl-cli --source-lang shir --target perl   → perl
+#     python  shir_render --target python → python3
+#     sh      shir_render --target sh     → bash
+#     estree  otranspilerl-cli --source-lang shir --target estree → estree-runner.mjs (node)
+#     js      shir_render --target js     → node
+#     go      shir_render --target go     → go build+run
+#     rust    shir_render --target rust   → rustc+run
+#     java    shir_render --target java   → javac+java
+#     zig     shir_render --target zig    → zig run
+#     c       shir_render --target c      → gcc (round-trip)
 #
 # A test passes per target only when transpiled stdout == native stdout.
 # No allowlist: a red cell is a pipeline gap signal. A target whose
@@ -23,7 +23,7 @@
 #   dir default: frontends/corpus-c   TMO: per-step timeout seconds (120)
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DEBASHC="${DEBASHC:-$ROOT/sh2perl/target/debug/debashc}"
+DEBASHC="${DEBASHC:-$ROOT/sh2perl/otranspilerl/target/debug/otranspilerl-cli}"
 CSHGO="${CSHGO:-$ROOT/frontends/c-sh-go/c-sh-go}"
 OUTPARAM="$ROOT/harness/outparam_to_returns.py"
 ESTREE_RUNNER="$ROOT/harness/estree-runner.mjs"

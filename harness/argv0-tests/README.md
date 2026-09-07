@@ -37,7 +37,7 @@ the identical argv0 string via `--name` / the run wrapper).
 - `sh` — the sh backend renderer (`--shir-in-sh`), executed with argv0
   aligned via `sh -c '. /dev/fd/3' "$argv0" 3< render` (POSIX-safe argv0
   override: the render is sourced from fd 3, stdin stays untouched)
-- `estree` — `debashc file --estree` + `harness/estree-runner.mjs --name`
+- `estree` — `otranspilerl-cli --target estree` + `harness/estree-runner.mjs --name`
 - `perl` — the corpus generator + the same `do` wrapper `./fail` uses
   (`$0 = shift @ARGV; … do $__f`), so the corpus path is what's tested
 
@@ -60,7 +60,7 @@ semantics (pass-through + source-name).
 ## The two selectable semantics
 
 `$0` has two defensible meanings depending on the product context — they are
-selected with `debashc --argv0-source <name>`:
+selected with `otranspilerl-cli --argv0-source <name>`:
 
 1. **argv0 pass-through (default, no flag).** The translated script reports
    its OWN invocation path, exactly like the original. The harness supplies

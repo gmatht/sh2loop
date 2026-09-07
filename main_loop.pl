@@ -151,7 +151,7 @@ sub run_pi_streaming {
 }
 
 sub build_project {
-    print "Building debashc...\n";
+    print "Building otranspilerl-cli...\n";
     my $rc = run_system_with_timeout(120, 'cargo', 'build', '--manifest-path', "$FindBin::RealBin/sh2perl/Cargo.toml");
     if ($rc != 0) {
         print STDERR "WARNING: cargo build failed (exit: $rc)\n";

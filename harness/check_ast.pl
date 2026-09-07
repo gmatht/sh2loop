@@ -21,7 +21,7 @@
 # present — the count decreases only when a parser/transform fix lands (the
 # case then prints RESOLVED and moves out of @known_limitations).
 #
-# Usage: harness/check_ast.pl     (builds debashc + dump_ast if missing)
+# Usage: harness/check_ast.pl     (builds otranspilerl-cli + dump_ast if missing)
 
 use strict;
 use warnings;
@@ -33,13 +33,13 @@ $| = 1;
 
 my $root = dirname(dirname(abs_path($0)));   # workspace root (this script lives in harness/)
 my $sh2perl = "$root/sh2perl";
-my $debashc = "$sh2perl/target/debug/debashc";
+my $otranspilerl-cli = "$sh2perl/otranspilerl/target/debug/otranspilerl-cli";
 my $dump_ast = "$sh2perl/target/debug/dump_ast";
 
 # ---- build the tools if missing -------------------------------------
-if (!-x $debashc || !-x $dump_ast) {
+if (!-x $otranspilerl-cli || !-x $dump_ast) {
     system("cargo", "build", "--manifest-path", "$sh2perl/Cargo.toml",
-           "--bin", "debashc", "--bin", "dump_ast") == 0
+           "--bin", "otranspilerl-cli", "--bin", "dump_ast") == 0
         or die "cargo build failed\n";
 }
 
@@ -62,7 +62,7 @@ sub run_estree {
     open my $fh, '>', $f or die "write $f: $!";
     print $fh "$src\n";
     close $fh;
-    my $json = `$debashc file --estree $f 2>/dev/null`;
+    my $json = `$otranspilerl-cli --target estree $f 2>/dev/null`;
     open my $of, '>', "$dir/out.json" or die "write: $!";
     print $of $json;
     close $of;

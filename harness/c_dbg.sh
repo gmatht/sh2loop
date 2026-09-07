@@ -2,8 +2,8 @@
 # Per-file C-render debug: render, compile, run, diff vs bash.
 set -u
 ROOT=/home/llm/sh2loop
-CORE=${CORE_BIN:-$ROOT/sh2perl/backends/c/target/debug/debashc}
-WBIN=$ROOT/sh2perl/backends/c/target/debug/debashc
+CORE=${CORE_BIN:-$ROOT/sh2perl/backends/c/otranspilerl/target/debug/otranspilerl-cli}
+WBIN=$ROOT/sh2perl/backends/c/otranspilerl/target/debug/otranspilerl-cli
 for f in "$@"; do
   echo "════════ $f"
   shir=$("$CORE" --shir "$f" --raw 2>/dev/null) || { echo "  (no shir)"; continue; }

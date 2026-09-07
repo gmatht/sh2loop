@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# snapshot-debashc.sh <src-binary> <dst-path>
+# snapshot-otranspilerl-cli.sh <src-binary> <dst-path>
 #
-# Copy the debashc oracle binary to a private per-gate path and VERIFY it
+# Copy the otranspilerl-cli oracle binary to a private per-gate path and VERIFY it
 # functionally (--shir-in-estree on a minimal A1 program must exit 0).
 # Exits 0 with a verified snapshot at <dst-path>; exits 1 if no good
 # binary is obtainable within the retry window.
 #
-# WHY: target/debug/debashc is a shared, racy resource. The estree worker
+# WHY: otranspilerl/target/debug/otranspilerl-cli is a shared, racy resource. The estree worker
 # rebuilds it while implementing core requests, and any frontend gate's
 # self-heal rule (`$(DEBASHC):` in the Makefiles) rebuilds it when it goes
 # missing; two concurrent cargo builds on one target dir can leave the
@@ -38,5 +38,5 @@ for _try in $(seq 1 30); do
   sleep 3
 done
 rm -f "$min"
-echo "snapshot-debashc.sh: no verified binary at '$src' after ~90s (concurrent cargo relink?)" >&2
+echo "snapshot-otranspilerl-cli.sh: no verified binary at '$src' after ~90s (concurrent cargo relink?)" >&2
 exit 1

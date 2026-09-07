@@ -4,11 +4,11 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
 const root = '/home/llm/sh2loop';
-const debashc = `${root}/sh2perl/target/debug/debashc`;
+const otranspilerl-cli = `${root}/sh2perl/otranspilerl/target/debug/otranspilerl-cli`;
 const file = process.argv[2];
 let json;
 try {
-  json = JSON.parse(execFileSync(debashc, ['file', '--estree', file], { cwd: `${root}/sh2perl`, stdio: ['ignore', 'pipe', 'ignore'] }).toString());
+  json = JSON.parse(execFileSync(otranspilerl-cli, ['file', '--estree', file], { cwd: `${root}/sh2perl`, stdio: ['ignore', 'pipe', 'ignore'] }).toString());
 } catch (e) {
   console.error(String(e));
   process.exit(1);

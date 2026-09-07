@@ -34,7 +34,7 @@ open my $fh, '<', $file or die "open $file: $!";
 my $content = do { local $/; <$fh> };
 close $fh;
 
-# debashc --estree prints NOTHING on stdout when the parse fails (the CLI
+# otranspilerl-cli --target estree prints NOTHING on stdout when the parse fails (the CLI
 # reports the error on stderr and exits 0), so the gate receives an empty
 # artifact. Every corpus file that reaches this path is REJECTED by bash
 # too (syntax error: bash exit 2, no stdout), so the faithful artifact is

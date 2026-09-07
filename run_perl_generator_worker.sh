@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # perl-generator scoped worker — FAILURE-DRIVEN.
 #
-# Fixes the AST Generator's Perl OUTPUT (debashc file.sh -> Generator ->
+# Fixes the AST Generator's Perl OUTPUT (otranspilerl-cli file.sh -> Generator ->
 # Perl text — the product path `./fail` gates). Failure-driven like the
 # frontend workers: green -> commit scoped changes; red -> invoke pi;
 # 3 consecutive failures -> TRAP (core-request + sleeping marker).
@@ -57,13 +57,13 @@ while true; do
     fi
     {
       printf 'The Perl GENERATOR (the AST->Perl backend) has %s corpus failures (trusted baseline %s).\n' "$fails" "$trusted"
-      printf 'Gate: ./fail — debashc file.sh -> Generator -> Perl text -> run vs bash, BYTE-FOR-BYTE stdout + EXIT CODE + side effects (the strict gate).\n\n'
+      printf 'Gate: ./fail — otranspilerl-cli file.sh -> Generator -> Perl text -> run vs bash, BYTE-FOR-BYTE stdout + EXIT CODE + side effects (the strict gate).\n\n'
       printf 'The failure list (first 60):\n'
       grep '  FAIL:' "$WORKSPACE/.perlgen-gate.out" | head -60
       printf '\nScope (DO NOT TOUCH the shared core): you may edit sh2perl/src/generator/ and harness/.\n'
       printf 'Shared core (the estree worker owns it): sh2perl/src/shir.rs, sh2perl/src/ir.rs, sh2perl/src/estree.rs, sh2perl/src/parser/.\n'
       printf '\nRECIPE:\n'
-      printf '  1. Rebuild debashc (cd sh2perl && cargo build --bin debashc) and reproduce a failing example.\n'
+      printf '  1. Rebuild otranspilerl-cli (cd sh2perl && cd otranspilerl && cargo build --bin otranspilerl-cli) and reproduce a failing example.\n'
       printf '  2. Fix the GENERATOR codegen in src/generator/ so the emitted Perl matches bash byte-for-byte + exit code.\n'
       printf '  3. Common classes: exit-code propagation ($main_exit_code/$CHILD_ERROR), trailing whitespace/final newline, CRLF echo.\n'
       printf '  4. Land the smallest green: fix 1-3 files, re-run ./fail, verify the count drops.\n'

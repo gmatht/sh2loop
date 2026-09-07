@@ -34,8 +34,8 @@
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WS="${WORKSPACE:-$(cd "$HERE/../.." && pwd)}"
-CORE="$WS/sh2perl/target/debug/debashc"
-SH_BIN="$WS/sh2perl/backends/sh/target/debug/debashc"
+CORE="$WS/sh2perl/otranspilerl/target/debug/otranspilerl-cli"
+SH_BIN="$WS/sh2perl/backends/sh/otranspilerl/target/debug/otranspilerl-cli"
 RUNNER="$WS/harness/estree-runner.mjs"
 VERBOSE=0
 ONLY=""
@@ -170,7 +170,7 @@ for src in "${TESTS[@]}"; do
           SKIP=$((SKIP+1)); echo "  SKIP perl [$kind] $base (no code extracted)"
         fi
       else
-        SKIP=$((SKIP+1)); echo "  SKIP perl [$kind] $base (debashc failed)"
+        SKIP=$((SKIP+1)); echo "  SKIP perl [$kind] $base (otranspilerl-cli failed)"
       fi
     fi
   done
@@ -217,7 +217,7 @@ for src in "$HERE"/tests/*.sh; do
           SKIP=$((SKIP+1)); echo "  SKIP perl(source) [$kind] $base (no code)"
         fi
       else
-        SKIP=$((SKIP+1)); echo "  SKIP perl(source) [$kind] $base (debashc failed)"
+        SKIP=$((SKIP+1)); echo "  SKIP perl(source) [$kind] $base (otranspilerl-cli failed)"
       fi
     fi
   done

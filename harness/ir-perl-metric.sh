@@ -4,19 +4,19 @@
 # and compare stdout (normalized: trailing-whitespace-free) + exit code.
 # Usage: harness/ir-perl-metric.sh [prefix]
 set -u
-DEB=${DEB:-$(pwd)/sh2perl/target/debug/debashc}
+DEB=${DEB:-$(pwd)/sh2perl/otranspilerl/target/debug/otranspilerl-cli}
 CORPUS=${FAIL_CORPUS:-$(pwd)/sh2perl/examples}
 PREFIX="${1:-}"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-# fail fast: a broken debashc build (mid-edit worker WIP) must abort the
+# fail fast: a broken otranspilerl-cli build (mid-edit worker WIP) must abort the
 # metric, not produce a misleading number.
 printf 'echo hi\n' > "$tmp/selfcheck.sh"
 if ! "$DEB" --shir "$tmp/selfcheck.sh" > "$tmp/selfcheck.json" 2>/dev/null; then
-    echo "FATAL: debashc --shir fails (build broken?) — aborting"; exit 2
+    echo "FATAL: otranspilerl-cli --target shir fails (build broken?) — aborting"; exit 2
 fi
 if ! "$DEB" --shir-in-perl "$tmp/selfcheck.json" > "$tmp/selfcheck.pl" 2>/dev/null; then
-    echo "FATAL: debashc --shir-in-perl fails — aborting"; exit 2
+    echo "FATAL: otranspilerl-cli --source-lang shir --target perl fails — aborting"; exit 2
 fi
 pass=0; syn=0; die=0; runt=0; total=0
 : > "$tmp/failures.tsv"

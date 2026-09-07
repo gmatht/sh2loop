@@ -4,7 +4,7 @@
 # usage: batch-triage.sh [pairs-file]  (default: stdin lines "fe ex be")
 set -u
 ROOT=/home/llm/sh2loop
-DEBASHC="$ROOT/sh2perl/target/debug/debashc"
+DEBASHC="$ROOT/sh2perl/otranspilerl/target/debug/otranspilerl-cli"
 RUNNER="$ROOT/harness/estree-runner.mjs"
 TRIAGE="${TRIAGE:-$ROOT/triage}"
 norm() { tr -d '\r' | sed 's/[[:space:]]*$//' | awk 'NF'; }

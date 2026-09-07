@@ -3,7 +3,7 @@
 import { globSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 const root = '/home/llm/sh2loop';
-const debashc = `${root}/sh2perl/target/debug/debashc`;
+const otranspilerl-cli = `${root}/sh2perl/otranspilerl/target/debug/otranspilerl-cli`;
 const tests = globSync(`${root}/sh2perl/examples/*.sh`).sort();
 function pp(node, depth = 0) {
   if (node == null) return String(node);
@@ -30,7 +30,7 @@ const counts = {};
 const perFile = {};
 for (const f of tests) {
   let json;
-  try { json = JSON.parse(execFileSync(debashc, ['file', '--estree', f], { cwd: `${root}/sh2perl`, stdio: ['ignore', 'pipe', 'ignore'] }).toString()); } catch { continue; }
+  try { json = JSON.parse(execFileSync(otranspilerl-cli, ['file', '--estree', f], { cwd: `${root}/sh2perl`, stdio: ['ignore', 'pipe', 'ignore'] }).toString()); } catch { continue; }
   const walk = (x) => {
     if (Array.isArray(x)) { x.forEach(walk); return; }
     if (!x || typeof x !== 'object') return;

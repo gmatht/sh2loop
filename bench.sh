@@ -17,7 +17,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-DEBASHC="$ROOT/sh2perl/target/debug/debashc"
+DEBASHC="$ROOT/sh2perl/otranspilerl/target/debug/otranspilerl-cli"
 RUNNER="node $ROOT/harness/estree-runner.mjs"
 SB="${SHELLBENCH_DIR:-/tmp/shellbench}"
 CAL_MS="${CAL_MS:-300}"

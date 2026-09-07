@@ -35,7 +35,7 @@ for (const f of tests) {
   const base = f.split('/').pop();
   let json;
   try {
-    json = JSON.parse(execFileSync(`${root}/sh2perl/target/debug/debashc`, ['file', '--estree', f], { cwd: `${root}/sh2perl`, stdio: ['ignore', 'pipe', 'ignore'] }).toString());
+    json = JSON.parse(execFileSync(`${root}/sh2perl/otranspilerl/target/debug/otranspilerl-cli`, ['file', '--estree', f], { cwd: `${root}/sh2perl`, stdio: ['ignore', 'pipe', 'ignore'] }).toString());
   } catch { continue; }
   const hits = [];
   const walk = (n, inLoop) => {
