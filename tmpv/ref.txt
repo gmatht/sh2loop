@@ -1,0 +1,76 @@
+=== typeset -i (integer attribute) ===
+After 'typeset -i n=42': n='42'
+After 'n=n+1':          n='43' (integer arithmetic applied)
+After 'n="hello"':     n='0' (assigns 0; non-numeric string becomes 0)
+
+=== typeset -r (readonly attribute) ===
+After 'typeset -r rovar=immutable': rovar='immutable'
+(Attempting 'rovar=change' would cause an error; skipped for safety.)
+
+=== typeset -l (lowercase attribute) ===
+After 'typeset -l lc="HELLO WORLD"': lc='hello world'
+After 'lc="ANOTHER TEST"':           lc='another test'
+
+=== typeset -u (uppercase attribute) ===
+After 'typeset -u uc="hello world"': uc='HELLO WORLD'
+After 'uc="another test"':            uc='ANOTHER TEST'
+
+=== typeset -x (export attribute) ===
+After 'typeset -x myexport=exported_value'
+Variable is exported:
+myexport=exported_value
+
+=== typeset -a (indexed array) ===
+After 'typeset -a arr=(10 20 30)': arr=(10 20 30)
+arr[0]='10' arr[1]='20' arr[2]='30'
+
+=== typeset -A (associative array) ===
+After 'typeset -A assoc=([key1]=value1 [key2]=value2)'
+assoc[key1]='value1'  assoc[key2]='value2'
+
+=== typeset -n (name reference) ===
+After 'typeset -n ref=original':
+original='I am the original'
+ref='I am the original'
+After 'ref="Changed via ref"':
+original='Changed via ref'
+ref='Changed via ref'
+
+=== typeset -f (display function definition) ===
+Output of 'typeset -f myfunc':
+myfunc () 
+{ 
+    echo "Inside myfunc";
+    local x=5;
+    echo "x=$x"
+}
+
+=== typeset -F (list function names) ===
+myfunc
+
+=== typeset -g (global scope in function) ===
+After set_global(): global_var='I am global'
+
+=== typeset -t (trace attribute) ===
+After 'typeset -t tracetest=traced': (trace attribute set)
+tracetest='traced'
+
+=== typeset -p (print attribute info) ===
+After 'typeset -i -r printtest=99':
+declare -ir printtest="99"
+
+=== combined: typeset -il (integer + lowercase) ===
+After 'typeset -il comb=42': comb='42' (integer + lowercase)
+After 'comb=comb+1':    comb='43' (integer arithmetic active)
+
+=== combined: typeset -iu (integer + uppercase) ===
+After 'typeset -iu comb2=99': comb2='99' (integer + uppercase)
+After 'comb2=comb2+1': comb2='100' (integer arithmetic active)
+
+=== typeset -a (indexed array, individual element) ===
+singlearr[0]='first'  singlearr[1]='second'
+
+=== typeset (no flag) ===
+After 'typeset plain="just a string"': plain='just a string'
+
+=== Demonstration complete. ===
