@@ -1,0 +1,6 @@
+=== Number Factorization Examples ===
+Factors of 12: 2 * 2 * 3
+Factors of 28: 2 * 2 * 7
+Factors of 100: 2 * 2 * 5 * 5
+Factors of 12345: 3 * 5 * 823
+Factorization complete!

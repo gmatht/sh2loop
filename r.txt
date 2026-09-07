@@ -1,0 +1,2 @@
+Decompressed rp2 firmware
+exit: 0
