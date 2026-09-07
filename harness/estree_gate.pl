@@ -21,7 +21,7 @@ my %whitelist = map { $_ => 1 } qw(
     define subshell background block whileLoop whileLoopSync whileLoopBatch cstyleFor cstyleForSync forLoop forLoopSync forLoopBatch listVar and or
     subshellSync blockSync captureSync captureWordsSync pipelineSync redirectSync
     shopt return break continue unsupported
-    typeOf isType
+    typeOf isType toI64
     pipelineInputLines
     makeChan recv send select
     trimCapture dirname basename uname date readlink hostname whoami mktempValue split readFile writeFile appendFile lstat access unlink rm mkdir mkdtemp addrOf memLoad memStore walkLines readLine eachLine

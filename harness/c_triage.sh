@@ -4,18 +4,18 @@
 set -u
 SUB=/home/llm/sh2loop/sh2perl
 WT=/home/llm/sh2loop/sh2perl/backends/c
-CORE_BIN="$SUB/otranspilerl/target/debug/otranspilerl-cli"
-C_BIN="$WT/otranspilerl/target/debug/otranspilerl-cli"
+CORE_BIN="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
+C_BIN="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
 CORPUS=${*:-$(ls "$SUB"/examples/*.sh /home/llm/sh2loop/frontends/*/testdata/*.sh 2>/dev/null)}
 mkdir -p /tmp/ctr
 rm -f /tmp/ctr/*.txt
 pass=0; stub=0; comp=0; segv=0; mismatch=0; skip=0; other=0
 for f in $CORPUS; do
   b=$(basename "$f")
-  shir=$("$CORE_BIN" --shir "$f" --raw 2>/dev/null) || { skip=$((skip+1)); echo "SKIP shir $b" >> /tmp/ctr/skip.txt; continue; }
+  shir=$("$CORE_BIN" "$f" --source-lang sh --target shir --raw 2>/dev/null) || { skip=$((skip+1)); echo "SKIP shir $b" >> /tmp/ctr/skip.txt; continue; }
   [ -z "$shir" ] && { skip=$((skip+1)); echo "SKIP empty $b" >> /tmp/ctr/skip.txt; continue; }
   bash -n "$f" 2>/dev/null || { skip=$((skip+1)); echo "SKIP bashn $b" >> /tmp/ctr/skip.txt; continue; }
-  g_out=$(printf '%s' "$shir" | "$C_BIN" --shir-in-c - 2>/dev/null) || { other=$((other+1)); echo "RENDER-ERR $b" >> /tmp/ctr/other.txt; continue; }
+  g_out=$(printf '%s' "$shir" | "$C_BIN" - --target c 2>/dev/null) || { other=$((other+1)); echo "RENDER-ERR $b" >> /tmp/ctr/other.txt; continue; }
   s=$(printf '%s' "$g_out" | grep -cE "TODO\(unsupported\)|sh2[A-Za-z_]" || true)
   if [ "$s" -gt 0 ]; then
     stub=$((stub+1))

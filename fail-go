@@ -6,7 +6,7 @@
 # (`go run` of the program; snippets are wrapped with package main + a
 # detected-imports stub, mirroring translate_one_application.sh run_native):
 #
-#   JS  : go-sh --shir --raw → debashc --shir-in-estree → estree-runner.mjs
+#   JS  : go-sh --shir --raw → otranspilerl-cli - --target estree → estree-runner.mjs
 #   Rust: go-sh --shir --raw → otranspilerl --target rust → rustc → run
 #
 # A test passes only on its own verdict (oracle == translated stdout),
@@ -16,7 +16,7 @@
 # FLAKINESS GUARD (re-verification, NOT an allowlist): a single transient
 # infra failure — a `go run` oracle that dies (rc=124 timeout / compile
 # hiccup), an estree-runner node killed or returning empty under load, or
-# the shared target dir's debashc being churned by another worker — can
+# the shared target dir's otranspilerl-cli being churned by another worker — can
 # false-red one test as js=MISMATCH (e.g. the 18:47:06 t16-t19 flake,
 # green 17s later and in 39 consecutive runs). one() re-runs the whole
 # per-test measurement ONCE before trusting a non-PASS verdict (the same
@@ -36,15 +36,12 @@ set -u
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 GOSH="$ROOT/frontends/go-sh/go-sh"
-DEBASHC="$ROOT/sh2perl/target/debug/debashc"
 OTRANS="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
-# the rust BACKEND renderer — the worktree's debashc --shir-in-rust
-# (harness/triage.sh + harness/repro-pair.sh use the same binary). The
-# otranspilerl-cli fallback links the MAIN checkout's stale renderer
-# copy — used only when the worktree binary isn't built (standalone
-# runs outside the backend gate, which builds it first).
-RUSTBIN="$ROOT/sh2perl/backends/rust/target/debug/debashc"
-[ -x "$RUSTBIN" ] || RUSTBIN="$OTRANS"
+# the rust BACKEND renderer — otranspilerl-cli `- - --target rust` (the
+# A1 ingress + the main checkout's rust renderer, the same binary as the
+# JS leg; the per-backend worktree binaries are gone with the deleted
+# debashc CLI layer).
+RUSTBIN="$OTRANS"
 RUNNER="$ROOT/harness/estree-runner.mjs"
 CORPUS="$ROOT/frontends/go-sh/testdata"
 TIMEOUT=15
@@ -66,31 +63,31 @@ done
 # The main checkout's target dir is SHARED with the core/estree/sh
 # workers (build-lock.sh default), and they churn or wipe it (cargo
 # clean, rebuilds, lockfile revert/stale serde caches) — the binary can
-# vanish between `make test`'s debashc-oracle check and this script's
+# vanish between `make test`'s cli-oracle check and this script's
 # run. A missing oracle must report "oracle unavailable", never a
 # misleading "A1->estree failed" (rc=127 masquerades as a renderer
 # rejection). Rebuild through the sanctioned choke point (backend role:
-# waits up to 1800s, never preempts) — same as make debashc-oracle,
+# waits up to 1800s, never preempts) — same as make otranspilerl-cli-oracle,
 # including the documented stale-cache retry (serde 1.0.229 artifacts
 # vs a reverted 1.0.226 lockfile; cleaning just those packages recovers
 # without nuking the shared dep cache).
 ensure_oracle() {
-  [ -x "$DEBASHC" ] && return 0
-  echo "oracle $(basename "$DEBASHC") missing — rebuilding via build-lock.sh" >&2
+  [ -x "$OTRANS" ] && return 0
+  echo "oracle $(basename "$OTRANS") missing — rebuilding via build-lock.sh" >&2
   if "$ROOT/harness/build-lock.sh" --role backend -- cargo build \
-      --manifest-path "$ROOT/sh2perl/Cargo.toml" --bin debashc >&2; then
+      --manifest-path "$ROOT/otranspilerl/Cargo.toml" --bin otranspilerl-cli >&2; then
     echo "oracle rebuilt" >&2
     return 0
   fi
   echo "oracle build failed — stale serde cache? cleaning serde artifacts and retrying once" >&2
   if "$ROOT/harness/build-lock.sh" --role backend -- cargo clean \
-        --manifest-path "$ROOT/sh2perl/Cargo.toml" -p serde_derive -p serde -p serde_core >&2 \
+        --manifest-path "$ROOT/otranspilerl/Cargo.toml" -p serde_derive -p serde -p serde_core >&2 \
       && "$ROOT/harness/build-lock.sh" --role backend -- cargo build \
-        --manifest-path "$ROOT/sh2perl/Cargo.toml" --bin debashc >&2; then
+        --manifest-path "$ROOT/otranspilerl/Cargo.toml" --bin otranspilerl-cli >&2; then
     echo "oracle rebuilt after serde cache clean" >&2
     return 0
   fi
-  echo "FAIL (oracle unavailable — could not build debashc; the core tree may be mid-WIP)" >&2
+  echo "FAIL (oracle unavailable — could not build otranspilerl-cli; the core tree may be mid-WIP)" >&2
   return 1
 }
 ensure_oracle || exit 1
@@ -154,7 +151,7 @@ measure_once() { # f -> run oracle+JS(+Rust) ONCE; store MO MORC MJ MJRC MJv MR 
   if [ $jrc -ne 0 ]; then J="EMIT-FAIL"; reason="frontend cannot parse/lower";
   elif [ -z "$a1" ]; then J="REFUSE";
   else
-    e=$(printf '%s' "$a1" | "$DEBASHC" --shir-in-estree - 2>/dev/null); jrc=$?
+    e=$(printf '%s' "$a1" | "$OTRANS" - --target estree 2>/dev/null); jrc=$?
     if [ $jrc -ne 0 ]; then J="TARGET-ERR"; reason="A1->estree failed";
     else
       # capture node's rc directly (a pipeline's rc is the LAST command's
@@ -168,11 +165,7 @@ measure_once() { # f -> run oracle+JS(+Rust) ONCE; store MO MORC MJ MJRC MJv MR 
   # ── Rust target ──
   if [ "$RUST" = 1 ]; then
     if [ $jrc -eq 0 ] && [ -n "$a1" ]; then
-      if [ "$RUSTBIN" = "$OTRANS" ]; then
-        rs=$(printf '%s' "$a1" | "$RUSTBIN" - - --target rust 2>/dev/null); rsrc=$?
-      else
-        rs=$(printf '%s' "$a1" | "$RUSTBIN" --shir-in-rust - 2>/dev/null); rsrc=$?
-      fi
+      rs=$(printf '%s' "$a1" | "$RUSTBIN" - - --target rust 2>/dev/null); rsrc=$?
       if [ $rsrc -ne 0 ]; then R="TARGET-ERR";
       else
         printf '%s\n' "$rs" > "$tmp/main.rs"
@@ -240,7 +233,7 @@ for f in "$CORPUS"/*.go; do
 done
 
 export -f one wrap_go measure_once
-export GOSH DEBASHC OTRANS RUSTBIN RUNNER TIMEOUT RUST ROOT
+export GOSH OTRANS RUSTBIN RUNNER TIMEOUT RUST ROOT
 # ── run ──────────────────────────────────────────────────────────────
 tmpd=$(mktemp -d)
 printf '%s\n' "${files[@]}" | xargs -P "$JOBS" -I{} bash -c 'one "$1"' _ {} > "$tmpd/out.tsv" 2>/dev/null

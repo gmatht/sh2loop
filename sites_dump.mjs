@@ -9,7 +9,7 @@ import { join } from 'node:path';
 
 const root = '/home/llm/sh2loop';
 const ex = join(root, 'sh2perl', 'examples');
-const debashc = join(root, 'sh2perl', 'target', 'debug', 'debashc');
+const otranspilerl-cli = join(root, 'sh2perl', 'target', 'debug', 'otranspilerl-cli');
 
 const names = process.argv.slice(2).filter(a => !a.startsWith('--'));
 const ctxN = (() => { const i = process.argv.indexOf('--context'); return i >= 0 ? +process.argv[i+1] : 0; })();
@@ -63,7 +63,7 @@ for (const f of files) {
   const src = readFileSync(join(ex, f), 'utf8');
   let json;
   try {
-    json = execSync(`cd "${root}/sh2perl" && "${debashc}" file --estree "${join(ex, f)}" 2>/dev/null`, { maxBuffer: 64*1024*1024 }).toString();
+    json = execSync(`cd "${root}/sh2perl" && "${otranspilerl-cli}" file --estree "${join(ex, f)}" 2>/dev/null`, { maxBuffer: 64*1024*1024 }).toString();
   } catch { continue; }
   let data;
   try { data = JSON.parse(json); } catch { continue; }

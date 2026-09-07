@@ -31,7 +31,7 @@ polyfill vs hand-written** before any swap.
 
 ```
 runtime/polyfills.sh (bash, authored once)
-        │  debashc file --estree / --target <lang>   (build time)
+        │  otranspilerl-cli file --target <lang>   (build time)
         ▼
 polyfills.js  polyfills.c  polyfills.py  …   (per-backend native code)
         │
@@ -189,7 +189,7 @@ improves, the polyfills can use more constructs.
   bodies walked. These unblocked the `test`/extglob/brace polyfills.
 - 2026-08-26: pipeline proven end-to-end
 - 2026-08-26: pipeline proven end-to-end — a bash function transpiles
-  via `debashc file --estree` → ESTree JSON → `estree-runner.mjs` →
+  via `otranspilerl-cli file --target estree` → ESTree JSON → `estree-runner.mjs` →
   runs; function definition (`sh2.functions.set`) + call
   (`sh2.fnCall`) mechanism works. Construct-set constraint verified
   (`[[ ]]` form OK, case-pattern-with-quoted-var not).

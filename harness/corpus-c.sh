@@ -23,7 +23,7 @@
 #   dir default: frontends/corpus-c   TMO: per-step timeout seconds (120)
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DEBASHC="${DEBASHC:-$ROOT/sh2perl/otranspilerl/target/debug/otranspilerl-cli}"
+CLI="${CLI:-$ROOT/otranspilerl/target/debug/otranspilerl-cli}"
 CSHGO="${CSHGO:-$ROOT/frontends/c-sh-go/c-sh-go}"
 OUTPARAM="$ROOT/harness/outparam_to_returns.py"
 ESTREE_RUNNER="$ROOT/harness/estree-runner.mjs"
@@ -54,16 +54,16 @@ declare -a FAILCELLS
 render() { # render <tgt> <a1> <od> — renderer invocation only
   local tgt="$1" a1="$2" od="$3"
   case "$tgt" in
-    perl)   "$DEBASHC" --shir-in-perl   "$a1" > "$od/prog.pl"  2>"$od/render.err" ;;
-    python) "$DEBASHC" --shir-in-python "$a1" > "$od/prog.py"  2>"$od/render.err" ;;
-    sh)     "$DEBASHC" --shir-in-sh     "$a1" > "$od/prog.sh"  2>"$od/render.err" ;;
-    estree) "$DEBASHC" --shir-in-estree "$a1" > "$od/prog.json" 2>"$od/render.err" ;;
-    js)     "$DEBASHC" --shir-in-js     "$a1" > "$od/prog.js"  2>"$od/render.err" ;;
-    go)     "$DEBASHC" --shir-in-go     "$a1" > "$od/prog.go"  2>"$od/render.err" ;;
-    rust)   "$DEBASHC" --shir-in-rust   "$a1" > "$od/prog.rs"  2>"$od/render.err" ;;
-    java)   "$DEBASHC" --shir-in-java   "$a1" > "$od/Sh2Program.java" 2>"$od/render.err" ;;
-    zig)    "$DEBASHC" --shir-in-zig    "$a1" > "$od/prog.zig" 2>"$od/render.err" ;;
-    c)      "$DEBASHC" --shir-in-c      "$a1" > "$od/prog.c"   2>"$od/render.err" ;;
+    perl)   "$CLI" - --target pl   < "$a1" > "$od/prog.pl"  2>"$od/render.err" ;;
+    python) "$CLI" - --target py   < "$a1" > "$od/prog.py"  2>"$od/render.err" ;;
+    sh)     "$CLI" - --target sh   < "$a1" > "$od/prog.sh"  2>"$od/render.err" ;;
+    estree) "$CLI" - --target estree < "$a1" > "$od/prog.json" 2>"$od/render.err" ;;
+    js)     "$CLI" - --target js   < "$a1" > "$od/prog.js"  2>"$od/render.err" ;;
+    go)     "$CLI" - --target go   < "$a1" > "$od/prog.go"  2>"$od/render.err" ;;
+    rust)   "$CLI" - --target rs   < "$a1" > "$od/prog.rs"  2>"$od/render.err" ;;
+    java)   "$CLI" - --target java < "$a1" > "$od/Sh2Program.java" 2>"$od/render.err" ;;
+    zig)    "$CLI" - --target zig  < "$a1" > "$od/prog.zig" 2>"$od/render.err" ;;
+    c)      "$CLI" - --target c    < "$a1" > "$od/prog.c"   2>"$od/render.err" ;;
     *) return 9 ;;
   esac
 }

@@ -2,7 +2,7 @@
 # fail-shir — the shIR normalisation gate.
 #
 # The shIR worker's correctness+progress oracle. For every corpus file:
-#   raw A1 (debashc --shir) -> rendered Perl (debashc --shir-in-perl),
+#   raw A1 (otranspilerl-cli --shir) -> rendered Perl (otranspilerl-cli --shir-in-perl),
 #   count + classify `system('bash', '-c', q{...})` shell-out call sites.
 #
 # Verdicts per file:

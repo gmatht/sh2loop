@@ -39,7 +39,7 @@ revision history).
 
 - `cd otranspilerl && cargo build --bin otranspilerl-cli` (the CLI; the
   sh2perl core builds via `cd sh2perl && cargo build --lib`)
-- `./fail` — full corpus gate (517 examples; generated Perl vs bash stdout)
+- `./fail` — full corpus gate (552 examples; generated Perl vs bash stdout)
 - The shIR shared library lives at `sh2perl/src/shir_passes/` (PLAN §3,
   design note in `sh2perl/docs/ir-design.md` §"The sh2.* boundary"):
   `PassContext` (analysis verdicts; replaces the ten `static Mutex<…>`

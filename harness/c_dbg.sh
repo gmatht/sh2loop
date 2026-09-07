@@ -2,12 +2,12 @@
 # Per-file C-render debug: render, compile, run, diff vs bash.
 set -u
 ROOT=/home/llm/sh2loop
-CORE=${CORE_BIN:-$ROOT/sh2perl/backends/c/otranspilerl/target/debug/otranspilerl-cli}
-WBIN=$ROOT/sh2perl/backends/c/otranspilerl/target/debug/otranspilerl-cli
+CORE=${CORE_BIN:-$ROOT/otranspilerl/target/debug/otranspilerl-cli}
+WBIN=$ROOT/otranspilerl/target/debug/otranspilerl-cli
 for f in "$@"; do
   echo "════════ $f"
-  shir=$("$CORE" --shir "$f" --raw 2>/dev/null) || { echo "  (no shir)"; continue; }
-  printf '%s' "$shir" | "$WBIN" --shir-in-c - > /tmp/dbg.c 2>/tmp/dbg.err
+  shir=$("$CORE" "$f" --source-lang sh --target shir --raw 2>/dev/null) || { echo "  (no shir)"; continue; }
+  printf '%s' "$shir" | "$WBIN" - --target c > /tmp/dbg.c 2>/tmp/dbg.err
   rc=$?
   if [ $rc -ne 0 ]; then echo "  RENDER FAIL rc=$rc: $(head -3 /tmp/dbg.err)"; continue; fi
   if grep -qE "TODO\(unsupported\)|sh2[A-Za-z_]" /tmp/dbg.c; then echo "  STUBS: $(grep -cE 'TODO\(unsupported\)|sh2[A-Za-z_]' /tmp/dbg.c)"; fi

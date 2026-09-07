@@ -36,10 +36,10 @@ var sources = map[string]string{
 	".fish": "frontends/fish-sh-go/fish-sh-go",
 	".go":   "frontends/go-sh/go-sh",
 	".bat":  "frontends/bat-sh-go/bat-sh-go",
-	// .sh and no-ext: the core itself (debashc --shir)
+	// .sh and no-ext: the core itself (otranspilerl-cli --shir)
 }
 // target extension → the backend invocation: "flag:<lang>" = the main
-// debashc's --shir-in-<lang>; "bin:<path>" = a worktree bin taking the A1
+// otranspilerl-cli's --shir-in-<lang>; "bin:<path>" = a worktree bin taking the A1
 // on stdin; "" = the neutral A1 contract itself (no backend)
 var targets = map[string]string{
 	".js":   "flag:estree",
@@ -244,11 +244,11 @@ func render(root, lang string, a1 []byte) ([]byte, error) {
 	var cmd *exec.Cmd
 	if strings.HasPrefix(kind, "flag:") {
 		l := strings.TrimPrefix(kind, "flag:")
-		bin := filepath.Join(root, "sh2perl/target/debug/debashc")
+		bin := filepath.Join(root, "sh2perl/target/debug/otranspilerl-cli")
 		if l != "estree" && l != "perl" {
 			// the scaffold backends: the ingress flag lives on the
-			// WORKTREE's own debashc (sh2perl/backends/<lang>/...)
-			bin = filepath.Join(root, "sh2perl/backends/"+l+"/target/debug/debashc")
+			// WORKTREE's own otranspilerl-cli (sh2perl/backends/<lang>/...)
+			bin = filepath.Join(root, "sh2perl/backends/"+l+"/target/debug/otranspilerl-cli")
 		}
 		cmd = exec.Command(bin, "--shir-in-"+l, "-")
 		cmd.Dir = filepath.Join(root, "sh2perl")
@@ -282,10 +282,10 @@ func emitA1(root, input, srcLang string) ([]byte, error) {
 		}
 		return os.ReadFile("/dev/stdin")
 	}
-	exe := filepath.Join(root, "sh2perl/target/debug/debashc")
+	exe := filepath.Join(root, "sh2perl/target/debug/otranspilerl-cli")
 	fe, ok := sources["."+srcLang]
 	if !ok {
-		fe = "" // shell (and the core's other flags): debashc --shir <file> --raw
+		fe = "" // shell (and the core's other flags): otranspilerl-cli --shir <file> --raw
 	}
 	cmd := exec.Command(exe, "--shir", input, "--raw")
 	if fe != "" {

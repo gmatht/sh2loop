@@ -1,8 +1,8 @@
 #!/usr/bin/env perl
 # fail-estree — Stage A corpus gate for the ESTree backend (PLAN.md §2.1/§2.5).
 #
-# For each example: runs the PERL path (debashc → check_qx → perl vs bash) AND
-# the ESTree path (debashc --estree → structural gate → estree-runner vs bash).
+# For each example: runs the PERL path (otranspilerl-cli → check_qx → perl vs bash) AND
+# the ESTree path (otranspilerl-cli --estree → structural gate → estree-runner vs bash).
 # Stage A: no gating — records {file, perl: P/F, estree: P/F, reason} and prints
 # a summary.
 #
@@ -29,7 +29,7 @@ my $root = dirname(abs_path($0));
 # measurement.
 my $sh2perl = $ENV{SH2PERL_DIR} // "$root/sh2perl";
 # otranspilerl-cli is the transpiler (PLAN "migrate to otranspiler only") —
-# renders the same shIR pipeline, byte-identical to debashc's modern paths.
+# renders the same shIR pipeline, byte-identical to otranspilerl-cli's modern paths.
 my $otranspilerl = "$root/otranspilerl/target/debug/otranspilerl-cli";
 my $examples = "$sh2perl/examples";
 my $gate = "$root/harness/estree_gate.pl";

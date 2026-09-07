@@ -129,7 +129,7 @@ function parseGrepArgs(args, allowFiles) {
   const files = [];
   let patternSeen = false;
   let afterDD = false;
-  const shortFlags = 'vincoqxwlLhHZbrP';
+  const shortFlags = 'vincoqxwlLhHZbrPEFG';
   for (let i = 0; i < args.length; i++) {
     const a = String(args[i]);
     if (!afterDD && a === '--') { afterDD = true; continue; }
@@ -198,6 +198,11 @@ function parseGrepArgs(args, allowFiles) {
         if (body.includes('Z')) opts.nul = true;
         if (body.includes('r')) opts.recursive = true;
         if (body.includes('P')) opts.flavor = 'pcre'; // GNU PCRE (JS regex ≈ PCRE)
+        // flavor selectors: -E (ERE), -G (BRE) — JS regex covers the
+        // corpus patterns; -F (fixed strings) = literal match.
+        if (body.includes('E')) opts.flavor = 'ere';
+        if (body.includes('G')) opts.flavor = 'bre';
+        if (body.includes('F')) opts.flavor = 'fixed';
         continue;
       }
       throw new Error(`grep: unsupported flag ${a}`);
@@ -401,7 +406,24 @@ function cloneShellForJob(shell) {
   return c;
 }
 
+// toI64 — the bash-faithful string→int64 coercion for the --true64
+// homes (UU-FFI.md-adjacent; the BigInt twin of the store's
+// `Number(v) || 0`): BigInts pass through; integer Numbers are exact;
+// strings parse via BigInt FIRST (exact past 2^53 — argv values arrive
+// exact), falling back to the Number-integer form (the narrow home's
+// numeric-prefix convention), and non-numeric/empty coerce to 0n —
+// bash: $((x)) with x="" or x="abc" is 0, never a throw.
+export function toI64(v) {
+  if (typeof v === 'bigint') return v;
+  if (typeof v === 'number') return Number.isInteger(v) ? BigInt(v) : 0n;
+  try { return BigInt(v); } catch { /* not an integer literal */ }
+  const n = Number(v);
+  return Number.isInteger(n) ? BigInt(n) : 0n;
+}
+
 export const sh2 = {
+  toI64,
+
   // node:fs/promises — the native readFile/writeFile surface the emitter's
   // pure-capture lowerings (`$(cat f)`, `$(sort f)`, `$(wc -l < f)`) call
   // directly (PLAN.md §1.2's sh2.fs.* namespace; whitelisted in

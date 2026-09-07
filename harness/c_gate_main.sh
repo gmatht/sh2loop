@@ -5,7 +5,7 @@
 set -u
 ROOT=/home/llm/sh2loop
 SUB=$ROOT/sh2perl
-CORE=${CORE_BIN:-$SUB/otranspilerl/target/debug/otranspilerl-cli}
+CORE=${CORE_BIN:-$ROOT/otranspilerl/target/debug/otranspilerl-cli}
 CC=cc
 JOBS=${JOBS:-8}
 if [ "${1:-}" = "jobs" ]; then JOBS=$2; shift 2; fi
@@ -16,10 +16,10 @@ trap 'rm -rf "$tmp"' EXIT
 run_one() {
   f="$1"; id=$(echo "$f" | md5sum | cut -d' ' -f1)
   d="$tmp/$id"; mkdir -p "$d"
-  shir=$("$CORE" --shir "$f" --raw 2>/dev/null) || { echo "SKIP $f" > "$d/v"; return; }
+  shir=$("$CORE" "$f" --source-lang sh --target shir --raw 2>/dev/null) || { echo "SKIP $f" > "$d/v"; return; }
   [ -z "$shir" ] && { echo "SKIP $f" > "$d/v"; return; }
   bash -n "$f" 2>/dev/null || { echo "SKIP $f" > "$d/v"; return; }
-  g_out=$(printf '%s' "$shir" | "$CORE" --shir-in-c - 2>"$d/rerr") || { echo "FAIL $f render" > "$d/v"; return; }
+  g_out=$(printf '%s' "$shir" | "$CORE" - --target c 2>"$d/rerr") || { echo "FAIL $f render" > "$d/v"; return; }
   s=$(printf '%s' "$g_out" | grep -cE "TODO\(unsupported\)|sh2[A-Za-z_]" || true)
   if [ "$s" -gt 0 ]; then echo "FAIL $f stub:$s" > "$d/v"; cp <<<"$g_out" /dev/null 2>/dev/null; printf '%s' "$g_out" > "$d/prog.c"; return; fi
   printf '%s' "$g_out" > "$d/prog.c"
