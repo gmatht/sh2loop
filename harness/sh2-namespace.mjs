@@ -3873,6 +3873,185 @@ export const sh2 = {
   unsupported(what) {
     throw new Error(`sh2.unsupported: ${what}`);
   },
+
+  // ── struct/JSON helpers (the go-sh self-hosting contract) ─────────
+  // The go-sh frontend lowers Go structs to JSON object strings in the
+  // var store: a struct literal is jsonNew (build + store), a field
+  // read is jsonGet, a field write is jsonSet, an array-field index is
+  // jsonArrGet/Set, an append is jsonArrAppend. Method calls pass the
+  // receiver BY NAME (the receiver arg is the var name), so mutations
+  // inside methods write back to the caller's var. The name arg is a
+  // var name, a param name holding a var name (the receiver-by-name
+  // convention), or a JSON value (a nested jsonGet result).
+
+  // byteAt(s, i) — Go's `s[i]` byte access: the i-th byte's ASCII code
+  // (Go bytes are integers; the A1 is string-flavored, so the code is
+  // the value). The args are TEXT (a var name and an arithmetic index
+  // expression) — the frontend emits the same form in word positions
+  // and inside test strings (`"$(sh2.byteAt(src, i))"`), and the
+  // runtime resolves both.
+  byteAt(s, i) {
+    const str = this.getVar(String(s));
+    let idx;
+    try { idx = evalArith(String(i), this); } catch { idx = 0; }
+    const c = str.charCodeAt(idx);
+    return Number.isNaN(c) ? '0' : String(c);
+  },
+
+  // chr(code) — the inverse of byteAt: the character for a byte code
+  // (the golib's `b.WriteByte(c)` buffer appends).
+  chr(code) {
+    const n = Number(code) || 0;
+    return String.fromCharCode(n);
+  },
+
+  // jsonNew(name, "f1", v1, "f2", v2, ...) — build a JSON object string
+  // from the field-name/value pairs (values stored as plain strings),
+  // store it in var `name`, and return it.
+  jsonNew(name, ...fields) {
+    const obj = {};
+    for (let i = 0; i + 1 < fields.length; i += 2) {
+      obj[String(fields[i])] = String(fields[i + 1] ?? '');
+    }
+    const json = JSON.stringify(obj);
+    this.setVar(name, json);
+    return json;
+  },
+
+  // jsonArrNew(...elems) — build a JSON array string from the element
+  // JSON fragments (the golib's A1 builders' `[]any{...}` literals).
+  jsonArrNew(...elems) {
+    return '[' + elems.map(e => String(e ?? '')).join(',') + ']';
+  },
+
+  // assocHas(name, key) — whether an assoc-array (map) has the key
+  // (the golib's `if _, ok := m[k]; !ok` presence checks): "true"/"false".
+  assocHas(name, key) {
+    const nm = String(name);
+    // the key word is resolved at runtime (a member/call key lowers to
+    // its cmdsub — `$(callName e)`, `$(sh2.jsonGet(t, text))`)
+    const ks = String(expandWord(this, String(key)));
+    if (!this.assocNames.has(nm)) {
+      // a dotted struct-member key (`p.struct ...`): resolve the field
+      // list via jsonGet
+      if (this.getVar(nm).startsWith('{')) {
+        return this.jsonGet(nm, ks) !== '' ? 'true' : 'false';
+      }
+      return 'false';
+    }
+    const store = this.assocStore.get(nm);
+    return store && store.has(normAssocKey(ks)) ? 'true' : 'false';
+  },
+
+  // jsonGet(name, key) — read a field of a struct (or a key of a map
+  // field, or an element of an array field — an array's key is
+  // evalArith'd, a map's key is a name). Resolve the name (a JSON value
+  // passes through; a var name is looked up; a param holding a var name
+  // is followed once), parse, read.
+  jsonGet(name, key) {
+    const arg = String(name);
+    let v = arg.startsWith('{') ? arg : this.getVar(arg);
+    if (!arg.startsWith('{') && v !== '' && !v.startsWith('{') && !v.startsWith('[')) {
+      v = this.getVar(v) ?? v; // a param holding a var name
+    }
+    try {
+      const obj = JSON.parse(v);
+      if (Array.isArray(obj)) {
+        let idx;
+        try { idx = evalArith(String(key), this); } catch { idx = 0; }
+        return obj[idx] ?? '';
+      }
+      return obj[key] ?? '';
+    } catch { return ''; }
+  },
+
+  // jsonSet(name, key, value) — write a field; the write lands on the
+  // RESOLVED var (a param holding a name writes the caller's var).
+  jsonSet(name, key, value) {
+    const arg = String(name);
+    let target = arg;
+    let v = arg.startsWith('{') ? arg : this.getVar(arg);
+    if (!arg.startsWith('{') && v !== '' && !v.startsWith('{') && !v.startsWith('[')) {
+      target = v; // a param holding a var name
+      v = this.getVar(target);
+    }
+    try {
+      const obj = JSON.parse(v);
+      obj[key] = String(value ?? '');
+      const json = JSON.stringify(obj);
+      this.setVar(target, json);
+      return json;
+    } catch { return v; }
+  },
+
+  // jsonArrGet(name, i) — read element i of a JSON array string (the
+  // element is returned as its JSON string, so a nested jsonGet can
+  // read its fields).
+  jsonArrGet(name, i) {
+    const arg = String(name);
+    let v = arg.startsWith('[') ? arg : this.getVar(arg);
+    if (!arg.startsWith('[') && v !== '' && !v.startsWith('{') && !v.startsWith('[')) {
+      v = this.getVar(v) ?? v;
+    }
+    try {
+      const el = JSON.parse(v)[Number(i) || 0];
+      return el === undefined ? '' : JSON.stringify(el);
+    } catch { return ''; }
+  },
+
+  // jsonArrSet(name, i, value) — write element i; lands on the resolved var.
+  jsonArrSet(name, i, value) {
+    const arg = String(name);
+    let target = arg;
+    let v = arg.startsWith('[') ? arg : this.getVar(arg);
+    if (!arg.startsWith('[') && v !== '' && !v.startsWith('{') && !v.startsWith('[')) {
+      target = v;
+      v = this.getVar(target);
+    }
+    try {
+      const arr = JSON.parse(v);
+      arr[Number(i) || 0] = String(value ?? '');
+      const json = JSON.stringify(arr);
+      this.setVar(target, json);
+      return json;
+    } catch { return v; }
+  },
+
+  // jsonArrAppend(name, value) — append to a JSON array string.
+  jsonArrAppend(name, value) {
+    const arg = String(name);
+    let target = arg;
+    let v = arg.startsWith('[') ? arg : this.getVar(arg);
+    if (!arg.startsWith('[') && v !== '' && !v.startsWith('{') && !v.startsWith('[')) {
+      target = v;
+      v = this.getVar(target);
+    }
+    try {
+      const arr = JSON.parse(v);
+      arr.push(String(value ?? ''));
+      const json = JSON.stringify(arr);
+      this.setVar(target, json);
+      return json;
+    } catch { return v; }
+  },
+
+  // a1Emit(prog) — the shiremit.Emit twin: build the A1 program JSON
+  // with ALPHABETICALLY-SORTED keys (the contract's byte-identical
+  // requirement — encoding/json sorts map keys, matching serde_json's
+  // BTreeMap). prog is a JSON object string (the Program struct).
+  a1Emit(prog) {
+    const p = JSON.parse(prog);
+    const out = {
+      type: 'Program',
+      contract_version: 1,
+      imports: p.imports ?? [],
+      requires: p.requires ?? [],
+      var_types: p.var_types ?? [],
+      subs: p.subs ?? [],
+      stmts: p.stmts ?? [],
+    };
+    return sortedStringify(out);
+  },
 };
 
 // ── control signals ──────────────────────────────────────────────────
@@ -7681,16 +7860,86 @@ export function expandWord(sh, s) {
 // Command substitution in plain strings (heredocs, array elements, case
 // patterns): run `$(...)` / backtick bodies through a real shell.
 function runCmdSubst(s, sh) {
-  return String(s).replace(/\$(\(\([\s\S]*?\)\)|\([\s\S]*?\)|`[\s\S]*?`)/g, (m) => {
-    if (m.startsWith('$(') && !m.startsWith('$((')) {
-      const inner = m.slice(2, -1);
+  // sh2.* helper calls in cmdsub (the go-sh byteAt lowering renders
+  // `"$(sh2.byteAt(src, i))"` inside test strings) — evaluate in JS
+  // instead of spawning bash (the helper is not a shell command). The
+  // balanced-paren scan handles nested parens in the args (`byteAt(src,
+  // i+1)` — the generic non-greedy regex below would stop at the first
+  // `)`).
+  const sh2re = /\$\(sh2\.([A-Za-z_][A-Za-z0-9_]*)\(/g;
+  let out = String(s);
+  // a recursive sh2.* helper evaluator: split args at top-level commas
+  // (tracking paren depth and nested `$(...)`), recursively evaluate
+  // nested sh2.* calls, then dispatch to the runtime helper.
+  const evalSh2 = (inner) => {
+    const call = inner.slice(0, inner.indexOf('('));
+    const fn = call.trim().replace(/^sh2\./, '');
+    const body = inner.slice(inner.indexOf('(') + 1, -1);
+    // split body at top-level commas (depth-aware)
+    const args = [];
+    let depth = 0;
+    let cur = '';
+    for (let i = 0; i < body.length; i++) {
+      const ch = body[i];
+      if (ch === '(') depth++;
+      else if (ch === ')') depth--;
+      if (ch === ',' && depth === 0) { args.push(cur); cur = ''; continue; }
+      cur += ch;
+    }
+    if (cur.trim() !== '') args.push(cur);
+    // resolve each arg (a nested sh2.* call is evaluated recursively;
+    // a `$(...)` cmdsub used as an arg is resolved)
+    const resolved = args.map(a => {
+      a = a.trim();
+      const m2 = /^\$\(sh2\.[A-Za-z_][A-Za-z0-9_]*\([\(]?\)?/;
+      if (/^\$\(sh2\.[A-Za-z_][A-Za-z0-9_]*\(/.test(a)) {
+        // find the helper's body: skip the `$(` opener, locate the
+        // helper's `(`, then match its balanced close.
+        const firstOpen = a.indexOf('(');
+        const bodyStart = a.indexOf('(', firstOpen + 1);
+        let d = 0;
+        let j = bodyStart;
+        for (let k = bodyStart; k < a.length; k++) {
+          if (a[k] === '(') d++;
+          else if (a[k] === ')') { d--; if (d === 0) { j = k; break; } }
+        }
+        return evalSh2(a.slice(2, j + 1));
+      }
+      return a;
+    });
+    let val = '';
+    if (fn === 'byteAt' && resolved.length === 2) val = sh.byteAt(resolved[0], resolved[1]);
+    else if (fn === 'jsonGet' && resolved.length === 2) val = sh.jsonGet(resolved[0], resolved[1]);
+    else if (fn === 'chr' && resolved.length === 1) val = sh.chr(resolved[0]);
+    else if (fn === 'assocGet' && resolved.length === 2) val = sh.assocGet(resolved[0], resolved[1]);
+    return val;
+  };
+  let m;
+  while ((m = sh2re.exec(out)) !== null) {
+    const fn = m[1];
+    let depth = 0;
+    for (const ch of m[0]) if (ch === '(') depth++;
+    let j = m.index + m[0].length;
+    while (j < out.length && depth > 0) {
+      if (out[j] === '(') depth++;
+      else if (out[j] === ')') depth--;
+      j++;
+    }
+    const inner = out.slice(m.index + 2, j - 1); // between $( and the final )
+    let val = evalSh2(inner);
+    out = out.slice(0, m.index) + val + out.slice(j);
+    sh2re.lastIndex = m.index + (val === undefined ? 0 : val.length);
+  }
+  return out.replace(/\$(\(\([\s\S]*?\)\)|\([\s\S]*?\)|`[\s\S]*?`)/g, (mm) => {
+    if (mm.startsWith('$(') && !mm.startsWith('$((')) {
+      const inner = mm.slice(2, -1);
       return shellCapture(expandUnquoted(sh, inner));
     }
-    if (m.startsWith('`')) {
-      const inner = m.slice(1, -1);
+    if (mm.startsWith('`')) {
+      const inner = mm.slice(1, -1);
       return shellCapture(expandUnquoted(sh, inner.replace(/\\`/g, '`')));
     }
-    return m; // $((...)) arithmetic: leave as-is (evaluated elsewhere)
+    return mm; // $((...)) arithmetic: leave as-is (evaluated elsewhere)
   });
 }
 
@@ -7763,6 +8012,19 @@ function globExpand(pattern) {
 }
 
 // ── printf ───────────────────────────────────────────────────────────
+// sortedStringify — JSON.stringify with ALPHABETICALLY-SORTED keys at
+// every level (the A1 contract's byte-identical requirement: the core's
+// serde_json BTreeMap sorts keys, and shiremit's encoding/json does
+// too). Used by sh2.a1Emit (the go-sh self-hosting emitter twin).
+function sortedStringify(v) {
+  if (Array.isArray(v)) return '[' + v.map(sortedStringify).join(',') + ']';
+  if (v !== null && typeof v === 'object') {
+    const keys = Object.keys(v).sort();
+    return '{' + keys.map(k => JSON.stringify(k) + ':' + sortedStringify(v[k])).join(',') + '}';
+  }
+  return JSON.stringify(v);
+}
+
 // bash reuses the FORMAT string for every argument (cycling through
 // conversions), so `printf '%s ' a b` prints "a b ". We emit one format
 // pass per argument, consuming one conversion per pass.
@@ -8477,6 +8739,17 @@ function arithExpand(sh, s) {
   });
   out = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, n) => sh.getVar(n));
   out = out.replace(/\$(\d+|[@#*?$])/g, (_, n) => sh.getVar(n));
+  // a struct MEMBER ref (`$p.pos` — the go-sh self-hosting contract):
+  // resolve the field of the struct's JSON object string (a lifted
+  // scalar `$s.X` lower to the dotted getVar, which this falls through
+  // to below).
+  out = out.replace(/\$([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)/g, (_, base, field) => {
+    const v = sh.getVar(base);
+    if (v.startsWith('{')) {
+      try { return JSON.parse(v)[field] ?? ''; } catch { return ''; }
+    }
+    return sh.getVar(`${base}.${field}`);
+  });
   out = out.replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (_, n) => sh.getVar(n));
   // $(cmd) — command substitution (nested arithmetic like
   // `$(( $(wc -l < f) + 1 ))`)
