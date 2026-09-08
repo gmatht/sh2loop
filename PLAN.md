@@ -12,6 +12,20 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v38: **Backend node manifests + a core solver (the "solve" idea) — first
+>   slice landed.** Records the mechanism by which a backend declares the
+>   shIR node types it renders natively (`backends/<lang>/nodes.txt`) and the
+>   core reduces input nodes into exactly those types (candidate table +
+>   BFS solver + `sh2.*` fallback). Full design: `sh2perl/docs/shir-primitives.md`
+>   (also `s2p.rust/docs/shir-primitives.md`, `PLUGGABLE_NESTED_TRANSFORMS.md`);
+>   PLAN §11.12. First-slice implementation: `sh2perl/src/transforms/planner.rs`
+>   (`Capabilities` manifest loader, `candidates()` catalogue, `plan()`
+>   solver; unit-tested against the JS/Perl/C three-manifest scenario).
+>   NOT yet wired into `text_ops`/the pipeline — blocked on the §11 gating
+>   note's missing per-backend transform selection (the shared crate runs
+>   `transforms::apply()` for every backend). Also this round: c_backend
+>   clang-analyzer fixes (sorted-join helpers) + `setArray` empty-literal
+>   length reset (t86_factor output now matches python3).
 > - v37: **py-sh-go bigint regime — t86_factor + t87_bignum (Python ints are
 >   unbounded, so every integer whose value cannot be PROVEN within ±2^53
 >   lowers to exact JS BigInt arithmetic; proven ones stay on the Number
@@ -1841,3 +1855,45 @@ check_qx strips the marker block (guarded fallback ≠ the qx-cheat);
 check_qx class cleared). Residue: `basename $(pwd)` (cmdsub-in-args —
 complex path, honest), the .so FEATURES list (date/sha256sum/uname
 exist in uutils, not yet built), and the both-mode parity gate.
+
+### 11.12 Backend node manifests + a core solver (the "solve" idea)
+
+The §11 marketplace governs TRANSFORMS. This subsection records the
+companion mechanism for NODES: how a backend declares which shIR node
+types it renders natively, and how the core reduces input nodes into
+exactly those types. Full design: `sh2perl/docs/shir-primitives.md`
+(§"Backend node manifests + a core planner"; also mirrored in
+`s2p.rust/docs/shir-primitives.md` and `PLUGGABLE_NESTED_TRANSFORMS.md`).
+
+**The mechanism.** Each backend declares its native node set in a plain
+`backends/<lang>/nodes.txt` (one node type per line; `#` comments;
+`sh2.*` = the runtime fallback namespace). The core keeps a candidate
+table per shell command (a priority list of compositions, each tagged
+with the node types it requires) and SOLVES a reduction into the
+backend's declared nodes: filter to candidates whose required nodes are
+reachable, pick the lowest-priority one, recurse into composite nodes
+(a typed directed reduction graph, solved by BFS/shortest-path), and
+fall back to `sh2.*` / the original command when nothing is reachable.
+Adding a backend = writing a text file; no code change.
+
+**Why.** The core decides what `wc -l`/`cut`/`tr`/`sed` mean once;
+backends implement only their declared leaves. A regex-fearing backend
+gets a char-loop count, a regex-rich backend gets `RegCount` — the core
+picks per manifest, no backend re-derives semantics or reinvents the
+wheel. This is the shape `text_ops` grows into (a manifest-driven
+planner instead of a single hard-coded lowering).
+
+**Status.** Design doc + first-slice implementation landed
+(`sh2perl/src/transforms/planner.rs`: `Capabilities` manifest loader,
+`candidates()` catalogue, `plan()` solver, unit-tested against the
+three-manifest JS/Perl/C scenario). NOT yet wired into `text_ops` or the
+pipeline. The missing prerequisite is the same one the §11 gating note
+flags: there is NO live per-backend transform selection in the shared
+crate — `transforms::apply()` runs the whole `all()` for every backend
+(shir.rs:3082). Until per-backend selection exists, a lowering transform
+would run for every backend, defeating the purpose. The candidate table
+and reductions are the MECHANISM, not final semantics — each candidate
+must be corpus-proven byte-exact per backend before it is offered (the
+doc's extended guardrail; e.g. `wc -l → Split+ArrayLen` is off-by-one on
+the trailing newline, so it is only offered to backends that accept it).
+
