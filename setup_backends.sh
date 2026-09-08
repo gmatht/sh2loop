@@ -1005,7 +1005,7 @@ EOF
                   if [ "$g_eq" = 1 ] && [ -n "$eq_tool" ] && command -v "$eq_tool" >/dev/null 2>&1; then
                     eq_gate=1
                   fi
-                  pass=0; skip=0; fail=0; fails=""; stub_total=0; stub_files=0; al_count=0
+                  pass=0; skip=0; fail=0; fails=""; stub_total=0; stub_files=0; al_count=0; sa_fail_total=0
                   # sh backend blessed-fail allowlist (AGENTS.md guardrail: a
                   # failing test may be allowlisted ONLY for a KNOWN RUNTIME
                   # LIMITATION, never to hide a transpiler bug). Entries are
@@ -1126,6 +1126,26 @@ EOF
                           printf '%s' "$g_out" > /tmp/eq_$$.$eq_ext || { echo "  [$g_lang] backend gate: cannot write the $eq_ext render for $f (disk?) — counted as fail"; fail=$((fail+1)); fails="$f $fails"; continue; }
                         fi
                         eq_exit=1
+                        # STATIC-ANALYSIS GATE (c): the generated C must be
+                        # clean under clang's static analyzer — a warning is
+                        # unfinished/unsafe lowering, not just a runtime
+                        # mismatch. This is a REQUIREMENT on top of the
+                        # compile+run equivalence: code that compiles and even
+                        # matches bash's stdout but trips the analyzer (e.g.
+                        # the null-param / null-deref findings in the emitted
+                        # runtime helpers) FAILS the gate — the renderer must
+                        # address it, not ship it. Skipped when clang is
+                        # absent (the compile arm still needs cc).
+                        sa_fail=0
+                        if [ "$g_lang" = c ] && command -v clang >/dev/null 2>&1; then
+                          # clang --analyze exits 0 even when it EMITS warnings
+                          # (nonzero only on errors), so the gate must grep the
+                          # analyzer output for a warning/error line, not trust
+                          # the exit code.
+                          if clang --analyze /tmp/eq_$$.c 2>&1 | grep -qE "warning:|error:"; then
+                            sa_fail=1
+                          fi
+                        fi
                         # HERMETIC equivalence CWD (perl): the workspace root
                         # is churned by concurrent workers (logs, scratch
                         # .txt/.log/.dat appearing mid-gate), so corpus files
@@ -1214,12 +1234,15 @@ EOF
                         # nonzero-exit reference. A 124 (timeout) on EITHER side
                         # is a fail, never a pass (both sides empty would
                         # otherwise "match").
-                        if [ "$eq_exit" != 124 ] && [ "$bash_rc" != 124 ] \
+                        if [ "$sa_fail" = 0 ] && [ "$eq_exit" != 124 ] && [ "$bash_rc" != 124 ] \
                            && { { { [ "$g_lang" = "perl" ] || [ "$g_lang" = "sh" ] || [ "$g_lang" = "rust" ]; } && [ "$eq_exit" = "$bash_rc" ]; } \
                                 || { { [ "$g_lang" != "perl" ] && [ "$g_lang" != "sh" ] && [ "$g_lang" != "rust" ]; } && [ "$eq_exit" = 0 ] && [ "$bash_rc" = 0 ]; }; } \
                            && diff -q /tmp/eq_$$_out /tmp/eq_$$_ref >/dev/null 2>&1; then
                           pass=$((pass+1)); eq_pass=$((eq_pass+1))
                         else
+                          if [ "$sa_fail" = 1 ]; then
+                            sa_fail_total=$((sa_fail_total+1))
+                          fi
                           if sh_allowlisted "$(basename "$f")"; then
                             skip=$((skip+1)); al_count=$((al_count+1))
                           else
@@ -1240,7 +1263,7 @@ EOF
                       fails="$f $fails"
                     fi
                   done
-                  echo "  [$g_lang] backend gate: $pass/$((pass+skip+fail)) corpus render OK, $fail fail ($stub_files stubs, $eq_fail equiv), $skip skip ($al_count allowlisted) — $stub_total stubs emitted${eq_gate:+; equiv: $eq_pass pass vs bash}"
+                  echo "  [$g_lang] backend gate: $pass/$((pass+skip+fail)) corpus render OK, $fail fail ($stub_files stubs, $eq_fail equiv, $sa_fail_total static-analysis), $skip skip ($al_count allowlisted) — $stub_total stubs emitted${eq_gate:+; equiv: $eq_pass pass vs bash}"
                   # the Go corpus through this backend (the dog-food target):
                   # the Go→<lang> verdict is part of the backend's scope. rust
                   # measures it (fail-go --rust); the corpus-wide bash gate
@@ -1256,8 +1279,8 @@ EOF
                   # the KNOWN report location (summarize-progress.sh reads this,
                   # not the log): one timestamped line, newest last
                   mkdir -p "$WORKSPACE/gate-reports"
-                  printf '%s [%s] backend gate: %s/%s corpus render OK, %s fail (%s stubs, %s equiv), %s skip\n' \
-                    "$(date +%FT%T)" "$g_lang" "$pass" "$((pass+skip+fail))" "$fail" "$stub_files" "$eq_fail" "$skip" \
+                  printf '%s [%s] backend gate: %s/%s corpus render OK, %s fail (%s stubs, %s equiv, %s static-analysis), %s skip\n' \
+                    "$(date +%FT%T)" "$g_lang" "$pass" "$((pass+skip+fail))" "$fail" "$stub_files" "$eq_fail" "$sa_fail_total" "$skip" \
                     >> "$WORKSPACE/gate-reports/backend-$g_lang.report"
                   # CHIMERA gate (sh only): the bash-free WSL sandbox (BSD
                   # shell + busybox toolchain, no bash/perl/GNU coreutils). A
