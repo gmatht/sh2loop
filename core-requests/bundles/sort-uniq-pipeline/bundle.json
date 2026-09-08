@@ -1,0 +1,21 @@
+{
+  "spec": {
+    "node": "SortLines",
+    "kind": "expr",
+    "comment": "The `sorted(iterable)` lowering of the dynamic-language frontends (py-sh-go) emits echo \"$(printf '%s\\n' \"$arr[@]\" | sort [-n] [-u] | awk join)\" — a SPAWN pipeline whose sort/awk stages exist only to order and join an ARRAY THE PROGRAM ALREADY HAS IN MEMORY. That is pure in-memory compute expressed as three subprocesses; every backend can lower it natively (JS: Array.sort; C: qsort; Go: sort.Slice; Perl: sort). The node carries the whole pipeline as ONE contract expression so no backend has to re-recognize the shape.",
+    "fields": {
+      "values": {"kind": "expr", "required": true, "comment": "the array value expression (the printf %s\\n argument — today an IrExpr::Call{func:\"param\", args:[\"slice\", arr, \"@\", \"\"]} or equivalent whole-array read)"},
+      "numeric": {"kind": "bool", "required": false, "default": false, "comment": "sort -n: numeric ordering (sort -n -u from the lowering)"},
+      "unique": {"kind": "bool", "required": false, "default": false, "comment": "sort -u: deduplicate"},
+      "join": {"kind": "str", "required": false, "default\": \",\", "comment": "the join separator (the awk '{printf \"%s\",\", \"}{printf \"%s\",$0}' stage — today \", \"; empty string = newline-per-line passthrough)"}
+    }
+  },
+  "manifest": {
+    "name": "sort-uniq-pipeline",
+    "depends": "SortLines",
+    "prereqs": [],
+    "invariant": "ONLY the exact pipeline shape printf '%s\\n' ARRAY | sort [-n|-u]... | [awk join] lifts (the py-sh-go sorted() lowering); a pipeline with ANY other stage, any flag outside {-n,-u}, a custom sort key (-k/-t), a non-trivial awk program (anything beyond the comma-join printf pair), stdin/redirect noise, or a non-whole-array printf argument REFUSES (open node model, refuse > guess). The lift is status-preserving (printf/sort/awk all succeed on the fixed inputs; lastExit 0) and byte-preserving for the emitted string (LC_ALL=C ordering — the shell sort's default locale is the contract; a backend whose native sort differs MUST sort under the C collation to stay oracle-equal).",
+    "scope": ["estree", "go", "c", "perl", "python", "rust", "java", "zig"],
+    "updates": "none"
+  }
+}
