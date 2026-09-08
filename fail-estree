@@ -378,8 +378,12 @@ for my $r (sort { $reason_count{$b} <=> $reason_count{$a} } keys %reason_count) 
 # and humans diff against the full-run state; a solo run used to wipe the
 # full-run failure list mid-investigation).
 if (!@prefix_args) {
+    # SORT by filename before writing: the loop workers append in
+    # completion order (parallel, nondeterministic) — an unsorted write
+    # reorders all 552 lines every run, and a tracked file then diffs as
+    # pure churn that hides the real verdict changes.
     open my $ofh, '>', "$root/.estree_failures.tsv" or warn "write failures tsv: $!";
-    print $ofh join("\n", @estree_failures), "\n";
+    print $ofh join("\n", sort @estree_failures), "\n";
     close $ofh;
     print "\n(full per-test list in .estree_failures.tsv)\n";
 } else {
