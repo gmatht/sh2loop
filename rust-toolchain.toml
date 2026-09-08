@@ -1,0 +1,8 @@
+# The sh2perl core + otranspilerl CLI compile cleanly on 1.90; rustc 1.78
+# (the system default) fails on pre-existing derive code in ir.rs
+# (E0507: the PartialEq derive derefs the non-Copy `Box<dyn ExtNode>` /
+# `Box<dyn ExtExpr>` fields) and python_backend.rs (E0491 const lifetime).
+# Pin the toolchain so every cargo invocation (the gates' self-heal
+# rebuilds included) uses the same compiler the workers build with.
+[toolchain]
+channel = "1.90"
