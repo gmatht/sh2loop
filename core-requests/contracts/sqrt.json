@@ -1,0 +1,11 @@
+{
+  "node": "Sqrt",
+  "kind": "arith-op",
+  "comment": "The py-sh-go t86_factor lowering leaks a STRING arith text `\"(int(sqrt($1)) + 1)\"` (Assign{targets:[__fl0], expr:Call{func:\"arith\"}}) — the frontend's only non-structured arith site. The string channel forces every backend through its runtime arith-string evaluator (estree: sh2.arith) — the ONE sh2.* call on the hot loop's bound. A structured math-intrinsic node lets every backend render native: JS Math.sqrt, C sqrtl, Go math.Sqrt, Perl sqrt, Python **0.5. The `int()` truncation renders as the backend's existing int-cast (Math.trunc / (long) / int()), NOT a separate node — the frontend emits Cast{Int64, Sqrt(x)} once the node exists. The `$1` positional read inside the string becomes a structured Var(\"1\") read (the same positional channel every other arith tree already uses).",
+  "fields": {
+    "arg": {"kind": "arith", "required": true, "comment": "the radicand expression (the $1 positional read in t86_factor)"}
+  },
+  "frontend_scope": ["py-sh-go"],
+  "render_semantics": "exact IEEE-754 double sqrt, then the ENCLOSING cast's truncation (bash arith evaluates in integers; `int(sqrt($1))` = floor-toward-zero of the double sqrt — the same rule every backend's int() cast applies)",
+  "ingress": "A1 deserializer accepts {type:\"Sqrt\", arg:{...}} inside an Arith ast; renderers without a native sqrt REFUSE the tree (open node model) and the frontend keeps the string form until they accept."
+}
