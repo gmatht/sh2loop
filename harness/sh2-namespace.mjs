@@ -45,7 +45,20 @@ const classToJs = (pat, start) => {
   if (pat[j] === '^') { neg = true; j++; }
   let inner = '';
   if (pat[j] === ']') { inner += '\\]'; j++; } // leading ] is literal
-  while (j < pat.length && pat[j] !== ']') { inner += pat[j]; j++; }
+  while (j < pat.length && pat[j] !== ']') {
+    // a POSIX class `[:name:]` has its OWN `]` INSIDE the outer bracket
+    // (`[^[:space:]]`) — the naive loop would stop at it and truncate
+    // the class. Skip the whole `[:…:]` sequence.
+    if (pat[j] === '[' && pat[j + 1] === ':') {
+      const close = pat.indexOf(':]', j + 2);
+      if (close === -1) return null; // unterminated → treat as literal
+      inner += pat.slice(j, close + 2);
+      j = close + 2;
+      continue;
+    }
+    inner += pat[j];
+    j++;
+  }
   if (j >= pat.length) return null; // unterminated → treat as literal
   inner = inner.replace(/\[:(\w+):\]/g, (m, name) => posixClass(name));
   return { js: '[' + (neg ? '^' : '') + inner + ']', next: j + 1 };
@@ -108,6 +121,55 @@ const ereToJs = (pat) => {
 };
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+// PCRE → JS regex: JS regexes are PCRE-flavored (\d, +, (?=…)) EXCEPT
+// atomic groups `(?>X)` — JS has no possessive/atomic syntax. The
+// standard emulation is a lookahead + backreference `(?=(X))\1` (the
+// backref cannot backtrack, so the match is committed); a following
+// quantifier wraps the WHOLE pair `(?:(?=(X))\1)Q` (a bare `\1+` would
+// repeat the same string). Returns null on an unbalanced group (the
+// caller's invalid-pattern error path).
+const pcreToJs = (pat) => {
+  let out = '';
+  let i = 0;
+  let n = 0;
+  while (i < pat.length) {
+    if (pat.startsWith('(?>', i)) {
+      let depth = 1;
+      let j = i + 3;
+      while (j < pat.length && depth > 0) {
+        if (pat[j] === '(') depth++;
+        else if (pat[j] === ')') depth--;
+        j++;
+      }
+      if (depth !== 0) return null; // unbalanced
+      const inner = pat.slice(i + 3, j - 1);
+      // a NAMED capture avoids backref-number collisions with the
+      // pattern's own groups (the FQDN pattern wraps the whole thing in
+      // `(^…)`, which would steal `\1`)
+      n++;
+      const name = `__a${n}`;
+      const emu = `(?=(?<${name}>${inner}))\\k<${name}>`;
+      // a quantifier after the group wraps the whole pair
+      if (pat[j] === '+' || pat[j] === '*' || pat[j] === '?') {
+        out += `(?:(?:${emu}))` + pat[j];
+        i = j + 1;
+      } else if (pat[j] === '{') {
+        const close = pat.indexOf('}', j);
+        if (close === -1) return null;
+        out += `(?:(?:${emu}))` + pat.slice(j, close + 1);
+        i = close + 1;
+      } else {
+        out += emu;
+        i = j;
+      }
+      continue;
+    }
+    out += pat[i];
+    i++;
+  }
+  return out;
+};
+
 // ── grep argv parser (shared: grepText lift + builtins.grep) ────────
 // The exact GNU grep flag grammar the runtime implements. `allowFiles`:
 // the FIRST positional is the pattern, the REST are FILE operands (the
@@ -148,9 +210,7 @@ function parseGrepArgs(args, allowFiles) {
       continue;
     }
     if (!afterDD && a.length > 1 && a.startsWith('-')) {
-      if (a === '-e' || a === '-E' || a === '-F') {
-        if (a === '-E') opts.flavor = 'ere';
-        if (a === '-F') opts.flavor = 'fixed';
+      if (a === '-e') {
         patterns.push(String(args[++i])); // -e PAT (also marks a pattern)
         patternSeen = true;
         continue;
@@ -222,7 +282,7 @@ function grepRegexes(opts, patterns) {
   const srcs = patterns.map(p =>
     opts.flavor === 'fixed' ? escapeRe(p)
       : opts.flavor === 'ere' ? ereToJs(p)
-      : opts.flavor === 'pcre' ? p   // JS regexes are PCRE-flavored (\d, +, (?=…))
+      : opts.flavor === 'pcre' ? pcreToJs(p)   // JS regexes are PCRE-flavored (\d, +, (?=…)); atomic groups emulated
       : breToJs(p));
   const src = srcs.map(s2 => `(?:${s2})`).join('|');
   const ci = opts.ci ? 'i' : '';
@@ -586,6 +646,23 @@ export const sh2 = {
   getVar(name) {
     const m = /^([A-Za-z_][A-Za-z0-9_]*)\[([^\]]+)\]$/.exec(name);
     if (m) {
+      // Any-list element read (`out[i]`, `out[@]`): the var holds a
+      // list#N id; [i] reads RAW (objects survive for member access
+      // and jsonMarshal — listGet parity), [@]/[*] join with String()
+      // per item (today's shell-array behavior for the same shapes).
+      const _bv2 = this.vars[m[1]];
+      const _lo2 = _bv2 ? this._objStore.get(String(_bv2)) : null;
+      if (_lo2 && _lo2.kind === 'list') {
+        if (m[2] === '@' || m[2] === '*') {
+          const _join = m[2] === '*' ? ((this.vars.IFS || ' ')[0] || ' ') : ' ';
+          return _lo2.items.map((_it) => String(_it ?? '')).join(_join);
+        }
+        let _idx2;
+        try { _idx2 = evalArith(m[2], this); } catch { return ''; }
+        if (_idx2 < 0 || _idx2 >= _lo2.items.length) return '';
+        const _it2 = _lo2.items[_idx2];
+        return (_it2 !== null && typeof _it2 === 'object') ? _it2 : String(_it2 ?? '');
+      }
       // PIPESTATUS — the exit statuses of the last pipeline (recorded by
       // pipeline/pipelineSync). `PIPESTATUS[i]` reads stage i; `[@]`/
       // `[*]` join all statuses.
@@ -719,6 +796,18 @@ export const sh2 = {
   setVar(name, value) {
     const m = /^([A-Za-z_][A-Za-z0-9_]*)\[([^\]]+)\]$/.exec(name);
     if (m) {
+      // Any-list element write (`out[i] = w` — the dogfood builders):
+      // the var holds a list#N id whose items stay raw (objects
+      // survive); dispatches on the VALUE so no frontend static branch
+      // is needed. Grows past the end (bash parity).
+      const _bv = this.vars[m[1]];
+      const _lo = _bv ? this._objStore.get(String(_bv)) : null;
+      if (_lo && _lo.kind === 'list') {
+        let _idx;
+        try { _idx = evalArith(m[2], this); } catch { return true; }
+        if (_idx >= 0) { while (_lo.items.length <= _idx) _lo.items.push(''); _lo.items[_idx] = value ?? ''; }
+        return true;
+      }
       if (this.assocNames.has(m[1])) {
         if (!this.assocStore.has(m[1])) this.assocStore.set(m[1], new Map());
         this.assocStore.get(m[1]).set(normAssocKey(m[2]), String(Array.isArray(value) ? value.join(' ') : value ?? ''));
@@ -732,7 +821,14 @@ export const sh2 = {
       return true;
     }
     if (value === ARITH_BAD_MAGIC) return true; // `x=$((bad))`: the expansion aborted — bash skips the assignment
-    let v = String(Array.isArray(value) ? value.join(' ') : value ?? '');
+    // Plain (non-array) objects store RAW (the dogfood's jsonObject maps
+    // and range loop vars — a write-time String() would freeze them as
+    // "[object Object]"). Arrays keep the join (shell `${arr}` parity);
+    // every other value keeps the String() coercion. Reads already
+    // return raw (getVar) and coerce at the word channel, so string
+    // behavior is identical; only destroyed-object cases change.
+    let v = (value !== null && typeof value === 'object' && !Array.isArray(value))
+      ? value : String(Array.isArray(value) ? value.join(' ') : value ?? '');
     // nameref: `ref=...` assigns the TARGET variable
     if (this.refVars.has(name)) {
       this.setVar(this.refVars.get(name), v);
@@ -2333,19 +2429,28 @@ export const sh2 = {
     return id;
   },
   listGet(id, i) {
+    // Objects/arrays read back RAW (Any-lists hold A1 word-objects —
+    // the dogfood builders — which jsonMarshal/listItems serialize
+    // structurally); every other value keeps the historical String()
+    // read coercion, so string/number elements behave byte-identically
+    // to before. Missing → ''.
+    const rawItem = (it) => (it !== null && typeof it === 'object') ? it : String(it ?? '');
     // inline array field value (see listLen)
     if (Array.isArray(id)) {
       const idx = Number(i);
-      return idx >= 0 && idx < id.length ? String(id[idx]) : '';
+      return idx >= 0 && idx < id.length ? rawItem(id[idx]) : '';
     }
     const o = this._objStore.get(String(id));
     if (!o || o.kind !== 'list') return '';
     const idx = Number(i);
-    return idx >= 0 && idx < o.items.length ? String(o.items[idx]) : '';
+    return idx >= 0 && idx < o.items.length ? rawItem(o.items[idx]) : '';
   },
   listSet(id, i, val) {
     const o = this._objStore.get(String(id));
-    if (o && o.kind === 'list') { const idx = Number(i); if (idx >= 0 && idx < o.items.length) o.items[idx] = val ?? ''; }
+    // GROW on out-of-range write (bash `arr[i]=x` auto-vivifies past
+    // the end — the Any-list sequential fill `out[i] = w` depends on
+    // it; the old in-range-only form silently dropped those writes).
+    if (o && o.kind === 'list') { const idx = Number(i); if (idx >= 0) { while (o.items.length <= idx) o.items.push(''); o.items[idx] = val ?? ''; } }
     return true;
   },
   listLen(id) {
@@ -2364,6 +2469,10 @@ export const sh2 = {
   jsonObject(keys, vals) {
     const self = this;
     const resolve = (v) => {
+      // Plain objects/arrays ride RAW (nested A1 words from the
+      // dogfood builders — a String() here would freeze them as
+      // "[object Object]"; jsonMarshal serializes them structurally).
+      if (v !== null && typeof v === 'object') return v;
       const s = String(v ?? '');
       if (/^obj#\d+$/.test(s)) return self._serObj(s);
       if (/^list#\d+$/.test(s)) return self._serList(s);
@@ -3250,6 +3359,14 @@ export const sh2 = {
   },
   arrayLen(name) {
     if (name === 'PIPESTATUS') return String(this.pipeStatuses.length);
+    // Any-list length (`len(out)` — the dogfood builders): the var
+    // holds a list#N id; the `#name` pseudo-var, `${#name[@]}` words
+    // and getVar("#name") all funnel through here, so one dispatch
+    // covers arithmetic, index-key text and word positions with no
+    // core/arith change.
+    const _lv = this.vars[String(name)];
+    const _lo = _lv ? this._objStore.get(String(_lv)) : null;
+    if (_lo && _lo.kind === 'list') return String(_lo.items.length);
     if (this.assocNames.has(name)) return String(this.assocKeys(name).length);
     const arr = this.arrays.get(String(name));
     if (arr) {
@@ -5471,19 +5588,26 @@ function readFd0(sh) {
 }
 
 function parseHeadTailArgs(args, start) {
-  // returns {n, c, files}
-  let n = start, c = null;
+  // returns {n, c, files, from} — `from` = the GNU `-n +N` / `tail +N`
+  // form (start at line N) vs the default last-N-lines form.
+  let n = start, c = null, from = false;
   const files = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '-') continue;                       // stdin marker
-    if (/^-\d+$/.test(a)) { n = parseInt(a.slice(1), 10); continue; }
-    if (a === '-n' || a === '-c') { const v = Number(args[++i]); if (a === '-n') n = v; else c = v; continue; }
-    if (a.startsWith('-n') && a.length > 2) { n = parseInt(a.slice(2), 10); continue; }
+    if (/^\+\d+$/.test(a)) { n = parseInt(a.slice(1), 10); from = true; continue; }
+    if (/^-\d+$/.test(a)) { n = parseInt(a.slice(1), 10); from = false; continue; }
+    if (a === '-n' || a === '-c') {
+      const v = String(args[++i]);
+      if (a === '-n') { n = parseInt(v, 10); from = v.startsWith('+'); }
+      else c = Number(v);
+      continue;
+    }
+    if (a.startsWith('-n') && a.length > 2) { n = parseInt(a.slice(2), 10); from = false; continue; }
     if (a.startsWith('-c') && a.length > 2) { c = parseInt(a.slice(2), 10); continue; }
     files.push(a);
   }
-  return { n, c, files };
+  return { n, c, files, from };
 }
 
 // cat — concatenate files (or stdin) to stdout. Native fs, no spawn (the
@@ -5690,12 +5814,20 @@ builtins.head = function (args) {
 };
 
 builtins.tail = function (args) {
-  const { n, c, files } = parseHeadTailArgs(args, 10);
+  const { n, c, files, from } = parseHeadTailArgs(args, 10);
   const sources = files.length ? files.map(f => readFileSafe(f)) : [readFd0(this)];
   let out = '';
   for (const s of sources) {
     if (c !== null) {
       out += s.slice(Math.max(0, s.length - c));
+    } else if (from) {
+      // `-n +N` / `tail +N`: start at line N (1-based; GNU keeps the
+      // trailing newline of the last kept line)
+      const lines = s.split('\n');
+      if (lines.length && lines[lines.length - 1] === '') lines.pop(); // trailing \n
+      const fromLine = Math.max(0, Math.min(n - 1, lines.length));
+      out += lines.slice(fromLine).join('\n');
+      if (lines.length) out += '\n';
     } else {
       const lines = s.split('\n');
       if (lines.length && lines[lines.length - 1] === '') lines.pop(); // trailing \n
