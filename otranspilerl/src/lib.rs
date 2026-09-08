@@ -584,6 +584,12 @@ pub fn cli_at(
     } else {
         force_tgt.clone()
     };
+    // Per-backend transform selection (PLAN §11.12): record the target so
+    // `transforms::apply` can filter backend-specific transforms. The
+    // thread-local lives for this CLI invocation; unset = every transform
+    // applies (the historical default), so non-CLI entry points (render,
+    // transpile, the estree worker) are unaffected.
+    debashl::transforms::set_target(Some(&tgt_lang));
 
     if embed {
         // embed profile: snippet A1 → embeddable Perl fragment. Fragment on
