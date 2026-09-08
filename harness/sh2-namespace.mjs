@@ -680,7 +680,13 @@ export const sh2 = {
   assocSet(name, key, value) {
     if (arguments.length >= 3) {
       if (!this.assocStore.has(name)) this.assocStore.set(name, new Map());
-      this.assocStore.get(name).set(normAssocKey(String(key)), String(value));
+      // RAW value (no String() coercion): the translated shir-emit-go
+      // stores nested A1 word-objects here and jsonMarshal serializes
+      // them structurally (a write-time String() would freeze them as
+      // "[object Object]" — the dogfood self-print gap). Every read
+      // path String-coerces (assocGet, join, word use), so shell-origin
+      // string values behave identically; null/undefined still store ''.
+      this.assocStore.get(name).set(normAssocKey(String(key)), value ?? '');
       return;
     }
     const eq = name.indexOf('[');
@@ -2403,6 +2409,18 @@ export const sh2 = {
     return '[]';
   },
   _serVal(k, v) {
+    // INLINE word-objects/arrays (the translated shir-emit-go builds
+    // nested A1 words as plain JS objects inside assoc maps — e.g. the
+    // `v := map[string]any{...}` Emit map whose values are toAnyStmts
+    // words): recurse with sorted keys, exactly like encoding/json.
+    // Without this the String() coercion below yields "[object Object]"
+    // (the dogfood self-print gap).
+    if (v !== null && typeof v === 'object') {
+      if (Array.isArray(v)) return '[' + v.map(it => this._serVal(null, it)).join(',') + ']';
+      const keys = Object.keys(v).sort();
+      const parts = keys.map(key => JSON.stringify(key) + ':' + this._serVal(key, v[key]));
+      return '{' + parts.join(',') + '}';
+    }
     const s = String(v ?? '');
     if (/^obj#\d+$/.test(s)) return this._serObj(s);
     if (/^list#\d+$/.test(s)) return this._serList(s);

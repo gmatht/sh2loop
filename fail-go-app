@@ -18,7 +18,10 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 GOSH="$ROOT/frontends/go-sh/go-sh"
 OTRANS="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
 RUNNER="$ROOT/harness/estree-runner.mjs"
-CONCAT="$ROOT/frontends/go-sh/cmd/go-sh/main.go $ROOT/frontends/go-sh/go-sh.go $ROOT/frontends/shir-emit-go/emit.go"
+# emit.go FIRST: the concat parses sequentially, and the golib's own
+# run() references &shiremit.Program{...} — the type decl must be
+# registered (parseTypeDecl) before its first use.
+CONCAT="$ROOT/frontends/shir-emit-go/emit.go $ROOT/frontends/go-sh/cmd/go-sh/main.go $ROOT/frontends/go-sh/go-sh.go"
 CORPUS="$ROOT/frontends/go-sh/testdata"
 TIMEOUT=180
 GATE=0; PREFIX=""
