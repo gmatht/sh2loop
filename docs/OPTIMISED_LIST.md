@@ -1,13 +1,25 @@
 # Optimised Python list-of-integers representation
 
-Status: **design proposal** (not yet implemented).
+Status: **partially implemented** (C backend + py-sh-go frontend); the
+estree/Zig backends and the extent B-tree are future work.
 
-This document proposes an efficient representation for Python `list`/`set` of
-integers in the sh2loop transpilers, replacing the current all-or-nothing
-choice between an i64 array and a bigint array. The goal is that a list with
-a *small number* of bigint elements does not pay the bigint cost for the
-whole list, and that list-reduction consumers (`max`/`min`/`sum`/`sorted`)
-are recognised by ShIR passes and lowered to cheap metadata operations.
+## Implemented so far
+
+- **py-sh-go frontend**: `max(x)` / `min(x)` / `sum(x)` builtins lower to
+  typed `max`/`min`/`sum` reduction nodes (t92_max_min_sum).
+- **C backend**: `max`/`min`/`sum` lower to a native scan over an int
+  array (`long long[]`, width-narrowed) or a GMP scan over a bigint array
+  (`char *[]` of decimal text). The `int_arrays` analysis (the
+  consumption-profile pass) now recognises `max`/`min`/`sum` as int
+  consumers, so a list that is only reduced this way stays on the i64
+  fast path. `is_int_expr` now accepts string literals that parse as i64
+  (the frontend emits list literals as `Str`).
+- **Not yet**: the extent B-tree, chunk-level `max`/`min`/`sum`
+  aggregates, the sorted-consumption partition, and the estree/Zig
+  backends' `max`/`min`/`sum`.
+
+This document is the design for the full scheme; the implemented slice is
+the native-reduction foundation the rest builds on.
 
 ## Current state
 
