@@ -102,7 +102,17 @@ count of counts), so the *root* gives O(1) access to `len`, `max`, `min`,
 
 A ShIR pass walks the program and, for each list variable, computes a
 **consumption profile** — the set of operations applied to it. The profile
-selects the representation and which metadata to maintain:
+selects the representation and which metadata to maintain.
+
+> **The pass is what makes the metadata worthwhile.** There is no point
+> maintaining `max`/`min`/`sum` unless that operation is *actually called*
+> on the list. Every aggregate we maintain costs on every `append`/`insert`
+> (an O(1) update folded up the tree). If the pass cannot prove a `max`
+> consumer, we maintain **no** `max` metadata — the append stays a bare
+> extent append. The pass is the gate: it proves a consumer exists, and
+> only then do we pay the maintenance cost to make that consumer O(1).
+> Without the pass, the whole scheme is speculative overhead on every
+> mutation for a benefit that may never be realised.
 
 | consumer | profile | representation / metadata |
 |---|---|---|
@@ -120,6 +130,19 @@ parameter.
 The pass emits the profile as an annotation on the `setArray` /
 `setArrayAppend` / `sortedIntJoin` / `max` / `min` / `sum` nodes, so each
 backend can choose its lowering without re-deriving the analysis.
+
+### Why the pass must be a fixed point (and why it gates the metadata)
+
+A list is often built in one place and consumed in another — possibly
+inside a function. `factors` is built by `all_factors` and consumed by
+`sorted(list(factors))` in the caller. The pass must follow the data flow
+across function boundaries to learn that `factors` is `Sorted`-consumed;
+only then does it annotate the `setArray`/`setArrayAppend` sites to build
+the partition-ready representation. If the pass stopped at the function
+boundary, it would see no consumer at the build site and maintain nothing
+— which is correct *only if* the list truly has no reduction consumer. The
+fixed point is what lets the pass prove the consumer exists before any
+metadata is maintained.
 
 ### Example
 
@@ -139,13 +162,17 @@ The pass annotates it so the backend can partition into
 
 ## Optimisation 1: chunk-level max/min
 
-When a list has profile `Extremum` (or `max`/`min` is called), the backend
-maintains `max`/`min` per extent and folds them up the B-tree.
+When a list has profile `Extremum` (the pass proved `max`/`min` is called),
+the backend maintains `max`/`min` per extent and folds them up the B-tree.
 
 - `max(x)` reads the root aggregate: **O(1)** (or O(#chunks) if only
   per-extent maxes are kept, no root fold).
 - `append(v)` updates the last extent's `max`/`min` and the folded ancestors:
   **O(log n)** amortized.
+
+The maintenance cost is paid **only** because the pass proved an
+`Extremum` consumer. A list with no `max`/`min` call keeps bare extents —
+no `max`/`min` field, no fold, no per-append update.
 
 ### Optimisation 1a: skip i64 extents when a bigint max exists
 
