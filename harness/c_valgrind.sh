@@ -22,7 +22,8 @@ for f in ${@:-$ROOT/sh2perl/examples/*.sh}; do
   # compilable subset is the gate's)
   $CC -o "$TMP/o" "$TMP/o.c" 2>/dev/null || continue
   # run under valgrind: errors -> exit 99
-  timeout 20 "$VGBIN" --error-exitcode=99 --leak-check=summary \
+  timeout 20 "$VGBIN" --error-exitcode=99 --leak-check=full \
+    --errors-for-leak-kinds=definite,possible \
     "$TMP/o" >/dev/null 2> "$TMP/vg.txt"
   rc=$?
   total=$((total+1))
