@@ -158,8 +158,18 @@ _cn_<fn-part>_<arg-part>_<seq?>
 
 ## Scope
 
-This heuristic currently applies to native function-call result temps
-(`_cn_…`). The other temp families (`_v` vbuf, `_s` snprintf, `_ret`
-return, `_ai` array-index, `_sv` saved-var, `_p` param) are more generic
-and harder to give meaningful names; extending the same idea to them is
-possible but lower value.
+This heuristic currently applies to:
+
+- **Native function-call result temps** (`_af_10` in C) — the shared
+  `naming::temp_base_name` heuristic.
+- **Float-path temps** (`__h_int_0` — the frontend tags the hoisted
+  expression's first identifier instead of the opaque `__fl0`; the `h`
+  prefix means "hoisted", since the value is a `long long`, not a
+  float).
+- **Positional-param temps** (`p1` — the positional index is the signal;
+  `naming::param_temp_name`).
+
+The other temp families (`_v` vbuf, `_s` snprintf, `_ret` return, `_ai`
+array-index, `_sv` saved-var) are more generic and harder to give
+meaningful names; extending the same idea to them is possible but lower
+value.
