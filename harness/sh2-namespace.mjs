@@ -2712,7 +2712,53 @@ export const sh2 = {
   // refs, words, runtime var names, plain data) passes through
   // untouched — the frontend owns the policy (which names are temps,
   // which fields are null). Returns a NEW list id; the input is kept.
-  freezeStmts(listId, tempsName, nullCsv) {
+  // snapshotTemp(name, tempsName, nullCsv) — freeze ONE named assoc
+  // (a compile-time node temp) into a plain object, resolving nested
+  // temps via the temps set. Called at build time (right after the
+  // temp's fields are set, before later builds clobber it) — the
+  // snapshot is immune to temp reuse. Generic mechanism; frontend
+  // owns policy (temps set + null fields). See freezeStmts.
+  snapshotTemp(name, tempsName, nullCsv) {
+    const self = this;
+    const nullFields = new Set(String(nullCsv ?? '').split(',').map(s => s.trim()).filter(Boolean));
+    const tm = self.assocStore.get(String(tempsName));
+    const isTemp = (s) => !!(tm && tm.get(String(s)));
+    const freezeVal = (v) => {
+      if (typeof v === 'string') {
+        if (isTemp(v)) return freezeAssoc(v);
+        return v;
+      }
+      if (Array.isArray(v)) return v.map(freezeVal);
+      if (v !== null && typeof v === 'object') {
+        const o = {};
+        for (const k of Object.keys(v)) {
+          const fv = v[k];
+          if (nullFields.has(k)) {
+            if (fv === '' || fv == null) { o[k] = null; continue; }
+            if (Array.isArray(fv) && fv.length === 0) { o[k] = null; continue; }
+          }
+          o[k] = freezeVal(fv);
+        }
+        return o;
+      }
+      return v;
+    };
+    const freezeAssoc = (nm) => {
+      const st = self.assocStore.get(String(nm));
+      const o = {};
+      if (!st) return o;
+      for (const [k, val] of st) {
+        if (nullFields.has(k)) {
+          if (val === '' || val == null) { o[k] = null; continue; }
+          if (Array.isArray(val) && val.length === 0) { o[k] = null; continue; }
+        }
+        o[k] = freezeVal(val);
+      }
+      return o;
+    };
+    return freezeAssoc(name);
+  },
+  freezeStmts(listId, tempsName, nullCsv, snapsName) {
     const self = this;
     const nullFields = new Set(String(nullCsv ?? '').split(',').map(s => s.trim()).filter(Boolean));
     // temps set: a GLOBAL assoc (name) — every builder body (methods
@@ -2720,13 +2766,25 @@ export const sh2 = {
     // object is needed to find it.
     const tm = self.assocStore.get(String(tempsName));
     const isTemp = (s) => !!(tm && tm.get(String(s)));
+    // per-build snapshots (snapshotTemp at 2811, immune to temp reuse):
+    // prefer the snapshot object over the live (clobbered) temp.
+    const snaps = snapsName ? self.assocStore.get(String(snapsName)) : null;
+    const snapOf = (s) => {
+      if (!snaps) return undefined;
+      const v = snaps.get(String(s));
+      return v !== null && typeof v === 'object' && !Array.isArray(v) ? v : undefined;
+    };
     // freezeVal(v, top): top=true for direct list items (complete
     // nodes — an obj-store MAP there freezes with null policy); nested
     // live refs (obj ids, runtime names) stay opaque so later mutation
     // through the id keeps working.
     const freezeVal = (v, top) => {
       if (typeof v === 'string') {
-        if (isTemp(v)) return freezeAssoc(v);
+        if (isTemp(v)) {
+          const snap = snapOf(v);
+          if (snap !== undefined) return snap;
+          return freezeAssoc(v);
+        }
         // top-level obj-store MAP (a complete node — funcStmts pushes
         // objNew ids): freeze with null policy. Nested ids stay opaque
         // (live runtime refs).
@@ -2802,6 +2860,8 @@ export const sh2 = {
     self._objStore.set(nid, { kind: 'list', items: items.map((it) => freezeVal(it, true)) });
     return nid;
   },
+  // freezeStmts2: snapshot-aware wrapper (see snapshotTemp). Prefer
+  // per-build snapshots over live temps (immune to temp reuse).
 
   // strReplaceN(s, old, neu, n) — Go strings.Replace: replace AT MOST
   // the first n occurrences of old with neu (n < 0 = all); strReplaceAll
