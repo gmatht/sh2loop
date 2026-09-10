@@ -72,6 +72,33 @@ function splitInlineArg(n) {
   return strCall.arguments[0];
 }
 
+// in-place rewrite: sh2.callDirect(name, binding, args) →
+// sh2.fnCall(name, args). See generate() (0) for rationale.
+function neutralizeDirectCalls(node) {
+  if (Array.isArray(node)) {
+    for (const v of node) neutralizeDirectCalls(v);
+    return;
+  }
+  if (node === null || typeof node !== 'object') return;
+  if (
+    node.type === 'CallExpression' &&
+    node.callee &&
+    node.callee.type === 'MemberExpression' &&
+    node.callee.object &&
+    node.callee.object.type === 'Identifier' &&
+    node.callee.object.name === 'sh2' &&
+    node.callee.property &&
+    node.callee.property.type === 'Identifier' &&
+    node.callee.property.name === 'callDirect' &&
+    Array.isArray(node.arguments) &&
+    node.arguments.length >= 3
+  ) {
+    node.callee.property.name = 'fnCall';
+    node.arguments = [node.arguments[0], node.arguments[2], ...node.arguments.slice(3)];
+  }
+  for (const v of Object.values(node)) neutralizeDirectCalls(v);
+}
+
 // deep-clone + rewrite: split chains → sh2.split(x)
 function rewriteSplitCalls(node) {
   if (!node || typeof node !== 'object') return node;
@@ -126,6 +153,17 @@ export function generate(program) {
   if (!program || program.type !== 'Program') {
     throw new Error(`estree-gen: expected Program, got ${program && program.type}`);
   }
+  // (0) backend workaround (filed: core-requests/go-sh-20260909-
+  // direct-call-positional): neutralize `sh2.callDirect("name", binding,
+  // [args])` to `sh2.fnCall("name", [args])`. The backend's
+  // direct_shell_fn_calls skips the positional swap for bodies its scan
+  // deems positional-free, but it misses getVar-convention reads
+  // (`getVar("1")`, `"2[0]"`, `"#1"`), so helpers like decodeGoStr read
+  // the CALLER's $1 (garbage). callDirect is purely an optimization
+  // (identical semantics for clean bodies), so this is
+  // correctness-preserving and future-proof; negligible cost for cold
+  // paths. Idempotent (a second run finds no callDirect).
+  neutralizeDirectCalls(program);
   // (1) sh2loop-specific AST rewrites (sh2.split dispatch, regex hygiene)
   let tree = rewriteSplitCalls(program);
   escapeRegexLines(tree);
