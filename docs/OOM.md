@@ -335,6 +335,13 @@ assurance than P1 for similar effort). The overcommit note (§2) does not
 change the recommendation — it reinforces doing the cap checks (step 2)
 first, since those are the failures that actually fire.
 
+Follow-up landed: because OOM now aborts, a heap string from a proven
+call can never be NULL at its use — so the `? : ""` guards on fresh
+call temps are dead and the backend drops them (`nonnull_returns`
+pre-pass + temp proof; t86's four `_af_*` printfs). Named shIR vars
+(`old_factors`-style cross-statement moves) keep their guards — that
+needs flow analysis, queued separately.
+
 ## 6. Test strategy
 
 - **ASan sweep of the corpus**: compile the C-gate outputs with
