@@ -2482,15 +2482,31 @@ export const sh2 = {
   listPush(id, ...vals) {
     // append on a NIL slice auto-vivifies (Go semantics): an unknown /
     // empty id allocates a fresh list whose id the caller must store.
+    // Go has no nested slices in this subset (no [][]T) and forbids
+    // pushing a slice without `...` — a pushed list id is always
+    // spread-intent (a callee echoing its result list), so flatten one
+    // level (an empty inner list pushes zero items — the `func f(){}`
+    // body). Anything else rides as-is.
+    const self = this;
+    const pushOne = (lo, v) => {
+      if (typeof v === 'string') {
+        const inner = self._objStore.get(v);
+        if (inner && inner.kind === 'list') {
+          for (const it of inner.items) lo.items.push(it);
+          return;
+        }
+      }
+      lo.items.push(v ?? '');
+    };
     let o = this._objStore.get(String(id));
     if (!o || o.kind !== 'list') {
       const nid = 'list#' + (++this._objSeq);
       o = { kind: 'list', items: [] };
       this._objStore.set(nid, o);
-      for (const v of vals) o.items.push(v ?? '');
+      for (const v of vals) pushOne(o, v);
       return nid;
     }
-    for (const v of vals) o.items.push(v ?? '');
+    for (const v of vals) pushOne(o, v);
     return id;
   },
   listGet(id, i) {
@@ -2628,7 +2644,17 @@ export const sh2 = {
   },
   _serObj(id) {
     const o = this._objStore.get(String(id));
-    if (!o || o.kind !== 'struct') return '{}';
+    if (!o) return '{}';
+    // obj-store MAPS (objNew("map") — anonymous map literals, Function
+    // nodes): serialize the entry map structurally (a snapshot —
+    // callers needing null-restored schema (top-level stmts) go
+    // through freezeStmts, which owns that policy).
+    if (o.kind === 'map') {
+      const keys = [...o.m.keys()].sort();
+      const parts = keys.map(k => JSON.stringify(k) + ':' + this._serVal(k, o.m.get(k)));
+      return '{' + parts.join(',') + '}';
+    }
+    if (o.kind !== 'struct') return '{}';
     const f = o.f;
     const keys = Object.keys(f).sort();
     const parts = keys.map(k => JSON.stringify(k) + ':' + this._serVal(k, f[k]));
@@ -2680,14 +2706,25 @@ export const sh2 = {
     // temps set: a GLOBAL assoc (name) — every builder body (methods
     // + plain funcs) marks via an emitted assocSet, so no parser
     // object is needed to find it.
-    const tstore = self.assocStore.get(String(tempsName));
-    const isTemp = (s) => !!(tstore && tstore.get(String(s)));
-    const freezeVal = (v) => {
+    const tm = self.assocStore.get(String(tempsName));
+    const isTemp = (s) => !!(tm && tm.get(String(s)));
+    // freezeVal(v, top): top=true for direct list items (complete
+    // nodes — an obj-store MAP there freezes with null policy); nested
+    // live refs (obj ids, runtime names) stay opaque so later mutation
+    // through the id keeps working.
+    const freezeVal = (v, top) => {
       if (typeof v === 'string') {
         if (isTemp(v)) return freezeAssoc(v);
+        // top-level obj-store MAP (a complete node — funcStmts pushes
+        // objNew ids): freeze with null policy. Nested ids stay opaque
+        // (live runtime refs).
+        if (top) {
+          const o = self._objStore.get(v);
+          if (o && o.kind === 'map') return freezeObjMap(o);
+        }
         return v;
       }
-      if (Array.isArray(v)) return v.map(freezeVal);
+      if (Array.isArray(v)) return v.map((it) => freezeVal(it, false));
       if (v !== null && typeof v === 'object') {
         const o = {};
         for (const k of Object.keys(v)) {
@@ -2699,11 +2736,26 @@ export const sh2 = {
             if (fv === '' || fv == null) { o[k] = null; continue; }
             if (Array.isArray(fv) && fv.length === 0) { o[k] = null; continue; }
           }
-          o[k] = freezeVal(fv);
+          o[k] = freezeVal(fv, false);
         }
         return o;
       }
       return v;
+    };
+    const freezeObjMap = (o) => {
+      const out = {};
+      for (const [k, val] of o.m) {
+        if (nullFields.has(k)) {
+          if (val === '' || val == null) { out[k] = null; continue; }
+          if (Array.isArray(val) && val.length === 0) { out[k] = null; continue; }
+          if (typeof val === 'string') {
+            const lo = self._objStore.get(val);
+            if (lo && lo.kind === 'list' && lo.items.length === 0) { out[k] = null; continue; }
+          }
+        }
+        out[k] = freezeVal(val, false);
+      }
+      return out;
     };
     const freezeAssoc = (nm) => {
       const st = self.assocStore.get(String(nm));
@@ -2718,14 +2770,14 @@ export const sh2 = {
             if (lo && lo.kind === 'list' && lo.items.length === 0) { o[k] = null; continue; }
           }
         }
-        o[k] = freezeVal(val);
+        o[k] = freezeVal(val, false);
       }
       return o;
     };
     const src = self._objStore.get(String(listId));
     const items = src && src.kind === 'list' ? src.items : [];
     const nid = 'list#' + (++self._objSeq);
-    self._objStore.set(nid, { kind: 'list', items: items.map(freezeVal) });
+    self._objStore.set(nid, { kind: 'list', items: items.map((it) => freezeVal(it, true)) });
     return nid;
   },
 
