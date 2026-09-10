@@ -805,6 +805,48 @@ export const sh2 = {
     return store ? [...store.keys()] : [];
   },
 
+  // toAssocInto(name, v) — normalize any map-ish value into the NAMED
+  // assoc (the single/comma-ok map-assertion binding: the A1 map model
+  // keeps maps as assoc arrays keyed by var name, never as var-store
+  // values, so x["k"] reads lower to assocGet(name)). Plain objects
+  // (list elements, jsonObject words) materialize field-by-field
+  // (values ride RAW, per the assocSet convention); an existing assoc
+  // or kind-map id ALIASES its entry map (Go map assignment shares
+  // the reference); anything else yields an empty assoc (Go's zero
+  // value reads "" for every key — faithful).
+  toAssocInto(name, v) {
+    const nm = String(name ?? '');
+    if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+      const m = new Map();
+      for (const k of Object.keys(v)) m.set(k, v[k] ?? '');
+      this.assocStore.set(nm, m);
+      return nm;
+    }
+    const s = String(v ?? '');
+    if (this.assocNames.has(s) || this.assocStore.has(s)) {
+      this.assocStore.set(nm, this.assocStore.get(s));
+      return nm;
+    }
+    const o = this._objStore.get(s);
+    if (o && o.kind === 'map') {
+      this.assocStore.set(nm, o.m);
+      return nm;
+    }
+    if (/^\{/.test(s)) {
+      try {
+        const parsed = JSON.parse(s);
+        if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          const m = new Map();
+          for (const k of Object.keys(parsed)) m.set(k, parsed[k] ?? '');
+          this.assocStore.set(nm, m);
+          return nm;
+        }
+      } catch { /* fall through to empty */ }
+    }
+    this.assocStore.set(nm, new Map());
+    return nm;
+  },
+
   assocValues(name) {
     const store = this.assocStore.get(name);
     return store ? [...store.values()] : [];
@@ -2041,7 +2083,13 @@ export const sh2 = {
     if (t === 'number') return Number.isInteger(value) ? 'int' : 'float';
     if (t === 'boolean') return 'bool';
     if (t === 'string') return 'string';
-    return t; // 'object', 'undefined', 'bigint', 'function', ...
+    // PLAIN objects are map values (jsonObject words, list elements —
+    // the dogfood toAnySlice round-trip): the frontend's map vocabulary
+    // is "map" (goTypeKind), so comma-ok (`ok` in `v, ok :=
+    // x.(map[string]any)`) and type-switch `case map[string]any`
+    // dispatch on it. null/undefined/functions keep the JS fallback.
+    if (t === 'object' && value !== null) return 'map';
+    return t; // 'undefined', 'bigint', 'function', null, ...
   },
 
   isType(value, name) {
@@ -2516,6 +2564,11 @@ export const sh2 = {
       return self._serAssoc(nm);
     }
     if (typeof name === 'object' && name !== null) return JSON.stringify(name);
+    // a top-level store id (`json.Marshal(out)` on a list var — the
+    // dogfood toAnySlice round-trip): route through the structural
+    // serializer like nested values (without this the id falls to
+    // _scalar and encodes as a quoted string).
+    if (/^(obj|list|assoc)#\d+$/.test(nm)) return self._serVal(null, nm);
     return JSON.stringify(self._scalar(null, nm));
   },
 
