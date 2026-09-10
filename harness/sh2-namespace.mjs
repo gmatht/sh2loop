@@ -2566,7 +2566,9 @@ export const sh2 = {
       if (v !== null && typeof v === 'object') return v;
       const s = String(v ?? '');
       if (/^obj#\d+$/.test(s)) return self._serObj(s);
-      if (/^list#\d+$/.test(s)) return self._serList(s);
+      // list# ids ride RAW (a snapshot here would strand node temps
+      // as JSON text no freeze can resolve — echo Array elements).
+      // freezeStmts / jsonMarshal resolve them with full context.
       if (/^assoc#\d+$/.test(s)) return self._serAssoc(s);
       return s;
     };
