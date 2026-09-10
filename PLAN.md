@@ -12,6 +12,23 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v39: **py-sh-go int-domain function locals — t86 `n`/`i` are C/Zig
+>   locals now, not file-scope globals.** Frontend emits bare
+>   `Declare(local:true)` scope pins for int-domain params + range-loop
+>   counters (initializing Assigns unchanged, so Assign-keyed analyses
+>   see identical IR). C renders `long long` function locals, Zig renders
+>   `var` locals; estree stays 91/91 (renders `local` builtin calls).
+>   Two minimal backend exemptions (submodule f01b1fa3): lift_scan
+>   Declare arm (bare = lift-neutral) + numeric_lift bare-Declare
+>   writeless rule (no store write = no numeric exclusion). Bigint-domain
+>   and top-level vars untouched (no Declare+mpz path yet; module-scope
+>   leak keeps the hoist) — t89 keeps file-scope `mpz_t`. New
+>   `sh2perl/tests/c_fn_locals.rs`: positive (locals, no col-0 decls) +
+>   counter-test (post-call top-level read keeps the global). Gates: C
+>   stdout+ASan+UBSan+valgrind clean on t86/87/89; shell→C byte-identical
+>   on samples (c_gate_main 45 fails are pre-existing worker/env
+>   breakage, proven innocent by revert-diff); 6 estree lib-test fails
+>   likewise pre-existing.
 > - v38: **Backend node manifests + a core solver (the "solve" idea) — first
 >   slice landed.** Records the mechanism by which a backend declares the
 >   shIR node types it renders natively (`backends/<lang>/nodes.txt`) and the
