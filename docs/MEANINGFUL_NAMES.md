@@ -162,10 +162,17 @@ This heuristic currently applies to:
 
 - **Native function-call result temps** (`_af_10` in C) — the shared
   `naming::temp_base_name` heuristic.
-- **Float-path temps** (`__h_int_0` — the frontend tags the hoisted
-  expression's first identifier instead of the opaque `__fl0`; the `h`
-  prefix means "hoisted", since the value is a `long long`, not a
-  float).
+- **Float-path temps** (`_i_sqrt_n` / `_i_sqrt_nv` — the frontend
+  derives the name from the hoisted expression's CONTEXT via
+  `floatName` in py-sh-go: it walks the Expr AST (call chain + variable
+  names, constants skipped), so `int(n**0.5) + 1` reads as what it
+  holds instead of the opaque `__fl0` or a sequence-numbered `__h_int_0`.
+  The `v` suffix marks the numeric (long long) form; the bare name is
+  the arith-string form. Disambiguation is by context (the expression's
+  shape), not a global sequence: a per-context `_i_sqrt_n_1` only
+  appears on collision (`usedHoist`/`hoistSeq` track it).
+  `int`→`i`, `trunc`→`tr`; short single words stay whole (`sqrt`),
+  multi-word names abbreviate to first letters).
 - **Positional-param temps** (`p1` — the positional index is the signal;
   `naming::param_temp_name`).
 
