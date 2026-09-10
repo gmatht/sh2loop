@@ -2479,6 +2479,16 @@ export const sh2 = {
     this._objStore.set(id, { kind: 'list', items: [] });
     return id;
   },
+  // arrayToList(name) — freeze a shell array's items into a new list
+  // id (the slice-param passing protocol: Go slices cross sub calls
+  // as a single opaque value; the callee reads it with listGet/listLen
+  // and ranges it like any list). Items ride raw (ids/objects survive).
+  arrayToList(name) {
+    const arr = this.arrays.get(String(name)) ?? [];
+    const nid = 'list#' + (++this._objSeq);
+    this._objStore.set(nid, { kind: 'list', items: [...arr] });
+    return nid;
+  },
   listPush(id, ...vals) {
     // append on a NIL slice auto-vivifies (Go semantics): an unknown /
     // empty id allocates a fresh list whose id the caller must store.
