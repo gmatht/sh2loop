@@ -21,11 +21,14 @@ estree/Zig backends and the extent B-tree are future work.
   bigints outside i64 range are all `< i64_min` or `> i64_max`
   (t93_extent_mixed).
 - **estree backend**: `sh2.max`/`min`/`sum` (BigInt-exact) + the
-  native-array twins `maxArr`/`minArr`/`sumArr`; array-read tracking so
-  the native-array pass keeps a reduced list as a JS array (t92 passes on
-  estree).
+  native-array twins `maxArr`/`minArr`/`sumArr` and
+  `sortedIntJoinArr`/`sortedBigintJoinArr`; array-read tracking so the
+  native-array pass keeps a reduced/sorted list as a JS array and
+  rewrites `sh2.max("xs")`/`sh2.sortedBigintJoin("xs")` to the `*Arr`
+  twins. **All py-sh-go tests pass on estree (90/90)** — t89/t90 bigint
+  factors, t91 set-sum fallback, t92 max/min/sum, t93 extent.
 - **Not yet**: the full extent B-tree, and the Zig backend's
-  `max`/`min`/`sum` (its regular-list array model is incomplete).
+  `max`/`min`/`sum`/sorted (its regular-list array model is incomplete).
 
 This document is the design for the full scheme; the implemented slice is
 the native-reduction foundation the rest builds on.
