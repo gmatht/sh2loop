@@ -2658,11 +2658,14 @@ export const sh2 = {
   // refs, words, runtime var names, plain data) passes through
   // untouched — the frontend owns the policy (which names are temps,
   // which fields are null). Returns a NEW list id; the input is kept.
-  freezeStmts(listId, tempsId, nullCsv) {
+  freezeStmts(listId, tempsName, nullCsv) {
     const self = this;
     const nullFields = new Set(String(nullCsv ?? '').split(',').map(s => s.trim()).filter(Boolean));
-    const tm = self._objStore.get(String(tempsId));
-    const isTemp = (s) => !!(tm && tm.kind === 'map' && tm.m.get(String(s)));
+    // temps set: a GLOBAL assoc (name) — every builder body (methods
+    // + plain funcs) marks via an emitted assocSet, so no parser
+    // object is needed to find it.
+    const tstore = self.assocStore.get(String(tempsName));
+    const isTemp = (s) => !!(tstore && tstore.get(String(s)));
     const freezeVal = (v) => {
       if (typeof v === 'string') {
         if (isTemp(v)) return freezeAssoc(v);
