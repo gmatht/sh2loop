@@ -3460,6 +3460,31 @@ export const sh2 = {
     for (const s of items) total += BigInt(s);
     return String(total);
   },
+  // sortedIntJoinArr/sortedBigintJoinArr — the native-array twins for
+  // sortedIntJoin/sortedBigintJoin (an Interpolate-embedded or native-list
+  // sorted() rewrite).
+  sortedIntJoinArr(arr) {
+    const items = (arr ?? []).map((v) => String(v ?? ''));
+    const vals = items.map((s) => Number(s));
+    const order = items.map((_, i) => i).sort((a, b) =>
+      vals[a] < vals[b] ? -1 : vals[a] > vals[b] ? 1 : a - b);
+    const out = [];
+    for (const i of order) {
+      if (out.length === 0 || items[i] !== out[out.length - 1]) out.push(items[i]);
+    }
+    return out.join(', ');
+  },
+  sortedBigintJoinArr(arr) {
+    const items = (arr ?? []).map((v) => String(v ?? ''));
+    const vals = items.map((s) => { try { return BigInt(s); } catch { return 0n; } });
+    const order = items.map((_, i) => i).sort((a, b) =>
+      vals[a] < vals[b] ? -1 : vals[a] > vals[b] ? 1 : a - b);
+    const out = [];
+    for (const i of order) {
+      if (out.length === 0 || vals[i] !== vals[out[out.length - 1]]) out.push(i);
+    }
+    return out.map((i) => items[i]).join(', ');
+  },
   // isSmallInt(v) — the split-set routing predicate (core request
   // py-sh-go-20260909-split-set-union): is the string an integer within
   // ±(2^53−1)? Parsed as BigInt and compared exactly — NO lossy Number
