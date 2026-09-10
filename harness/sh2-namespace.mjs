@@ -2597,7 +2597,16 @@ export const sh2 = {
     if (v !== null && typeof v === 'object') {
       if (Array.isArray(v)) return '[' + v.map(it => this._serVal(null, it)).join(',') + ']';
       const keys = Object.keys(v).sort();
-      const parts = keys.map(key => JSON.stringify(key) + ':' + this._serVal(key, v[key]));
+      const vtype = typeof v.type === 'string' ? v.type : '';
+      const parts = keys.map(key => {
+        // per-type numeric fields (the A1 contract types numbers:
+        // Num/Int value, Arith delta — a sibling Str.value "1" must
+        // stay a string, so the generic digits rule is gone).
+        if (key === 'value' && (vtype === 'Num' || vtype === 'Int') && /^-?\d+$/.test(String(v[key] ?? ''))) {
+          return JSON.stringify(key) + ':' + String(Number(v[key]));
+        }
+        return JSON.stringify(key) + ':' + this._serVal(key, v[key]);
+      });
       return '{' + parts.join(',') + '}';
     }
     // explicit null (e.g. a frozen A1 sigil) serializes as null —
@@ -2626,14 +2635,18 @@ export const sh2 = {
     return '{' + parts.join(',') + '}';
   },
   _scalar(k, s) {
-    const NUMERIC = new Set(['contract_version', 'line', 'start', 'end', 'stmt', 'rc', 'idx']);
+    // numeric restoration is schema-driven (NUMERIC keys like line/delta —
+    // restored from the string-flavored store). A generic digits rule
+    // would corrupt numeric STRINGS (Str value "1" must stay "1" —
+    // the ingress rejects a number there), so unknown fields keep
+    // their string form (fail-visible at ingress when a number was
+    // contractually required).
+    const NUMERIC = new Set(['contract_version', 'line', 'start', 'end', 'stmt', 'rc', 'idx', 'delta']);
     if (k != null && NUMERIC.has(k) && /^-?\d+$/.test(s)) return String(Number(s));
     if (s === '') return '[]';
     if (s === 'true') return 'true';
     if (s === 'false') return 'false';
     if (s === 'null') return 'null';
-    if (/^-?\d+$/.test(s)) return String(Number(s));
-    if (/^-?\d+\.\d+$/.test(s)) return String(Number(s));
     return JSON.stringify(s);
   },
 
