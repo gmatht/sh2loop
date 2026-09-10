@@ -2600,6 +2600,9 @@ export const sh2 = {
       const parts = keys.map(key => JSON.stringify(key) + ':' + this._serVal(key, v[key]));
       return '{' + parts.join(',') + '}';
     }
+    // explicit null (e.g. a frozen A1 sigil) serializes as null —
+    // String(null ?? '') would feed _scalar "" (which yields []).
+    if (v === null) return 'null';
     const s = String(v ?? '');
     if (/^obj#\d+$/.test(s)) return this._serObj(s);
     if (/^list#\d+$/.test(s)) return this._serList(s);
