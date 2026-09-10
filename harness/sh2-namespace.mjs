@@ -2726,6 +2726,13 @@ export const sh2 = {
     const freezeVal = (v) => {
       if (typeof v === 'string') {
         if (isTemp(v)) return freezeAssoc(v);
+        // nested list id (echo elements, block bodies): resolve items
+        // now (all referenced temps are complete; live store is current
+        // — later builds cannot have clobbered yet).
+        const lo = self._objStore.get(v);
+        if (lo && lo.kind === 'list' && Array.isArray(lo.items)) {
+          return lo.items.map(freezeVal);
+        }
         return v;
       }
       if (Array.isArray(v)) return v.map(freezeVal);
