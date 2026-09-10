@@ -372,6 +372,13 @@ exit nonzero with the traceback. Both halves are required — testing
   output.* Over-capacity inputs must either produce identical output or
   exit nonzero with a stderr diagnostic. Class E (snprintf truncation)
   is grandfathered only if documented per-site; see open question 3.
+- **stderr-redirect caveat (found verifying t94)**: `main()` opens with
+  `freopen("/dev/null", "w", stderr)` (silencing child processes),
+  so the fail-stop diagnostic goes to /dev/null when the redirect is
+  kept — exit code 127 remains the machine-readable signal. (A program
+  that keeps the redirect *and* needs operator-visible OOM diagnostics
+  would have to duplicate the message elsewhere — open design point,
+  not implemented.)
 
 ## 7. Open questions
 
