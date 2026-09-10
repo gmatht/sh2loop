@@ -771,6 +771,17 @@ export const sh2 = {
   // directly instead of the baked-name leak. The 2-arg form
   // (`assocSet("map[key]", v)` — the baked-name lowering of
   // `map[key]=v`) stays supported: same store, same key normalization.
+  // freezeOneTemp(name) — freeze ONE node-temp name to its object now
+  // (for store-time resolution in assocSet/listPush, before later
+  // builds clobber it). Delegates to freezeStmts (no logic duplication).
+  // Returns the original string when not freezable (safe passthrough).
+  freezeOneTemp(name) {
+    const li = 'list#' + (++this._objSeq);
+    this._objStore.set(li, { kind: 'list', items: [String(name)] });
+    const out = this.freezeStmts(li, 'nodeTemps', 'sigil,params');
+    const o = this._objStore.get(String(out));
+    return o && o.kind === 'list' && o.items.length > 0 ? o.items[0] : name;
+  },
   assocSet(name, key, value) {
     if (arguments.length >= 3) {
       if (!this.assocStore.has(name)) this.assocStore.set(name, new Map());
@@ -780,7 +791,16 @@ export const sh2 = {
       // "[object Object]" — the dogfood self-print gap). Every read
       // path String-coerces (assocGet, join, word use), so shell-origin
       // string values behave identically; null/undefined still store ''.
-      this.assocStore.get(name).set(normAssocKey(String(key)), value ?? '');
+      // COMPILE-TIME node temps (__tmp_m* marked in nodeTemps) resolve
+      // NOW (not at end-freeze — later builds overwrite the temp before
+      // then, corrupting multi-stmt programs). Prefix-gated (cheap) +
+      // membership-precise (user strings never match the prefix).
+      let v = value ?? '';
+      if (typeof v === 'string' && v.startsWith('__tmp_m')) {
+        const tm = this.assocStore.get('nodeTemps');
+        if (tm && tm.get(v)) v = this.freezeOneTemp(v);
+      }
+      this.assocStore.get(name).set(normAssocKey(String(key)), v);
       return;
     }
     const eq = name.indexOf('[');
@@ -2504,6 +2524,14 @@ export const sh2 = {
         if (inner && inner.kind === 'list') {
           for (const it of inner.items) lo.items.push(it);
           return;
+        }
+        // compile-time node temps resolve now (see assocSet).
+        if (v.startsWith('__tmp_m')) {
+          const tm = self.assocStore.get('nodeTemps');
+          if (tm && tm.get(v)) {
+            lo.items.push(self.freezeOneTemp(v));
+            return;
+          }
         }
       }
       lo.items.push(v ?? '');
