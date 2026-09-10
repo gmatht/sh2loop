@@ -4483,6 +4483,8 @@ export const sh2 = {
   },
 
   // jsonHas(name, field, key) — whether a STRUCT's map field has the
+  // key. Returns "true" or "" (NOT "false" — callers test truthiness
+  // (`if ok`) or negation (`if !ok`), and "false" is truthy in JS).
   // key (the golib's `_, ok := p.structFields[callName(e)]`): "true"/"false".
   jsonHas(name, field, key) {
     try {
@@ -4490,7 +4492,7 @@ export const sh2 = {
       const fieldJson = obj[field];
       if (fieldJson === undefined || fieldJson === null || fieldJson === '') return 'false';
       const k = String(expandWord(this, String(key)));
-      return JSON.parse(fieldJson)[k] !== undefined ? 'true' : 'false';
+      return JSON.parse(fieldJson)[k] !== undefined ? 'true' : '';
     } catch { return 'false'; }
   },
 
@@ -4505,12 +4507,12 @@ export const sh2 = {
       // a dotted struct-member key (`p.struct ...`): resolve the field
       // list via jsonGet
       if (this.getVar(nm).startsWith('{')) {
-        return this.jsonGet(nm, ks) !== '' ? 'true' : 'false';
+        return this.jsonGet(nm, ks) !== '' ? 'true' : '';
       }
-      return 'false';
+      return '';
     }
     const store = this.assocStore.get(nm);
-    return store && store.has(normAssocKey(ks)) ? 'true' : 'false';
+    return store && store.has(normAssocKey(ks)) ? 'true' : '';
   },
 
   // jsonGet(name, key) — read a field of a struct (or a key of a map
