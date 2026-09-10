@@ -14,9 +14,13 @@ estree/Zig backends and the extent B-tree are future work.
   consumers, so a list that is only reduced this way stays on the i64
   fast path. `is_int_expr` now accepts string literals that parse as i64
   (the frontend emits list literals as `Str`).
-- **Not yet**: the extent B-tree, chunk-level `max`/`min`/`sum`
-  aggregates, the sorted-consumption partition, and the estree/Zig
-  backends' `max`/`min`/`sum`.
+- **C backend — Optimisation 1 (chunk-level aggregates)**: a
+  `reduce_arrays` analysis identifies int arrays consumed by
+  `max`/`min`/`sum`; those arrays maintain `_max`/`_min`/`_sum`
+  incrementally on `setArray`/`setArrayAppend`, and the reduction reads
+  the aggregate in **O(1)** (no scan).
+- **Not yet**: the extent B-tree, the sorted-consumption partition, and
+  the estree/Zig backends' `max`/`min`/`sum`.
 
 This document is the design for the full scheme; the implemented slice is
 the native-reduction foundation the rest builds on.
