@@ -7,20 +7,25 @@ estree/Zig backends and the extent B-tree are future work.
 
 - **py-sh-go frontend**: `max(x)` / `min(x)` / `sum(x)` builtins lower to
   typed `max`/`min`/`sum` reduction nodes (t92_max_min_sum).
-- **C backend**: `max`/`min`/`sum` lower to a native scan over an int
-  array (`long long[]`, width-narrowed) or a GMP scan over a bigint array
-  (`char *[]` of decimal text). The `int_arrays` analysis (the
-  consumption-profile pass) now recognises `max`/`min`/`sum` as int
-  consumers, so a list that is only reduced this way stays on the i64
-  fast path. `is_int_expr` now accepts string literals that parse as i64
-  (the frontend emits list literals as `Str`).
-- **C backend — Optimisation 1 (chunk-level aggregates)**: a
-  `reduce_arrays` analysis identifies int arrays consumed by
-  `max`/`min`/`sum`; those arrays maintain `_max`/`_min`/`_sum`
-  incrementally on `setArray`/`setArrayAppend`, and the reduction reads
-  the aggregate in **O(1)** (no scan).
-- **Not yet**: the extent B-tree, the sorted-consumption partition, and
-  the estree/Zig backends' `max`/`min`/`sum`.
+- **C backend** `max`/`min`/`sum`: native scan over an int array
+  (`long long[]`, width-narrowed) or a GMP scan over a bigint array
+  (`char *[]` of decimal text); `int_arrays`/`analyze_reduce_arrays` keep
+  a list reduced only this way on the i64 fast path, maintaining
+  `_max`/`_min`/`_sum` incrementally so the reduction is **O(1)**
+  (Optimisation 1). `is_int_expr` accepts string literals that parse as
+  i64.
+- **C backend — extent sorted-consumption partition (Optimisation 2)**:
+  `_sh_sorted_bigint_join` partitions a mixed list into the i64 extent
+  (native `long long` sort, never an mpz compare) and the bigint extent
+  (mpz sort), then outputs `-bigint, i64, +bigint` — exact because
+  bigints outside i64 range are all `< i64_min` or `> i64_max`
+  (t93_extent_mixed).
+- **estree backend**: `sh2.max`/`min`/`sum` (BigInt-exact) + the
+  native-array twins `maxArr`/`minArr`/`sumArr`; array-read tracking so
+  the native-array pass keeps a reduced list as a JS array (t92 passes on
+  estree).
+- **Not yet**: the full extent B-tree, and the Zig backend's
+  `max`/`min`/`sum` (its regular-list array model is incomplete).
 
 This document is the design for the full scheme; the implemented slice is
 the native-reduction foundation the rest builds on.
