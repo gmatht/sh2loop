@@ -2958,6 +2958,22 @@ export const sh2 = {
     return String(t);
   },
   // strSplit: Go strings.Split twin — returns a LIST-OBJECT id
+  // rangeItems(name) — items for Go `range` over an untyped var:
+  // a populated shell array yields its items, else the var's string
+  // splits on newlines (captured multi-line output). Returns a list
+  // id in both cases (uniform listLen/listGet iteration). Covers
+  // forward refs and top-level timing gaps (the lexer's multiOps)
+  // where static varTypes is empty but the runtime store is ready.
+  rangeItems(name) {
+    const nm = String(name ?? '');
+    const arr = this.arrays.get(nm);
+    const nid = 'list#' + (++this._objSeq);
+    if (arr && arr.length > 0) {
+      this._objStore.set(nid, { kind: 'list', items: [...arr] });
+      return nid;
+    }
+    return this.strSplit(String(this.vars[nm] ?? ''), '\n');
+  },
   strSplit(s, sep) {
     const parts = String(s).split(String(sep));
     const id = 'list#' + (++this._objSeq);
