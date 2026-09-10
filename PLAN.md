@@ -12,6 +12,22 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v40: **Structured `isqrt` node kills the A1 arith-string detour.**
+>   `int(Y**0.5)` (int-domain Y) now lowers to `Call{func:isqrt}` — no
+>   `arith("int(sqrt(..))")` string, no string temp, no `+0`
+>   re-numerify (t86 A1: zero strings; `_i_sqrt_nv: Int` single structured
+>   bound temp pair). tryIsqrtIR/tryIsqrtHoist feed hoistFloatIR +
+>   hoistIntOperand (two native temps, plain-Var cond — fold/cstyle only
+>   handle Var/Num bound text). Native renders: C `_sh_isqrt` (exact
+>   Newton), estree `Math.trunc(sqrt)` (CPython parity), zig/perl/python
+>   /rust 1-liners; sh/java/go keep graceful fallbacks (red-preserving).
+>   Caught+fixed latent `_sh_isqrt` init overflow at i64max (unsigned;
+>   new exact-values test incl. boundaries). Bigint/float/general shapes
+>   keep the legacy string path. Gates: t86/88 C+ASan+valgrind+estree
+>   match; 91/91 estree unaffected (no isqrt nodes elsewhere); red
+>   backends stay red. Submodule 1b0406f5 (assistant-isqrt merged with
+>   worker main). NOTE: bound range-seeding (isqrt_text_max, u32 narrow)
+>   went dormant with the strings — worker to add Call-based seeding.
 > - v39: **py-sh-go int-domain function locals — t86 `n`/`i` are C/Zig
 >   locals now, not file-scope globals.** Frontend emits bare
 >   `Declare(local:true)` scope pins for int-domain params + range-loop
