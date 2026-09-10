@@ -277,7 +277,28 @@ run_native() {  # <file> -> stdout on stdout
       grep -qE 'os\.(Getenv|WriteFile|Setenv|Stat|Stdin|Stdout)' "$f" && imports="$imports\n\t\"os\""
       { printf 'package main\n\nimport (\n%b\n)\n\nfunc main() {\n' "$imports"; cat "$f"; printf '\n}\n'; } > "$tmp/main.go"
     fi
-    (cd "$tmp" && timeout 20 "$gobin" run main.go) < /dev/null 2>/dev/null
+    # module context for programs importing a frontend itself as a
+    # library (go-sh t99_external_unit.go imports the golib): the import
+    # resolves only through go.mod replace directives (a dependency's own
+    # replaces are ignored — the main module must repeat them). Mirrors
+    # fail-go's oracle setup; without it `go run` fails and the native
+    # side is spuriously empty.
+    moddir=""
+    grep -q 'gmatht/sh2loop/frontends/go-sh' "$f" && moddir="$root/frontends/go-sh"
+    grep -q 'gmatht/sh2loop/frontends/cpp-sh-go' "$f" && moddir="$root/frontends/cpp-sh-go"
+    if [ -n "$moddir" ]; then
+      mod=$(grep '^module ' "$moddir/go.mod" | awk '{print $2}')
+      {
+        printf 'module app\n\ngo 1.21\n\nrequire %s v0.0.0\n\n' "$mod"
+        printf 'replace %s => %s\n' "$mod" "$(cd "$moddir" && pwd)"
+        grep '^replace ' "$moddir/go.mod" | while read -r _ from _ to; do
+          printf 'replace %s => %s\n' "$from" "$(cd "$moddir" && pwd)/$to"
+        done
+      } > "$tmp/go.mod"
+      (cd "$tmp" && GOFLAGS=-mod=mod timeout 20 "$gobin" run main.go) < /dev/null 2>/dev/null
+    else
+      (cd "$tmp" && timeout 20 "$gobin" run main.go) < /dev/null 2>/dev/null
+    fi
   elif [ "$lang" = py ]; then
     # py-sh-go t32_redirect: the same per-run scratch-dir isolation as
     # the go case above. The py parser only accepts a LITERAL path in
@@ -327,7 +348,12 @@ run_estree() {  # <estree-json> <source-file> -> transpiled stdout
   # python side with EACCES before its print). Other langs run both sides
   # from the frontend dir; keep their CWD as-is.
   if [ "$lang" = go ] || [ "$lang" = py ]; then
-    (cd "$tmp" && timeout 20 node "$runner" "$1" --source "$2" 2>"$tmp/estree.err") || true
+    # absolutize the source BEFORE cd'ing: the runner reads it for the
+    # exec allowlist (and $0), and a relative path is unresolvable from
+    # the scratch dir — the allowlist silently empties and every raw
+    # exec-spawn aborts (go-sh t106: only "1" printed, "2" lost).
+    srcabs=$(readlink -f "$2")
+    (cd "$tmp" && timeout 20 node "$runner" "$1" --source "$srcabs" 2>"$tmp/estree.err") || true
   else
     timeout 20 node "$runner" "$1" --source "$2" 2>"$tmp/estree.err" || true
   fi
@@ -411,9 +437,9 @@ EOF
   # functionally verified, so this normally cannot fail; keep the retry
   # as defense-in-depth for a pathological snapshot (a real deterministic
   # regression fails the retry too and is still reported as FAIL).
-  if ! "$snap" - --target estree < "$tmp/a1.json" > "$tmp/e.json" 2>/dev/null; then
+  if ! "$snap" -O3 - --target estree < "$tmp/a1.json" > "$tmp/e.json" 2>/dev/null; then
     sleep 3
-    if ! "$snap" - --target estree < "$tmp/a1.json" > "$tmp/e.json" 2>/dev/null; then
+    if ! "$snap" -O3 - --target estree < "$tmp/a1.json" > "$tmp/e.json" 2>/dev/null; then
       echo "FAIL $bn (A1 -> ESTree conversion)"
       record FAIL; fails=$((fails+1)); continue
     fi

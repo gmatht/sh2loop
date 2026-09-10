@@ -307,6 +307,12 @@ fn ingest(a1: &str, lang: &str) -> Result<(debashl::ir::IrProgram, String), Stri
     // source path applies the worker transforms INSIDE ast_to_ir; a
     // frontend contract is already-lowered IR, not shell to re-lower.
     debashl::transforms::process_subst::transform_program(&mut prog);
+    // split-set: `set[int]` → small ∪ big partitions (runtime routing).
+    // A frontend-lowering optimization, safe on already-lowered IR (a
+    // pure rewrite of the setArray/setArrayAppend/sorted*Join pattern).
+    // Self-gated by SH2_SPLIT_SETS (set at -O3/-O4 by the CLI), so it
+    // fires only on the speed profile.
+    debashl::transforms::split_set::transform(&mut prog.stmts);
     if std::env::var("SH2_TRANSFORMS")
         .map(|v| v.split(',').any(|s| s.trim() == "text-ops"))
         .unwrap_or(false)
@@ -447,6 +453,20 @@ const USAGE: &str = "otranspiler <input> [<output>] [flags]
   --source-lang L   force the source language
   --target L        force the target language
   --run             JS target: execute via the estree runner
+  --library         JS target: emit an importable ES module instead of a
+                    runnable script — top-level driver statements (calls,
+                    prints, loops) are dropped, `import { sh2 }` is
+                    prepended, and each `__fn_<name>` define is exported
+                    under its source name. Write to a .mjs file and
+                    `import { all_factors } from './t86.mjs'`. Refuses to
+                    combine with --run and with non-JS targets.
+                    NOTE: exported functions keep the program's PROVEN
+                    value ranges (closed-program optimization — e.g. an
+                    i53-proven param reads `Number(p1)`). Calls WITHIN the
+                    proven range are exact; out-of-range external inputs
+                    silently round (t86's all_factors('9007199254740993')
+                    factors the rounded even value). BigInt-homed functions
+                    (t89's) are exact for arbitrary magnitude.
   --shir            output the raw A1 contract (same as output ext .shir)
   --raw             with --shir: the byte-equality oracle path (shell →
                     ast_to_ir → shir_to_shir_json, no stmt_lines; the old
@@ -462,7 +482,15 @@ const USAGE: &str = "otranspiler <input> [<output>] [flags]
   --backtick        embed: Perl-qx semantics (preserve trailing newlines)
   --english         embed: emit English.pm names instead of $/ $! $@
   --true64          exact 64-bit bash arithmetic (see docs/true64.md);
-                    --bigint = the same plus bignum-source semantics";
+                    --bigint = the same plus bignum-source semantics
+  -O0               no optimization (faithful, verbose: true64 BigInt)
+  -Og               human-readable output (DEFAULT): plain JS Number
+                    arithmetic, no BigInt wrapping, no dual loops
+  -O3               normal speed optimizations: i53/BigInt dual loops on
+                    JS (fast Number arm + exact BigInt arm), i64 hot
+                    accumulator chains homed in BigInt64Array slots
+  -O4               -O3 plus autoshaderization (JS target only): compute
+                    loops are emitted in a shader-offloadable form";
 
 /// Run the full CLI for an explicitly-located workspace root, writing to
 /// the provided stdout/stderr sinks. Returns the process exit code.
@@ -475,11 +503,25 @@ pub fn cli_at(
     let mut force_src = String::new();
     let mut force_tgt = String::new();
     let mut do_run = false;
+    let mut do_library = false;
     let mut embed = false;
     let mut literal = false;
     let mut raw = false;
     let mut embed_opts = EmbedOpts::default();
     let mut positional: Vec<String> = Vec::new();
+    // Optimization level (-O0/-Og/-O3/-O4). None = no -O flag given →
+    // the default (-Og, human-readable).
+    #[derive(Clone, Copy, PartialEq)]
+    enum OptLevel {
+        O0,
+        Og,
+        O3,
+        O4,
+    }
+    let mut opt_level: Option<OptLevel> = None;
+    // An explicit --true64/--no-true64 wins over the -O level's arithmetic
+    // mode (and over the default).
+    let mut true64_explicit: Option<bool> = None;
 
     let mut i = 0;
     while i < args.len() {
@@ -490,6 +532,7 @@ pub fn cli_at(
                 return 0;
             }
             "--run" => do_run = true,
+            "--library" => do_library = true,
             "--shir" => force_tgt = "shir".into(),
             // byte-equality oracle mode (the deleted CLI layer's
             // `--shir FILE --raw`): shell-parse → ast_to_ir_raw →
@@ -527,8 +570,18 @@ pub fn cli_at(
             // execute-equivalent with the flag on, estree 551/552 both
             // modes. SH2_TRUE64=0 restores the old Number(f64) default
             // (bisecting "is it the true64 homes or the lowering").
-            "--true64" | "--bigint" => debashl::shir::set_true64(true),
-            "--no-true64" => debashl::shir::set_true64(false),
+            "--true64" | "--bigint" => {
+                true64_explicit = Some(true);
+                debashl::shir::set_true64(true);
+            }
+            "--no-true64" => {
+                true64_explicit = Some(false);
+                debashl::shir::set_true64(false);
+            }
+            "-O0" => opt_level = Some(OptLevel::O0),
+            "-Og" => opt_level = Some(OptLevel::Og),
+            "-O3" => opt_level = Some(OptLevel::O3),
+            "-O4" => opt_level = Some(OptLevel::O4),
             "--source-lang" => {
                 if i + 1 < args.len() {
                     force_src = args[i + 1].clone();
@@ -552,16 +605,60 @@ pub fn cli_at(
         i += 1;
     }
 
-    // shell input defaults to true64 (docs/arith-homes.md): bash
-    // arithmetic IS int64-wrapped — the faithful home is i64, and f64
-    // was the known divergence. An explicit --no-true64 (or
-    // SH2_TRUE64=0) restores the Number default. Non-shell sources
-    // (py/JS-origin A1s) keep their own defaults — the matrix.
-    {
+    // Optimization level → arithmetic/dual/slot profile. An explicit
+    // --true64/--no-true64 wins over the -O level's arithmetic mode.
+    // With no -O flag and no explicit true64 flag, the default is -Og
+    // (human-readable plain JS Number arithmetic, no dual loops, no
+    // slots). SH2_TRUE64=1 still opts into the faithful true64 baseline
+    // (BigInt everywhere) for the corpus gates that need exact 64-bit
+    // bash arithmetic.
+    if let Some(level) = opt_level {
+        match level {
+            OptLevel::O0 => {
+                // faithful, verbose: true64 (BigInt everywhere), no dual
+                // loops, no slots — the historical default.
+                debashl::shir::set_true64(true);
+                debashl::shir::set_dual_loops(Some(false));
+                debashl::shir::set_slots_enabled(false);
+                debashl::shir::set_split_sets(Some(false));
+            }
+            OptLevel::Og => {
+                // human-readable: plain JS Number arithmetic, no BigInt
+                // wrapping, no dual loops, no slots.
+                debashl::shir::set_true64(false);
+                debashl::shir::set_dual_loops(Some(false));
+                debashl::shir::set_slots_enabled(false);
+                debashl::shir::set_split_sets(Some(false));
+            }
+            OptLevel::O3 | OptLevel::O4 => {
+                // normal speed: i53/BigInt dual loops on JS (fast Number
+                // arm + exact BigInt arm), i64 hot accumulator chains
+                // homed in BigInt64Array slots (the int-array trick),
+                // and split-set union (small ∪ big partitions) for
+                // `set[int]`.
+                debashl::shir::set_true64(false);
+                debashl::shir::set_dual_loops(Some(true));
+                debashl::shir::set_slots_enabled(true);
+                debashl::shir::set_split_sets(Some(true));
+            }
+        }
+        // -O4 adds autoshaderization (JS target only): compute loops are
+        // emitted in a shader-offloadable form via sh2.shaderize.
+        if level == OptLevel::O4 {
+            debashl::shir::set_shaderize_enabled(true);
+        }
+    }
+    if let Some(t64) = true64_explicit {
+        debashl::shir::set_true64(t64);
+    }
+    if opt_level.is_none() && true64_explicit.is_none() {
         let t64_default = std::env::var("SH2_TRUE64")
             .map(|v| v != "0")
-            .unwrap_or(true);
+            .unwrap_or(false);
         debashl::shir::set_true64(t64_default);
+        debashl::shir::set_dual_loops(Some(false));
+        debashl::shir::set_slots_enabled(false);
+        debashl::shir::set_split_sets(Some(false));
     }
     if positional.is_empty() {
         let _ = writeln!(stderr, "{USAGE}");
@@ -744,6 +841,20 @@ pub fn cli_at(
         }
     };
 
+    if do_library && tgt_lang != "js" {
+        let _ = writeln!(
+            stderr,
+            "otranspiler: --library is only supported for --target js"
+        );
+        return 1;
+    }
+    if do_library && do_run {
+        let _ = writeln!(
+            stderr,
+            "otranspiler: --library and --run are mutually exclusive (a library has no driver to execute)"
+        );
+        return 1;
+    }
     if tgt_lang == "js" && do_run {
         return run_estree(root, &input, out.as_bytes(), stderr);
     }
@@ -752,7 +863,18 @@ pub fn cli_at(
     // `estree_json_to_js` fold — node subprocess, converter path from the
     // workspace root; SH2_ESTREE_CONVERTER overrides it).
     if tgt_lang == "js" {
-        return match estree_json_to_js(root, &out) {
+        let js_src = if do_library {
+            match apply_library(root, &out) {
+                Ok(lib) => lib,
+                Err(e) => {
+                    let _ = writeln!(stderr, "otranspiler: {e}");
+                    return 1;
+                }
+            }
+        } else {
+            out
+        };
+        return match estree_json_to_js(root, &js_src) {
             Ok(js) => write_out(stdout, stderr, &output, js.as_bytes()),
             Err(e) => {
                 let _ = writeln!(stderr, "otranspiler: {e}");
@@ -761,6 +883,108 @@ pub fn cli_at(
         };
     }
     write_out(stdout, stderr, &output, out.as_bytes())
+}
+
+/// `--library` (JS target only): reshape the rendered ESTree program into
+/// an importable ES module. The emitter's top-level body is a `let` header
+/// (bindings + `__fn_` placeholders), the `__fn_<name> = ...` function
+/// defines, and the driver (calls, prints, loops). A library keeps the
+/// header and the defines, drops the driver, prepends
+/// `import { sh2 } from "<workspace>/harness/sh2-namespace.mjs"`, and
+/// appends `export { __fn_x as x, ... }` (the emitter's `__fn_<name>` rule
+/// makes the stripped suffix the source name; non-identifier suffixes
+/// export bare). Caveats, documented in `--help`: functions close over
+/// the header inits (driver-computed state is NOT included), the import
+/// path is machine-local (retarget it when publishing), and exported
+/// functions keep the program's PROVEN value ranges (params specialize to
+/// their call-site ranges — an i53-proven param reads `Number(p1)`).
+/// In-range calls are exact; out-of-range external inputs silently round
+/// (BigInt-homed functions stay exact for arbitrary magnitude).
+fn apply_library(root: &Path, estree_json: &str) -> Result<String, String> {
+    let mut v: serde_json::Value = serde_json::from_str(estree_json)
+        .map_err(|e| format!("--library: ESTree JSON parse: {e}"))?;
+    let body = v
+        .get_mut("body")
+        .and_then(|b| b.as_array_mut())
+        .ok_or_else(|| "--library: ESTree Program has no body array".to_string())?;
+    let mut kept = Vec::new();
+    let mut fns: Vec<String> = Vec::new();
+    for st in body.drain(..) {
+        let keep = match st.get("type").and_then(|t| t.as_str()) {
+            Some("VariableDeclaration") | Some("FunctionDeclaration") => true,
+            Some("ExpressionStatement") => {
+                // keep `__fn_x = ...` defines; drop driver calls/prints
+                let is_fn_define = st
+                    .get("expression")
+                    .filter(|e| {
+                        e.get("type").and_then(|t| t.as_str())
+                            == Some("AssignmentExpression")
+                    })
+                    .and_then(|e| e.get("left"))
+                    .and_then(|l| l.get("name"))
+                    .and_then(|n| n.as_str())
+                    .map(|n| n.starts_with("__fn_"))
+                    .unwrap_or(false);
+                if is_fn_define {
+                    if let Some(nm) = st
+                        .get("expression")
+                        .and_then(|e| e.get("left"))
+                        .and_then(|l| l.get("name"))
+                        .and_then(|n| n.as_str())
+                    {
+                        fns.push(nm.to_string());
+                    }
+                }
+                is_fn_define
+            }
+            _ => false,
+        };
+        if keep {
+            kept.push(st);
+        }
+    }
+    fn is_ident(s: &str) -> bool {
+        let mut cs = s.chars();
+        match cs.next() {
+            Some(c) if c.is_ascii_alphabetic() || c == '_' || c == '$' => {}
+            _ => return false,
+        }
+        cs.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+    }
+    let mut new_body = Vec::new();
+    let ns = root.join("harness/sh2-namespace.mjs");
+    new_body.push(serde_json::json!({
+        "type": "ImportDeclaration",
+        "specifiers": [{
+            "type": "ImportSpecifier",
+            "imported": {"type": "Identifier", "name": "sh2"},
+            "local": {"type": "Identifier", "name": "sh2"}
+        }],
+        "source": {"type": "Literal", "value": ns.to_string_lossy(), "raw": null}
+    }));
+    new_body.extend(kept);
+    if !fns.is_empty() {
+        let specifiers: Vec<serde_json::Value> = fns
+            .iter()
+            .map(|b| {
+                let stripped = b.strip_prefix("__fn_").unwrap_or(b);
+                let exported = if is_ident(stripped) { stripped } else { b };
+                serde_json::json!({
+                    "type": "ExportSpecifier",
+                    "local": {"type": "Identifier", "name": b},
+                    "exported": {"type": "Identifier", "name": exported}
+                })
+            })
+            .collect();
+        new_body.push(serde_json::json!({
+            "type": "ExportNamedDeclaration",
+            "declaration": null,
+            "specifiers": specifiers,
+            "source": null
+        }));
+    }
+    *body = new_body;
+    serde_json::to_string(&v).map_err(|e| format!("--library: ESTree JSON serialize: {e}"))
 }
 
 /// ESTree JSON → JavaScript source, via `harness/estree-gen.mjs#generate`
