@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# 2c — find a test by prefix and transpile it to C (dual loops on).
+#
+#   Usage: 2c <prefix> [otranspilerl-cli flags...]
+#
+#   e.g. 2c t89 -O3          -> transpile t89_factor_big.py to C
+#        2c 28 -O3           -> same (number match)
+#        2c t89_factor_big   -> same (full basename)
+#
+# The prefix autocompletes against every frontend's testdata/ and the
+# examples/ corpus. SH2_DUAL_LOOPS=1 is exported so the i53/BigInt
+# dual-loop guard is active. C goes to stdout (redirect with `>`).
+set -u
+WS="${SH2_WS:-$(cd "$(dirname "$0")" && pwd)}"
+CLI="${SH2_CLI:-$WS/otranspilerl/target/debug/otranspilerl-cli}"
+TARGET=c
+prefix="${1:?usage: 2c <prefix> [flags...]}"
+shift
+
+find_test() {
+  local p="$1" f b matches=()
+  # prefer py-sh-go (the primary frontend), then all frontends + examples
+  local dirs=("$WS/frontends/py-sh-go/testdata" "$WS/frontends"/*/testdata "$WS/examples")
+  local d
+  for d in "${dirs[@]}"; do
+    [ -d "$d" ] || continue
+    matches=()
+    # 1) exact basename (with or without extension)
+    for f in "$d"/*; do
+      [ -f "$f" ] || continue
+      b="$(basename "$f")"
+      if [ "$b" = "$p" ] || [ "${b%.*}" = "$p" ]; then echo "$f"; return 0; fi
+    done
+    # 2) prefix match on basename
+    for f in "$d"/*; do
+      [ -f "$f" ] || continue
+      b="$(basename "$f")"
+      case "$b" in "$p"*) matches+=("$f");; esac
+    done
+    # 3) number match: a bare number -> t<number>_*
+    if [ ${#matches[@]} -eq 0 ] && [[ "$p" =~ ^[0-9]+$ ]]; then
+      for f in "$d"/*; do
+        [ -f "$f" ] || continue
+        b="$(basename "$f")"
+        case "$b" in t"$p"*) matches+=("$f");; esac
+      done
+    fi
+    if [ ${#matches[@]} -eq 1 ]; then echo "${matches[0]}"; return 0; fi
+    if [ ${#matches[@]} -gt 1 ]; then echo "ambiguous: ${matches[*]}" >&2; return 1; fi
+  done
+  return 1
+}
+
+f="$(find_test "$prefix")" || { echo "no test matches '$prefix'" >&2; exit 1; }
+echo "== $f -> $TARGET (dual loops) ==" >&2
+export SH2_DUAL_LOOPS=1
+exec "$CLI" "$f" - --target "$TARGET" "$@"
