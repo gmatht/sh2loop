@@ -32,6 +32,7 @@
  "mapfile",
  "mkdir",
  "mv",
+ "panic",
  "paste",
  "printf",
  "pwd",

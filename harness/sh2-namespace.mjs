@@ -4921,6 +4921,16 @@ builtins.exit = function (args) {
   process.exit(code);
 };
 
+builtins.panic = function (args) {
+  // Go panic(value) — abort with the value for recover(). Throws a JS
+  // Error carrying the message so run()'s defer/recover (lowered to
+  // try/catch) surfaces it as err instead of silently empty output.
+  // Must be a real throw (not exit): panics inside a deferred run are
+  // RECOVERED (parse errors become err returns); uncaught ones fail loud.
+  const msg = args.map((a) => String(a ?? '')).join(' ');
+  throw new Error(msg);
+};
+
 // `set -euo pipefail` / `set -- a b c` — flags change runtime behavior
 // (errexit is enforced by the emitter's sh2.guard wrapper; nounset and
 // pipefail are accepted); `--` resets the positionals.
