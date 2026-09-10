@@ -4490,14 +4490,15 @@ export const sh2 = {
     try {
       const obj = JSON.parse(this.getVar(String(name)));
       const fieldJson = obj[field];
-      if (fieldJson === undefined || fieldJson === null || fieldJson === '') return 'false';
+      if (fieldJson === undefined || fieldJson === null || fieldJson === '') return '';
       const k = String(expandWord(this, String(key)));
       return JSON.parse(fieldJson)[k] !== undefined ? 'true' : '';
-    } catch { return 'false'; }
+    } catch { return ''; }
   },
 
   // assocHas(name, key) — whether an assoc-array (map) has the key
-  // (the golib's `if _, ok := m[k]; !ok` presence checks): "true"/"false".
+  // (the golib's `if _, ok := m[k]; !ok` presence checks): "true"/"" (see
+  // jsonHas — "false" is truthy).
   assocHas(name, key) {
     const nm = String(name);
     // the key word is resolved at runtime (a member/call key lowers to
