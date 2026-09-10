@@ -490,6 +490,23 @@ export const sh2 = {
   // estree_gate.pl).
   fs: fsp,
 
+  // ── -O4 autoshaderization ────────────────────────────────────────
+  // `sh2.shaderize(start, end, step, op, fn)` — a compute loop emitted in
+  // a shader-offloadable form: a pure function of the loop index, run for
+  // each i in [start, end) (ascending `<`/`<=`) or (end, start]
+  // (descending `>`/`>=`), stepping by `step`. The iterations are
+  // independent (the emitter only shaderizes pure-arithmetic bodies), so
+  // a GPU could run them in parallel; node has no GPU, so this runs the
+  // CPU fallback. `op` is the comparison operator from the source cond.
+  shaderize(start, end, step, op, fn) {
+    const asc = op === '<' || op === '<=';
+    if (asc) {
+      for (let i = start; i < end; i += step) fn(i);
+    } else {
+      for (let i = start; i > end; i += step) fn(i);
+    }
+  },
+
   // ── wasm "binary" registry (Plan 9) ───────────────────────────────
   // sh2runtime ships its own EXECUTABLE FORMATS: js builtins plus wasm
   // modules (posixutils-rs cores compiled to wasm — bc first). The
@@ -3351,6 +3368,141 @@ export const sh2 = {
     const nm = String(name);
     if (this.assocNames.has(nm)) return this.assocValues(nm);
     return [...(this.arrays.get(nm) ?? [])];
+  },
+  // sortedIntJoin(name) / sortedBigintJoin(name) — the py-sh-go
+  // `print(sorted(int-set))` nodes: numerically sorted, deduped
+  // (first-in-input wins — the elements are canonical Python-int
+  // strings so value equality IS string equality), comma-space-joined
+  // (the Python list repr without brackets; print() adds those).
+  // The contract guarantees canonical integers: int elements are
+  // proven within ±2^53 (exact as JS Numbers); big elements are
+  // arbitrary magnitude (exact as BigInt — the legacy pipeline's
+  // parseFloat comparator rounded past 2^53).
+  sortedIntJoin(name) {
+    const items = this.arrayValues(name).map((v) => String(v ?? ''));
+    const vals = items.map((s) => Number(s));
+    const order = items.map((_, i) => i).sort((a, b) =>
+      vals[a] < vals[b] ? -1 : vals[a] > vals[b] ? 1 : a - b);
+    const out = [];
+    for (const i of order) {
+      if (out.length === 0 || items[i] !== out[out.length - 1]) out.push(items[i]);
+    }
+    return out.join(', ');
+  },
+  sortedBigintJoin(name) {
+    const items = this.arrayValues(name).map((v) => String(v ?? ''));
+    const vals = items.map((s) => { try { return BigInt(s); } catch { return 0n; } });
+    const order = items.map((_, i) => i).sort((a, b) =>
+      vals[a] < vals[b] ? -1 : vals[a] > vals[b] ? 1 : a - b);
+    const out = [];
+    for (const i of order) {
+      if (out.length === 0 || vals[i] !== vals[out[out.length - 1]]) out.push(i);
+    }
+    return out.map((i) => items[i]).join(', ');
+  },
+  // max(name) / min(name) / sum(name) — the py-sh-go typed reduction
+  // nodes. Elements are canonical Python-int strings; parse as BigInt
+  // (exact for arbitrary magnitude — no lossy Number conversion) and
+  // reduce. Empty array → 0 (Python max/min of an empty sequence would
+  // raise, but the transpiled lists are always non-empty in practice).
+  max(name) {
+    const items = this.arrayValues(name).map((v) => String(v ?? ''));
+    if (items.length === 0) return '0';
+    let best = BigInt(items[0]);
+    for (let i = 1; i < items.length; i++) {
+      const b = BigInt(items[i]);
+      if (b > best) best = b;
+    }
+    return String(best);
+  },
+  min(name) {
+    const items = this.arrayValues(name).map((v) => String(v ?? ''));
+    if (items.length === 0) return '0';
+    let best = BigInt(items[0]);
+    for (let i = 1; i < items.length; i++) {
+      const b = BigInt(items[i]);
+      if (b < best) best = b;
+    }
+    return String(best);
+  },
+  sum(name) {
+    const items = this.arrayValues(name).map((v) => String(v ?? ''));
+    let total = 0n;
+    for (const s of items) total += BigInt(s);
+    return String(total);
+  },
+  // maxArr/minArr/sumArr — the native-array twins (the estree native-array
+  // pass rewrites `sh2.max("xs")` to `sh2.maxArr(xs)` when `xs` is a
+  // native JS array). Same BigInt-exact reduction over a JS array.
+  maxArr(arr) {
+    const items = (arr ?? []).map((v) => String(v ?? ''));
+    if (items.length === 0) return '0';
+    let best = BigInt(items[0]);
+    for (let i = 1; i < items.length; i++) {
+      const b = BigInt(items[i]);
+      if (b > best) best = b;
+    }
+    return String(best);
+  },
+  minArr(arr) {
+    const items = (arr ?? []).map((v) => String(v ?? ''));
+    if (items.length === 0) return '0';
+    let best = BigInt(items[0]);
+    for (let i = 1; i < items.length; i++) {
+      const b = BigInt(items[i]);
+      if (b < best) best = b;
+    }
+    return String(best);
+  },
+  sumArr(arr) {
+    const items = (arr ?? []).map((v) => String(v ?? ''));
+    let total = 0n;
+    for (const s of items) total += BigInt(s);
+    return String(total);
+  },
+  // isSmallInt(v) — the split-set routing predicate (core request
+  // py-sh-go-20260909-split-set-union): is the string an integer within
+  // ±(2^53−1)? Parsed as BigInt and compared exactly — NO lossy Number
+  // conversion (Number("9007199254740993") rounds to 2^53 and would
+  // wrongly report safe). Non-integer strings route to the big partition
+  // (conservative).
+  isSmallInt(v) {
+    const s = String(v ?? '');
+    try {
+      const b = BigInt(s);
+      return b <= 9007199254740991n && b >= -9007199254740991n;
+    } catch {
+      return false;
+    }
+  },
+  // sortedJoinMerge(small, big) — the split-set sorted() merge: sort the
+  // small partition as Numbers (fast, exact for i53-safe values), the big
+  // partition as BigInts, then a linear merge of the two sorted runs,
+  // deduping by value. Byte-identical to sorting the whole set as BigInts
+  // (the firewall: the split changes bytes/cycles, never behavior).
+  sortedJoinMerge(small, big) {
+    const sItems = this.arrayValues(small).map((v) => String(v ?? ''));
+    const bItems = this.arrayValues(big).map((v) => String(v ?? ''));
+    const sVals = sItems.map((s) => Number(s));
+    const bVals = bItems.map((s) => { try { return BigInt(s); } catch { return 0n; } });
+    const sOrder = sItems.map((_, i) => i).sort((a, b) =>
+      sVals[a] < sVals[b] ? -1 : sVals[a] > sVals[b] ? 1 : a - b);
+    const bOrder = bItems.map((_, i) => i).sort((a, b) =>
+      bVals[a] < bVals[b] ? -1 : bVals[a] > bVals[b] ? 1 : a - b);
+    const out = [];
+    const push = (item) => {
+      if (out.length === 0 || item !== out[out.length - 1]) out.push(item);
+    };
+    let i = 0, j = 0;
+    while (i < sOrder.length && j < bOrder.length) {
+      const si = sOrder[i], bi = bOrder[j];
+      if (sVals[si] < bVals[bi]) { push(sItems[si]); i++; }
+      else if (sVals[si] > bVals[bi]) { push(bItems[bi]); j++; }
+      else { push(sItems[si]); i++; j++; }
+    }
+    while (i < sOrder.length) { push(sItems[sOrder[i]]); i++; }
+    while (j < bOrder.length) { push(bItems[bOrder[j]]); j++; }
+    return out.join(', ');
   },
   arrayKeys(name) {
     const nm = String(name);
