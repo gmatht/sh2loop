@@ -2780,11 +2780,11 @@ export const sh2 = {
     // through the id keeps working.
     const freezeVal = (v, top) => {
       if (typeof v === 'string') {
-        if (isTemp(v)) {
-          const snap = snapOf(v);
-          if (snap !== undefined) return snap;
-          return freezeAssoc(v);
-        }
+        // snapshots first (per-build frozen objects, immune to temp
+        // reuse) — independent of the nodeTemps mark gate.
+        const snap = snapOf(v);
+        if (snap !== undefined) return snap;
+        if (isTemp(v)) return freezeAssoc(v);
         // top-level obj-store MAP (a complete node — funcStmts pushes
         // objNew ids): freeze with null policy. Nested ids stay opaque
         // (live runtime refs).
