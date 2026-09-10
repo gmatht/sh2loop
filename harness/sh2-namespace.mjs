@@ -2674,7 +2674,17 @@ export const sh2 = {
       if (Array.isArray(v)) return v.map(freezeVal);
       if (v !== null && typeof v === 'object') {
         const o = {};
-        for (const k of Object.keys(v)) o[k] = freezeVal(v[k]);
+        for (const k of Object.keys(v)) {
+          const fv = v[k];
+          // null-restoring also applies inside plain objects (nested
+          // node words — e.g. Assign targets' sigil — freeze via the
+          // same policy as assoc fields).
+          if (nullFields.has(k)) {
+            if (fv === '' || fv == null) { o[k] = null; continue; }
+            if (Array.isArray(fv) && fv.length === 0) { o[k] = null; continue; }
+          }
+          o[k] = freezeVal(fv);
+        }
         return o;
       }
       return v;
