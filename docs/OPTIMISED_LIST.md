@@ -27,8 +27,13 @@ estree/Zig backends and the extent B-tree are future work.
   rewrites `sh2.max("xs")`/`sh2.sortedBigintJoin("xs")` to the `*Arr`
   twins. **All py-sh-go tests pass on estree (90/90)** — t89/t90 bigint
   factors, t91 set-sum fallback, t92 max/min/sum, t93 extent.
-- **Not yet**: the full extent B-tree, and the Zig backend's
-  `max`/`min`/`sum`/sorted (its regular-list array model is incomplete).
+- **Zig backend**: fixed the regular-list array model (lists/sets now
+  declare as `[1024]i64` + `_len` and populate on `setArray`/`setArrayAppend`),
+  and added `max`/`min`/`sum`/`sortedIntJoin`/`sortedBigintJoin` over int
+  arrays and bigint (`std.math.big.int.Managed`) arrays. **All py-sh-go
+  tests pass on Zig (t86–t93)**.
+- **Not yet**: the full extent B-tree (the C backend's sorted-consumption
+  partition is the extent idea at the join level).
 
 This document is the design for the full scheme; the implemented slice is
 the native-reduction foundation the rest builds on.
