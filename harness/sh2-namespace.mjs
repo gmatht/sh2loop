@@ -2647,6 +2647,58 @@ export const sh2 = {
     this._objStore.set(nid, { kind: 'list', items: items.slice(l, Math.max(l, h)).map(v => v) });
     return nid;
   },
+  // freezeStmts(listId, tempsId, nullCsv) — resolve compile-time node
+  // temps (a frontend's named-assoc node builders, e.g. go-sh's
+  // `return map[string]any{...}` protocol) into plain objects at the
+  // statement-list boundary. Generic mechanism: any string item (or
+  // nested string) found in the temps map (an obj-store map of name
+  // -> "true") materializes from the assoc store, recursively (empty
+  // strings preserved; the nullCsv fields restore JSON null for ""
+  // /empty, e.g. A1 sigil/params). Everything else (obj#/list# live
+  // refs, words, runtime var names, plain data) passes through
+  // untouched — the frontend owns the policy (which names are temps,
+  // which fields are null). Returns a NEW list id; the input is kept.
+  freezeStmts(listId, tempsId, nullCsv) {
+    const self = this;
+    const nullFields = new Set(String(nullCsv ?? '').split(',').map(s => s.trim()).filter(Boolean));
+    const tm = self._objStore.get(String(tempsId));
+    const isTemp = (s) => !!(tm && tm.kind === 'map' && tm.m.get(String(s)));
+    const freezeVal = (v) => {
+      if (typeof v === 'string') {
+        if (isTemp(v)) return freezeAssoc(v);
+        return v;
+      }
+      if (Array.isArray(v)) return v.map(freezeVal);
+      if (v !== null && typeof v === 'object') {
+        const o = {};
+        for (const k of Object.keys(v)) o[k] = freezeVal(v[k]);
+        return o;
+      }
+      return v;
+    };
+    const freezeAssoc = (nm) => {
+      const st = self.assocStore.get(String(nm));
+      const o = {};
+      if (!st) return o;
+      for (const [k, val] of st) {
+        if (nullFields.has(k)) {
+          if (val === '' || val == null) { o[k] = null; continue; }
+          if (Array.isArray(val) && val.length === 0) { o[k] = null; continue; }
+          if (typeof val === 'string') {
+            const lo = self._objStore.get(val);
+            if (lo && lo.kind === 'list' && lo.items.length === 0) { o[k] = null; continue; }
+          }
+        }
+        o[k] = freezeVal(val);
+      }
+      return o;
+    };
+    const src = self._objStore.get(String(listId));
+    const items = src && src.kind === 'list' ? src.items : [];
+    const nid = 'list#' + (++self._objSeq);
+    self._objStore.set(nid, { kind: 'list', items: items.map(freezeVal) });
+    return nid;
+  },
 
   // strReplaceN(s, old, neu, n) — Go strings.Replace: replace AT MOST
   // the first n occurrences of old with neu (n < 0 = all); strReplaceAll
