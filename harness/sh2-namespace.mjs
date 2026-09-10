@@ -2732,6 +2732,16 @@ export const sh2 = {
           const o = self._objStore.get(v);
           if (o && o.kind === 'map') return freezeObjMap(o);
         }
+        // NESTED list id (words/stmts inside a node — echo elements,
+        // block bodies): freeze items in place (node temps resolve;
+        // live strings/ids pass through). Top-level list ids are the
+        // input list itself (handled by the driver, not here).
+        if (!top) {
+          const lo = self._objStore.get(v);
+          if (lo && lo.kind === 'list' && Array.isArray(lo.items)) {
+            return lo.items.map((it) => freezeVal(it, false));
+          }
+        }
         return v;
       }
       if (Array.isArray(v)) return v.map((it) => freezeVal(it, false));
