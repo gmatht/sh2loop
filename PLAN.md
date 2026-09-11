@@ -12,6 +12,17 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v43: **6 pre-existing estree fails fixed (lib 622/0 green).** Real
+>   miscompiles fixed: echo-split silently dropped folded literals
+>   (`x=42` printed empty — now native field-split); cond_zero said
+>   `false`/failing builtins/pipelines were zero (node exit 1 vs bash
+>   0 — now trailing write kept). Aligned cond_zero Call arm with
+>   expr_zero + pipeline-last-stage arm. Stale shapes updated with
+>   execution proof (copy-prop folds to literals; dead program-value
+>   flags dropped under live runner which reads exit via store+_finish;
+>   provably-zero exits drop all writes): assignment (value+no-store
+>   asserted), dead_flags_unwrap, loop_hoist_vetoed (veto still pinned),
+>   sqrt1337 (zero writes optimal). Submodule 7c20bb6e.
 > - v42: **isqrt range-seeding restored (`uint32_t` bounds back).**
 >   `collect_isqrt_assigns` seeds structured `isqrt(Arith)` temps to
 >   `[0, ISQRT_MAX]` (gated on the Arith arg; sound on fallback); the
