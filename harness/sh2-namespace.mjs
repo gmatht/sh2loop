@@ -723,7 +723,17 @@ export const sh2 = {
     if (lm) {
       const real = lm[1];
       if (this.arrays.has(real) || this.assocNames.has(real)) return String(this.arrayLen(real));
-      return String(this.getVar(real).length);
+      const v = this.getVar(real);
+      // a var holding a list# id counts LIST items, not id-string
+      // characters (the dogfood `len(words) > 1` multi-slot gate read
+      // 7 — the length of "list#77" — and took the join path for
+      // single returns). Plain shell constructs never hold list ids,
+      // so other frontends are unaffected.
+      if (typeof v === 'string') {
+        const lo = this._objStore.get(v);
+        if (lo && lo.kind === 'list') return String(lo.items.length);
+      }
+      return String(v.length);
     }
     switch (name) {
       case '?': return String(this.lastExit);
