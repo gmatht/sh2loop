@@ -12,6 +12,20 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v41: **Named function params — `all_factors(n)` everywhere it counts.**
+>   IR `Function.params` (source names; empty = positional). py-sh-go
+>   populates from `def`; materialization Assigns kept for positional
+>   backends. C: named lifted signatures (`long long n`), `$N`→name via
+>   `cur_params`, pure-copy + bare-Declare skips (single proto/definition
+>   rule, `_p`/dup/collision fallbacks). estree: `function f(n)` +
+>   entry `Number` coercion, `PARAM_NAMES` read mapping, bare-Declare
+>   skip, reserved-name fallback (never `function f(let)`). Zig keeps
+>   argv convention; python/go/rust/java/perl blocked on call machinery
+>   (all red pre-existing); sh correctly excluded (no named params in
+>   bash). Gates: 12/12 py def-tests C+estree match (decorators, varargs,
+>   globals, bigints); C ASan/valgrind clean; tests/c_fn_params.rs.
+>   Submodule 359fe738 (assistant-isqrt). NOTE for worker: range-seed
+>   (`isqrt_text_max`) still text-based — Call-based seeding wanted.
 > - v40: **Structured `isqrt` node kills the A1 arith-string detour.**
 >   `int(Y**0.5)` (int-domain Y) now lowers to `Call{func:isqrt}` — no
 >   `arith("int(sqrt(..))")` string, no string temp, no `+0`
