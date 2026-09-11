@@ -1561,11 +1561,33 @@ export const sh2 = {
     try {
       await fn();
       // bash command substitution strips NUL bytes from the captured output.
-      return this.fdTargets[1].buf.replace(/\u0000/g, '').replace(/\n+$/, '');
+      const out = this.fdTargets[1].buf.replace(/\u0000/g, '').replace(/\n+$/, '');
+      return this.resolveTempResult(out);
     } finally {
       this.fdTargets[1] = saved;
       this.captureStart = savedStart;
     }
+  },
+
+  // resolveTempResult(out) — freeze a bare compile-time node-temp
+  // result at the capture boundary (the go-sh self-hosting contract:
+  // callees echo temp NAMES like "__tmp_m21"; sequential calls reuse
+  // the temp, so a name resolved later reads the LAST content, not the
+  // call's — `1+2` lowered both sides to Num(2)). Freezing NOW is sound
+  // because the content is known-good (the callee just finished; nothing
+  // ran since to overwrite it), and the fresh id makes the value immune
+  // to later overwrites. Exact-match only: multi-slot RS-joined returns
+  // split downstream, and non-temp data passes through untouched.
+  // Deterministic: fresh ids allocate in call order.
+  resolveTempResult(out) {
+    if (typeof out !== 'string') return out;
+    const tm = this.assocStore.get('nodeTemps');
+    if (!tm || !tm.get(out)) return out;
+    const frozen = this.snapshotTemp(out, 'nodeTemps', 'sigil,params');
+    if (frozen === null || typeof frozen !== 'object' || Array.isArray(frozen)) return out;
+    const nid = 'obj#' + (++this._objSeq);
+    this._objStore.set(nid, { kind: 'struct', type: '', f: frozen });
+    return nid;
   },
 
   // `line(s, i)` — the i-th line of a captured multi-value return (the
@@ -1594,7 +1616,8 @@ export const sh2 = {
     this.captureStart = Date.now();
     try {
       fn();
-      return this.fdTargets[1].buf.replace(/\u0000/g, '').replace(/\n+$/, '');
+      const out = this.fdTargets[1].buf.replace(/\u0000/g, '').replace(/\n+$/, '');
+      return this.resolveTempResult(out);
     } finally {
       this.fdTargets[1] = saved;
       this.captureStart = savedStart;
@@ -2522,7 +2545,11 @@ export const sh2 = {
       if (typeof v === 'string') {
         const inner = self._objStore.get(v);
         if (inner && inner.kind === 'list') {
-          for (const it of inner.items) lo.items.push(it);
+          // self-append (`append(s, s...)`): iterate a snapshot —
+          // pushing into the array being ranged never terminates
+          // (RangeError at 2^32-1); Go defines it as doubling.
+          const src = (inner === lo) ? [...inner.items] : inner.items;
+          for (const it of src) lo.items.push(it);
           return;
         }
         // compile-time node temps resolve now (see assocSet).
