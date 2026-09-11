@@ -140,3 +140,15 @@ assigns, string-ifs. New patterns for the owners:
   `lok||rok` passes on refusal. ok-gating needs `=="true"` checks
   or empty-on-false echo protocol. Until then, `==`/`!=` with refused
   operands cannot route correctly.
+- PARAM MAPPING (filed): Go param `e` mapped to store var (not
+  positional[1]); renamed to `operand` (maps correctly). Short/generic
+  param names risk mistargeting — owner should verify positional
+  mapping for all params.
+- NIL-CHECK (filed): Go `x == nil` (nil map) transpiles to `"" == ""`
+  (always true). Nil guards on maps always fire; use `!= ""` on
+  captured strings instead (works). Owner: proper nil lowering.
+- ASSOC-NAME non-resolution (confirmed): embedding `"__tmp_m1300"`
+  (assoc temp name) as a node field serializes as the literal string
+  (m27: BinOp correctly built in assoc, verified fields, but cond
+  stays text). Only obj#/list#/assoc# IDS resolve. Owner: resolve
+  assoc temps at embed, or echo IDs instead of names.
