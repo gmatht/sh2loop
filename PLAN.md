@@ -12,6 +12,13 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v42: **isqrt range-seeding restored (`uint32_t` bounds back).**
+>   `collect_isqrt_assigns` seeds structured `isqrt(Arith)` temps to
+>   `[0, ISQRT_MAX]` (gated on the Arith arg; sound on fallback); the
+>   existing `propagate_isqrt_derives` fixpoint folds the separate `+K`
+>   temp. t86/t88 outputs regain `uint32_t` narrowing; stdout+ASan
+>   match; `isqrt_temps_narrowed` guard (proven to fail without the arm).
+>   Supersedes v40's dormant-seeding note. Submodule d20f2714.
 > - v41: **Named function params — `all_factors(n)` everywhere it counts.**
 >   IR `Function.params` (source names; empty = positional). py-sh-go
 >   populates from `def`; materialization Assigns kept for positional
