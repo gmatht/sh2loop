@@ -28,6 +28,18 @@ EVERY `if` statement (even `if true { _ = 1 }`, m24.go) lowers to ZERO
 stmts (silent, exit 0). Verified: parseIf runs (probe fires), its
 `__ret` holds the stmts list (empty), output program has 0 stmts.
 
+Frontend-local progress (a34dd0a3): parseIf now INLINES the If-node
+literal (no helper call) — If nodes ARE emitted with correct
+then/else, but `cond` (from direct `p.condToJSON(cond)`, which rides
+exec+capture echo-text) arrives as a JSON STRING instead of a map
+(m24: `"cond":"{\"args\":…}"` escaped). What remains for the owner:
+make exec-captured JSON text usable as a map in expression position
+(auto-parse on embed, a value-channel call op, or condToJSON echoing
+an obj# id instead of text). `exprToWord` works because it rides
+exec+echo (186 sites); `execStmt`/`condToJSONIf` fail because they
+ride fnCall+status — the transpiler's per-callee convention choice
+is the mismatch, not the call sites.
+
 Same class: `execStmt("echo", words, …)` (returns the echo node map)
 called directly in the value-`return` path → map discarded via
 fnCall-status → echo statement LOST (`return 42`, m10.go, yields
@@ -41,20 +53,16 @@ captures) — needs per-call-site convention, not a global switch.
 
 ## 2. Empty Go slice → objNew("list") struct (serializes `{}` not `[]`)
 
-`"args": []any{}` (e.g. the bare return-stop node, `go-sh.go` return
-path) transpiles to `objNew("list", [], [])`, which allocates a STRUCT
-(objNew special-cases only `"map"`; `"list"` falls to struct-kind with
-empty fields). Serialization yields `{}` where the oracle has `[]`
-(byte-mismatch on every empty-args/empty-elements node). Non-empty
-slices lower to real JS arrays (fine) — only the empty case takes the
-objNew path (presumably for append-mutability, wrong for fixed empties).
+FIXED frontend-independently (a34dd0a3, no transpiler change needed):
+`objNew("list")` now allocates a real kind `list` (was struct-kind:
+`listPush` silently dropped, `listLen` stayed 0) and `_serObj`
+serializes kind `list` as `[...]` (was `{}`). Non-empty slices already
+lowered to real JS arrays — only the empty case took the objNew path.
 
-Repro: m10.go `func f() { return 42 }` — oracle return-stop has
-`"args": []`, JS has `"args": {}`.
-
-Fix direction: empty fixed slices → real `[]` (or `listNew()` real
-lists); reserve objNew-struct only for appended-into temps (or fix
-objNew("list") to allocate kind `list`).
+Repro (now fixed): m10.go `func f() { return 42 }` — return-stop
+`"args"` was `{}` (objNew struct), now `[]` (verified via unit probe:
+kind=list, push sticks, ser=[]). t86 JS unaffected (zero objNew in
+its path — checked).
 
 ## 3. echo of plain objects → "[object Object]"
 
