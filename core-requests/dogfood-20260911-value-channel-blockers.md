@@ -131,3 +131,12 @@ assigns, string-ifs. New patterns for the owners:
   into lossy BinOp paths. Fix the FALLBACKS (test-string), not the
   refusal. m21's `==` never reaches condToJSON at all (parseIf bails
   pre-inline) — the bug is upstream of operand handling.
+- LESSON 2 (reverted 2026-09-11): inlining var words in the BinOp
+  `!lok`/`!rok` fallback ALSO broke t01 (0/2) despite t01 having no
+  comparisons — even unreachable-looking changes to shared condition
+  paths regress; the gate is the oracle. Reverted; green again.
+- BOOL-STRING protocol (filed for owner): Go `false` echoes as
+  `"false"` (truthy/non-empty in JS), so `if !lok` never fires and
+  `lok||rok` passes on refusal. ok-gating needs `=="true"` checks
+  or empty-on-false echo protocol. Until then, `==`/`!=` with refused
+  operands cannot route correctly.
