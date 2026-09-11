@@ -125,3 +125,9 @@ assigns, string-ifs. New patterns for the owners:
   investigation (m21 `if err == ""` yields empty cond, poisoning the
   program — one bad node empties output, suggesting fail-closed
   ingress on malformed nodes).
+- LESSON (reverted 2026-09-11): `condOperandA1WordInner` REFUSING plain
+  vars (`nil,false`) is LOAD-BEARING — accepting them (inline getVar)
+  broke t01 (2/2 → 0/2), because callers divert from working fallbacks
+  into lossy BinOp paths. Fix the FALLBACKS (test-string), not the
+  refusal. m21's `==` never reaches condToJSON at all (parseIf bails
+  pre-inline) — the bug is upstream of operand handling.
