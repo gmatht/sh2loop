@@ -2606,6 +2606,22 @@ export const sh2 = {
     const o = this._objStore.get(String(id));
     return o && o.kind === 'list' ? String(o.items.length) : '0';
   },
+  // objFieldLen(ref, field) — len() over an object field for TEST-STRING
+  // conditions (`i < len(p.toks)`): a member path is not a store var so
+  // the `${#p.toks[@]}` word can't resolve (it mis-expands and every
+  // lookahead bound-check misfires). The base rides by positional number
+  // (the receiver p is $1) or var name — the byteAt convention — and the
+  // field value shapes the result (list id/inline array → list length,
+  // plain string → string length, absent → 0). Used as
+  // `"$(sh2.objFieldLen 1 toks)"` inside test strings (the runCmdSubst
+  // sh2.* table below dispatches it, byteAt-style).
+  objFieldLen(ref, field) {
+    const fv = this.objGet(this.getVar(String(ref)), field);
+    if (Array.isArray(fv)) return String(fv.length);
+    const o = typeof fv === 'string' ? this._objStore.get(fv) : null;
+    if (o && o.kind === 'list') return this.listLen(fv);
+    return this.strLen(fv ?? '');
+  },
 
   // jsonObject(keys, vals) — build a plain JS object from parallel
   // key/value arrays (the go-sh frontend's MapLiteral / assoc-builder
@@ -8638,6 +8654,7 @@ function runCmdSubst(s, sh) {
     });
     let val = '';
     if (fn === 'byteAt' && resolved.length === 2) val = sh.byteAt(resolved[0], resolved[1]);
+    else if (fn === 'objFieldLen' && resolved.length === 2) val = sh.objFieldLen(resolved[0], resolved[1]);
     else if (fn === 'jsonGet' && resolved.length === 2) val = sh.jsonGet(resolved[0], resolved[1]);
     else if (fn === 'chr' && resolved.length === 1) val = sh.chr(resolved[0]);
     else if (fn === 'assocGet' && resolved.length === 2) val = sh.assocGet(resolved[0], resolved[1]);
