@@ -456,15 +456,16 @@ const USAGE: &str = "otranspiler <input> [<output>] [flags]
   --library         JS target: emit an importable ES module instead of a
                     runnable script — top-level driver statements (calls,
                     prints, loops) are dropped, `import { sh2 }` is
-                    prepended, and each `__fn_<name>` define is exported
-                    under its source name. Write to a .mjs file and
+                    prepended, and each function define (any shape:
+                    `function f`, `const f = arrow`, `f = arrow`, legacy
+                    `__fn_f`) is exported under its source name. Write to a .mjs file and
                     `import { all_factors } from './t86.mjs'`. Refuses to
                     combine with --run and with non-JS targets.
-                    NOTE: exported functions keep the program's PROVEN
-                    value ranges (closed-program optimization — e.g. an
-                    i53-proven param reads `Number(p1)`). Calls WITHIN the
-                    proven range are exact; out-of-range external inputs
-                    silently round (t86's all_factors('9007199254740993')
+                    NOTE: exported functions keep their runtime guards
+                    (no call-site range specialization — external callers
+                    are unprovable, so `Number(p1) || 0` stays). Calls are
+                    exact within Number semantics; out-of-range inputs
+                    round per Number() (t86's all_factors('9007199254740993')
                     factors the rounded even value). BigInt-homed functions
                     (t89's) are exact for arbitrary magnitude.
   --shir            output the raw A1 contract (same as output ext .shir)
@@ -833,6 +834,16 @@ pub fn cli_at(
             }
         }
     }
+    // `--library` exports the functions, so an external caller could pass
+    // any argument — the interprocedural param-range analysis (drop the
+    // `|| 0` NaN/zero normalizer) is unsound for exported functions. Set
+    // an env var the ESTree pipeline checks to disable it.
+    let lib_guard = if do_library {
+        std::env::set_var("SH2_LIBRARY", "1");
+        true
+    } else {
+        false
+    };
     let out = match render(&a1, &tgt_lang) {
         Ok(out) => out,
         Err(e) => {
@@ -840,6 +851,9 @@ pub fn cli_at(
             return 1;
         }
     };
+    if lib_guard {
+        std::env::remove_var("SH2_LIBRARY");
+    }
 
     if do_library && tgt_lang != "js" {
         let _ = writeln!(
@@ -887,19 +901,18 @@ pub fn cli_at(
 
 /// `--library` (JS target only): reshape the rendered ESTree program into
 /// an importable ES module. The emitter's top-level body is a `let` header
-/// (bindings + `__fn_` placeholders), the `__fn_<name> = ...` function
-/// defines, and the driver (calls, prints, loops). A library keeps the
-/// header and the defines, drops the driver, prepends
+/// (bindings + `__fn_` placeholders), the function defines (any shape:
+/// `function f`, `const f = arrow`, `f = arrow` onto a prologue `let`,
+/// legacy `__fn_f = …`), and the driver (calls, prints, loops). A library
+/// keeps the header and the defines, drops the driver, prepends
 /// `import { sh2 } from "<workspace>/harness/sh2-namespace.mjs"`, and
-/// appends `export { __fn_x as x, ... }` (the emitter's `__fn_<name>` rule
-/// makes the stripped suffix the source name; non-identifier suffixes
-/// export bare). Caveats, documented in `--help`: functions close over
+/// appends `export { f, … }` (the legacy `__fn_<name>` rule strips to the
+/// source name; non-identifier suffixes export bare). Caveats, documented in `--help`: functions close over
 /// the header inits (driver-computed state is NOT included), the import
 /// path is machine-local (retarget it when publishing), and exported
-/// functions keep the program's PROVEN value ranges (params specialize to
-/// their call-site ranges — an i53-proven param reads `Number(p1)`).
-/// In-range calls are exact; out-of-range external inputs silently round
-/// (BigInt-homed functions stay exact for arbitrary magnitude).
+/// functions keep their runtime guards (no call-site specialization —
+/// external inputs are unprovable, so the interprocedural param-range
+/// analysis is disabled for libraries).
 fn apply_library(root: &Path, estree_json: &str) -> Result<String, String> {
     let mut v: serde_json::Value = serde_json::from_str(estree_json)
         .map_err(|e| format!("--library: ESTree JSON parse: {e}"))?;
@@ -908,40 +921,24 @@ fn apply_library(root: &Path, estree_json: &str) -> Result<String, String> {
         .and_then(|b| b.as_array_mut())
         .ok_or_else(|| "--library: ESTree Program has no body array".to_string())?;
     let mut kept = Vec::new();
-    let mut fns: Vec<String> = Vec::new();
-    for st in body.drain(..) {
-        let keep = match st.get("type").and_then(|t| t.as_str()) {
-            Some("VariableDeclaration") | Some("FunctionDeclaration") => true,
-            Some("ExpressionStatement") => {
-                // keep `__fn_x = ...` defines; drop driver calls/prints
-                let is_fn_define = st
-                    .get("expression")
-                    .filter(|e| {
-                        e.get("type").and_then(|t| t.as_str())
-                            == Some("AssignmentExpression")
-                    })
-                    .and_then(|e| e.get("left"))
-                    .and_then(|l| l.get("name"))
-                    .and_then(|n| n.as_str())
-                    .map(|n| n.starts_with("__fn_"))
-                    .unwrap_or(false);
-                if is_fn_define {
-                    if let Some(nm) = st
-                        .get("expression")
-                        .and_then(|e| e.get("left"))
-                        .and_then(|l| l.get("name"))
-                        .and_then(|n| n.as_str())
-                    {
-                        fns.push(nm.to_string());
-                    }
-                }
-                is_fn_define
-            }
-            _ => false,
-        };
-        if keep {
-            kept.push(st);
+    // (local binding, exported name), deduped below. Defines are
+    // detected by SHAPE, not by the `__fn_` prefix: param-lift emission
+    // varies (`function f`, `const f = arrow`, `f = arrow` with a
+    // prologue `let`, legacy `__fn_f = …`) and the library must survive
+    // all of them.
+    let mut fns: Vec<(String, String)> = Vec::new();
+    fn ident_name(v: &serde_json::Value) -> Option<&str> {
+        if v.get("type").and_then(|t| t.as_str()) == Some("Identifier") {
+            v.get("name").and_then(|n| n.as_str())
+        } else {
+            None
         }
+    }
+    fn is_fn_value(v: &serde_json::Value) -> bool {
+        matches!(
+            v.get("type").and_then(|t| t.as_str()),
+            Some("ArrowFunctionExpression") | Some("FunctionExpression")
+        )
     }
     fn is_ident(s: &str) -> bool {
         let mut cs = s.chars();
@@ -950,6 +947,74 @@ fn apply_library(root: &Path, estree_json: &str) -> Result<String, String> {
             _ => return false,
         }
         cs.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+    }
+    // Local → exported: the legacy `__fn_<name>` rule strips the prefix
+    // (non-identifier suffixes export bare); plain names export as-is.
+    fn exported_name(local: &str) -> String {
+        let stripped = local.strip_prefix("__fn_").unwrap_or(local);
+        if is_ident(stripped) {
+            stripped.to_string()
+        } else {
+            local.to_string()
+        }
+    }
+    for st in body.drain(..) {
+        let mut keep = false;
+        let mut export: Option<String> = None;
+        match st.get("type").and_then(|t| t.as_str()) {
+            Some("VariableDeclaration") => {
+                keep = true;
+                // `const f = arrow` / `let f = function…` declarators.
+                if let Some(ds) = st.get("declarations").and_then(|d| d.as_array())
+                {
+                    for d in ds {
+                        let nm = d.get("id").and_then(ident_name);
+                        let is_fn = d.get("init").map(is_fn_value).unwrap_or(false);
+                        if let Some(n) = nm {
+                            if is_fn {
+                                export = Some(n.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            Some("FunctionDeclaration") => {
+                keep = true;
+                if let Some(n) = st.get("id").and_then(ident_name) {
+                    export = Some(n.to_string());
+                }
+            }
+            Some("ExpressionStatement") => {
+                // `f = arrow` defines (binding from the prologue `let`)
+                // plus the legacy `__fn_x = …` defines; driver
+                // calls/prints/assignments drop.
+                if let Some(e) = st.get("expression") {
+                    let is_assign = e.get("type").and_then(|t| t.as_str())
+                        == Some("AssignmentExpression");
+                    if is_assign {
+                        let left = e.get("left").and_then(ident_name);
+                        let right_is_fn =
+                            e.get("right").map(is_fn_value).unwrap_or(false);
+                        if let Some(n) = left {
+                            if right_is_fn || n.starts_with("__fn_") {
+                                keep = true;
+                                export = Some(n.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        if let Some(n) = export {
+            let e = exported_name(&n);
+            if !fns.iter().any(|(l, _)| l == &n) {
+                fns.push((n, e));
+            }
+        }
+        if keep {
+            kept.push(st);
+        }
     }
     let mut new_body = Vec::new();
     let ns = root.join("harness/sh2-namespace.mjs");
@@ -966,12 +1031,10 @@ fn apply_library(root: &Path, estree_json: &str) -> Result<String, String> {
     if !fns.is_empty() {
         let specifiers: Vec<serde_json::Value> = fns
             .iter()
-            .map(|b| {
-                let stripped = b.strip_prefix("__fn_").unwrap_or(b);
-                let exported = if is_ident(stripped) { stripped } else { b };
+            .map(|(local, exported)| {
                 serde_json::json!({
                     "type": "ExportSpecifier",
-                    "local": {"type": "Identifier", "name": b},
+                    "local": {"type": "Identifier", "name": local},
                     "exported": {"type": "Identifier", "name": exported}
                 })
             })
@@ -1214,5 +1277,82 @@ mod tests {
             !out_bt.contains("chomp $_r;") && out_nb.contains("chomp $_r;"),
             "--backtick must drop the command-substitution chomp: {out_bt} / {out_nb}"
         );
+    }
+
+    // `--library` reshape (pure ESTree-JSON transform — no CLI needed).
+    fn lib_arrow() -> serde_json::Value {
+        serde_json::json!({"type":"ArrowFunctionExpression","params":[],"body":{"type":"BlockStatement","body":[]}})
+    }
+    fn lib_id(name: &str) -> serde_json::Value {
+        serde_json::json!({"type":"Identifier","name":name})
+    }
+    fn lib_call(name: &str) -> serde_json::Value {
+        serde_json::json!({"type":"ExpressionStatement","expression":{"type":"CallExpression","callee":lib_id(name),"arguments":[],"optional":false}})
+    }
+    fn lib_reshape(body: Vec<serde_json::Value>) -> String {
+        let prog = serde_json::json!({"type":"Program","body":body});
+        apply_library(&root(), &prog.to_string()).expect("library reshape")
+    }
+    fn lib_decl(kind: &str, name: &str, init: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({"type":"VariableDeclaration","kind":kind,"declarations":[{"type":"VariableDeclarator","id":lib_id(name),"init":init}]})
+    }
+
+    #[test]
+    fn library_exports_bare_assignment_define() {
+        // current param-lift shape: prologue `let` + `f = arrow`.
+        let out = lib_reshape(vec![
+            lib_decl(
+                "let",
+                "f",
+                serde_json::json!({"type":"Literal","value":null}),
+            ),
+            serde_json::json!({"type":"ExpressionStatement","expression":{"type":"AssignmentExpression","operator":"=","left":lib_id("f"),"right":lib_arrow()}}),
+            lib_call("f"),
+        ]);
+        assert!(out.contains("ImportDeclaration"), "import kept: {out}");
+        assert!(
+            out.contains("\"local\":{\"name\":\"f\",\"type\":\"Identifier\"}")
+                && out.contains("\"exported\":{\"name\":\"f\",\"type\":\"Identifier\"}"),
+            "f exported: {out}"
+        );
+        assert!(!out.contains("CallExpression"), "driver dropped: {out}");
+    }
+
+    #[test]
+    fn library_exports_const_arrow_and_function_decl() {
+        let out = lib_reshape(vec![
+            lib_decl("const", "g", lib_arrow()),
+            serde_json::json!({"type":"FunctionDeclaration","id":lib_id("h"),"params":[],"body":{"type":"BlockStatement","body":[]},"generator":false,"expression":false,"async":false}),
+            lib_call("g"),
+        ]);
+        assert!(
+            out.contains("\"local\":{\"name\":\"g\",\"type\":\"Identifier\"}")
+                && out.contains("\"local\":{\"name\":\"h\",\"type\":\"Identifier\"}"),
+            "both exported: {out}"
+        );
+        assert!(!out.contains("CallExpression"), "driver dropped: {out}");
+    }
+
+    #[test]
+    fn library_keeps_legacy_fn_prefix_and_drops_plain_rebinds() {
+        // legacy `__fn_f = …` still exports stripped; a plain VALUE
+        // rebind (`f = 5`) is driver, not a define — dropped.
+        let out = lib_reshape(vec![
+            serde_json::json!({"type":"ExpressionStatement","expression":{"type":"AssignmentExpression","operator":"=","left":lib_id("__fn_f"),"right":lib_arrow()}}),
+            serde_json::json!({"type":"ExpressionStatement","expression":{"type":"AssignmentExpression","operator":"=","left":lib_id("f"),"right":{"type":"Literal","value":5}}}),
+        ]);
+        assert!(
+            out.contains("\"local\":{\"name\":\"__fn_f\",\"type\":\"Identifier\"}")
+                && out.contains("\"exported\":{\"name\":\"f\",\"type\":\"Identifier\"}"),
+            "legacy stripped: {out}"
+        );
+        assert!(!out.contains("\"value\":5"), "value rebind dropped: {out}");
+    }
+
+    #[test]
+    fn library_driver_only_has_no_export() {
+        let out = lib_reshape(vec![lib_call("f")]);
+        assert!(!out.contains("ExportSpecifier"), "no export: {out}");
+        assert!(!out.contains("CallExpression"), "driver dropped: {out}");
     }
 }

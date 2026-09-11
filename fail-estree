@@ -136,7 +136,7 @@ sub run_one_test {
     # ---- ESTREE path ----
     my $est_verdict = 'PASS';
     my $est_reason = '';
-    my $json_out = `timeout $timeout_per_test sh -c '"$otranspilerl" --target estree "$test_file" 2>/dev/null'`;
+    my $json_out = `timeout $timeout_per_test sh -c '"$otranspilerl" -O3 --target estree "$test_file" 2>/dev/null'`;
     if ($? != 0 || $json_out =~ /Parse error/) {
         $est_verdict = 'FAIL';
         $est_reason = $? != 0 ? 'otranspilerl --target estree failed' : 'parse error';

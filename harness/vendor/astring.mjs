@@ -711,13 +711,12 @@ export const GENERATOR = {
     state.write(node.async ? 'async ' : '', node)
     const { params } = node
     if (params != null) {
-      // Omit parenthesis if only one named parameter
-      if (params.length === 1 && params[0].type[0] === 'I') {
-        // If params[0].type[0] starts with 'I', it can't be `ImportDeclaration` nor `IfStatement` and thus is `Identifier`
-        state.write(params[0].name, params[0])
-      } else {
-        formatSequence(state, node.params)
-      }
+      // sh2loop local patch: always parenthesize the parameter list
+      // (Prettier `arrow-parens: always` style). Upstream astring omits
+      // parens for a single Identifier param (`p1 => …`); we emit
+      // `(p1) => …` uniformly — one code path for 0/1/N params, stable
+      // under Prettier, and robust to adding params/defaults later.
+      formatSequence(state, node.params)
     }
     state.write(' => ')
     if (node.body.type[0] === 'O') {

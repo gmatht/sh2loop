@@ -232,6 +232,7 @@ name = "otranspilerl"
 version = "0.1.0"
 dependencies = [
  "debashl",
+ "serde_json",
 ]
 
 [[package]]
