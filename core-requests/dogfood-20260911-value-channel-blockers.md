@@ -88,3 +88,24 @@ value-return testdata files (t103/t107–t110/t111/t114–t116/t52/t83/t85/
 t94/t96/t99) and ALL if-containing inputs need §1; most also need §2–§3
 for byte-equality. No go-sh.go action remains for these — verified by
 input bisection down to `if true` / `return 42` (m24/m10).
+
+## Update 2026-09-11 (later): frontend-local progress + two new patterns
+
+Since filing, several items were fixed WITHOUT shared changes
+(commits a34dd0a3, 8d5d5c61 — all frontend-local or safe runtime
+bugfixes). Byte-identical now: `return 42`, `return "a"`,
+`return []string{"a"}`, return-types, `x := "a"`, `x := 1`, bare
+`return` (m3/m5/m6/m10/m11/m25). Still red: `if` cond shape, composite
+assigns, string-ifs. New patterns for the owners:
+
+- `out := append(preEcho, X)` lowers with the ASSIGNEE as base
+  (`out = push(out, X)`, dropping preEcho) — worked around via
+  alias-then-append, but every `new := append(old, …)` is suspect.
+- Go `w["key"]` on helper-built maps reads id strings in JS
+  (localVal case study: `w["type"]` on a store id always misses).
+  Expr kind/text (objGet) survives; map-`[]` needs store-aware lowering
+  (or plain-object inlining) from the transpiler.
+- `getVar("#name")` on list# vars fixed runtime-side (counts items).
+- Remaining §1: If `cond` arrives as JSON TEXT (needs text→object at
+  embed, or condToJSON echoing an id). Remaining §3: composite-assign
+  `setArray` node builds as plain object (String-flattens on embed).
