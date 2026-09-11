@@ -1,15 +1,17 @@
 # Python `list` → backend structures: candidates, costs, analysis, tests
 
-Status: **design + prototype + in-tree analysis + C Vec hook**.
-The §4 passes are prototyped in `scratch-listprof/` and dropped into
-the tree as `sh2perl/src/shir_passes/list_profile/` (census, bounds,
-selection). The C backend consumes the verdicts: `Fixed`-verdict and
-untracked arrays keep fixed storage (byte-identical); `Vec`/
-`SmallVec`/`Chunked`/`Gap`/`Rope` verdicts with unbounded-or-
+Status: **design + in-tree analysis + C Vec hook + function-local vecs
+(landed)**.
+The §4 passes live in `sh2perl/src/shir_passes/list_profile/` (census,
+bounds, selection, use scopes). The C backend consumes the verdicts:
+`Fixed`-verdict and untracked arrays keep fixed storage (byte-identical);
+`Vec`/`SmallVec`/`Chunked`/`Gap`/`Rope` verdicts with unbounded-or-
 overflowing bounds lower as a growable vec (`T *a` + `a_len` +
 `a_cap`, doubling realloc, P1 fail-stop OOM) for both int and string
-homings — `SH2_LIST_VEC=0` disables it. SmallVec/Gap/Chunked/Rope
-share the Vec lowering until their own lowerings land.
+homings — `SH2_LIST_VEC=0` disables it. Single-safe-scope vecs
+declare as function locals (not file-scope globals), freed at every
+exit. SmallVec/Gap/Chunked/Rope share the Vec lowering until their
+own lowerings land.
 
 This document compares the
 data structures a Python `list` could lower to (C backend first; other
