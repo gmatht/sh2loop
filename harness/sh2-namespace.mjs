@@ -2501,6 +2501,15 @@ export const sh2 = {
       this._objStore.set(id, { kind: 'map', m: new Map() });
       return id;
     }
+    // a LIST allocation (objNew("list", …) from an empty Go slice
+    // literal): a real kind 'list' so listPush/listLen/_serList work —
+    // the struct-kind fallthrough silently DROPPED pushes (listLen
+    // stayed 0) and serialized as {} instead of [] (the dogfood
+    // return-stop args gap).
+    if (String(typeName ?? '') === 'list') {
+      this._objStore.set(id, { kind: 'list', items: Array.isArray(vals) && vals.length ? [...vals] : [] });
+      return id;
+    }
     const f = {};
     if (Array.isArray(fields)) for (let i = 0; i < fields.length; i++) f[fields[i]] = vals?.[i] ?? '';
     this._objStore.set(id, { kind: 'struct', type: String(typeName ?? ''), f });
@@ -2737,6 +2746,9 @@ export const sh2 = {
   _serObj(id) {
     const o = this._objStore.get(String(id));
     if (!o) return '{}';
+    // obj-store LISTS (objNew("list") — empty Go slice literals):
+    // serialize as JSON arrays (without this they fell to '{}').
+    if (o.kind === 'list') return '[' + o.items.map(it => this._serVal(null, it)).join(',') + ']';
     // obj-store MAPS (objNew("map") — anonymous map literals, Function
     // nodes): serialize the entry map structurally (a snapshot —
     // callers needing null-restored schema (top-level stmts) go
