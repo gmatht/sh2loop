@@ -109,3 +109,19 @@ assigns, string-ifs. New patterns for the owners:
 - Remaining §1: If `cond` arrives as JSON TEXT (needs text→object at
   embed, or condToJSON echoing an id). Remaining §3: composite-assign
   `setArray` node builds as plain object (String-flattens on embed).
+
+## Update 2026-09-11 (later 2): composite assigns green, two more patterns
+
+- `fnCall` String-flattens OBJECT args (`flat.push(String(a))`) AND
+  discards map returns — a helper call like
+  `assignStmt(x, <node-map>)` corrupts twice (arg becomes
+  `"[object Object]"`, return lost). Fixed frontend-locally by
+  inlining (m1/m2 green); 28 `fnCall+jsonObject` sites remain for the
+  owner (pass-by-id + value returns).
+- NO function scoping for shared temps: callee loop `i` clobbers
+  caller's live `i` (m7 read `targets[1]`). Fixed at the site via
+  save/restore (m7 green); proper per-call frames are owner work.
+- `==`/`!=` BinOp via `condOperandA1Word` multi-return under
+  investigation (m21 `if err == ""` yields empty cond, poisoning the
+  program — one bad node empties output, suggesting fail-closed
+  ingress on malformed nodes).
