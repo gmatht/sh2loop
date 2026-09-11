@@ -2670,13 +2670,15 @@ export const sh2 = {
     if (arr) return '[' + arr.map(it => this._serVal(null, it)).join(',') + ']';
     return '[]';
   },
-  _serVal(k, v) {
+  _serVal(k, v, parent) {
     // INLINE word-objects/arrays (the translated shir-emit-go builds
     // nested A1 words as plain JS objects inside assoc maps — e.g. the
     // `v := map[string]any{...}` Emit map whose values are toAnyStmts
     // words): recurse with sorted keys, exactly like encoding/json.
     // Without this the String() coercion below yields "[object Object]"
     // (the dogfood self-print gap).
+    // `parent` (the containing node, when known) drives schema-typed
+    // restoration for scalar fields — see the numeric rule below.
     if (v !== null && typeof v === 'object') {
       if (Array.isArray(v)) return '[' + v.map(it => this._serVal(null, it)).join(',') + ']';
       const keys = Object.keys(v).sort();
@@ -2688,7 +2690,7 @@ export const sh2 = {
         if (key === 'value' && (vtype === 'Num' || vtype === 'Int') && /^-?\d+$/.test(String(v[key] ?? ''))) {
           return JSON.stringify(key) + ':' + String(Number(v[key]));
         }
-        return JSON.stringify(key) + ':' + this._serVal(key, v[key]);
+        return JSON.stringify(key) + ':' + this._serVal(key, v[key], v);
       });
       return '{' + parts.join(',') + '}';
     }
@@ -2707,6 +2709,13 @@ export const sh2 = {
       });
       return '[' + arr.join(',') + ']';
     }
+    // schema-typed scalar restore (parent-driven): a digit string under
+    // a Num/Int-typed parent node is a number per the A1 contract —
+    // this is the _serObj/_serAssoc per-field path, where the node's
+    // own type isn't visible to the generic recursion above. Unknown
+    // parent → _scalar (unchanged).
+    const ptype = (parent !== null && typeof parent === 'object' && !Array.isArray(parent) && typeof parent.type === 'string') ? parent.type : '';
+    if (k === 'value' && (ptype === 'Num' || ptype === 'Int') && /^-?\d+$/.test(s)) return String(Number(s));
     return this._scalar(k, s);
   },
   _serObj(id) {
@@ -2724,7 +2733,7 @@ export const sh2 = {
     if (o.kind !== 'struct') return '{}';
     const f = o.f;
     const keys = Object.keys(f).sort();
-    const parts = keys.map(k => JSON.stringify(k) + ':' + this._serVal(k, f[k]));
+    const parts = keys.map(k => JSON.stringify(k) + ':' + this._serVal(k, f[k], f));
     return '{' + parts.join(',') + '}';
   },
   _scalar(k, s) {
