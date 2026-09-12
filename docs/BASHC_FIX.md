@@ -1,7 +1,7 @@
 # BASHC equivalence failures — triage and fix strategy
 
 Date: 2026-09-12. Gate: `harness/c_gate_main.sh` → **PASS=592 FAIL=45 SKIP=7**
-at triage; **PASS=625 FAIL=12 SKIP=7** after §4.11 (zero regressions;
+at triage; **PASS=628 FAIL=9 SKIP=7** after §4.12 (zero regressions;
 051 flaky-slow, 062 gate-parallel flake).
 Corpus: `sh2perl/examples/*.sh` + `frontends/*/testdata/*.sh` via the
 **sh frontend** (bash→shIR→C). All 45 verdicts are `exec/diff`: the C
@@ -360,6 +360,22 @@ has a half-life measured in hours.
   (parse-eval-multiline), dynamic case patterns calling script fns
   (parse-redirect-in-case), non-UTF8 passthrough (utf8), tty
   capture helper, typeset -n/-f, pipeline/subshell status (§2.6).
+
+### 4.12 Fourth wave (628/9/7, zero regressions)
+- 000: quote-if-newline for glued interpolations (`_sh_addqn`/
+  `_sh_baddqn` — nested backtick newlines broke shell syntax).
+- 063_hard + 063_04-stdout: malformed `${!prefix*[@]}` skips echo
+  (no output, rc=1); sh_word emits raw for sites; echo forces
+  shell-out. 063_04 left red on exit-code only.
+- `"$@"` as command was dropped by shell_exec (non-Str command);
+  now via sh_word (tty helper progress, tty still red on
+  function-redirects + pty).
+- `[[ ]]` for command-subst tests; `return 0` kept (return _sh_rc
+  exposes 8 latent status bugs, net -7).
+- Left red (hard gaps): arith-error propagation (div-zero,
+  `$N` quirk → skip-command), eval-defined fns, dynamic case
+  patterns (needs expr-patterns), non-UTF8 passthrough, typeset
+  -n/-f, pipeline/subshell status, function-call redirects.
 
 ## 5. Representation policy (decided 2026-09-12)
 
