@@ -232,3 +232,33 @@ prior measurement, so this round targets per-iteration calls + call counts).
 
 Verification: lib 653/0 (+7), c_* suites pass, 93/93 estree valid
 (t95/t96 pre-existing broken oracles), t86/t92/t97 oracle MATCH.
+
+## Round 7 — string-fact guards, conditional/logical String-drop, str-method table (2026-09-12)
+
+Sweep: 70 `String(ident)` guards across 38 tests — most wrap provably-string
+vars (`let x = "world"; write(String(x))`, t64's 14× `String(x)`).
+
+20. **String-fact propagation** (mirror of item 17): after `v = <string>`
+    (literal, template, `String(..)`, certain-string sh2.* call (shared
+    `sh2_certain_string`, hoisted to top level), `+` with a string side,
+    all-string conditional, string method on a string receiver, or a
+    known-string var), later `String(E)` → `E` whenever E establishes a
+    string. **DONE**: `prop_string_facts` post-pass (same kills/descent/
+    closure discipline as item 17; runs before the String-drop so newly
+    exposed wrappers fold). Corpus `String(ident)` 70→18 (survivors are
+    numbers/unknowns: t03's `x = 42`, t20's for-of element, t29's counter).
+    t30's branch-assigned `y`, t37/t38's `s`, t02's `x` all fold. +4 unit
+    tests (fold, reassign-kill, transitive+concat, number-never-establishes).
+21. **`is_already_string` conditionals/logicals** (t64's 4 outer
+    `String(ternary)`): a conditional/logical with all-string arms is a
+    string. **DONE** (recursive predicate arms). +2 unit tests (drop + mixed
+    veto). Generalizing S1's fold to any establishing arg (not just
+    identifiers) plus a `str_method_returns_string` table (slice/trim/case/
+    replace/…; length-arg/predicate/index methods excluded) completes t64:
+    14→0 `String(`. Survivors elsewhere are numbers/unknowns (verified).
+
+Deferred: `[E].flat().join(" ")` single-site shape (t37 only — print-list
+lowering wraps a scalar; emitter-layer fix, worker/frontend domain).
+
+Verification: lib 659/0 (+6), c_* suites pass, 93/93 estree valid
+(t95/t96 pre-existing broken oracles), full oracle MATCH sweep.
