@@ -2744,6 +2744,22 @@ export const sh2 = {
       });
       return '[' + arr.join(',') + ']';
     }
+    // COMPILE-TIME node temps (__tmp_m* in nodeTemps): resolve like
+    // obj#/list# ids (assocSet already does this at store time;
+    // jsonObject/plain embeds bypass it, leaving literal temp names
+    // in node fields — m27's BinOp cond). Prefix-gated + membership-
+    // precise (user strings never match), snapshot-frozen (immune to
+    // temp reuse, same freezeOneTemp assocSet uses). Recurse to
+    // serialize the resolved object structurally.
+    if (typeof s === 'string' && s.startsWith('__tmp_m')) {
+      const tm = this.assocStore.get('nodeTemps');
+      if (tm && tm.get(s)) {
+        const frozen = this.freezeOneTemp(s);
+        // Guard: unfreezable returns the same string — fall through
+        // to scalar (do NOT recurse infinitely).
+        if (frozen !== s) return this._serVal(k, frozen, parent);
+      }
+    }
     // schema-typed scalar restore (parent-driven): a digit string under
     // a Num/Int-typed parent node is a number per the A1 contract —
     // this is the _serObj/_serAssoc per-field path, where the node's
@@ -2758,6 +2774,10 @@ export const sh2 = {
     // texts. Other frontends unaffected (their Str outputs were already
     // strings-or-broken; correct shape only helps byte-equality).
     if (k === 'value' && ptype === 'Str') return JSON.stringify(s ?? '');
+    // Literal text fields stay strings too (empty `""` must not become
+    // `[]` — m21's `err := ""` Interpolate lit; same class as Str).
+    // Text is always content (never schema-missing structure).
+    if (k === 'text') return JSON.stringify(s ?? '');
     return this._scalar(k, s);
   },
   _serObj(id) {
