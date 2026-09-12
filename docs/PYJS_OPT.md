@@ -176,3 +176,25 @@ cond_zero soundness, stale shapes with execution proof). Verification per batch:
     (fold + veto). Cosmetic (saves a runtime call per site).
 16. **Top-level `let` consolidation** (`let a = 0, b = 0`): DONE (already
     comma-joined; note).
+
+## Round 5 — t97/t98 list-growth survey + nested temp-read fold (2026-09-12)
+
+Surveyed new `t97/t98_list_growth*min.py` (`xs.append(i); sum_min += min(xs)`):
+gate MATCH, but per-iteration `setVar(_min_xs,min)+guard-chain` is O(n²)
+(min re-scans; running-min strength-reduction deferred — needs loop
+analysis, min-scan dominates anyway).
+
+Implemented nested single straight-line temp-read fold in
+`fold_temp_roundtrips` (extends adjacent pair loop beyond `Tv = read`):
+same counts/purity gates + straight-line vet (loops/closures/branches/
+try vetoed) + E-dep write check + dynamic-call veto. Try-scope threading
+(`in_try` through walker/`fold_temp_roundtrips`/`try_fold_nested`;
+closures vetoed) after `try_except_as_binding_read_not_folded` caught a
+catch-preamble fold — as-binding reads must survive (fail-closed wins).
+Store-reading E (e.g. `min("xs")`) stays vetoed by `temp_eval_pure`
+(relaxing to deterministic+adjacent is sound but deferred — value is
+cleanliness, min-scan dominates).
+
+Tests: `temp_fold_nested_straight_read`, `temp_fold_nested_vetoed_loop`.
+Lib 644/0 (was 642/0 + 2 new), c_* suites pass, 93/93 estree valid
+(t95/t96 pre-existing broken oracles).
