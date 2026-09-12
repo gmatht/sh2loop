@@ -38,8 +38,15 @@ routes through `sh2.*` or keeps dead scaffolding.
 
 ## Implementation status
 
-Each item is marked DONE (implemented, gate-kept), TODO (this round, in
-dependency order), or DEFERRED (reason given). Verification per batch:
+Each item is marked DONE (implemented, gate-kept) or DEFERRED (reason
+given). Round 1 (params, local-drop, String-drop, DCE, isqrt seeding)
+verified: lib 635/0, 93/93 estree valid (t95/t96 excluded — broken
+python oracles, pre-existing), t86 C stdout+ASan+valgrind match, 9/9
+integration tests. Round 2 (this commit): rebased onto worker main
+(assoc decls, growable vecs, BASHC_OPT batch, capture/cat); re-verified
+same gates green (lib 635/0, 93/93, integration 9/9). 6 pre-existing
+estree fails fixed separately (PLAN v43; echo-split miscompile,
+cond_zero soundness, stale shapes with execution proof). Verification per batch:
 `cargo test --lib` (must hold at 0 failed), the 12-test manual gate above
 (C+estree render, node run vs python3 oracle), and the `frontend-stdout`
 91/91 gate where the CLI builds against the worktree.
