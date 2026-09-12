@@ -607,7 +607,53 @@ Discussion §3).
     + unset scan). Deferred until that proof lands — the gate
     below must include sparse + spaced cases.
 
-### Discussion — where the rounds point
+## Round 6 — survey (quoting, extglob, process-subst, heredocs)
+
+Sixth pass (`008_simple_backup`, `014_ansi_quoting`,
+`026_parameter_expansion_more`, `034_brace_expansion_advanced`,
+`037_pattern_matching_extglob`, `040_process_substitution_comm`,
+`042_process_substitution_advanced`, `045_shell_calling_perl`,
+`063_05_heredoc_with_complex_content`,
+`064_08_heredocs_with_variable_interpolation`,
+`079_heredoc_interpolation`; `046_cd` + `053_fibonacci` fail at
+the CLI — frontend gaps, not backend opt targets). Items 57+.
+All PROPOSED. (`014` is an already-optimal reference — const
+folding + `printf` format passthrough with zero guards/temps.
+`034` shows 51+40 firing together. `011`/`040`/`042` show the
+temp-swap free discipline and proof-driven bare uses working.)
+
+### U. Guard family close-out + statement values
+
+57. **Guards on fixed-buffer vars** (`045`:
+    `setenv("SHELL_VAR", SHELL_VAR ? SHELL_VAR : "")` — a
+    `char[N]` array address is never NULL (decays to a constant
+    pointer). Skip the guard when the var is buffer-homed
+    (`buf_bound` — the proof is the declaration itself, no flow
+    needed). Same family as 30, strictly simpler gate. S.
+58. **Statement `(STORE, const)` with live store** (`034`/`037`/
+    `040`/`042`: `(_sh_rc = 0, 1);` survives wherever `$?` is read
+    later — the STORE is correctly kept, but the `, 1` value is
+    discarded at statement position). Drop the dead tail:
+    `(_sh_rc = N, const);` → `_sh_rc = N;` (item-36 family, tail
+    instead of head; same global-gate discipline as 19 — value
+    position keeps everything). S.
+
+### V. Lowering gaps (structural, not peepholes)
+
+59. **Unquoted heredocs shell out wholesale** (`079`/`063_05`/
+    `064_08`: whole mains are a single `_sh_site_0()`). The
+    interpolated path exports vars + feeds child bash; the
+    backend HAS native interpolation (echo path) — render
+    unquoted bodies through it (item 26's other half). Needs
+    expansion semantics exactly matching child-bash. M/L.
+60. **extglob tests shell out** (`037`:
+    `{ if ((_sh_site_0())) ...}` for `[[ $f == *.js ]]`-style
+glob classes fnmatch can't express). Needs an
+extglob→regex/fnmatch pattern translation at lower time
+(pattern-compiler work — coordinate; pattern matching is
+shared with the JS worker). M/L.
+
+### Discussion — where the rounds point (Round 6 update)
 
 1. **The guard economy is nearly exhausted.** Rounds 1–4 chased
     guards from vars (12/24/34) toward vbufs (30), calls (31),
@@ -646,3 +692,16 @@ Discussion §3).
     peepholes *around* these six structural items. Next big turn
     should take 6 or 3 — each unlocks a chain (6 → atoll count +
     48's coverage; 3 → fork tax + 17).
+7. **Round 6: the peephole tail is short.** 57 closes the guard
+    family (after it, every remaining guard needs an individual
+    proof — stop and measure). 58 closes the statement-value
+    comma shapes (19 head-drop, 21 noreturn, 36 effectful-tail
+    head-strip, 58 live-store tail-drop — the `(_sh_rc = N, …)`
+    family is exhausted). What remains is lowering gaps (59/60
+    heredoc/extglob, 42/29 calls) and the deferred six above —
+    i.e. frontend/lowering work, not backend peepholes. The
+    survey rounds have diminishing returns from here; the next
+    survey should target a specific lowering (heredoc bodies or
+    extglob patterns) rather than another corpus sweep.
+    Frontend gaps noted (not backend items): `046_cd` and
+    `053_fibonacci` fail at the CLI.
