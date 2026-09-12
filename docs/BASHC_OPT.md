@@ -384,6 +384,80 @@ with a dead result guard (see 31).
     Needs callee-write analysis (worker's domain). M (deferred
     shape noted).
 
+## Round 4 — survey (misc, loops, backup, process-subst, factorize)
+
+Fourth pass over new territory (`006_misc`, `008_simple_backup`,
+`012_process_substitution`, `030_control_flow_if`,
+`031_control_flow_loops`, `043_home`, `048_subprocess`,
+`055_factorize`, `056_send_args`, `059_issue3`, `060_issue5`,
+`061_test_local_names_preserved`). Items continue the numbering
+(44+). Status: all PROPOSED except where noted. (`056`'s
+`const char result[3]` printing guard-free and `059`'s argv-less
+`int main(int argc)` are already-optimal reference points —
+buffer-homing and unused-param elision working.)
+
+Measured: `getenv("HOME")` 12× in `043`'s 11-line main (see 44);
+the identical `$HOME/Documents` snprintf+vbuf pair built twice
+(see 45); 4 more single-use `_qN = _sh_rc` temps (item-40 family:
+`006`, `030`, `048`, `060`).
+
+### O. Pure-call repetition (item-13/23 family, continued)
+
+44. **Repeated side-effect-free calls** (`043`):
+    `(getenv("HOME") ? getenv("HOME") : "")` twice PER
+    comparison, 12 calls total — item 13 hoists calls only in
+    default-arm position, and item 23 (extend the hoist to pure
+    exprs) was SUPERSEDED before this shape was measured. Re-scope
+    narrowly: bind-once hoist for repeated calls from a
+    known-pure allowlist (`getenv` — same process env, no
+    intervening `export`/`unset` of that name). The guard shape
+    itself then falls to item 34's proof if the temp is
+    literal-initialized... no — getenv can return NULL, so the
+    temp keeps ONE guard at the bind, and all 12 use sites go
+    bare. M.
+45. **Duplicate vbuf materialization** (`043`): `$HOME/Documents`
+    is snprintf-built into `_v0` (line 23) and again byte-identical
+    into `_v2` (line 27). CSE across statements: reuse the first
+    temp when the renderer inputs are textually identical and no
+    intervening write to the temp exists (vbuf temps are
+    single-producer here — the second `_sh_vgrow`+`snprintf` is
+    pure waste). M.
+
+### P. Branch/comma shape peepholes (item-10/19/20 family)
+
+46. **Empty `else { }`** (`059`: `} else { }`): item 20 dropped
+    the case-only empty else; the general `if/else` empty else
+    survives. Drop empty else branches everywhere (same gate as
+    20 — the branch carries no semantics). S.
+47. **`else` containing only a dead rc store** (`055`:
+    `} else { _sh_rc = 0; }` ×2): drop when `_sh_rc` is dead at
+    that point (item-11 liveness, same global gate as 19/36);
+    keep when live. S (gated).
+48. **`i = (i + 1)` → `i++`** (`031`): numeric loop counters
+    incremented via full arith-assign render though the
+    cstyleFor path already emits `i++`. Peephole at arith-assign
+    render: `v = (v + 1)` / `v = (v - 1)` with Int-homed `v` →
+    `v++` / `v--`. Gate STRICTLY on Int-homed: on a `char*`,
+    `j++` would be pointer arithmetic (miscompile). S micro.
+49. **Trailing `, 1` in statement-position `||`/`&&` tails**
+    (`012`: `(_sh_site_9() || (fputs(...), _sh_rc = 0, 1))`): the
+    `or`-lowering appends `, 1` to force truthiness, meaningless
+    when the statement value is discarded AND short-circuiting is
+    unaffected (RHS shape never influences LHS evaluation).
+    Drop the trailing `, 1` at statement position when the
+    preceding element is int-typed (keep `_sh_rc = 0`, keep
+    everything in value position — a masked failure there would
+    be a miscompile). S micro, narrow gate.
+
+### Q. Correctness-adjacent (leak, not just bytes)
+
+50. **`getcwd(0, 0)` leak in `chdir` lowering** (`008`):
+    `setenv("PWD", getcwd(0, 0), 1)` — the malloc'd buffer is
+    copied by setenv and never freed (valgrind-definite leak,
+    per `cd`). Bind to a temp and free after the setenv. S
+    correctness (also kills the per-`cd` leak in long-running
+    transpiled scripts).
+
 ### Already optimal (verified, no item)
 
 - Borrowed argv reads (`a = _sh_argv[_ai_a]`, no strdup, no free of
@@ -417,3 +491,11 @@ temps); 35–37, 40 are peepholes in dependency order (36 extends
 19's gate, 37 extends 10's); 38–39 need ownership/bound proofs
 (38 answers 27's open question); 41 is readability-only (any
 time); 42–43 chain behind 29 and callee-write analysis.
+
+Round 4 sequencing: 46–47 extend 20's gate (cheap, same tests);
+48 needs the Int-homing proof first (wrong-gate risk is a
+miscompile, not just missed bytes — test the `char*` negative);
+44–45 are the only M items (hoist/CSE machinery); 50 is
+correctness (valgrind-tainted — do alongside any touching of the
+`chdir` lowering); 49 is narrowest-last (value-position masking
+risk).
