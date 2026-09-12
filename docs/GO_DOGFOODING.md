@@ -9,8 +9,11 @@ Gate: `./fail-go-app` (oracle `go-sh --shir`, JS via `otranspilerl
 **Scoreboard (2026-09-12):** 26/124 pass. All 26 are straight-line
 (literals, assigns, echo, arith, string ops, imports, type decls — no `if`,
 no value-`return`, no composites, no value-calls). Everything with control
-flow, values, or composites fails. Plus 11 minimal repro patterns verified
-byte-identical during this effort (m1–m7, m9–m11, m25) and t01–t04 green.
+flow, values, or composites fails. Plus 17 minimal repro patterns verified
+byte-identical during this effort (m1–m7, m9–m11, m21/m22/m24–m28)
+and t01–t04 green. Lesson (re-learned 2026-09-12): rebuild BOTH
+binaries before comparing — a stale oracle mimics regression (m21 looked
+red until the main binary was rebuilt post-merge).
 
 **Merge status:** all dogfood commits are on `master` (8 code + 4 doc).
 Isolation branch `dogfood/go-sh-value-channel` exists as worktree
