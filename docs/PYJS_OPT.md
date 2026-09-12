@@ -448,3 +448,32 @@ t91 needs fresh-proof — one combined copy-elision rule, marginal);
 Verification: lib 686/0 (+4; 1 pre-existing C failure unchanged),
 c_fn_locals/params pass, 93/93 estree valid (t95/t96 pre-existing),
 oracle MATCH.
+
+## Round 14 — const folding + inline into tests (2026-09-12)
+
+Sweep: t25's `if (1 < 2)`, t85's orphaned `let`, scattered constant
+guards. Dead-let sweep prototyped then REMOVED (net-negative): the only
+corpus site needs it after inline orphans, but write-only bindings are
+exactly what the lifting pins protect (`x = 5` native lift,
+`x=$(echo hi)` value pin) — shell state stays bound, period. t85 keeps
+one dead line; inline (below) handles the live chains.
+
+36. **Const-expression fold** (exact integer arithmetic with |r| < 1e21
+    so Rust/JS print identically — div/mod-by-zero vetoed, no bitwise
+    (ToInt32-wrap vs saturate), no non-integers (float-format risk);
+    comparisons, `!`, `&&`/`||` with side-effect-free skipped arms,
+    unary minus, const ternaries; `if (true/false)` → body/else-or-drop,
+    `while (false)` → drop). **DONE**: `fold_const_exprs` (deep,
+    fixpoint-per-node, branch folding with re-processing; second call
+    after inline for newly-exposed constants). t25 → bare block.
+    +3 unit tests (fold, branch, div-zero veto).
+37. **Inline into test positions** (`if`/`while`/`do`/`for` tests): tests
+    evaluate unconditionally at statement execution, so `let x = 5; if
+    (x > 0)` → `if (5 > 0)` → const → body (the t25 chain). **DONE**
+    (read/replace extended; same straight-line vetting). Chained-let
+    unit test added (t87-style `x→y→use` folds fully).
+
+Verification: lib 690/0 (+4 net; 1 pre-existing C failure unchanged),
+c_fn_locals/params pass, 93/93 estree valid (t95/t96 pre-existing),
+oracle MATCH. Both shell shape pins hold strict (no test updates this
+round — the DCE scare resolved by removing the pass, not weakening).
