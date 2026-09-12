@@ -1,7 +1,7 @@
 # BASHC equivalence failures — triage and fix strategy
 
 Date: 2026-09-12. Gate: `harness/c_gate_main.sh` → **PASS=592 FAIL=45 SKIP=7**
-at triage; **PASS=631 FAIL=6 SKIP=7** after §7.6 (zero regressions;
+at triage; **PASS=633 FAIL=4 SKIP=7** after §7.8 (zero regressions;
 051 flaky-slow, 062 gate-parallel flake).
 Corpus: `sh2perl/examples/*.sh` + `frontends/*/testdata/*.sh` via the
 **sh frontend** (bash→shIR→C). All 45 verdicts are `exec/diff`: the C
@@ -474,6 +474,22 @@ the build; Cargo.toml markers resolved as empty). C-backend F800→raw
 unmarking implemented in `cstr()` (uncommitted, backed up) pending a
 buildable tree to verify. Core-request to file once marker source is
 confirmed.
+
+### 7.8 Quirk attempt reverted + utf8 landed (633/4)
+- parse-dollar: tried forcing shell-out + raw `$((...))` for `$N`-before-
+  `*` quirk-shape (child arbitrates). No-args fixed BUT called-with-args
+  regressed (child lacks positionals — sites don't propagate argv).
+  Proper fix needs positional propagation to sites (pass argv to
+  `bash -c`) or native runtime empty-check with echo ternary. Reverted
+  to clean exec/diff (frontend quirk + echo-skip remain the strategy).
+  LESSON: site-out for dynamic exprs requires argv propagation first.
+- utf8: F800 markers were correct end-to-end (false 88E9 alarm from own
+  hex misread — EF A3 A9 IS U+F8E9); only C rendering needed unmarking
+  (`cstr` maps F800-FF to `\\xNN`). Stale-binary confusion from concurrent
+  cargo builds documented (fingerprint issues; `cargo clean -p` fixes).
+- 4 remaining all need other layers: parse-dollar (frontend), parse-eval
+  (runtime parse), parse-redirect (frontend expr-patterns), typeset -n/-f
+  (alias + source). typeset doc updated.
 
 ### 7.4 Recommended order
 Arith-error (2 files, one mechanism) → utf8 (trace first, may be
