@@ -1519,6 +1519,16 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
   (String(i * i).includes("1337")) { process.stdout.write(String(i) +
   "\n"); } }` — zero sh2.* calls, zero dead status writes.
   fail-estree 526/531 (the 5 pre-existing flaky/env failures only).
+- **2026-09-12 — pyjs stack merged, parked for worker.** Rounds 5–12
+  (`pyjs-r5`…`pyjs-r12`: nested temp fold, coerce/string/bigint facts,
+  append fusion, String/concat/join/template elision, let inline,
+  `||0` elision) merged onto worker `a65d2475` as `merge-pyjs-r12`
+  (`72cdb9f4`, clean merge) in `sh2perl`. Verified: lib 682/0 (1
+  pre-existing C-aggregate failure), c_fn_* green, 93/93 estree valid.
+  NOT bumped: `tests/c_isqrt.rs` is 3-red against worker's in-flight
+  isqrt redesign (2 fail on clean base too) — worker updates the tests
+  to the new `sh2_isqrt` design, then bumps the gitlink. Worker
+  checkout dirt untouched.
 
 ---
 
