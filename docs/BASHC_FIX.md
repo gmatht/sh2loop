@@ -461,6 +461,20 @@ exact bash skip semantics). Heap-target div-zero still guarded-0
   with STABLE CLI copy (rules out rebuild races) — resource-contention
   flakes per AGENTS.md; binaries verified correct. Not product bugs.
 
+### 7.7 utf8 root-caused (pre-backend; blocked)
+`read_source` (otranspilerl) marks invalid bytes U+F800+byte; Parser +
+IR + JSON preserve markers (verified by unit tests). But the CLI
+`--raw` shir holds U+88E9, not U+F8E9. Bisected: `read_source` emits
+correct F8E9 (debug print: `b=233 cp=63721`); conversion happens
+downstream in CLI path (not in lib `shell_to_shir_contract`, which
+preserves). Suspect stale/fingerprint-confused binary (concurrent
+cargo builds) or an undiscovered CLI-only transform. BLOCKED by
+worker's in-flight merge (shir_nodes/enc.rs conflict markers break
+the build; Cargo.toml markers resolved as empty). C-backend F800→raw
+unmarking implemented in `cstr()` (uncommitted, backed up) pending a
+buildable tree to verify. Core-request to file once marker source is
+confirmed.
+
 ### 7.4 Recommended order
 Arith-error (2 files, one mechanism) → utf8 (trace first, may be
 single-point) → tty redirects (medium, well-scoped) → eval /
