@@ -58,6 +58,12 @@ rm -f "$tmp/probe_libs"
 run_one() {
   f="$1"; id=$(echo "$f" | md5sum | cut -d' ' -f1)
   d="$tmp/$id"; mkdir -p "$d"
+  # absolute script path: run_one executes in $d (CWD isolation), so a
+  # relative $1 would not resolve there (and would silently empty $ref)
+  case "$f" in
+    /*) ;;
+    *) f="$PWD/$f" ;;
+  esac
   shir=$("$CORE" "$f" --source-lang sh --target shir --raw 2>/dev/null) || { echo "SKIP $f" > "$d/v"; return; }
   [ -z "$shir" ] && { echo "SKIP $f" > "$d/v"; return; }
   bash -n "$f" 2>/dev/null || { echo "SKIP $f" > "$d/v"; return; }
@@ -66,9 +72,14 @@ run_one() {
   if [ "$s" -gt 0 ]; then echo "FAIL $f stub:$s" > "$d/v"; cp <<<"$g_out" /dev/null 2>/dev/null; printf '%s' "$g_out" > "$d/prog.c"; return; fi
   printf '%s' "$g_out" > "$d/prog.c"
   eq_exit=1
-  cc "$d/prog.c" $CLIBS -o "$d/bin" 2>"$d/ccerr" && timeout 15 "$d/bin" > "$d/out" 2>/dev/null && eq_exit=0
+  # run_one executes the binary AND bash in the test's own temp dir:
+  # tests that write relative files (heredoc-*-span.sh both write x.py)
+  # raced each other under parallel load when sharing the invoker's CWD.
+  # Both sides share the isolated dir, so CWD-sensitive comparisons
+  # (`basename $(pwd)`, $0-absolute) still agree; litter dies with $tmp.
+  cc "$d/prog.c" $CLIBS -o "$d/bin" 2>"$d/ccerr" && (cd "$d" && timeout 15 ./bin > out 2>/dev/null) && eq_exit=0
   bash_rc=0
-  timeout 15 bash "$f" > "$d/ref" 2>/dev/null || bash_rc=$?
+  (cd "$d" && timeout 15 bash "$f" > ref 2>/dev/null) || bash_rc=$?
   verdict=FAIL
   if [ "$eq_exit" != 124 ] && [ "$bash_rc" != 124 ] && [ "$eq_exit" = 0 ] && [ "$bash_rc" = 0 ] \
      && diff -q "$d/out" "$d/ref" >/dev/null 2>&1; then
@@ -80,11 +91,11 @@ run_one() {
     if $SANITIZE_CC $SAN_FLAGS "$d/prog.c" $CLIBS -o "$d/bin_san" 2>"$d/sanccerr"; then
       san_exit=1
       if [ "$SANITIZE" = thread ]; then
-        TSAN_OPTIONS=halt_on_error=1:exitcode=99 timeout 30 "$d/bin_san" > "$d/sanout" 2>"$d/sanerr" && san_exit=0 || san_exit=$?
+        (cd "$d" && TSAN_OPTIONS=halt_on_error=1:exitcode=99 timeout 30 ./bin_san > sanout 2>sanerr) && san_exit=0 || san_exit=$?
       else
-        ASAN_OPTIONS=strict_string_checks=1:detect_stack_use_after_return=1:detect_leaks=1 \
+        (cd "$d" && ASAN_OPTIONS=strict_string_checks=1:detect_stack_use_after_return=1:detect_leaks=1 \
         UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
-        timeout 30 "$d/bin_san" > "$d/sanout" 2>"$d/sanerr" && san_exit=0 || san_exit=$?
+        timeout 30 ./bin_san > sanout 2>sanerr) && san_exit=0 || san_exit=$?
       fi
       if [ "$san_exit" != 0 ] || ! diff -q "$d/sanout" "$d/ref" >/dev/null 2>&1; then
         first_err=$(grep -m1 -oE "(ERROR: AddressSanitizer[^ ]*|SUMMARY: .*|runtime error: .*|WARNING: ThreadSanitizer[^ ]*|ERROR: LeakSanitizer[^ ]*)" "$d/sanerr" 2>/dev/null || head -c 120 "$d/sanerr" 2>/dev/null | tr '\n' ' ')
