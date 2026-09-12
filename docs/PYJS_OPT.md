@@ -334,3 +334,40 @@ temps, map params).
 
 Verification: lib 673/0 (+5: 3 micro-rules + 1 nested + 1 lit-concat),
 c_* suites pass, 93/93 estree valid (t95/t96 pre-existing), oracle MATCH.
+
+## Round 10 — single-use let inline, template fold, concat reorder (2026-09-12)
+
+Sweep: 87 `let` inits, 41 single-read — most inline cleanly once the init
+fold merges first (`let x = ""; x = "world"` must merge before inline sees
+a single write).
+
+29. **Single-use `let` inline** (`let v = pure-E; ...; use(v)` → `use(E)`,
+    decl dropped): strict purity, exactly one program-wide read + zero
+    writes (position-aware counter: non-computed properties, params,
+    labels excluded; object/spread/new/throw/do/labeled-break walked
+    precisely), decl+use in the same plain-block list, unconditional
+    read position (short-circuited/call-optional/closure/branch spots
+    vetoed; `a.v` properties never count), no dep writes between, global
+    `eval`/`Function` veto (string-held references invisible), and
+    binding-worthy inits stay bound (array/object literals — the native
+    migration's product per `array_lowering_is_conservative`; function
+    values). **DONE**: `inline_single_use_lets` (runs after
+    `fold_let_init_store`, before the string-drop so exposed literals
+    fold; snapshot-per-list counting for borrowck, staleness sound).
+    Corpus lets 99→71 (t02 → `write("world\n")`, t14 → `write(3+"\n")`).
+    +4 unit tests (fold, multi-read/impure vetoes, write-nesting).
+    Two shell shape pins updated (longoption, interpolation — expansions
+    still evaluated, now constant-folded; core no-param/no-getVar holds;
+    Round-1/9 precedent with execution proof).
+30. **Static template fold** (`` `--x=${"test"}` `` → `"--x=test"`; null
+    cooked vetoed — invalid escapes throw). **DONE** (in the drop pass;
+    completes the longoption chain). +1 test.
+31. **Concat-rule reorder** (recurse-first so `String("")+"\n"` chains
+    to `"\n"` in one pass). **DONE** (no behavior change otherwise).
+
+Deferred: if-to-ternary branch temps (2 sites, t60 `__t0` — needs
+abrupt-completion vetting); duplicated `s.indexOf` (t70 — needs temp
+introduction, opposite direction); imod→`%` (needs nonzero proof).
+
+Verification: lib 679/0 (+6: 4 inline + 1 template + 1 carried),
+c_* suites pass, 93/93 estree valid (t95/t96 pre-existing), oracle MATCH.
