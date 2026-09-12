@@ -298,3 +298,39 @@ array-proof + no-mutation proof; marginal).
 
 Verification: lib 667/0 (+6: 5 bigfact + 1 let-arith),
 c_* suites pass, 93/93 estree valid (t95/t96 pre-existing), oracle MATCH.
+
+## Round 9 — concat/join String-elision, walker coverage, literal concat (2026-09-12)
+
+`String(E) + "lit"` ≡ `E + "lit"` for every non-Symbol value (identical
+ToString; no Symbol emitter exists and the runtime returns only
+strings/numbers/bigints/arrays/objects) — so every print wrapper folds
+regardless of E's type. Same argument elides pre-stringified
+`[...].join(sep)` elements.
+
+25. **Concat-side String elision** (`String(E)+"\n"` → `E+"\n"`, both
+    sides; sibling must be a string literal — a dynamic sibling could
+    mean numeric `+`). **DONE** in `drop_redundant_string_wraps`' Binary
+    arm (recurse-first ordering so `String("")+"\n"` → `"\n"` in one
+    pass). t03/t40/t48 print wrappers gone. +2 unit tests (drop + dynamic
+    veto). One over-specific shell test updated (`echo_single_arg...`
+    pinned `String(i)`; its no-join/no-array core holds — now pins the
+    folded shape, Round-1 precedent).
+26. **Join-element elision** (`[String(a),…].join(sep)` → `[a,…].join`).
+    **DONE** (all-element-String arrays only; holes/spreads veto). t40
+    `[i, j].join`. +1 test (+1 nested-through-Binary test that exposed
+    the walker gap below).
+27. **Walker coverage fixes** (found via t40/t75 survivors): drop's
+    `stmts()` skipped `for`/`for-of`/`do`/`try`/`switch` bodies and its
+    `expr()` skipped assignments (hiding arrow bodies in sequences).
+    **FIXED** (local rules need no facts — plain recursion; Assignment
+    arm added). +1 literal-concat test below.
+28. **String-literal concat fold** (`"a"+"b"` → `"ab"`; numeric folds
+    excluded — JS/Rust float-formatting divergence risk). **DONE**
+    (5 lines in the Binary arm). t75 `write("\n")`. +1 test.
+
+Corpus `String(` calls: 12 → 10, all audited necessities (numeric
+`lastExit`/counters, unknown for-of elements/array slots, store-guard
+temps, map params).
+
+Verification: lib 673/0 (+5: 3 micro-rules + 1 nested + 1 lit-concat),
+c_* suites pass, 93/93 estree valid (t95/t96 pre-existing), oracle MATCH.
