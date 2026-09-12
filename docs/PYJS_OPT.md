@@ -36,6 +36,13 @@ t87 (zero runtime calls) is the reference shape: native bindings, native
 operators, `process.stdout.write` sinks. The gap is everything that still
 routes through `sh2.*` or keeps dead scaffolding.
 
+Perf grounding (round 3): a 1M-iteration factor loop (t86 idiom, N=1e12)
+runs in 0.29s under node (≈0.3µs/trip) — the loop is already tight
+(native modulo/increment; runtime appends fire only on divisor hits).
+67M-trip cost is inherent trip count, not per-op overhead. This
+downgrades loop-micro-opts (native arrays, guard hoisting) from perf
+wins to readability wins: pursued only when safe and cheap.
+
 ## Implementation status
 
 Each item is marked DONE (implemented, gate-kept) or DEFERRED (reason
