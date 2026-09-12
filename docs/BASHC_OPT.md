@@ -710,3 +710,62 @@ shared with the JS worker). M/L.
     extglob patterns) rather than another corpus sweep.
     Frontend gaps noted (not backend items): `046_cd` and
     `053_fibonacci` fail at the CLI.
+
+## Round 7 — survey (arith consts, captures, grep pipelines)
+
+Seventh pass (`000__04a_basic_command_substitution`,
+`014_ansi_quoting`, `015_grep_advanced`,
+`020_ansi_quoting_basic`, `035_brace_expansion_practical`,
+`037_pattern_matching_extglob`, `038_pattern_matching_nocase`,
+`040_process_substitution_comm`, `062_01_ambiguous_operators`,
+`062_04_nested_arithmetic`,
+`062_05_nested_command_substitution`,
+`063_11_complex_while_loop`,
+`064_01_complex_nested_subshells`). Items 61+. All PROPOSED.
+(`014`/`035` are already-optimal references. `000__04a` shows
+item-24 firing on xstrdup'd stores — bare `printf %s` correct.)
+
+### W. Const-folding + capture fusion
+
+61. **Fold pure-literal arith subtrees** (`062_04`:
+    `result = (((2 + 3) * (4 - 1)) + _sh_pow(5,2))` computes
+    `5*3` at runtime). Fold `Bin`/`Un` over all-`Num` leaves at
+    render. Gate (fail-closed): only non-trapping ops (`+ - *`
+    and bitwise/shift — NEVER `/ %`, where fold turns a runtime
+    abort into a compile error, and never `_sh_pow`/calls where
+    overflow semantics are helper-defined); Rust-side math must
+    be *checked* (overflow → keep runtime: C signed overflow is
+    UB, so a wrapped fold could differ from the runtime path).
+    `_sh_pow(2,_sh_pow(3,2))` (`062_01`) stays runtime under this
+    gate. S/M.
+62. **Fuse single-use capture temps** (`000__04a`:
+    `char *_eh0 = _cap_0(); printf("...%s", guard(_eh0))` —
+    `_eh0` used once → inline `_cap_0()` at the use (which then
+    falls to item 31's result-guard drop). Gate: exactly one use
+    AND no second call of the same `_cap_N` before it (each site
+    owns a static buffer — a second call overwrites the first).
+    Same single-use principle as 9/40/54, new gate. S/M.
+
+### Discussion — Round 7 notes
+
+- **Evidence for open items, no new numbers needed:** 31
+  (capture-result guards — `_cap_N` returns vbuf `.p` after a
+  leading vgrow, verified in source; `_eh0/_eh2` ×2), 49
+  (trailing `, 1` twice in ONE `015` line), 30 (`_vN.p`
+  guards across `026`). These three are now the best-measured
+  open peepholes — implement from evidence, not further survey.
+- **Worker's procsub machinery is landing** (temp-swap +
+  native pidfile cleanup in `063_11`/`064_01` outputs —
+  committed, correct). Its `if (__ps_tmpN)` branches are dead
+  (xstrdup'd, never NULL) — flagged for the worker, not
+  numbered here (their new code, their call).
+- **Below-threshold noise** (recorded, not numbered): `038`'s
+  triple parens `(((` , `064_01`'s nested `{ { } }` blocks.
+  Cosmetic-only; a paren/block normalizer would churn diffs
+  for bytes.
+- **Corpus coverage vs value:** ~7 rounds have swept the
+  high-signal files. Per the Round 6 decision, no more
+  broad sweeps — the remaining numbered-but-open items
+  (30/31/33/34/35/36/37/38/39/41/43/44/45/47/49/50/56/59/60
+  + 61/62) are the backlog to work, and the deferred six
+  (3/6/11/15/16/17/29) are the program.
