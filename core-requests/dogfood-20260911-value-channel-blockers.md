@@ -177,10 +177,14 @@ assigns, string-ifs. New patterns for the owners:
   contains the raw string `"false\nobj#129 obj#131"` (ok-flag +
   newline + space-joined ids from call-distribution machinery) instead
   of a node — and it serializes UNESCAPED (raw newline → INVALID JSON
-  output, unparseable downstream). Two gaps: (1) protocol text must
-  never enter stmts (find mis-append in single-target call path),
-  (2) serializer must escape strings (a validity safety net even when
-  shape is wrong). Owner (both frontend mis-append + runtime escape).
+  output, unparseable downstream). Mechanism (2026-09-12): a helper
+  echoes TWO lines (ok, then ids) and the caller appends the whole
+  2-line capture to stmts instead of splitting/consuming parts.
+  Predates dogfood fixes (present in app4 era). Two gaps: (1) protocol
+  text must never enter stmts (find mis-append in single-target call
+  path), (2) serializer must escape strings (validity safety net even
+  when shape is wrong). Owner (both frontend mis-append + runtime
+  escape).
 - FULLY-INLINE == BYPASS (attempted + reverted 2026-09-12): 5 kind-pair
   branches building BinOp Eq/Ne with zero helper calls/flags/vars
   (only objGet field reads + nested literals). Still yielded empty —
