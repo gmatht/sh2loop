@@ -781,3 +781,66 @@ item-24 firing on xstrdup'd stores — bare `printf %s` correct.)
   (30/31/33/34/35/36/37/38/39/41/43/44/45/47/49/50/56/59/60
   + 61/62) are the backlog to work, and the deferred six
   (3/6/11/15/16/17/29) are the program.
+
+## Round 8 — survey (param-expansion hard cases, grep, arrays)
+
+Eighth pass (`016_grep_basic`, `021_ansi_quoting_escape`,
+`038_pattern_matching_nocase`,
+`063_04_complex_parameter_expansion`,
+`063_09_complex_function_parameter_handling`,
+`063_15_complex_function_definition`,
+`064_07_complex_array_operations`,
+`064_09_process_substitution_pipeline`). Items 63+. All PROPOSED.
+(`021` is pristine. `016`/`063_15` show 54 + temp-swap + proofs
+firing; `064_09` is a tight 3-liner.)
+
+### X. Guard/test shapes + literal folds
+
+63. **`(V && V[0])` → `(V[0])` for proven-nonnull V** (`063_04`:
+    `(((_d2) && (_d2)[0]) ? ...)` ×3 — the `&&` only guards NULL
+    (short-circuit); the `[0]` emptiness test stays. Gate: V a
+    bare ident in a nonnull set — `_dN` hoists land there via
+    item 24's chain registration (null-safe getenv-guard shape).
+    Fresh single-assigns from proven calls (`_pe9` from
+    `_sh_arr_get`) need flow — noted extension, v1 is
+    set-membership only. S.
+64. **`atoll` of digitless literals → `0`** (`063_04`:
+    `(long long)atoll("index")` is always 0). Item-25 extension:
+    no ASCII digit anywhere ⟹ C performs no conversion ⟹ returns
+    0 (leading space/sign can't conjure digits). `0x..`/digits
+    keep the call (C parses a prefix). S, airtight gate.
+65. **Pipeline-result double evaluation** (`064_07`:
+    `_sh_vgrow(&_sp3, strlen(_sh_pipeline(...)) + 1);
+    strcpy(_sp3.p, _sh_pipeline(...))` — the pipeline forks TWICE;
+    nondeterministic bodies (date/random) also double their side
+    effects). Bind once (`const char *_pp = ...`) — the pointer is
+    stable until the next pipeline call, and none intervenes.
+    Same evaluate-once family as 23/33/45/62, with correctness
+    upside (not just bytes). S/M.
+66. **Extend 31/62 proofs to `_sh_call_fn`** (`063_09`:
+    `((_cf_...) ? ... : "")` after a captured direct call —
+    `call_fn` returns post-vgrow `vb->p`, same proof as `_cap_`.
+    Same two steps (guard-drop + sole-effect fuse). S (proof
+    already verified for 31).
+
+### Discussion — Round 8 notes
+
+- **Evaluate-once is the converged family.** 23/33 (bind test
+  values), 45 (CSE materializations), 62 (sole capture), 65
+  (pipeline bind) — every remaining double-evaluation is a
+  bind-once with a shape-specific gate. No new family members
+  expected; the work is implementing 45/65.
+- **atoll-literal family closes with 64** (25: digits → value;
+  64: digitless → 0; everything else keeps the call). After
+  this, `atoll(` in output means a genuinely dynamic string.
+- **Guard remainder needs flow.** After 63 (+57 done), the
+  leftover guards are on vars needing write-tracking (39,
+  `_pe9`-style fresh assigns, genuinely nullable captures).
+  That is item 11/15-adjacent analysis work, not more shapes.
+- **29's weight, again** (`063_15`: two full 5-line dances for
+  back-to-back void calls; `051`: hot-loop). Still blocked on
+  the calling-convention lift.
+- **Below threshold** (not numbered): slice-of-`""`-literal
+  (`063_04`: `_sh_arr_slice(d, "", 0, 2)` — a few ops on empty
+  input; the temp must exist for downstream uses anyway),
+  `(((` parens, `{ { } }` blocks.
