@@ -303,6 +303,10 @@ with a dead result guard (see 31).
     (then fail-stops), so the pointer is non-NULL on every return
     path (`tmpfile` failure returns the already-grown buffer).
     Same treatment as 30. S.
+   **DONE** (extended `is_nonnull_helper_call` to bare `_cap_N()`
+    — same proof via `_sh_capture`'s leading vgrow; `_sh_call_fn`
+    shares it. Implemented jointly with 62, which needs the
+    guard-free single evaluation).
 32. **`fold_atoll_consts` stops at the first non-foldable** (item-25
     follow-up — BUG, not just missed opt): the post-pass `break`s
     out of the line scan when the FIRST `atoll(` doesn't fold, so
@@ -738,6 +742,10 @@ item-24 firing on xstrdup'd stores — bare `printf %s` correct.)
     UB, so a wrapped fold could differ from the runtime path).
     `_sh_pow(2,_sh_pow(3,2))` (`062_01`) stays runtime under this
     gate. S/M.
+   **DONE** (`const_arith_value` + Bin/Un-arm hooks; recursion
+    folds partial consts; folded `Num` reuses the LL-suffix arm).
+    `062_04`: `result = (15 + _sh_pow(5,2))`. Unit test covers
+    div-zero/overflow/pow/var negatives (+ `&` positive).
 62. **Fuse single-use capture temps** (`000__04a`:
     `char *_eh0 = _cap_0(); printf("...%s", guard(_eh0))` —
     `_eh0` used once → inline `_cap_0()` at the use (which then
@@ -745,6 +753,10 @@ item-24 firing on xstrdup'd stores — bare `printf %s` correct.)
     AND no second call of the same `_cap_N` before it (each site
     owns a static buffer — a second call overwrites the first).
     Same single-use principle as 9/40/54, new gate. S/M.
+   **DONE with 31** (shared `is_bare_cap_call`; hoist skipped
+    only for a SOLE side-effectful arg — ordering preserved;
+    31 drops the guard downstream for single evaluation).
+    `000__04a`: `printf("Current date: %s\n", _cap_0())`.
 
 ### Discussion — Round 7 notes
 
