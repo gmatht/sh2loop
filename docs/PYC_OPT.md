@@ -28,9 +28,12 @@ gate re-verified at PATH level — an early basename-based comparison
 collapsed all fail paths to `diff` and compared counts only; the `*.paths`
 files carry full paths. One full-gate flake observed (`heredoc-
 singlequote-span.sh`, passes solo, CWD-sharing `x.py` litter under
-parallel load — since cleaned). Round-2 work is UNCOMMITTED: another
-worker has 1200+ lines of uncommitted `c_backend.rs` changes in the tree,
-so per-author commits are impossible without sweeping their work in.
+parallel load — FIXED via per-test CWD isolation in harness/c_gate_main.sh
+(workspace commit `43e5a52f`). Round-2 renderer work committed as
+submodule commit `ba7396fc` (27 hunks, mine only — selected by content
+from a tree shared with another worker's uncommitted changes; isolation
+verified in a fresh worktree: 68/68 lib tests, the only delta vs the
+shared tree being their new `prof_helpers_deterministic` test).
 
 ## A. Dead code / redundant constructs
 
