@@ -630,6 +630,8 @@ temp-swap free discipline and proof-driven bare uses working.)
     pointer). Skip the guard when the var is buffer-homed
     (`buf_bound` — the proof is the declaration itself, no flow
     needed). Same family as 30, strictly simpler gate. S.
+   **DONE** (bare-`export` site): buffer-homed → bare ident;
+    heap `char*` keeps the guard.
 58. **Statement `(STORE, const)` with live store** (`034`/`037`/
     `040`/`042`: `(_sh_rc = 0, 1);` survives wherever `$?` is read
     later — the STORE is correctly kept, but the `, 1` value is
@@ -637,6 +639,9 @@ temp-swap free discipline and proof-driven bare uses working.)
     `(_sh_rc = N, const);` → `_sh_rc = N;` (item-36 family, tail
     instead of head; same global-gate discipline as 19 — value
     position keeps everything). S.
+   **DONE** (`drop_live_comma_tail` post-pass): exactly one
+    `_sh_rc = <int>` head + const tail; effectful tails and
+    multi-store heads keep the shape.
 
 ### V. Lowering gaps (structural, not peepholes)
 
