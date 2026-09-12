@@ -82,7 +82,7 @@ iteration forking a full `bash -c` to print one digit.
    fold to a C `for` (`for (i = 1; i <= 5; i++)`), reusing the
    existing range-fold machinery. M. (Also kills the `size_t _i_i`
    index temp and the `static` table.)
-   **DONE**: `seq_of_ints` — const brace-int-seq folds via the existing `seq_iter_range` path (all three consumers: native loop, Int typing, range seeding). Strictly canonical decimals only (`01`/`+5` fall back); step≠0 required; descending/letters fall back (some, e.g. `{5..1}`/`{a..c}`, were already dropped pre-change — pre-existing gaps, untouched). Int-homed brace loops run on a HIDDEN counter + per-iteration assign (not directly on the var): a direct `for (i = 1; i <= 5; i++)` leaves `i==6` where bash leaves LAST (`i==5`) — `002`'s post-loop `while [ $i -lt 10 ]` caught exactly this (missing first Counter line). Range (`$(seq)`/py-range) iters keep the direct-var form (pre-existing behavior); their latent end-value gap is item 18 below.
+   **DONE**: `seq_of_ints` — const brace-int-seq folds via the existing `seq_iter_range` path (all three consumers: native loop, Int typing, range seeding). Strictly canonical decimals only (`01`/`+5` fall back); step≠0 required; descending/letters fall back (some, e.g. `{5..1}`/`{a..c}`, were already dropped pre-change — pre-existing gaps, untouched). Int-homed brace loops run on a HIDDEN counter + per-iteration assign (not directly on the var): a direct `for (i = 1; i <= 5; i++)` leaves `i==6` where bash leaves LAST (`i==5`) — `002`'s post-loop `while [ $i -lt 10 ]` caught exactly this (missing first Counter line). Range (`$(seq)`/py-range) iters keep the direct-var form (pre-existing behavior); their latent end-value gap is item 18 below. The mark itself is gated brace-only by `assigned_non_int_vars` (any non-int-shaped assign — `i=hello`, unknown calls, non-seq headers — anywhere keeps string homing; the renderer falls back to the table path, which renders buffer-homed loop vars via `strncpy` through `emit_guarded_copy`).
 8. **Final `echo $j` shells out** (`047` → `_sh_site_1`): falls out of
    items 3+6 (numeric var + split-free word ⇒ direct `printf`).
    Listed separately because it is user-visible per program run.
@@ -188,32 +188,33 @@ all PROPOSED except where noted.
 
 ### H. Dead code (continued)
 
-19. **Dead comma-statement `(_sh_rc = 0, 1);`** (`009` and 5+ other
-    samples, 1–3 occurrences each): `drop_const_stmts` peels one paren
-    layer but not the comma — a `(<dead store>, <const>)` statement is
-    dead when the store is dead. Extend the peeler: if every
-    comma element but the last is a dead rc-store (or side-effect
-    free constant) and the last is constant, drop the statement.
-    S.
-
+19. **Dead comma-statement `(_sh_rc = 0, 1);`** — **DONE**, with a
+    soundness fix found during implementation: the drop lives inside
+    `strip_dead_rc` (global rc-dead gate), NOT in `drop_const_stmts`
+    (which runs regardless). First attempt dropped unconditionally
+    and miscompiled `false; echo $?` (C printed `0`, bash `1`) —
+    caught by a targeted probe before committing. `009`'s two
+    instances correctly survive (`set -euo pipefail` keeps `$?`
+    live program-wide).
+   **DONE** (with a soundness fix found during implementation: dropping must live under `strip_dead_rc`'s global rc-dead gate, never in `drop_const_stmts` — first attempt miscompiled `false; echo $?` (C `0`, bash `1`), caught by probe. `009`'s two instances correctly survive, `set -e` keeps `$?` live).
 20. **Empty `else { /* no default */ }`** (`057` and others): the
     case renderer emits an else with only a comment. Drop empty
     else branches (same family as item 10; the comment carries no
     semantics). S.
-
+   **DONE**: unconditional `else { /* no default */ }` dropped (bash no-match does nothing).
 21. **`(exit(1), 0);`** (`057`): comma-expr whose first element is a
     noreturn call — the `, 0` is dead. Peephole: `(noreturn-call,
     const)` → `noreturn-call;` (generalizes: any trailing constant
     after a noreturn call). S.
 
 ### I. Repeated evaluation (item-13 family)
-
+   **DONE**: statement-position `(exit(X), 0);` → `exit(X);` (balanced + exit-first checks; nested/value forms kept).
 22. **Case-subject re-evaluation** (`057`):
     `((1 < argc && argv[1]) ? argv[1] : "")` is re-emitted per
     `case` branch (4× for 4 branches). Hoist the subject to a temp
     once (same single-evaluation argument as item 13; pure reads
     only). S/M.
-
+   **DONE**: call-free non-trivial discriminants hoist to `const char *_cdN` (bash freezes the word once — strictly more correct than per-branch re-eval, no body analysis needed). Call-containing forms keep inline behavior.
 23. **argv-guard repetition in param defaults** (`062_09`):
     `${2:-default}` renders the `((2 < _sh_argc && _sh_argv[2]) ?
     ...)` guard 5×. Item 13's hoist fires only on call-containing
@@ -221,7 +222,7 @@ all PROPOSED except where noted.
     ternaries can't have side effects mid-expression, so single-eval
     hoisting is always safe — the only cost is one temp + statement
     vs N redundant reads). M.
-
+   **SUPERSEDED by 24**: extending the hoist to pure exprs saves only nanosecond reads while risking code bloat; the visible wart (guards) is fixed at binding sites instead.
 24. **Nonnull proofs for argv-guard assigns** (`062_09`):
     `param1 = ((1 < _sh_argc && ...) ? ...)` is non-NULL by
     construction, yet every later use is guarded
@@ -229,7 +230,7 @@ all PROPOSED except where noted.
     argv-guard RHS shapes (bounded index ⇒ non-NULL element). S.
 
 ### J. Constant folding (gaps)
-
+   **DONE** (gated): null-safe shapes (`argv[N]`-guard ternary with matching indices, `(X ? X : "")`) prove the bound var at `Declare`-init (+ hoist-temp registration for chain coherence). Keeps the `fn_written` gate like all sibling inserts — function-body binds stay conservative.
 25. **Fold `atoll` of constants** (`062_14` and others):
     `(int)atoll("")` (always 0) and `atoll("10")` (always 10)
     survive into output. Fold `atoll` over string literals at render
@@ -237,13 +238,13 @@ all PROPOSED except where noted.
     preserving the coerce-to-0 semantics). S.
 
 ### K. Lowering choices
-
+   **DONE**: `fold_atoll_consts` post-pass (`atoll("")` → `0`, `atoll("10")` → `10`; only Rust-parseable literals fold, overflow/hex/junk keep the call).
 26. **Static heredocs go through shell-out** (`062_03`):
     `cat <<'EOF'` (quoted ⇒ no expansion, fully static text) renders
     as `_sh_site_0()` (fork+exec of `cat`) instead of one `fputs`
     with embedded newlines. Detect fully-static heredoc bodies and
     emit directly. M.
-
+   **DONE**: bare `cat` + single static quoted heredoc → one `fputs` (unquoted/tab forms keep the site).
 27. **Literal array elements `strdup`'d at runtime** (`009`,
     `062_14`): `arr=(one two three)` emits 3×
     `_sh_xstrdup((char*)("..."))` plus end-of-scope frees. A static
@@ -256,7 +257,7 @@ all PROPOSED except where noted.
 28. **Join-then-slice** (`062_14`): `${arr[@]:off:len}`-shaped flows
     join ALL elements (`_sh_join_arr`) then slice the text — O(n)
     twice. Slice the index range first, join only the window. M.
-
+   **DONE**: whole-array slice (`${arr[@]}` with absent/empty/0 off and absent/empty len) returns the join directly; explicit/negative bounds keep the slice.
 29. **Argv-swap dance for liftable shell functions** (`062_09`):
     `complex_function` reads only `$1..$3`, yet every call builds
     `_sh_av0[]`, swaps `_sh_argv/_sh_argc`, calls void, restores
