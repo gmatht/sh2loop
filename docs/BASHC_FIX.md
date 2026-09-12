@@ -127,17 +127,24 @@ composite assoc keys read empty (grid prints blank) — key
 encoding/lookup, possibly plus `{0..2}` brace expansion (verify which).
 
 ### 2.10 Shell-out env sync — 1–2 files
-`t03_pipeline.sh`: `echo "hello $name" | tr …` prints `HELLO ` (want
-`HELLO WORLD`). The pipeline shells out via `bash -c` with
-`_sh_export("name", getenv("name"))` — but `name` is a shell local, so
-getenv is empty and the child sees nothing. The export must carry the
-shell var's current C value, not the process env. (`bc-native-capture`
-var operands, §2.12, may be the same disease via a different path.)
+`t03_pipeline.sh`: `echo "hello $name" | tr …` printed `HELLO ` (want
+`HELLO WORLD`). FIXED (79f99563): two stacked causes — (1) dead-store-elim
+census lacked Pipeline/ForInit/Try arms, dropping `name="world"` as dead;
+(2) const-lifted site-export read getenv (empty) instead of the C ident.
+Both site-export getVar paths now prefer the const ident. The `bc-native-
+capture` var-operand gap (§2.12) is the same disease via a different path
+(pending).
 
 ### 2.11 typeset attributes ignored — 1 file
-`typeset-cmdsub.sh`: `typeset -i` (no arith eval on assign), `-l`/`-u`
-(no case folding). Clean subsystem gap: attributes parsed but never
-consulted on store.
+`typeset-cmdsub.sh`: FIXED except -n/-f (79f99563). Sticky attr map
+(i/l/u/r/x) merged at every declare assign + bare decl; -i evals assigns
+arithmetically (declare + plain Assign divert), -l/-u runtime-fold via
+temp+loop, -x auto-exports (pending queue flushed post-command + Assign
+stickiness), -F lists function names, -p prints `declare -<attrs>` in bash
+order (a A i r x l u). Capacity finalizer now includes lit_index_max via
+max() (bare `typeset -a arr` + indexed writes sized [1] → exit 127).
+REMAINING: -n nameref (needs alias analysis), -f definition print (needs
+source-text retention).
 
 ### 2.12 bc — 2 files
 `bc-native-capture.sh`: static exprs fold correctly, but
