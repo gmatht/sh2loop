@@ -1,7 +1,7 @@
 # BASHC equivalence failures — triage and fix strategy
 
 Date: 2026-09-12. Gate: `harness/c_gate_main.sh` → **PASS=592 FAIL=45 SKIP=7**
-at triage; **PASS=630 FAIL=7 SKIP=7** after §7.5 (zero regressions;
+at triage; **PASS=631 FAIL=6 SKIP=7** after §7.6 (zero regressions;
 051 flaky-slow, 062 gate-parallel flake).
 Corpus: `sh2perl/examples/*.sh` + `frontends/*/testdata/*.sh` via the
 **sh frontend** (bash→shIR→C). All 45 verdicts are `exec/diff`: the C
@@ -452,6 +452,14 @@ bugs instead of reverting (the §4.11 revert was wrong — it hid these).
 wrap the store in `if (zero) rc=1 else normal` (var keeps old value —
 exact bash skip semantics). Heap-target div-zero still guarded-0
 (documented gap; no test covers it). parse-dollar still needs (b)+(c).
+
+### 7.6 Function redirects + flakes (tty fixed)
+- tty: native `fn < f` / `fn > f` via dup2/freopen around in-process
+  call (site-out child lacks script fns). Dynamic targets via value_c.
+  Missing file → rc 1. [02]/[03]/pty cases pass.
+- 046/062 flip in parallel gate but pass standalone + single-gate
+  with STABLE CLI copy (rules out rebuild races) — resource-contention
+  flakes per AGENTS.md; binaries verified correct. Not product bugs.
 
 ### 7.4 Recommended order
 Arith-error (2 files, one mechanism) → utf8 (trace first, may be
