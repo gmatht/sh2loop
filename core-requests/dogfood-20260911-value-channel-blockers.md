@@ -200,3 +200,21 @@ assigns, string-ifs. New patterns for the owners:
   Forcing echo would change NATIVE A1 shape (test-string → BinOp) for
   ==/!=, risking C/sh backends on shared A1. Reverted to avoid
   cross-backend breakage; owner must fix channel or bless shape.
+
+## Evaluated: sh2perl PR #8 (2026-09-12) — nothing to cherry-pick
+
+PR #8 (108 files, ~8k lines) is the shell-corpus fidelity track: bash-
+parity lowerings (newlines, word-split, globs, redirects, pipelines,
+`cmp`/`grep`/`find`/etc. generators), CI/harness (retry, badges,
+summaries), sh backend + text transforms, A1 round-trip primitives.
+Verified zero overlap with dogfood blockers: no estree/.mjs/runtime
+files; no value-channel/bool/nil/range/materialization/resolution/
+escape content (keyword scan clean); otranspilerl renderer lives
+in-tree outside sh2perl so untouched. Indirect effects neutral:
+`shir_json_in` Ext-decode additions are expansive (accept more — safe
+direction); `otranspilerl` links `sh2perl` lib so a future submodule
+bump warrants a dogfood gate re-run (shared-pass drift), already
+covered by the joint-gate rule. Watch-item only: A1 Ext reduction
+primitives could eventually carry JS-usable ops (no consumer in the
+dogfood path today). Harness takeaway (not a pick): pass/fail summaries
+naming failures — worth mirroring in `fail-go-app` formatting.
