@@ -152,3 +152,11 @@ assigns, string-ifs. New patterns for the owners:
   (m27: BinOp correctly built in assoc, verified fields, but cond
   stays text). Only obj#/list#/assoc# IDS resolve. Owner: resolve
   assoc temps at embed, or echo IDs instead of names.
+- NIL-SLICE (filed): Go nil slice marshals as JSON `null`, but JS
+  gives `[]` (m12 top 1: exec Array `elements` null vs []). Nested
+  empties need freezeStmts null-restore (or nil lowering). Owner.
+- DEEP-NEST materialization (filed): 2-deep Call nesting survives
+  (m1 setArray, m10 echo) but 3-deep flattens to `[object Object]`
+  (m12 s-distribution listGet chain). Standalone map vars also
+  flatten (vs DCE-drop for `=`-assigned). Owner: consistent
+  store materialization regardless of depth/position.
