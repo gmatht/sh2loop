@@ -311,6 +311,11 @@ with a dead result guard (see 31).
     non-foldable match, advance past its close paren and keep
     scanning the line (cursor-based loop instead of break). S +
     unit test (foldable-after-unfoldable on one line).
+   **DONE**: cursor-based scan (`pos`; unfoldable matches skip to
+    `close + 1`, folded ones resume after the digits — both advance
+    strictly, no rescan loop). `058`: 0 surviving `atoll("<n>")`.
+    Unit test `bashc_opt_item32_atoll_fold_skips_past_unfoldable`
+    (fold-after-unfoldable, empty→0, unbalanced tail fail-closed).
 33. **`${x:-d}`/`${x:=d}`/`${x:?d}` re-emit test+value** (`027`):
     `${maybe:-default}` renders the `maybe`-nonempty test AND the
     `maybe` value twice each (~6 guard copies/line); `:=` computes
