@@ -152,6 +152,12 @@ assigns, string-ifs. New patterns for the owners:
   (m27: BinOp correctly built in assoc, verified fields, but cond
   stays text). Only obj#/list#/assoc# IDS resolve. Owner: resolve
   assoc temps at embed, or echo IDs instead of names.
+- TEXT-vs-OBJECT instances (m24/m28/m29): `if true` gives If with cond
+  as JSON TEXT (single-escaped, present but shape-wrong); `if ok`
+  (bool var) same; `if !ok` gives TRIPLE-escaped text (invalid JSON,
+  unparseable). All need echo-text→object at embed (or ID-echo).
+  Frontend inlining covers node SHELLS; helper-produced sub-values
+  (conds) arrive as text.
 - NIL-SLICE (filed): Go nil slice marshals as JSON `null`, but JS
   gives `[]` (m12 top 1: exec Array `elements` null vs []). Nested
   empties need freezeStmts null-restore (or nil lowering). Owner.
