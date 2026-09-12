@@ -513,3 +513,101 @@ miscompile, not just missed bytes — test the `char*` negative);
 correctness (valgrind-tainted — do alongside any touching of the
 `chdir` lowering); 49 is narrowest-last (value-position masking
 risk).
+
+## Round 5 — survey (quotes, brace, patterns, factorize, cmp)
+
+Fifth pass (`004_test_quoted`, `011_brace_expansion`,
+`025_parameter_expansion_advanced`, `028_arrays_indexed`,
+`033_brace_expansion_basic`, `036_pattern_matching_basic`,
+`039_process_substitution_here`, `050_test_ls_star_dot_sh`,
+`051_primes`, `070_cmp_basic`; `046_cd` fails at the CLI —
+frontend gap, not a backend opt target). Items 51+. All PROPOSED.
+(`011`'s `{ char *_old0 = ...; ...; free(_old0); }` temp-swap and
+bare `printf(..., result)` after xstrdup are already-optimal
+reference points — the BASHC_FIX free discipline and the
+item-24 proof firing correctly.)
+
+Measured: 9 guarded string literals across `011`/`033` (see 51);
+20 `_qN = _sh_rc` single-use temps in `070` alone (see 54 — the
+item-40 family is now the highest-frequency wart left); 051's
+loop-executed 5-comma argv-swap inside `if (...)` (see
+Discussion §3).
+
+### R. Literal/cast/assign peepholes
+
+51. **Guard on a string literal** (`011` ×6, `033` ×3):
+    `((char*)("1 2 3 4 5") ? (char*)("1 2 3 4 5") : "")` — a
+    literal is non-NULL by construction; no proof needed, just
+    emit the literal (item-34 corollary for direct uses). S,
+    trivially sound.
+52. **Stacked `(long long)` casts** (`028`:
+    `(long long)((long long)arr_len)` → one cast). The
+    `expr_as_num` wrapper doesn't see the inner render is already
+    `long long`. S.
+53. **Self-assign-then-copy** (`051`:
+    `y = _sh_xstrdup((char*)((y = _s0)))` →
+    `y = _sh_xstrdup((char*)(_s0))`): the inner assign is dead
+    (overwritten by the outer), but dropping it is only safe for
+    known-copy `f` (xstrdup — the RHS can't observe `y`). Keep
+    narrow; general `v = f((v = E))` has a miscompile cliff. S.
+
+### S. Single-use temp fusion (item-9/40 family)
+
+54. **Single-use test temps into `if`** (`036`:
+    `{ int _t0 = (fnmatch(...) == 0); if (_t0) {...} }` →
+    `if (fnmatch(...) == 0) {...}`). Same shape as item 40
+    (`_qN`) for test temps; `070`'s 20 `_qN` show the family's
+    weight — do 40 and 54 together (one liveness-driven fuse
+    pass covers both). S.
+55. **Single-use statement-expr temps** (`050`:
+    `{ int _t1 = (({...})); _sh_rc = _t1 ? 0 : 1; if (!_t1)` —
+    fuse `_t1` into its two consumers (rc set + branch), keeping
+    evaluation order (the statement-expr has side effects, so
+    this is fuse-into-consumers, never hoist-or-drop). S/M.
+
+### T. Slice remainder (item-28's deferred half)
+
+56. **Head-take via join+slice** (`051`: join-all then
+    `_sh_arr_slice(..., 0, 1)` for `${arr[@]:0:1}` — read index 0
+    directly). The easy special case of the general slice-window
+    work 28 deferred (off=0/len=1 needs no window join). M.
+
+### Discussion — where the rounds point
+
+1. **The guard economy is nearly exhausted.** Rounds 1–4 chased
+    guards from vars (12/24/34) toward vbufs (30), calls (31),
+    and literals (51). What remains is use-site guards on
+    genuinely-nullable vars (captures, unset-ables) — each needs
+    its own proof, diminishing returns. Recommendation: implement
+    30/31/34/51 (all S, all proof-trivially-sound), then MEASURE
+    the remaining guard count before any more guard work.
+2. **Temp fusion (9/40/54/55) is one pass, not four items.**
+    Orphaned num temps, `$?` temps, test temps, statement-expr
+    temps — all single-use/single-producer fusion under timeless
+    or order-preserving rules. `070` alone pays 20 temps. Do as a
+    single liveness-driven fuse pass; the per-item split was a
+    survey artifact.
+3. **Item 29 dominates call-heavy code and is still blocked.**
+    `051` runs the full argv-swap 5-comma dance per `is_prime()`
+    call *inside the hot loop and its `if` condition*. No
+    peephole touches it — needs the calling-convention lift
+    (sh-source fns reading only `$1..$9`). Biggest single L win
+    left; coordinate with the JS worker as noted.
+4. **Slice work converges.** 28 (whole) done, 56 (head-take)
+    proposed, general window still deferred — each step is
+    smaller than the last; 56 may be the last one worth doing.
+5. **Do-not-touch list (miscompile cliffs seen this round):**
+    self-comparison folds (`[ "$HOME" = "$HOME" ]` — pure but
+    pointless; folding it saves nothing and risks hiding
+    expansion bugs); `, 1` tails in value position (masks
+    failure); general `v = f((v = E))` beyond known-copy;
+    `j++` on anything not strictly Int-homed (item 48's gate
+    holds — re-verified against the `char*` negative this
+    round).
+6. **The deferred pile is now the program.** Open: 3 (split-free
+    echo — the fork tax, biggest perf item), 6 (sh arith homing
+    — halves atolls), 11 (rc liveness), 15/16 (LICM), 17
+    (localization, chained on 3), 29. Rounds 2–5 have been
+    peepholes *around* these six structural items. Next big turn
+    should take 6 or 3 — each unlocks a chain (6 → atoll count +
+    48's coverage; 3 → fork tax + 17).
