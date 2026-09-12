@@ -160,3 +160,10 @@ assigns, string-ifs. New patterns for the owners:
   (m12 s-distribution listGet chain). Standalone map vars also
   flatten (vs DCE-drop for `=`-assigned). Owner: consistent
   store materialization regardless of depth/position.
+- RANGE-LOOP (filed): Go `for _, e := range slice` lowers to
+  text-line iteration (`strSplit(getVar)` — one line for multi-element
+  lists), so multi-value `return a, b` pushes once (t107 lost slot 2).
+  Rewriting as indexed `for ri...` produced NO loop at all (all
+  returns went empty) — reverted. Owner: range should iterate items
+  (listLen/listGet, like working C-style loops), or indexed-for must
+  transpile.
