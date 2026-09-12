@@ -445,6 +445,14 @@ the identical `$HOME/Documents` snprintf+vbuf pair built twice
     `j++` would be pointer arithmetic (miscompile), and in value
     position prefix/postfix must match `$((++i))` vs `$((i++))`
     order semantics (separate future item). S micro.
+   **DONE**: statement-assign hook (`Bin +`/`-` with self-Var/Ident
+    and ±1 literal, commutated `1 + v` accepted, `-(-1)` normalized)
+    gated on Int-homed + non-bigint + no-buffer-homing (the buffer
+    exclusion closes the mixed.sh array-type class) + statement
+    position (fn stmt by construction). `031`: `i = (i + 1)` →
+    `i++`, `j = (j + 1)` → `j++` (`long long j`). Unit test
+    `bashc_opt_item48_self_incdec_folds` (plus/minus fold +
+    string-homed negative).
 49. **Trailing `, 1` in statement-position `||`/`&&` tails**
     (`012`: `(_sh_site_9() || (fputs(...), _sh_rc = 0, 1))`): the
     `or`-lowering appends `, 1` to force truthiness, meaningless
