@@ -540,16 +540,24 @@ Discussion §3).
     literal is non-NULL by construction; no proof needed, just
     emit the literal (item-34 corollary for direct uses). S,
     trivially sound.
+   **DONE**: `drop_literal_guards` post-pass (forward-only scan —
+    backward scanning can't tell quote direction, caught in
+    testing; cast-prefix stripped before paren-peel, caught by
+    unit test).
 52. **Stacked `(long long)` casts** (`028`:
     `(long long)((long long)arr_len)` → one cast). The
     `expr_as_num` wrapper doesn't see the inner render is already
     `long long`. S.
+   **DONE**: `fold_stacked_casts` post-pass (exact-match cast
+    list, fixpoint; casts pure+idempotent).
 53. **Self-assign-then-copy** (`051`:
     `y = _sh_xstrdup((char*)((y = _s0)))` →
     `y = _sh_xstrdup((char*)(_s0))`): the inner assign is dead
     (overwritten by the outer), but dropping it is only safe for
     known-copy `f` (xstrdup — the RHS can't observe `y`). Keep
     narrow; general `v = f((v = E))` has a miscompile cliff. S.
+   **DONE**: `fold_self_copy` post-pass (statement shape, ident V,
+    balanced-E scan, E-must-not-mention-V word check).
 
 ### S. Single-use temp fusion (item-9/40 family)
 
@@ -559,11 +567,30 @@ Discussion §3).
     (`_qN`) for test temps; `070`'s 20 `_qN` show the family's
     weight — do 40 and 54 together (one liveness-driven fuse
     pass covers both). S.
+   **DONE** (render-site, chain block): the temp was single-use
+    by construction — inlined as `{ if ((L)) { _sh_rc = 0; B }
+    else { _sh_rc = 1; } }` (`&&`) / `{ if ((L)) { _sh_rc = 0; }
+    else { _sh_rc = 1; B } }` (`||`), exact rc behavior. `036`:
+    `{ if ((fnmatch(...))) { fputs } }` (empty else left for 46).
+    Item 40 done alongside (gated snapshot-skip — see below).
+40. (paired) **`_qN = _sh_rc` snapshot skip**: snapshot kept
+    only when a sibling printf arg can clobber rc (`_cap_`,
+    `_sh_pipeline`, `_sh_site_`, `_sh_call_fn`, inline rc stores;
+    `==` reads excluded) — C arg order is unspecified, so any
+    clobberer forces the temp; pure siblings leave `_sh_rc`
+    inline (read precedes the trailing `, _sh_rc = 0`). `070`:
+    20 temps → 0.
 55. **Single-use statement-expr temps** (`050`:
     `{ int _t1 = (({...})); _sh_rc = _t1 ? 0 : 1; if (!_t1)` —
     fuse `_t1` into its two consumers (rc set + branch), keeping
     evaluation order (the statement-expr has side effects, so
     this is fuse-into-consumers, never hoist-or-drop). S/M.
+   **DONE (subsumed by 54)**: the shape flowed through the same
+    chain block — no `_t1` remains in `050`.
+46. (paired) **empty `else { }`**: `drop_empty_else` post-pass
+    (`} else {`+`}` → `}`, plus the single-line `} else { }`
+    left when the rc strip hollows a dead-rc-only else). Fires
+    on 54's leftovers (`036`).
 
 ### T. Slice remainder (item-28's deferred half)
 
@@ -571,6 +598,14 @@ Discussion §3).
     `_sh_arr_slice(..., 0, 1)` for `${arr[@]:0:1}` — read index 0
     directly). The easy special case of the general slice-window
     work 28 deferred (off=0/len=1 needs no window join). M.
+   **PROPOSED (sharpened, not implemented)**: probing bash shows
+    `${arr[@]:0:1}` is positional-over-set for sparse arrays
+    (`arr[1]=x` alone → `x`, but index-0 read → `""`) while
+    element-exact for spaced elements (`"a b"` — where the
+    current word-slicer is wrong). Index-read is sound ONLY for
+    dense arrays; no dense-proof exists (needs an indexed-write
+    + unset scan). Deferred until that proof lands — the gate
+    below must include sparse + spaced cases.
 
 ### Discussion — where the rounds point
 
