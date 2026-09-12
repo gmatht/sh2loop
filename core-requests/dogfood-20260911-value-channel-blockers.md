@@ -167,3 +167,11 @@ assigns, string-ifs. New patterns for the owners:
   returns went empty) — reverted. Owner: range should iterate items
   (listLen/listGet, like working C-style loops), or indexed-for must
   transpile.
+- PROTOCOL-TEXT LEAK (filed, m8 `x := f()`): top-level stmts list
+  contains the raw string `"false\nobj#129 obj#131"` (ok-flag +
+  newline + space-joined ids from call-distribution machinery) instead
+  of a node — and it serializes UNESCAPED (raw newline → INVALID JSON
+  output, unparseable downstream). Two gaps: (1) protocol text must
+  never enter stmts (find mis-append in single-target call path),
+  (2) serializer must escape strings (a validity safety net even when
+  shape is wrong). Owner (both frontend mis-append + runtime escape).
