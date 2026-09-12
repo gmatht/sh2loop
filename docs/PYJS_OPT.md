@@ -371,3 +371,25 @@ introduction, opposite direction); imod→`%` (needs nonzero proof).
 
 Verification: lib 679/0 (+6: 4 inline + 1 template + 1 carried),
 c_* suites pass, 93/93 estree valid (t95/t96 pre-existing), oracle MATCH.
+
+## Round 11 — template+literal concat fold (2026-09-12)
+
+Sweep: 30 `` `..` + "lit" `` sites (mostly prints). Folding the literal
+into the template's tail/head quasi removes a concat per site and chains
+with inline (t13 → `write("hi world\n")`, t24 → `write("foobar\n")`).
+
+32. **Template+literal concat** (`` `a${x}` + "\\n" `` → `` `a${x}\\n` ``,
+    both sides; string literals only — numeric formatting risk excluded).
+    Cooked appends verbatim; raw re-escapes (`\\`, backtick, `${`, newline,
+    CR). The template still evaluates (no throw removed — unlike the
+    static fold, which keeps its null-cooked veto). **DONE** in the drop
+    Binary arm (recurse-first chains `String("")+"\\n"` fully). +1 test.
+    Remaining corpus `+` are arithmetic or necessary dynamic concats
+    (t64's `(ternary)+"\\n"` — no wrapper exists to drop).
+
+Note: base `a8ef8126` carries one pre-existing lib failure
+(`c_backend numeric_reduction_assign_reads_aggregate_natively` — fails on
+the clean base too; C-aggregate worker domain, untouched).
+
+Verification: lib 681/0 (+1; 1 pre-existing C failure unchanged),
+c_* suites pass, 93/93 estree valid (t95/t96 pre-existing), oracle MATCH.
