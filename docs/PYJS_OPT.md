@@ -198,3 +198,37 @@ cleanliness, min-scan dominates).
 Tests: `temp_fold_nested_straight_read`, `temp_fold_nested_vetoed_loop`.
 Lib 644/0 (was 642/0 + 2 new), c_* suites pass, 93/93 estree valid
 (t95/t96 pre-existing broken oracles).
+
+## Round 6 — coerce-prop, certain-string String-drop, append fusion (2026-09-12)
+
+Surveyed t86/t92/t97 JS for hot-loop waste (loop-trip cost dominates per
+prior measurement, so this round targets per-iteration calls + call counts).
+
+17. **Redundant `Number(v) || 0` re-coercions** (t86: 4× `Number(n) || 0`
+    with one entry `n = Number(n) || 0`): after `v = Number(E) || 0` (any
+    E — `|| 0` kills NaN) or `let v = <numeric>`, later `Number(v) || 0`
+    is exactly `v`. **DONE**: `prop_coerced_numbers` post-pass (forward
+    facts; kills on reassign/update/`setVar("v")`/`eval`/closure-captured
+    writes; arrows/functions get fresh facts; branch/loop descent with
+    persistent kills (sound, over-conservative); establishing RHS reads
+    OLD values; unguarded `Number(E)` sources never establish (NaN)).
+    t86 4→2 survivors (entry source + `arithEval` arrow body, correctly
+    vetoed — deferred execution). +3 unit tests (propagate, reassign-kill,
+    NaN-source veto).
+18. **`String()` around certain-string runtime calls** (t92: 6×
+    `String(sh2.maxArr/...)`, t97: sum/arrayLen): the `*Arr`/store
+    sum/max/min, `sorted*Join(All)`, `arrayLen` always return strings
+    (verified in `harness/sh2-namespace.mjs`). **DONE**: extended
+    `is_already_string` in `drop_redundant_string_wraps` with a
+    fail-closed allowlist (mixed `arithEval`/`arrayIndex`/`getVar`
+    excluded). t92 6→0, output identical. +2 unit tests (drop + keep).
+19. **Adjacent same-array append fusion** (t86: two `setArrayAppend`
+    per factor): `append(A,E1)+append(A,E2)` → one append (concatenated
+    elements); `setArray(A,X)+append(A,Y)` → `setArray(A,X+Y)`. Adjacent
+    only (no interleaving; same evaluation order). **DONE**:
+    `fuse_array_appends` post-pass (array-literal args only; descends
+    blocks/branches/loops/functions/arrows — purely local pair rule).
+    t86 2→1 calls per factor. +2 unit tests (fuse + other-array veto).
+
+Verification: lib 653/0 (+7), c_* suites pass, 93/93 estree valid
+(t95/t96 pre-existing broken oracles), t86/t92/t97 oracle MATCH.
