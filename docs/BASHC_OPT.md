@@ -10,8 +10,9 @@ args, arithmetic, loops, interpolation, sys/file utilities), read the
 output, listed what a peephole / renderer-level pass could remove or
 tighten. Numbered items are independent work items. Status per item:
 DONE (implemented in `sh2perl/src/c_backend.rs`, gate-kept) or
-DEFERRED/SKIPPED (reason given). Implemented this round: 1, 4, 7, 9,
-10, 12, 13, 14.
+DEFERRED/SKIPPED (reason given). Implemented in round 1: 1, 4, 7, 9,
+10, 12, 13, 14. Round 2 (items 19–29, bash-corpus survey below) is
+PROPOSED-only — nothing there implemented yet.
 
 Measured baseline (25 files, 4723 total lines):
 - **3839 lines (81%) are prelude** (runtime helpers + file-scope decls),
@@ -175,6 +176,107 @@ iteration forking a full `bash -c` to print one digit.
     hidden counter). Fix: same hidden-counter form as item 7b, or
     prove no post-loop read. Needs care: py-sh-go golden outputs pin
     the direct form today.
+
+## Round 2 — bash-corpus survey (arrays, case, functions, heredocs, traps)
+
+Second survey pass over different territory (`009_arrays`,
+`029_arrays_associative`, `032_control_flow_function`, `057_case`,
+`062_03_complex_heredocs`, `062_09_complex_function`,
+`062_14_complex_array_operations`, `064_23_traps`). Same method:
+generate, read, list. Items continue the numbering (19+). Status:
+all PROPOSED except where noted.
+
+### H. Dead code (continued)
+
+19. **Dead comma-statement `(_sh_rc = 0, 1);`** (`009` and 5+ other
+    samples, 1–3 occurrences each): `drop_const_stmts` peels one paren
+    layer but not the comma — a `(<dead store>, <const>)` statement is
+    dead when the store is dead. Extend the peeler: if every
+    comma element but the last is a dead rc-store (or side-effect
+    free constant) and the last is constant, drop the statement.
+    S.
+
+20. **Empty `else { /* no default */ }`** (`057` and others): the
+    case renderer emits an else with only a comment. Drop empty
+    else branches (same family as item 10; the comment carries no
+    semantics). S.
+
+21. **`(exit(1), 0);`** (`057`): comma-expr whose first element is a
+    noreturn call — the `, 0` is dead. Peephole: `(noreturn-call,
+    const)` → `noreturn-call;` (generalizes: any trailing constant
+    after a noreturn call). S.
+
+### I. Repeated evaluation (item-13 family)
+
+22. **Case-subject re-evaluation** (`057`):
+    `((1 < argc && argv[1]) ? argv[1] : "")` is re-emitted per
+    `case` branch (4× for 4 branches). Hoist the subject to a temp
+    once (same single-evaluation argument as item 13; pure reads
+    only). S/M.
+
+23. **argv-guard repetition in param defaults** (`062_09`):
+    `${2:-default}` renders the `((2 < _sh_argc && _sh_argv[2]) ?
+    ...)` guard 5×. Item 13's hoist fires only on call-containing
+    expressions; extend it to non-trivial pure exprs (indexing and
+    ternaries can't have side effects mid-expression, so single-eval
+    hoisting is always safe — the only cost is one temp + statement
+    vs N redundant reads). M.
+
+24. **Nonnull proofs for argv-guard assigns** (`062_09`):
+    `param1 = ((1 < _sh_argc && ...) ? ...)` is non-NULL by
+    construction, yet every later use is guarded
+    (`(param1 ? param1 : "")`). Extend the item-12 nonnull proof to
+    argv-guard RHS shapes (bounded index ⇒ non-NULL element). S.
+
+### J. Constant folding (gaps)
+
+25. **Fold `atoll` of constants** (`062_14` and others):
+    `(int)atoll("")` (always 0) and `atoll("10")` (always 10)
+    survive into output. Fold `atoll` over string literals at render
+    time (empty → 0; decimal → value; non-numeric → keep `atoll`,
+    preserving the coerce-to-0 semantics). S.
+
+### K. Lowering choices
+
+26. **Static heredocs go through shell-out** (`062_03`):
+    `cat <<'EOF'` (quoted ⇒ no expansion, fully static text) renders
+    as `_sh_site_0()` (fork+exec of `cat`) instead of one `fputs`
+    with embedded newlines. Detect fully-static heredoc bodies and
+    emit directly. M.
+
+27. **Literal array elements `strdup`'d at runtime** (`009`,
+    `062_14`): `arr=(one two three)` emits 3×
+    `_sh_xstrdup((char*)("..."))` plus end-of-scope frees. A static
+    initializer (`static char *arr[] = {...}; arr_len = 3;`) removes
+    both — but frees must then skip literal slots (ownership
+    tracking per index, or copy-on-first-write). Bigger + riskier;
+    keep the strdup until the ownership proof exists. M (deferred
+    shape noted).
+
+28. **Join-then-slice** (`062_14`): `${arr[@]:off:len}`-shaped flows
+    join ALL elements (`_sh_join_arr`) then slice the text — O(n)
+    twice. Slice the index range first, join only the window. M.
+
+29. **Argv-swap dance for liftable shell functions** (`062_09`):
+    `complex_function` reads only `$1..$3`, yet every call builds
+    `_sh_av0[]`, swaps `_sh_argv/_sh_argc`, calls void, restores
+    (`(complex_function(), _sh_argv = _sh_sv1, ...)`). Extend the
+    native-calling-convention lift to sh-source functions whose
+    bodies read only `$1..$9` (the analysis exists for py-sh-go
+    fns). L; touches calling convention shared with the JS worker
+    — coordinate.
+
+### Already optimal (verified, no item)
+
+- Borrowed argv reads (`a = _sh_argv[_ai_a]`, no strdup, no free of
+  a non-owned pointer) and the maintained `xs_max/min/sum`
+  aggregates: exactly right, including the free discipline.
+- `printf("Arg: %s\n", ...)` for interpolated echo with a single
+  conversion: the native-printf path.
+- `($#)` → `(_sh_argc - 1)` and `int main(int argc, char **argv)`
+  plumbing: tight.
+- Trap handling (`064_23`) shells out for dynamic trap bodies —
+  correct (fork is the semantics); not an opt target.
 
 ## Suggested order
 
