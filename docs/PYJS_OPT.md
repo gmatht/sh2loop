@@ -393,3 +393,30 @@ the clean base too; C-aggregate worker domain, untouched).
 
 Verification: lib 681/0 (+1; 1 pre-existing C failure unchanged),
 c_* suites pass, 93/93 estree valid (t95/t96 pre-existing), oracle MATCH.
+
+## Round 12 — bare `v||0` elision on number facts (2026-09-12)
+
+N1 facts are non-NaN numbers, for which `v||0` is identity (`0||0`
+is `0`). Strings (`""||0` is `0`) and bigints (`0n||0` is `0`) are
+correctly excluded — the rule consults number facts only.
+
+33. **Bare-guard elision** (`BigInt(i||0)` → `BigInt(i)`, preserving the
+    conversion unlike the bigint-guard fold). **DONE** (extends N1's hit;
+    `for (let i = 1; …)` inits establish via the loop-scope fix).
+    t89 loop guards gone; t91's accumulator folds its `||0` while keeping
+    `BigInt()` (first-iteration safe); t90's string-sourced `i`
+    (`Number(string)` may be NaN) correctly kept — the analysis
+    distinguishes native counters from parsed strings. +1 unit test.
+
+Known-red (NOT this round): worker's in-flight C refactor (1700-line
+`c_backend.rs` rewrite, base `692b189f`) redesigned the isqrt pipeline
+(`long long sh2_isqrt(void)` + mpz bigint vs the `uint32_t _sh_isqrt`
+narrowing) — `tests/c_isqrt.rs` fails 3/3 (2 pre-existing on the clean
+base, 1 mine targeting the old design). Estree side fully green (below);
+C-isqrt needs worker's update to the new design. Unrelated pre-existing
+lib failure `numeric_reduction_assign_reads_aggregate_natively` (same).
+Never blessed, never weakened — handoff to worker.
+
+Verification: lib 682/0 (+1; 1 pre-existing C failure unchanged),
+c_fn_locals/params pass, 93/93 estree valid (t95/t96 pre-existing),
+oracle MATCH.
