@@ -746,6 +746,10 @@ item-24 firing on xstrdup'd stores — bare `printf %s` correct.)
     folds partial consts; folded `Num` reuses the LL-suffix arm).
     `062_04`: `result = (15 + _sh_pow(5,2))`. Unit test covers
     div-zero/overflow/pow/var negatives (+ `&` positive).
+   **DONE** (`const_arith_value` + Bin/Un-arm hooks; recursion
+    folds partial consts; folded `Num` reuses the LL-suffix arm).
+    `062_04`: `result = (15 + _sh_pow(5,2))`. Unit test covers
+    div-zero/overflow/pow/var negatives (+ `&` positive).
 62. **Fuse single-use capture temps** (`000__04a`:
     `char *_eh0 = _cap_0(); printf("...%s", guard(_eh0))` —
     `_eh0` used once → inline `_cap_0()` at the use (which then
@@ -804,11 +808,16 @@ firing; `064_09` is a tight 3-liner.)
     Fresh single-assigns from proven calls (`_pe9` from
     `_sh_arr_get`) need flow — noted extension, v1 is
     set-membership only. S.
+   **DONE** (`nonempty_test` in `:-`/`:?`/`=`/`:=` arms).
+    `063_04`: `(((_d2)[0]) ? (_d2) : (_v0.p))`.
 64. **`atoll` of digitless literals → `0`** (`063_04`:
     `(long long)atoll("index")` is always 0). Item-25 extension:
     no ASCII digit anywhere ⟹ C performs no conversion ⟹ returns
     0 (leading space/sign can't conjure digits). `0x..`/digits
     keep the call (C parses a prefix). S, airtight gate.
+   **DONE** (quoted-literal gate: bare idents like `x` are
+    variables — caught by item32/item4 unit tests pre-ship).
+    `063_04`: `(long long)0`.
 65. **Pipeline-result double evaluation** (`064_07`:
     `_sh_vgrow(&_sp3, strlen(_sh_pipeline(...)) + 1);
     strcpy(_sp3.p, _sh_pipeline(...))` — the pipeline forks TWICE;
@@ -817,11 +826,18 @@ firing; `064_09` is a tight 3-liner.)
     stable until the next pipeline call, and none intervenes.
     Same evaluate-once family as 23/33/45/62, with correctness
     upside (not just bytes). S/M.
+   **DONE** (`bind_pipeline_once`: two-line + same-line pairs;
+    depth-scan E extraction — a suffix-strip broke on E ending
+    in `)`; `&`-dst strip; unit-tested).
 66. **Extend 31/62 proofs to `_sh_call_fn`** (`063_09`:
     `((_cf_...) ? ... : "")` after a captured direct call —
     `call_fn` returns post-vgrow `vb->p`, same proof as `_cap_`.
     Same two steps (guard-drop + sole-effect fuse). S (proof
     already verified for 31).
+   **DONE** (helper list + hoist-skip reuses
+    `is_nonnull_helper_call`). Temp-mediated `_cf_`/`_pd_` shapes
+    (pre-hoisted statement temps) need statement-level fusion —
+    noted next step, not this one.
 
 ### Discussion — Round 8 notes
 
