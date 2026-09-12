@@ -2751,6 +2751,13 @@ export const sh2 = {
     // parent → _scalar (unchanged).
     const ptype = (parent !== null && typeof parent === 'object' && !Array.isArray(parent) && typeof parent.type === 'string') ? parent.type : '';
     if (k === 'value' && (ptype === 'Num' || ptype === 'Int') && /^-?\d+$/.test(s)) return String(Number(s));
+    // Str values stay JSON strings (even "", "true", "null" — the
+    // _scalar coercions below ([], true, null) are for schema-missing
+    // fields, not Str content; the ingress rejects non-strings there).
+    // Fixes dogfood `err` binding ("" became []) and guards boolean
+    // texts. Other frontends unaffected (their Str outputs were already
+    // strings-or-broken; correct shape only helps byte-equality).
+    if (k === 'value' && ptype === 'Str') return JSON.stringify(s ?? '');
     return this._scalar(k, s);
   },
   _serObj(id) {
