@@ -1,7 +1,7 @@
 # BASHC equivalence failures — triage and fix strategy
 
 Date: 2026-09-12. Gate: `harness/c_gate_main.sh` → **PASS=592 FAIL=45 SKIP=7**
-at triage; **PASS=623 FAIL=14 SKIP=7** after §4.10 (zero regressions;
+at triage; **PASS=625 FAIL=12 SKIP=7** after §4.11 (zero regressions;
 051 flaky-slow, 062 gate-parallel flake).
 Corpus: `sh2perl/examples/*.sh` + `frontends/*/testdata/*.sh` via the
 **sh frontend** (bash→shIR→C). All 45 verdicts are `exec/diff`: the C
@@ -343,6 +343,23 @@ has a half-life measured in hours.
   demote demoted `n="1"` (Str RHS); numeric-text exemption restores
   it. 062 passes standalone + single-gate but flakes red in full
   parallel gate (infra, binary verified correct).
+
+### 4.11 Third wave (625/12/7, zero regressions)
+- 058: composite assoc keys (`matrix[$i,$j]`) interpolate via
+  InterpPart+value_c (was getenv("i,$j") → empty).
+- parse-invalid-redirect: native `exec N>&M / N>file` (dup2/open
+  in-process; child-shell `exec` loses fds). fcntl.h detection.
+- parse-bracket (partial): `[[ ]]` for command-subst tests (`[ -n ]`
+  true vs `[[ -n ]]` false on vanishing expansion). Exit-code still
+  red — `return _sh_rc` reverted (exposes 8 latent status bugs).
+- 062 (product-fixed): stringly demotion verified standalone ×3 and
+  single-gate, but still red in full parallel gate (infra flake).
+- Documented gaps (not fixed): expansion-failure→skip-command
+  (063_04/063_hard `${!...}`, parse-arith-extra-paren div-zero,
+  parse-dollar `$N` lexer quirk), eval-defined functions
+  (parse-eval-multiline), dynamic case patterns calling script fns
+  (parse-redirect-in-case), non-UTF8 passthrough (utf8), tty
+  capture helper, typeset -n/-f, pipeline/subshell status (§2.6).
 
 ## 5. Representation policy (decided 2026-09-12)
 
