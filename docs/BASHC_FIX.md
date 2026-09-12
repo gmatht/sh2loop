@@ -1,8 +1,8 @@
 # BASHC equivalence failures — triage and fix strategy
 
 Date: 2026-09-12. Gate: `harness/c_gate_main.sh` → **PASS=592 FAIL=45 SKIP=7**
-at triage; **PASS=606 FAIL=31 SKIP=7** after the §4 fix log (14 fixed,
-0 regressed; 051 flaky-slow).
+at triage; **PASS=623 FAIL=14 SKIP=7** after §4.10 (zero regressions;
+051 flaky-slow, 062 gate-parallel flake).
 Corpus: `sh2perl/examples/*.sh` + `frontends/*/testdata/*.sh` via the
 **sh frontend** (bash→shIR→C). All 45 verdicts are `exec/diff`: the C
 renders, compiles, runs — but stdout/exit differs from bash. No stubs
@@ -316,6 +316,33 @@ has a half-life measured in hours.
 - `063_hard_to_parse` went from cc-error to 2-line diff (remaining:
   `${!prefix*[@]}` bad-substitution semantics + `tr [:class:]` —
   subsystems, §2.14/§2.17).
+
+### 4.10 Second wave (623/14/7, zero regressions vs 618)
+- t03_pipeline: dead-store-elim census lacked Pipeline/ForInit/Try
+  arms (dropped `name="world"`); const-lifted site-export read getenv
+  instead of the C ident. Both fixed.
+- typeset-cmdsub (partial): sticky -i/-l/-u/-r/-x map; -i arith-eval,
+  -l/-u runtime fold, -x auto-export (pending queue + Assign stick),
+  -F names, -p `declare -attrs` (bash order aAi rxl u); capacity now
+  includes lit_index_max (bare `typeset -a` + indexed writes sized
+  [1] → exit 127). Left: -n nameref, -f definitions (needs source).
+- 064_09/019/064_hard: pipeline stages with list operators grouped
+  in `{ ...; }` (`paste && cleanup | head` parsed as `paste &&
+  (cleanup|head)` — head starved).
+- parse-herestring/063_18: native herestring requires a read-loop
+  (bare `grep <<< str` rendered plainly, dropping `<<<`).
+- realpath: `${arr[@]}` command word split per-element (was joined,
+  exec'd as one filename → 127); `$'\\x00'` pattern → empty (`**`);
+  `$$` is main PID (was per-child, breaking `$$` temp files).
+- 063_11: procsub producer redirect flipped to write (frontend emits
+  producer `< <(p)` as (fd 0, r); first r+__ps_ per temp writes).
+- 062: stringly-wins demotion (Int var assigned `$(...)` → Str;
+  was uint16_t truncating pointers to garbage). Numeric-text Str
+  (`n="1"`) stays Int (exact `-?digits`).
+- REGRESSION caught+fixed: test-string-arith-in-brackets broke when
+  demote demoted `n="1"` (Str RHS); numeric-text exemption restores
+  it. 062 passes standalone + single-gate but flakes red in full
+  parallel gate (infra, binary verified correct).
 
 ## 5. Representation policy (decided 2026-09-12)
 
