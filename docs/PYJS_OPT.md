@@ -46,7 +46,12 @@ wins to readability wins: pursued only when safe and cheap.
 ## Implementation status
 
 Each item is marked DONE (implemented, gate-kept) or DEFERRED (reason
-given). Round 1 (params, local-drop, String-drop, DCE, isqrt seeding)
+given). Round 4 (this commit): merged worker main through BASHC_OPT
+round 2 + item-7 gate + capture work; re-verified everything green
+(lib 641/0 with worker's new tests, 9/9 integration, 93/93 estree
+valid, t86 C match with named `long long n`). Const-temps (item 15)
+stays deferred (cosmetic single line; definite-assignment proof needed;
+low value/risk this round). Round 1 (params, local-drop, String-drop, DCE, isqrt seeding)
 verified: lib 635/0, 93/93 estree valid (t95/t96 excluded — broken
 python oracles, pre-existing), t86 C stdout+ASan+valgrind match, 9/9
 integration tests. Round 2 (this commit): rebased onto worker main
