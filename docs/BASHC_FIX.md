@@ -1,7 +1,7 @@
 # BASHC equivalence failures — triage and fix strategy
 
 Date: 2026-09-12. Gate: `harness/c_gate_main.sh` → **PASS=592 FAIL=45 SKIP=7**
-at triage; **PASS=628 FAIL=9 SKIP=7** after §4.12 (zero regressions;
+at triage; **PASS=630 FAIL=7 SKIP=7** after §7.5 (zero regressions;
 051 flaky-slow, 062 gate-parallel flake).
 Corpus: `sh2perl/examples/*.sh` + `frontends/*/testdata/*.sh` via the
 **sh frontend** (bash→shIR→C). All 45 verdicts are `exec/diff`: the C
@@ -401,3 +401,60 @@ coercion), or (2) profiled atoll/snprintf round-trip heat.
   §3.1 gate fix removes the pollution that currently masks it.
 - 058 grid: composite assoc key vs `{0..2}` — bisect by rendering each
   in isolation.
+
+## 7. Status strategy + equivalence census (2026-09-13 — 630/7/7)
+
+### 7.1 Method
+Re-ran the full gate, root-caused each failure from the GENERATED C
+(not just stdout diffs), and grouped by shared mechanism. Two flakes
+(046, 062) pass standalone/single-gate but flip in parallel runs —
+infra, not product (binaries verified byte-correct).
+
+### 7.2 The `return _sh_rc` unlock (4 fixed, 4 exposed, all 4 fixed)
+Switching main from `return 0` to `return _sh_rc` (need_sh-gated;
+pure-native keeps `return 0` or t02 cc-errors) fixed 046/062/063_04/
+parse-bracket exits outright and exposed 4 latent status bugs:
+- until loops (094, t59): loop left the EXITING TEST's rc, not the last
+  BODY's. Save body rc per iteration (`_sh_lrcN`), restore if ran.
+- case no-match (parse-case-dollarparen): stale discriminant rc (127
+  from failed `$()`). `else { _sh_rc = 0; }` (BASHC_OPT item 20's
+  no-else stands — output unchanged, status fixed).
+- subshell fd-redirects (arith-ambiguous): `r`-arm lacked `&` handling
+  (`5< &0` opened file `&0` → ENOENT → rc 1); `-` close (`4> '-'`)
+  made files. Both arms now emit unquoted/unspaced `N<&M`/`N>&-`.
+Net: +4, zero regressed. LESSON: exit-code parity is a FORCE MULTIPLIER
+— it fixed 4 tests with no test-specific code and exposed real bugs
+masked by `return 0`. Keep `return _sh_rc`; fix newly exposed status
+bugs instead of reverting (the §4.11 revert was wrong — it hid these).
+
+### 7.3 Remaining 7 (all need new mechanisms, ranked by yield)
+1. **Arith-error propagation** (2 files: extra-paren, parse-dollar).
+   Div-by-zero and empty-operand (frontend `$N`-before-`*/%` quirk)
+   must make the expansion vanish AND skip the enclosing command
+   (no output, continue). Currently: guarded-0 + newline. Needs:
+   (a) divisor-zero runtime check in string-target Arith assigns
+   (store empty), (b) frontend quirk replication, (c) echo-skip on
+   failed expansion. (a) alone fixes extra-paren; (b)+(c) for dollar.
+2. **Eval** (1: parse-eval-multiline). `eval 'fn()...'` + `type`.
+   Needs runtime parse or eval-time function materialization. BIG.
+3. **Expr-patterns** (1: parse-redirect-in-case). `case x in $(fn))`
+   compares literal text (child lacks script fns for site-out).
+   Needs patterns as exprs (frontend/core) or in-process eval. BIG.
+4. **Function-call redirects** (1: tty, partial). `fn < file` drops
+   body output. Needs fd setup around native calls + pty. MEDIUM.
+5. **Nameref + definition print** (1: typeset -n/-f). Alias analysis
+   + source retention. BIG.
+6. **Byte preservation** (1: utf8). Latin-1 0xE9 → U+88E9 somewhere
+   in frontend/JSON/backend. Needs end-to-end tracing. MEDIUM.
+
+### 7.5 Arith-error (a) landed: extra-paren fixed
+`arith_divisors` collects `/`/`%` divisors; buf-target Arith assigns
+wrap the store in `if (zero) rc=1 else normal` (var keeps old value —
+exact bash skip semantics). Heap-target div-zero still guarded-0
+(documented gap; no test covers it). parse-dollar still needs (b)+(c).
+
+### 7.4 Recommended order
+Arith-error (2 files, one mechanism) → utf8 (trace first, may be
+single-point) → tty redirects (medium, well-scoped) → eval /
+expr-patterns / nameref (big features, 1 file each — defer until
+mechanisms 1–3 land and gate is ≥633).
