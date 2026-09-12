@@ -158,5 +158,9 @@ cond_zero soundness, stale shapes with execution proof). Verification per batch:
     (keep-last contract for program value; tested).
 15. **`const` for single-assign temps**: DEFERRED (needs definite-
     assignment proof; `let` is correct, `const` is cosmetic).
+16. **`[].concat` literals to array** (t90/t94 `[].concat("1",...)`):
+    **DONE**: `fold_concat_literals` post-pass (all-literal args only;
+    spread/dynamic veto; deep walker incl. ForOf/arrows). +2 unit tests
+    (fold + veto). Cosmetic (saves a runtime call per site).
 16. **Top-level `let` consolidation** (`let a = 0, b = 0`): DONE (already
     comma-joined; note).
