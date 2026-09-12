@@ -181,3 +181,10 @@ assigns, string-ifs. New patterns for the owners:
   never enter stmts (find mis-append in single-target call path),
   (2) serializer must escape strings (a validity safety net even when
   shape is wrong). Owner (both frontend mis-append + runtime escape).
+- FULLY-INLINE == BYPASS (attempted + reverted 2026-09-12): 5 kind-pair
+  branches building BinOp Eq/Ne with zero helper calls/flags/vars
+  (only objGet field reads + nested literals). Still yielded empty —
+  the returned BinOp map is JS-returned (lost) rather than echoed.
+  Forcing echo would change NATIVE A1 shape (test-string → BinOp) for
+  ==/!=, risking C/sh backends on shared A1. Reverted to avoid
+  cross-backend breakage; owner must fix channel or bless shape.
