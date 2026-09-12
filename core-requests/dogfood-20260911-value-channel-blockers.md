@@ -173,6 +173,12 @@ assigns, string-ifs. New patterns for the owners:
   returns went empty) — reverted. Owner: range should iterate items
   (listLen/listGet, like working C-style loops), or indexed-for must
   transpile.
+  Root (2026-09-12): `rexprs` (`[]*expr` via append) transpiles to SHELL
+  ARRAY (space-joined → 1 line), while `words` (`[]map`) transpiles to
+  LIST (listLen works). Element-type-driven (pointers→array, maps→list),
+  not index-vs-blank. Indexed `for ri, e := range` (+ `_ = ri`) broke m4
+  (green→invalid) — reverted. Owner: range must iterate items regardless
+  of element type, or pointer-slices must lower to lists.
 - PROTOCOL-TEXT LEAK (filed, m8 `x := f()`): top-level stmts list
   contains the raw string `"false\nobj#129 obj#131"` (ok-flag +
   newline + space-joined ids from call-distribution machinery) instead
