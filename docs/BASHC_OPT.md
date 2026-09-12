@@ -860,3 +860,49 @@ firing; `064_09` is a tight 3-liner.)
   (`063_04`: `_sh_arr_slice(d, "", 0, 2)` — a few ops on empty
   input; the temp must exist for downstream uses anyway),
   `(((` parens, `{ { } }` blocks.
+
+## Round 9 — survey (grep params, brace, case, coverage audit)
+
+Ninth pass (`016_grep_basic`, `017_grep_context`,
+`018_grep_params`, `019_grep_regex`,
+`021_ansi_quoting_escape`, `022_ansi_quoting_unicode`,
+`023_ansi_quoting_practical`,
+`062_02_complex_parameter_expansions`,
+`062_06_process_substitution`, `062_07_complex_brace_expansion`,
+`062_08_simple_case`, `000__05_system_utilities`; `064_15`/
+`062_06_testing_operators` don't exist — bad guesses, not CLI
+failures). Item 67. Mostly PROPOSED + discussion: this round's
+main finding is the coverage audit below.
+
+### Y. Catch-all case arm
+
+67. **`*`-pattern case arm → `else`** (`062_08`:
+    `else if (fnmatch("*", _cd0, 0) == 0)` — the `*` glob
+    matches everything including empty, so the arm IS the
+    default: drop the fnmatch, fold to `else`. Gate: pattern
+    literally `*` only (`?*`/char-classes aren't total). S micro.
+
+### Discussion — Round 9 notes (coverage audit)
+
+- **Measured coverage: ~77/552 files (14%).** Nine rounds
+  swept the high-signal easy files; the corpus tail
+  (`000_*` groups, `062_10+`, most `063_*`/`064_*` hards) is
+  unsurveyed. The skew matters: the unsurveyed files are
+  disproportionately the gate-failing ones, which need
+  CORRECTNESS work first (a peephole survey of red output
+  finds bugs, not opts — valuable but a different activity).
+- **Prior items firing in the wild this round:** 62 (`018`:
+  `printf(..., _cap_3())` bare), 54+49 shapes (`018`'s chained
+  commas — 49 correctly does NOT fire inside chains, where the
+  value feeds `&&`/`||`; gate holds), 22+24 end-to-end
+  (`062_08`: `_cd0` hoisted once, used bare twice), 40/51
+  (`062_07`), temp-swap + proofs (`016`/`017`/`000__05`).
+- **Style drift (not numbered):** the If-renderer emits `}` +
+  `else if` on separate lines while 54's fuse emits `} else {`
+  inline. Cosmetic inconsistency; unifying churns diffs for
+  zero bytes — leave until a renderer pass touches both.
+- **Recommendation:** stop scheduling corpus sweeps (rounds 1–9
+  cover the shapes that recur). The backlog is now 20+ open
+  items + the deferred six; the next survey, if any, should be
+  a CORRECTNESS survey of gate-red files (063/064 hards), not
+  an opt survey of green ones.
