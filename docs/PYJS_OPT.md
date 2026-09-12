@@ -420,3 +420,31 @@ Never blessed, never weakened — handoff to worker.
 Verification: lib 682/0 (+1; 1 pre-existing C failure unchanged),
 c_fn_locals/params pass, 93/93 estree valid (t95/t96 pre-existing),
 oracle MATCH.
+
+## Round 13 — compound assigns, `!isNaN` collapse (2026-09-12)
+
+Sweep: 8 `v = v op K` accumulators/counters + t80's duplicated numeric
+guard (`!isNaN(Number(G)) && Number(G) > 2`).
+
+34. **Compound-assign fold** (`s = s + n` → `s += n`, all arithmetic /
+    bitwise / shift / logical ops): exact shorthand for plain identifier
+    targets (no double-evaluated getters — members excluded). **DONE**:
+    `fold_compound_assign` deep pass (cosmetic; identical codegen).
+    8 sites (t19/t29/t48/t59/t71/t74/t97/t98). +2 unit tests (fold +
+    mismatch veto).
+35. **`!Number.isNaN(N) && N <cmp> K` → `N <cmp> K`**: NaN compares false
+    under `< > <= >= == ===` (so the guard is redundant); `!=`/`!==`
+    excluded (NaN is unequal). N side-effect-free (dropping the guard
+    removes one evaluation) + direct comparison operand (syntactic
+    equality). **DONE** in the drop Logical arm (shared-view helper +
+    re-dispatch; `side_effect_free`/`expr_eq` top-level helpers). t80's
+    per-element duplicate guard gone. +2 tests (collapse + `!=` veto).
+
+Deferred (narrow): `[].concat` copies (t52 needs body-purity,
+t91 needs fresh-proof — one combined copy-elision rule, marginal);
+`v ?? D` on facts (member chains dominate); general temp-hoist CSE
+(t53/t70 duplicates — needs temp introduction).
+
+Verification: lib 686/0 (+4; 1 pre-existing C failure unchanged),
+c_fn_locals/params pass, 93/93 estree valid (t95/t96 pre-existing),
+oracle MATCH.
