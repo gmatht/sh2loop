@@ -262,3 +262,39 @@ lowering wraps a scalar; emitter-layer fix, worker/frontend domain).
 
 Verification: lib 659/0 (+6), c_* suites pass, 93/93 estree valid
 (t95/t96 pre-existing broken oracles), full oracle MATCH sweep.
+
+## Round 8 — bigint facts, const-arith init fold, loop-scope soundness (2026-09-12)
+
+Surveyed bigint/assoc outputs: t87 wraps an already-BigInt `x` in
+`BigInt(x || 0)` 8×, and `let x = 0; x = BigInt(..**..)` misses the
+init fold (RHS predicate rejects Binary).
+
+22. **Bigint-fact propagation** (fourth fact-family member): after
+    `v = <bigint>` (`BigInt(..)`, bigint arithmetic/bitwise with a
+    bigint side — mixed-type throws, so a produced value is exact —
+    `-`/`~` on a bigint, all-bigint conditional, known-bigint var),
+    `BigInt(v)` → `v` (identity) and `BigInt(v || 0)` → `v` (`0n` is
+    falsy: `0n||0` is `0`, `BigInt(0)` is `0n`). **DONE**:
+    `prop_bigint_facts` (same kills/descent/closure discipline).
+    t87 8→0 guards; t90's loop-body `BigInt(n || 0)` 6+→1 (entry source
+    kept; `BigInt(i || 0)` kept — `i` is a number). t91's accumulator
+    guard correctly survives (first iteration reads numeric `0` —
+    single-pass entry facts save it). +5 unit tests (fold, comparison
+    veto, reassign-kill, loop-leak veto, for-of entry facts).
+23. **`is_const_rhs` arithmetic** (t87 init): Binary/Logical with const
+    sides is const (pure, deterministic; any throw fires identically in
+    the adjacent original). **DONE** (predicate extension, no new pass):
+    `let x = 0; x = BigInt("2") ** BigInt("100")` → single decl. +1 test.
+24. **Loop/branch scope soundness (fix)**: review found establishments
+    inside `if`/`while` leaked out (zero-trip loop / untaken branch
+    would misread) — latent in all three fact passes, unmanifested in
+    corpus. **FIXED**: branches and loop bodies (while/do/for/for-of)
+    run on cloned facts, discarded after; `for` init stays straight-line.
+    No corpus output changes except newly-unlocked `for`-body folds
+    (t90). Pinned by `bigfact_loop_establish_does_not_leak`.
+
+Deferred: `[].concat(DYN)` in for-of (2 sites — copy-elision needs
+array-proof + no-mutation proof; marginal).
+
+Verification: lib 667/0 (+6: 5 bigfact + 1 let-arith),
+c_* suites pass, 93/93 estree valid (t95/t96 pre-existing), oracle MATCH.
