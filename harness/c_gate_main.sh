@@ -27,8 +27,8 @@ JOBS=${JOBS:-8}
 if [ "${1:-}" = "jobs" ]; then JOBS=$2; shift 2; fi
 if [ $# -gt 0 ]; then corpus=$(printf '%s\n' "$@"); else corpus=$(ls $SUB/examples/*.sh $ROOT/frontends/*/testdata/*.sh 2>/dev/null); fi
 
-tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
+_c_gate_tmp=$(mktemp -d)
+trap 'rm -rf "$_c_gate_tmp"' EXIT
 # Sanitize-pass setup: pick flags, then probe the toolchain once. If the
 # probe fails (no sanitizer runtime), disable the pass rather than failing
 # the whole gate on toolchain drift.
@@ -41,23 +41,23 @@ if [ "$SANITIZE" != "0" ]; then
   esac
 fi
 if [ "$SANITIZE" != "0" ]; then
-  if ! printf 'int main(void){return 0;}\n' | $SANITIZE_CC $SAN_FLAGS -x c - -o "$tmp/probe_san" 2>/dev/null; then
+  if ! printf 'int main(void){return 0;}\n' | $SANITIZE_CC $SAN_FLAGS -x c - -o "$_c_gate_tmp/probe_san" 2>/dev/null; then
     echo "c_gate_main: $SANITIZE_CC rejects $SANITIZE flags; sanitize pass off" >&2
     SANITIZE=0; SAN_FLAGS=""
   fi
-  rm -f "$tmp/probe_san"
+  rm -f "$_c_gate_tmp/probe_san"
 fi
 # Link libraries the C backend may emit: GMP (bigint) and libm (sqrt).
 # Probe once; add only what the toolchain provides (a missing -lgmp must
 # not fail the whole gate — the bigint subset is a renderer gap to fix).
 CLIBS=""
-if printf 'int main(void){return 0;}\n' | cc -x c - -o "$tmp/probe_libs" -lgmp -lm 2>/dev/null; then
+if printf 'int main(void){return 0;}\n' | cc -x c - -o "$_c_gate_tmp/probe_libs" -lgmp -lm 2>/dev/null; then
   CLIBS="-lgmp -lm"
 fi
-rm -f "$tmp/probe_libs"
+rm -f "$_c_gate_tmp/probe_libs"
 run_one() {
   f="$1"; id=$(echo "$f" | md5sum | cut -d' ' -f1)
-  d="$tmp/$id"; mkdir -p "$d"
+  d="$_c_gate_tmp/$id"; mkdir -p "$d"
   # absolute script path: run_one executes in $d (CWD isolation), so a
   # relative $1 would not resolve there (and would silently empty $ref)
   case "$f" in
@@ -76,12 +76,19 @@ run_one() {
   # tests that write relative files (heredoc-*-span.sh both write x.py)
   # raced each other under parallel load when sharing the invoker's CWD.
   # Both sides share the isolated dir, so CWD-sensitive comparisons
-  # (`basename $(pwd)`, $0-absolute) still agree; litter dies with $tmp.
-  cc "$d/prog.c" $CLIBS -o "$d/bin" 2>"$d/ccerr" && (cd "$d" && timeout 15 ./bin > out 2>/dev/null) && eq_exit=0
+  # (`basename $(pwd)`) still agree; litter dies with $_c_gate_tmp.
+  # argv0: bash runs `bash "$f"` ($0 = script path), so the binary runs
+  # under `exec -a` with the same $0 — $0/dirname tests measure the
+  # renderer, not the harness. (Lowercase $tmp must never be exported:
+  # test envs leak into the scripts under test; see BASHC_FIX §2.1.)
+  cc "$d/prog.c" $CLIBS -o "$d/bin" 2>"$d/ccerr" || { echo "FAIL $f cc" > "$d/v"; return; }
+  (cd "$d" && timeout 15 bash -c 'exec -a "$0" ./bin' "$f" > out 2>/dev/null); eq_exit=$?
   bash_rc=0
   (cd "$d" && timeout 15 bash "$f" > ref 2>/dev/null) || bash_rc=$?
   verdict=FAIL
-  if [ "$eq_exit" != 124 ] && [ "$bash_rc" != 124 ] && [ "$eq_exit" = 0 ] && [ "$bash_rc" = 0 ] \
+  # exit codes must AGREE (not merely be zero — t83_exit exits 3 on both
+  # sides); a 124 (timeout) on either side fails unconditionally.
+  if [ "$eq_exit" != 124 ] && [ "$bash_rc" != 124 ] && [ "$eq_exit" = "$bash_rc" ] \
      && diff -q "$d/out" "$d/ref" >/dev/null 2>&1; then
     verdict=PASS
   fi
@@ -115,9 +122,9 @@ run_one() {
     echo "FAIL $f exec/diff" > "$d/v"
   fi
 }
-export -f run_one; export tmp CORE CC SANITIZE SAN_FLAGS SANITIZE_CC CLIBS
+export -f run_one; export _c_gate_tmp CORE CC SANITIZE SAN_FLAGS SANITIZE_CC CLIBS
 printf '%s\n' "$corpus" | xargs -P "$JOBS" -I{} bash -c 'run_one "$@"' _ {}
-cat "$tmp"/*/v | sort > "$tmp/all"
-pass=$(grep -c '^PASS' "$tmp/all"); skip=$(grep -c '^SKIP' "$tmp/all"); fail=$(grep -c '^FAIL' "$tmp/all")
+cat "$_c_gate_tmp"/*/v | sort > "$_c_gate_tmp/all"
+pass=$(grep -c '^PASS' "$_c_gate_tmp/all"); skip=$(grep -c '^SKIP' "$_c_gate_tmp/all"); fail=$(grep -c '^FAIL' "$_c_gate_tmp/all")
 echo "PASS=$pass FAIL=$fail SKIP=$skip"
-grep '^FAIL' "$tmp/all"
+grep '^FAIL' "$_c_gate_tmp/all"
