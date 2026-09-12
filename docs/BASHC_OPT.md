@@ -437,8 +437,14 @@ the identical `$HOME/Documents` snprintf+vbuf pair built twice
     incremented via full arith-assign render though the
     cstyleFor path already emits `i++`. Peephole at arith-assign
     render: `v = (v + 1)` / `v = (v - 1)` with Int-homed `v` →
-    `v++` / `v--`. Gate STRICTLY on Int-homed: on a `char*`,
-    `j++` would be pointer arithmetic (miscompile). S micro.
+    `v++` / `v--` (postfix, not prefix: identical semantics in
+    discarded-value position, and it matches the cstyleFor
+    headers + the bash `((i++))` idiom; the ++i-faster meme is a
+    C++-iterator artifact — same codegen for C scalars). Gate
+    STRICTLY on Int-homed AND statement position: on a `char*`,
+    `j++` would be pointer arithmetic (miscompile), and in value
+    position prefix/postfix must match `$((++i))` vs `$((i++))`
+    order semantics (separate future item). S micro.
 49. **Trailing `, 1` in statement-position `||`/`&&` tails**
     (`012`: `(_sh_site_9() || (fputs(...), _sh_rc = 0, 1))`): the
     `or`-lowering appends `, 1` to force truthiness, meaningless
