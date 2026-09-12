@@ -11,8 +11,8 @@ output, listed what a peephole / renderer-level pass could remove or
 tighten. Numbered items are independent work items. Status per item:
 DONE (implemented in `sh2perl/src/c_backend.rs`, gate-kept) or
 DEFERRED/SKIPPED (reason given). Implemented in round 1: 1, 4, 7, 9,
-10, 12, 13, 14. Round 2 (items 19–29, bash-corpus survey below) is
-PROPOSED-only — nothing there implemented yet.
+10, 12, 13, 14. Round 2 (items 19–29, bash-corpus survey below): 19, 20, 21, 22,
+24, 25, 26, 28 DONE; 23 SUPERSEDED; 27, 29 DEFERRED (reasons given).
 
 Measured baseline (25 files, 4723 total lines):
 - **3839 lines (81%) are prelude** (runtime helpers + file-scope decls),
@@ -267,11 +267,128 @@ all PROPOSED except where noted.
     fns). L; touches calling convention shared with the JS worker
     — coordinate.
 
+## Round 3 — survey (param expansion, strings, calls, loop warts)
+
+Third pass over new territory (`007_cat_EOF`, `010_substring_loop`,
+`013_parameter_expansion`, `024_parameter_expansion_case`,
+`027_parameter_expansion_defaults`, `029_arrays_associative`,
+`032_control_flow_function`, `041_process_substitution_mapfile`,
+`047_for_arithematic`, `049_local`, `054_fibonacci`,
+`058_advanced_bash_idioms`). Same method: generate, read, list.
+Items continue the numbering (30+). Status: all PROPOSED except
+where noted. (`054_fibonacci` is the near-optimal reference:
+`uint8_t i`, hidden counter, native `a`/`b`/`temp` arith, direct
+`printf("%lld ")` — the remaining nits there are file-scope `i`
+(item 17) and parens noise.)
+
+Measured (12 files): 19 dead vbuf-`.p` guards (`(_vN.p) ?
+(char*)(_vN.p) : ""`); 4+ surviving `atoll("<digit>")` (an item-25
+follow-up bug — see 32); 24 `(maybe ? maybe : "")` repetitions in
+the 3-line `027` (see 33/34); 5 `_sh_call_fn` sites in `058` each
+with a dead result guard (see 31).
+
+### L. Dead guards (item-12/24 family, continued)
+
+30. **Null-guard on vbuf temps** (`013`, `024`): every
+    `${name^^}`/`${s%pat}`/etc. expansion ends
+    `printf("%s\n", ((char*)(_vN.p) ? (char*)(_vN.p) : ""))`.
+    `_vN.p` comes from `_sh_vgrow`, which NEVER returns NULL (P1
+    fail-stop: OOM exits 127 inside vgrow). The guard is dead on
+    every vbuf temp — drop it at the use (or mark vbuf-`.p` temps
+    nonnull at creation, letting the existing guard-drop consume
+    them). S.
+31. **Null-guard on `_sh_call_fn` results** (`032`, `058`):
+    `((char*)(_pd_...) ? ... : "")` after every captured call.
+    `_sh_call_fn` returns `vb->p` and `_sh_capture_fn` vgrows first
+    (then fail-stops), so the pointer is non-NULL on every return
+    path (`tmpfile` failure returns the already-grown buffer).
+    Same treatment as 30. S.
+32. **`fold_atoll_consts` stops at the first non-foldable** (item-25
+    follow-up — BUG, not just missed opt): the post-pass `break`s
+    out of the line scan when the FIRST `atoll(` doesn't fold, so
+    `if ((atoll((getenv(...))) > atoll("3")))` keeps `atoll("3")`
+    (`058` keeps `atoll("0"/"1"/"3"/"5")`). Fix: on a
+    non-foldable match, advance past its close paren and keep
+    scanning the line (cursor-based loop instead of break). S +
+    unit test (foldable-after-unfoldable on one line).
+33. **`${x:-d}`/`${x:=d}`/`${x:?d}` re-emit test+value** (`027`):
+    `${maybe:-default}` renders the `maybe`-nonempty test AND the
+    `maybe` value twice each (~6 guard copies/line); `:=` computes
+    `(test, value)` twice (once for the assign, once for the use).
+    Bind the tested value once (`const char *_d = ...` elvis-style
+    temp for pure reads — item 13/22 family; the test is pure so
+    single-eval is exact). Quarters the 027 lines. M.
+34. **Literal-init nonnull proof** (`027`): `maybe = ""` (a
+    literal — trivially non-NULL) yet every later read guards
+    `(maybe ? maybe : "")`. Extend the item-24 proof to literal
+    RHS shapes (`""`/any literal ⇒ non-NULL at the bind). Kills
+    most of the 24 repetitions in 027 outright; the rest fall to
+    33. S.
+
+### M. Round-trip / materialization warts
+
+35. **Num-temp materialized only to be `atoll`'d back** (`010`):
+    each iteration vgrow+snprintfs `i` into `_v1`, whose SOLE use is
+    `atoll(_v1.p)` as the `${s:off:1}` offset. Pass `atoll(i)`
+    directly (recognize `atoll(vbuf-of-X)` → `atoll(X)` where the
+    vbuf holds a prior numeric render), then item 9's sweep drops
+    the orphaned pair. S/M.
+36. **Comma-head rc-store strip** (`041`):
+    `(_sh_rc = 0, printf("%s ", _v0.p))` — item 19 drops comma
+    statements only when the TAIL is const; here the tail is
+    effectful but the HEAD store is still dead under the same
+    global rc-dead gate. Generalize: strip dead `_sh_rc = N`
+    elements from comma heads regardless of tail shape. S.
+37. **Constant conditions** (`041` mapfile `if (1)` from
+    `striptail=true`): peephole `if (1) B` → `B`, `if (0) B` →
+    drop (same family as item 10's empty-block drop). S.
+
+### N. Bigger shapes (sharpened re-proposals)
+
+38. **Static array init via runtime append loop** (`058`:
+    `numbers=(1 2 3 4 5)` → 10 lines of `_ai0`/xstrdup/`len`
+    dance). Item 27's shape, sharpened: append-only literal arrays
+    (never element-written — the proof item 27 asked for) emit
+    `static const char *tbl[] + len`, no per-slot strdup/frees.
+    M (ownership proof still required — see 27).
+39. **In-bounds array-read guards** (`058`):
+    `num = numbers[_ai_numbers]` then `(num ? num : "")` at every
+    use, though append-only slots are xstrdup'd (non-NULL) and the
+    index is bounded by `numbers_len`. Gate: array never
+    unset/element-cleared + index provably `< len` (the loop-index
+    idiom). M (item-12/24 family; unsound for sparse arrays —
+    the gate must exclude them).
+40. **Single-use `$?` temp fuse** (`007`):
+    `long long _q0 = _sh_rc; printf("exit: %d\n", _q0)` → inline
+    `_sh_rc` as the printf arg (evaluation precedes the trailing
+    `, _sh_rc = 0` store — same order, same value). S micro.
+41. **Hashed direct-call temp names** (`058`:
+    `_pd_x99a1_x11e8` vs cmdsubst's readable `_greet_World`).
+    Unify the direct-call path on function-arg naming via
+    `naming.rs` (MEANINGFUL_NAMES family). S/M readability (origin
+    of the `_pd_`+hash scheme needs locating — likely the sh-source
+    direct-call lowering, not the cmdsubst path).
+42. **Direct sh-function calls render as capture+print** (`058`:
+    `process_data "string" "Hello"` → `_sh_call_fn` + printf
+    instead of a direct void call). Item-29 family: needs the
+    native-call lift for sh-source fns first; the capture layer
+    (tmpfile+dup2 per call!) then disappears with it. L; DEFERRED
+    behind 29.
+43. **Save/restore (`_sv_*`) around non-touching calls** (`058`:
+    `value` saved/restored around every `process_data` call).
+    Needs callee-write analysis (worker's domain). M (deferred
+    shape noted).
+
 ### Already optimal (verified, no item)
 
 - Borrowed argv reads (`a = _sh_argv[_ai_a]`, no strdup, no free of
   a non-owned pointer) and the maintained `xs_max/min/sum`
   aggregates: exactly right, including the free discipline.
+- `_sh_assoc_get` never returns NULL (miss → `""`), so the bare
+  `(char*)` casts on assoc reads are correct — no guard missing.
+- The `freopen(/dev/null)` + unbuffered-stdout prologue fires only
+  for programs with real child shells (fd-1 sharing/order) —
+  native-only programs stay buffered. Correct as-is.
 - `printf("Arg: %s\n", ...)` for interpolated echo with a single
   conversion: the native-printf path.
 - `($#)` → `(_sh_argc - 1)` and `int main(int argc, char **argv)`
@@ -287,3 +404,11 @@ matters: 6 unlocks 7–8 and halves the atoll count; 3 unlocks the
 localization in 17 and most of the fork tax in B; 1–2 are
 mechanical prelude wins with zero semantic surface. Proposed:
 1, 2 → 6, 7 → 3, 4 → 9, 10, 11 → 12, 13, 14 → 5, 15, 16 → 17.
+
+Round 3 sequencing: 32 is a bug fix in shipped code (do first);
+30+31 ride the existing guard-drop (cheap, same tests as 12/24);
+34 unlocks much of 33's win (prove literals before binding
+temps); 35–37, 40 are peepholes in dependency order (36 extends
+19's gate, 37 extends 10's); 38–39 need ownership/bound proofs
+(38 answers 27's open question); 41 is readability-only (any
+time); 42–43 chain behind 29 and callee-write analysis.
