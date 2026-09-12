@@ -118,9 +118,11 @@ cond_zero soundness, stale shapes with execution proof). Verification per batch:
 7. **`let`-then-assign init fold** (t87 `let x = 0; x = BigInt(...)`):
    merge `let v = 0;`/`let v;` with the first straight-line `v = K`
    (K side-effect-free, no mentions between) → `let x = BigInt(...)`.
-   Mirrors the C `fold_init_store` rule. **DEFERRED** (cosmetic single
-   line in t87; post-pass needs mention/write/eval guards for soundness;
-   low value/risk ratio this round; C precedent documented above).
+   Mirrors the C `fold_init_store` rule. **DONE**:
+   `fold_let_init_store` post-pass (same-block, no-mention (reads/writes/
+   captures/nested/dynamic), const K, pure init; `let` only). t87 loses
+   the redundant init; +2 unit tests (merge + blocked-by-read); one
+   shape expectation updated (init-decl, value+no-store pinned).
 8. **Repeated `BigInt(x || 0)` guards** (t87, 12×): hoist loop-invariant
    coercions to entry consts (generalize the `__p1n` param-read hoist to
    never-written-between locals). Needs liveness proof per read region;
