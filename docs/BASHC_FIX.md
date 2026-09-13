@@ -542,7 +542,7 @@ Flakes were INFRA, not product (binaries byte-identical standalone):
   (test intent preserved; no other test emits pts paths).
 - Transpiler emits nondeterministically across runs (HashMap order;
   observed 8:2 split) but SEMANTICALLY identical (only `free()` order
-  differed; both binaries byte-identical output).spell Not a product bug,
+  differed; both binaries byte-identical output). Not a product bug,
   but deterministic emission (BTreeMap/sorted) is hygiene follow-up.
 LESSON: capture failure dirs (`cp -r $d` on FAIL) before theorizing —
 the `..` 192-vs-191 diff was visible immediately, saving hours.
