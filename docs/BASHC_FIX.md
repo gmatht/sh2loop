@@ -547,6 +547,19 @@ Flakes were INFRA, not product (binaries byte-identical standalone):
 LESSON: capture failure dirs (`cp -r $d` on FAIL) before theorizing —
 the `..` 192-vs-191 diff was visible immediately, saving hours.
 
+### 7.13 The 7 skips (all intentional, deterministic, not replaceable)
+All skip at `bash -n` (bash itself rejects the syntax — no valid ref
+output exists, so C equivalence cannot run them):
+- parse-double-semicolon, parse-error-doublesemicolon,
+  parse-parameter-expansion-eof, parse-paren-after-do,
+  parse-unexpected-braceclose, parse-unexpected-end-of-input,
+  parse-unexpected-parenclose.
+These are PARSER-ERROR tests (invalid shell; e.g. `;;` outside `case`).
+Their invalidity IS the test — valid replacements would destroy them.
+Not flaky (always skip before any product code runs). Follow-up (out of
+scope): a separate parser-error gate verifying OUR parser rejects them
+with the right error (currently unverified — neither pass nor fail).
+
 ### 7.4 Recommended order
 Arith-error (2 files, one mechanism) → utf8 (trace first, may be
 single-point) → tty redirects (medium, well-scoped) → eval /
