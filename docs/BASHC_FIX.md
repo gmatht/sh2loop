@@ -1,7 +1,7 @@
 # BASHC equivalence failures — triage and fix strategy
 
 Date: 2026-09-12. Gate: `harness/c_gate_main.sh` → **PASS=592 FAIL=45 SKIP=7**
-at triage; **PASS=632 FAIL=5 SKIP=7** after §7.9 (zero regressions;
+at triage; **PASS=634 FAIL=3 SKIP=7** after §7.10 (zero regressions;
 051 flaky-slow, 062 gate-parallel flake).
 Corpus: `sh2perl/examples/*.sh` + `frontends/*/testdata/*.sh` via the
 **sh frontend** (bash→shIR→C). All 45 verdicts are `exec/diff`: the C
@@ -499,6 +499,13 @@ confirmed.
   all 6 verified + loop tests green).
 - 062/tty gate-red but standalone-green (parallel + pty-number flakes).
 - Left: parse-dollar/parse-redirect (frontend), typeset -n/-f (big).
+
+### 7.10 Nameref + case-subst (parse-redirect fixed)
+- Nameref (`-n`): alias map, resolve in store_read/store_ref,
+  write-through via stmt rewrite, unset removes. Scoped/dynamic gaps
+  documented. typeset left red on `-f` only (needs source retention).
+- Case `$()` patterns evaluated in-process via core Parser + capture.
+- tty/062 gate flakes (pty number, parallel load); binaries correct.
 
 ### 7.4 Recommended order
 Arith-error (2 files, one mechanism) → utf8 (trace first, may be
