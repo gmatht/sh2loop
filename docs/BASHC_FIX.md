@@ -1,7 +1,7 @@
 # BASHC equivalence failures — triage and fix strategy
 
 Date: 2026-09-12. Gate: `harness/c_gate_main.sh` → **PASS=592 FAIL=45 SKIP=7**
-at triage; **PASS=635 FAIL=2 SKIP=7** after §7.12 (zero regressions;
+at triage; **PASS=637 FAIL=0 SKIP=7** after §8 (all green; 7 pre-existing skips);
 051 flaky-slow, 062 gate-parallel flake).
 Corpus: `sh2perl/examples/*.sh` + `frontends/*/testdata/*.sh` via the
 **sh frontend** (bash→shIR→C). All 45 verdicts are `exec/diff`: the C
@@ -529,6 +529,23 @@ confirmed.
 - Remaining 2 are PROVEN flakes (standalone-green, gate-red):
   062 (parallel load), tty (pty device number). Zero product gaps
   in the BASHC corpus.
+
+## 8. Deterministic gate (637/0/7 — all green)
+Flakes were INFRA, not product (binaries byte-identical standalone):
+- 062 `ls -la` `..` link count raced (shared parent churns under
+  parallel load). Fixed by per-test nesting (`$d/w` run dir → stable
+  parent) + absolute binary/output paths (mixed quoting preserves
+  `exec -a $0` semantics for dirname tests).
+- 046 `cd ..; ls` saw timing-dependent out/ref files. Fixed by
+  dot-hiding run-time outputs (invisible to plain `ls`).
+- tty `/dev/pts/N` device churn. Fixed by scoped output normalization
+  (test intent preserved; no other test emits pts paths).
+- Transpiler emits nondeterministically across runs (HashMap order;
+  observed 8:2 split) but SEMANTICALLY identical (only `free()` order
+  differed; both binaries byte-identical output).spell Not a product bug,
+  but deterministic emission (BTreeMap/sorted) is hygiene follow-up.
+LESSON: capture failure dirs (`cp -r $d` on FAIL) before theorizing —
+the `..` 192-vs-191 diff was visible immediately, saving hours.
 
 ### 7.4 Recommended order
 Arith-error (2 files, one mechanism) → utf8 (trace first, may be
