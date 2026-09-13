@@ -1,7 +1,7 @@
 # BASHC equivalence failures — triage and fix strategy
 
 Date: 2026-09-12. Gate: `harness/c_gate_main.sh` → **PASS=592 FAIL=45 SKIP=7**
-at triage; **PASS=634 FAIL=3 SKIP=7** after §7.10 (zero regressions;
+at triage; **PASS=635 FAIL=2 SKIP=7** after §7.12 (zero regressions;
 051 flaky-slow, 062 gate-parallel flake).
 Corpus: `sh2perl/examples/*.sh` + `frontends/*/testdata/*.sh` via the
 **sh frontend** (bash→shIR→C). All 45 verdicts are `exec/diff`: the C
@@ -520,6 +520,15 @@ confirmed.
   Function lacks span; IR lacks text field; thread source through
   ast_to_ir). Medium cross-layer slice; -n done via alias map.
 - typeset `-p/-F/-x/-i/-l/-u/-r` all pass; only `-n`(done)/`-f` red.
+
+### 7.12 Deparser (-f) + all real greens (635/2)
+- typeset `-f`: bash-canonical deparser (byte-exact header, indent,
+  `;`-except-last). typeset fully passes.
+- parse-dollar now passes 3/3 (upstream and/or argv propagation;
+  no backend arith change in this round).
+- Remaining 2 are PROVEN flakes (standalone-green, gate-red):
+  062 (parallel load), tty (pty device number). Zero product gaps
+  in the BASHC corpus.
 
 ### 7.4 Recommended order
 Arith-error (2 files, one mechanism) → utf8 (trace first, may be
