@@ -560,6 +560,18 @@ Not flaky (always skip before any product code runs). Follow-up (out of
 scope): a separate parser-error gate verifying OUR parser rejects them
 with the right error (currently unverified — neither pass nor fail).
 
+### 7.14 Argv propagation + len revert (parse-dollar; all green)
+- Site argv propagation (`bash -c` children get caller's positionals
+  via quoted append; `_sh_argv` globals decl/init gated on use;
+  positional env-exports skipped): fixes parse-dollar quirk-shape
+  (raw `$((...))` + child arbitration, sound with and without args)
+  and the general site-positional gap. Verified called-with-args
+  (`503`) and no-args (skip) both match bash.
+- `_sh_*_len` tracking REVERTED (corrupted assoc init text → empty map
+  + stray `;;`; helpers sound in isolation, interaction broken). Back to
+  strlen (negligible per Round 10). LESSON: mixed-concern commits hide
+  culprits (argv+len were one commit — separated by bisect).
+
 ### 7.4 Recommended order
 Arith-error (2 files, one mechanism) → utf8 (trace first, may be
 single-point) → tty redirects (medium, well-scoped) → eval /
