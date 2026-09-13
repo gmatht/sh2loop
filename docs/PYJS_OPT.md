@@ -554,3 +554,43 @@ so fold directly to bool).
 Verification: lib 695/0 (+5 net; 1 pre-existing C failure unchanged),
 c_fn_locals/params pass (c_isqrt red = worker isqrt redesign, Round-12
 handoff stands), 93/93 estree valid (t95/t96 pre-existing), oracle MATCH.
+
+## Round 17 — survey only, no implementation (2026-09-12)
+
+Sweep at `pyjs-r15` output. Headline: a walker-coverage gap with
+behavioral proof (t71's for-body `total = total + i` missed while
+t59's while-body `i += 1` folds). Audit of every pass walker below.
+
+44. **Walker-coverage completion (RECOMMENDED next).** `fold_compound_assign`
+    and `fold_const_exprs` descend into Expression/Block/If/While bodies
+    only — `for`/`for-of`/`do`/`try`/`switch` bodies fall to `_` skip
+    (verified textually, both passes). The fix is plain recursion for
+    these fact-free passes (round-9 drop precedent; r8 loop-soundness
+    concerns don't apply — no facts cross scopes): t71 folds, `try`/
+    `switch` bodies gain const/compound coverage. Same treatment for the
+    fact passes' *candidate discovery* is NOT needed (they already clone
+    into loops, r8). For `inline_single_use_lets` and
+    `prop_literal_consts`, extend to loop-body *lists* (decl+use both
+    inside one iteration body is per-iteration straight-line — same
+    argument as same-list folding; cross-boundary stays vetoed), but
+    keep vetoing `try`/`switch`/functions there (throw-swallowing and
+    deferred-execution change evaluation fate — `let v = BigInt("abc")`
+    in a try block must not move past it). `try`/`switch` bodies for
+    compound/const are safe (operator-form change evaluates identically;
+    dropping never-executed `if (false)`/`while (false)` removes no
+    throw). Est. ~40 lines + behavioral tests shaped like t71 (for-body
+    compound) and t25-in-a-loop (const branch in for-body).
+45. **Loop-status bookkeeping (NO ACTION — worker domain): 24 mentions.**
+    `__sh2_loop_ran`/`__sh2_loop_last` + post-loop ternary per
+    while-read/until loop (t19/t59/t61/t74) preserves `$?`. Collapsing
+    needs loop-body-tail analysis (t61's body always ends `lastExit = 0`)
+    plus `$?`-liveness — the `mark_lastexit_dead` family owns it.
+46. **`_g` negation chains (NO ACTION — contract): t59.**
+    `while ((_g = i >= 3 ? 1 : 0, lastExit = ..., !_g))` tests exit codes,
+    not just booleans (bash `until` semantics). Untouched.
+47. **Assessment update.** Round-15 item 40 stands, narrowed: after the
+    walker completion (44) + copy-prop/strict-eq (36–37), the local
+    program is done. Everything else on the deferred list needs
+    worker-domain analyses (call convention, migration/type system,
+    loop/range, liveness, frontend) — no further peepholes recommended
+    after this round's item.
