@@ -146,3 +146,33 @@ ten can (`__claim-all-test.mjs`).
 Fix: index targets must carry the key as an EXPRESSION (or the use must
 be recorded) so liveness keeps the assignment and the positional
 numbering is preserved.
+
+## Progress: the A1 half is fixed, the JS render remains
+
+`src/shir.rs` now records the `$var` refs inside a BAKED index name
+(`var: "tpx[$sp_i]"`, `indices: []`) as assignment sites, so the
+index-feeding variable is no longer classified `Const` and its
+assignment survives. The A1 for reproducer 05 is now correct:
+
+```
+targets var "sp_i" | "sp_x" | "sp_z"
+var_const: sp_i Var, sp_x Var, sp_z Var      (was Const)
+```
+
+The remaining breakage is at the A1→JS render: a baked-name target is
+still emitted as a runtime-expanded string
+
+```js
+sh2.setVar("tpx[$sp_i]", sp_x);   // $sp_i expanded from the store
+```
+
+and the param bindings are compacted/renumbered, so `sp_x=$2` comes out
+as `sh2.positional[1]`. `interpolate_dollar_vars` (estree.rs ~4800)
+already resolves `$name` inside STR expressions when the name is a
+param/local — the same resolution is needed for the target's baked name,
+i.e. emit `tpx[${sp_i}]` (or carry the index as a real expression) and
+derive the positional number from the ORIGINAL `$N`, not from the
+compacted order.
+
+Both halves are visible in mimecroft: `set_treasure_pos` records one
+artifact instead of ten.
