@@ -101,3 +101,48 @@ Each is bash-vs-transpiled stdout-compared by
 (`__upstream-guard-test.mjs`) pins the fixed ones and lists this one as
 known-open so it cannot block unrelated deploys but also cannot be
 forgotten.
+
+## Follow-up: the same class hits FUNCTION PARAMS (mimecroft, 1 of 10)
+
+`upstream-repros/05-param-only-use-in-index.sh` — a param whose only use is
+inside the indexed target:
+
+```bash
+set_pos() { sp_i=$1; sp_x=$2; sp_z=$3
+  tpx[$sp_i]=$sp_x
+  tpz[$sp_i]=$sp_z
+}
+set_pos 1 10 20
+set_pos 2 11 21
+```
+
+bash: `tpx[1]=10 tpz[1]=20` / `tpx[2]=11 tpz[2]=21`
+transpiled: `tpx[1]= tpz[1]=` / `tpx[2]= tpz[2]=` / `all=11|21`
+
+The emitted function is
+
+```js
+sh2.functions.set("set_pos", () => {
+  sp_x = sh2.positional[1] ?? "";      // sp_i=$1 was DROPPED ...
+  sp_z = sh2.positional[2] ?? "";      // ... so the args renumber
+  sh2.setVar("tpx[$sp_i]", sp_x);      // sp_i is read from the store: empty
+});
+```
+
+Two compounding frontend bugs, both from the same blind spot (a variable
+read inside a *rendered index name* is not counted as a use):
+
+1. the assignment feeding the index is dropped as dead code;
+2. the remaining assignments keep their ORDER but not their ARG NUMBER,
+   so every value shifts down one positional.
+
+Impact in mimecroft: `set_treasure_pos` records only ONE artifact
+(`tpx = ["8","0","0",…]`) even though all ten are placed on the map
+(`count_map_treasures` sees 10), so nine artifacts can never be claimed
+by walking into them — the live "touching them to claim only worked
+once" report. The single-claim test could not see it; the loop over all
+ten can (`__claim-all-test.mjs`).
+
+Fix: index targets must carry the key as an EXPRESSION (or the use must
+be recorded) so liveness keeps the assignment and the positional
+numbering is preserved.
