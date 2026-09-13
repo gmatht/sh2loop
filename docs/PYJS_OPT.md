@@ -526,3 +526,31 @@ leads measured below. Nothing implemented this round.
     if-ternary (2 sites), `[].concat(DYN)` (2 sites), `[E].flat().join`
     (1 site). The estree post-pass program is complete for what local
     rewrites can prove; further wins come from analyses, not peepholes.
+
+## Round 16 — literal copy-prop + string equality (2026-09-12)
+
+Implemented Round-15 items 36 (+ const-string-equality in place of the
+`===` rewrite it subsumes: same-typeof literal `==` needs no coercion,
+so fold directly to bool).
+
+41. **Literal copy-prop** (`let v = L`, L literal, writes==0, dominated
+    reads → substitute all + drop decl; closures/pre-decl reads veto
+    (TDZ); global eval veto; rollback on veto (no half-folded state);
+    precise Object/Spread/New arms + Literal no-op). **DONE**:
+    `prop_literal_consts` (after drop2, before const2; snapshot counts).
+    t18/t31 elif chains collapse fully (`{ write("many") }`). +3 tests
+    (multi-read, write veto, closure veto). Debug note: an early version
+    vetoed on every literal (`_` arm) — caught by corpus diff, fixed +
+    pinned by the same tests.
+42. **String/bool literal equality** (`"a"=="a"` → `true`; mixed types
+    never folded (coercion); relational string ops excluded (lone-
+    surrogate ordering edge — valid-Unicode equality is exact)).
+    **DONE** in const's Binary arm. +1 test.
+43. **Const branch fixpoint** (found via t18): branch folding checked
+    tests before child recursion folded them (`x == 1` unfolded at
+    check time). **FIXED**: per-statement fixpoint (JSON-compared;
+    strictly shrinking folds terminate). Pinned by elif-collapse test.
+
+Verification: lib 695/0 (+5 net; 1 pre-existing C failure unchanged),
+c_fn_locals/params pass (c_isqrt red = worker isqrt redesign, Round-12
+handoff stands), 93/93 estree valid (t95/t96 pre-existing), oracle MATCH.
