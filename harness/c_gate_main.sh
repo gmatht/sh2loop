@@ -57,7 +57,7 @@ fi
 rm -f "$_c_gate_tmp/probe_libs"
 run_one() {
   f="$1"; id=$(echo "$f" | md5sum | cut -d' ' -f1)
-  d="$_c_gate_tmp/$id"; mkdir -p "$d"
+  d="$_c_gate_tmp/$id"; mkdir -p "$d/w"
   # absolute script path: run_one executes in $d (CWD isolation), so a
   # relative $1 would not resolve there (and would silently empty $ref)
   case "$f" in
@@ -82,14 +82,24 @@ run_one() {
   # renderer, not the harness. (Lowercase $tmp must never be exported:
   # test envs leak into the scripts under test; see BASHC_FIX §2.1.)
   cc "$d/prog.c" $CLIBS -o "$d/bin" 2>"$d/ccerr" || { echo "FAIL $f cc" > "$d/v"; return; }
-  (cd "$d" && timeout 15 bash -c 'exec -a "$0" ./bin' "$f" > out 2>/dev/null); eq_exit=$?
+  (cd "$d/w" && timeout 15 bash -c 'exec -a "$0" '"$d/bin" "$f" > "$d/.out" 2>/dev/null); eq_exit=$?
   bash_rc=0
-  (cd "$d" && timeout 15 bash "$f" > ref 2>/dev/null) || bash_rc=$?
+  (cd "$d/w" && timeout 15 bash "$f" > "$d/.ref" 2>/dev/null) || bash_rc=$?
   verdict=FAIL
   # exit codes must AGREE (not merely be zero — t83_exit exits 3 on both
   # sides); a 124 (timeout) on either side fails unconditionally.
+  # DETERMINISM: tty-cmdsub prints the first readable /dev/pts/N, whose
+  # number varies with system-wide pty churn between ref and out runs
+  # (parallel flakes). Normalize device numbers before diffing (test
+  # intent is tty functionality, not the specific pts index). Scoped to
+  # this file only (no other test emits pts paths).
+  case "$f" in
+    *tty-cmdsub.sh)
+      sed -i -E 's|/dev/pts/[0-9]+|/dev/pts/N|g' "$d/.out" "$d/.ref" 2>/dev/null || true
+      ;;
+  esac
   if [ "$eq_exit" != 124 ] && [ "$bash_rc" != 124 ] && [ "$eq_exit" = "$bash_rc" ] \
-     && diff -q "$d/out" "$d/ref" >/dev/null 2>&1; then
+     && diff -q "$d/.out" "$d/.ref" >/dev/null 2>&1; then
     verdict=PASS
   fi
   # Sanitize pass: recompile with ASan/TSan+UBSan, rerun under halt-on-error,
@@ -98,14 +108,14 @@ run_one() {
     if $SANITIZE_CC $SAN_FLAGS "$d/prog.c" $CLIBS -o "$d/bin_san" 2>"$d/sanccerr"; then
       san_exit=1
       if [ "$SANITIZE" = thread ]; then
-        (cd "$d" && TSAN_OPTIONS=halt_on_error=1:exitcode=99 timeout 30 ./bin_san > sanout 2>sanerr) && san_exit=0 || san_exit=$?
+        (cd "$d/w" && TSAN_OPTIONS=halt_on_error=1:exitcode=99 timeout 30 "$d/bin_san" > "$d/.sanout" 2>"$d/.sanerr") && san_exit=0 || san_exit=$?
       else
-        (cd "$d" && ASAN_OPTIONS=strict_string_checks=1:detect_stack_use_after_return=1:detect_leaks=1 \
+        (cd "$d/w" && ASAN_OPTIONS=strict_string_checks=1:detect_stack_use_after_return=1:detect_leaks=1 \
         UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
-        timeout 30 ./bin_san > sanout 2>sanerr) && san_exit=0 || san_exit=$?
+        timeout 30 "$d/bin_san" > "$d/.sanout" 2>"$d/.sanerr") && san_exit=0 || san_exit=$?
       fi
-      if [ "$san_exit" != 0 ] || ! diff -q "$d/sanout" "$d/ref" >/dev/null 2>&1; then
-        first_err=$(grep -m1 -oE "(ERROR: AddressSanitizer[^ ]*|SUMMARY: .*|runtime error: .*|WARNING: ThreadSanitizer[^ ]*|ERROR: LeakSanitizer[^ ]*)" "$d/sanerr" 2>/dev/null || head -c 120 "$d/sanerr" 2>/dev/null | tr '\n' ' ')
+      if [ "$san_exit" != 0 ] || ! diff -q "$d/.sanout" "$d/.ref" >/dev/null 2>&1; then
+        first_err=$(grep -m1 -oE "(ERROR: AddressSanitizer[^ ]*|SUMMARY: .*|runtime error: .*|WARNING: ThreadSanitizer[^ ]*|ERROR: LeakSanitizer[^ ]*)" "$d/.sanerr" 2>/dev/null || head -c 120 "$d/.sanerr" 2>/dev/null | tr '\n' ' ')
         verdict="FAIL $f sanitize($SANITIZE rc=$san_exit${first_err:+: $first_err})"
         # verdict already contains the FAIL line; emit below
         echo "$verdict" > "$d/v"
