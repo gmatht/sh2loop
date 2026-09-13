@@ -619,3 +619,27 @@ Implemented Round-17 item 44.
 Verification: lib 698/0 (+3 net; 1 pre-existing C failure unchanged),
 c_fn_locals/params pass (c_isqrt red = standing handoff), 93/93 estree
 valid (t95/t96 pre-existing), oracle MATCH.
+
+## Round 19 — facts into `sh2.arithEval` arrows (2026-09-12)
+
+t86/t88's per-division `(Number(n) || 0)` sits inside `sh2.arithEval(() =>
+...)` — vetoed as deferred execution. But `arithEval` invokes its
+argument immediately and synchronously (namespace: `const v = f()` in
+try) with a fresh arrow (no aliasing, exactly-once) — same timing and
+values as straight-line code, so current facts hold inside.
+
+50. **Immediate-arrow facts.** `sh2.arithEval(() => BODY)` (direct arrow
+    argument only; stored arrows stay vetoed) processes BODY with
+    current facts: Block bodies via cloned `stmts` (inner establishments
+    stay local), expr bodies via `expr`. Outer-fact invalidation by body
+    writes needs no new machinery — the statement kill-scans already
+    check arrow bodies precisely (Round-6 refinement). Applied to all
+    three fact passes uniformly. t86/t88 hot-loop guards gone (2→1, the
+    entry source). +2 unit tests (immediate folds, deferred vetoed).
+    Follow-ups (no corpus value today): IIFEs (same immediacy argument),
+    `captureSync` arrows (sync unverified for this purpose), S1/B1
+    arrows (same code path added uniformly — fires when shapes arise).
+
+Verification: lib 700/0 (+2 net; 1 pre-existing C failure unchanged),
+c_fn_locals/params pass (c_isqrt red = standing handoff), 93/93 estree
+valid (t95/t96 pre-existing), oracle MATCH.
