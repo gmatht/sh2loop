@@ -906,3 +906,61 @@ main finding is the coverage audit below.
   items + the deferred six; the next survey, if any, should be
   a CORRECTNESS survey of gate-red files (063/064 hards), not
   an opt survey of green ones.
+
+## Round 10 — post-green audit (runtime, codegen Wit, methodology)
+
+### Measured performance (Sept 2026, gate green 637/0)
+- **t86_factor** (67M-trip isqrt loop + GMP): C 0.97s vs Python 6.7s
+  (**7×**). Hotspot is GMP bigint ops on large factors (algorithmic,
+  not codegen — translator preserves algorithm by design).
+- **051_primes** (bc-arith fast path): C instant vs bash 1.0s
+  (**500×**; was 12s with per-candidate `bc` spawns pre-optimisation).
+- **t94_list_growth** (2000 appends + aggregates): C instant
+  (maintained max/min/sum inline, O(1) reads; Vec growth amortized).
+- **trivial `echo hi`**: 12 lines total (prelude trimmed via need_sh;
+  full 193-line runtime only for shell-out programs).
+- **biggest corpus file** (070, 816 lines C): cc 1.6s -O2 / 0.6s -O0
+  (gate uses plain `cc`, already fast; parallel JOBS=8).
+
+### Prior wins inventory (measured, gate-kept)
+- bc-arith fast path (`fold_bc_arith_capture`): 051 12s→0s, 5.8s→0s
+  test-arith (`[ $((..)) ]` native via shared scanner).
+- hoist-pair fold (`_i_sqrt_nv=(long long)(...)`): t86/t88-90 correct
+  (was strdup+per-iter atoll round-trip).
+- Capacity proofs (fixed buffers, no malloc for bounded strings);
+  SmallVec/Vec with inline aggregates; width narrowing (u16 loop vars).
+- need-gated prelude (item 1 pattern extended: stat ops, sh runtime).
+
+### K. Micro-inefficiencies found this round (documented, deferred)
+68. **Double null-guard on array reads** (t94: `((cond ? _sN : "")
+    ? ... : "")` — inner provably non-null (`_sN` stack buf), outer
+    dead). Compiler removes at -O2; one branch at -O0 (negligible).
+    Proper fix needs temp-proof (`_s/_v/_t` temps non-null by
+    construction — OOM aborts) threaded through guard emission
+    (items 31/63/66 infrastructure exists). Risk (soundness proof
+    across all emitters) outweighs gain (bytes, not seconds). DEFERRED
+    with design sketched here for a future proof-engineering pass.
+69. **`_sh_add` O(n²)** (strlen per append). Typical sites build dozens
+    of words (microseconds). Pathological thousand-word sites would
+    show it; none in corpus. Fix is length-tracked buffer (struct or
+    `_sh_cmd_len` global, callers unchanged). DEFERRED until profiled
+    real (no corpus evidence).
+70. **Redundant `free(result)` order variance** (transpiler emits
+    nondeterministically across runs — HashMap order; observed 8:2
+    split, semantically identical). Not a product bug, but
+    deterministic emission (BTreeMap/sorted) is hygiene (reproducible
+    builds, diffable output). DEFERRED (cosmetic).
+
+### Methodology (what made 9 rounds + green work)
+- **Measure first** (profile/time before optimising; 051's 12s was bc
+  spawns, not C codegen — fixing codegen would have been wasted).
+- **Gate-kept** (every opt fail-list diffed; 5 experiments reverted
+  cleanly across the project when net-negative).
+- **Soundness over cleverness** (stringly-until-proven-numeric;
+  narrowing/demotion only with proof; guards removed only when
+  provably dead — items 23/24/30/31/51/63/66 form the proof ladder).
+- **Single-point renderer fixes** (one function, sibling tests, full
+  gate — never shotgun edits).
+- **Stop rules** (this round: code already 7×/500× faster than
+  baselines, prelude trimmed, no dead code found by audit — document
+  instead of chasing negligible micro-opts).
