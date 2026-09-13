@@ -477,3 +477,52 @@ Verification: lib 690/0 (+4 net; 1 pre-existing C failure unchanged),
 c_fn_locals/params pass, 93/93 estree valid (t95/t96 pre-existing),
 oracle MATCH. Both shell shape pins hold strict (no test updates this
 round — the DCE scare resolved by removing the pass, not weakening).
+
+## Round 15 — survey only, no implementation (2026-09-12)
+
+Sweep of all 95 tests at `pyjs-r14` output. The post-pass corpus is
+nearly exhausted (71 lets, 10 `String(`, guards folded); remaining
+leads measured below. Nothing implemented this round.
+
+36. **Literal copy-prop, multi-read (RECOMMENDED next): t18/t31.** `x = 3`
+    / `x = 2` (literals, never reassigned, read 2–3× in elif tests) —
+    substituting the literal folds comparisons (`3 == 1` → false) and
+    dead branches (t18 → `write("many")` alone). Design: `let v = LITERAL`
+    (string/number/bool/null — no deps, pure; `-0`/`NaN` can't be
+    literals so no identity subtleties), writes==0 program-wide (reuse
+    inline's write discipline incl. for-of/for-init/update), reads
+    dominated (same list after decl + nested plain blocks/loops/branches
+    after; function/arrow bodies vetoed — forward/dynamic calls could
+    read before decl (TDZ throw vs substituted value)), global
+    `eval`/`Function` veto, non-computed properties/keys/params/labels
+    excluded. Drop decl after substituting all reads; const/branch folds
+    chain downstream (run before `fold_const_exprs`, or re-run const
+    after — Round-14 precedent). Scattered literal single-sites fold
+    with it. Est. ~120 lines reusing inline machinery + ~4 unit tests
+    (multi-read fold, write veto, closure veto, shadowing veto).
+37. **Fact-powered `==` → `===` (minor, bundlable): 8 sites** (t18/t31
+    elif chains and friends). Same-domain comparisons (`N1==N1`,
+    `S1==S1`, `B1==B1`, same-typeof literals) skip coercion with
+    identical semantics. Needs fact consultation at the comparison
+    (facts live in three separate passes — either a fourth micro-pass
+    over `==` with its own literal/domain check, or extend one fact
+    pass to also rewrite comparisons). Cosmetic + micro-perf only.
+    Est. ~30 lines + 2 tests. Recommend bundling with item 36 (both
+    consume the same elif chains: copy-prop first, strict-eq second).
+38. **Store/JS duality (NO ACTION — worker lifting domain): t35.**
+    `let r = null` (dead JS binding) beside live `sh2.vars.r` store
+    cell. Which namespace serves reads is the lifter's decision;
+    post-passes must not second-guess it (Round-14 lesson: the sweep
+    died on exactly these pins). Documented, untouched.
+39. **`_g` status dance (NO ACTION — contract): 14 sites.** `(sh2._g = E,
+    sh2.lastExit = _g ? 0 : 1, _g)` per condition preserves `$?`; each
+    element load-bearing (item-14 contract). Untouched.
+40. **Program assessment: diminishing returns from here.** After items
+    36–37, every remaining opportunity needs worker-domain analysis:
+    dynamic dispatch (calling convention), native arrays in fn scope +
+    int-typed arrays (migration/type system), running-min O(n²) and
+    imod→`%` (loop/range analysis), BigInt hoisting (liveness),
+    Horner const-fold (frontend), temp-hoist CSE (temp introduction),
+    if-ternary (2 sites), `[].concat(DYN)` (2 sites), `[E].flat().join`
+    (1 site). The estree post-pass program is complete for what local
+    rewrites can prove; further wins come from analyses, not peepholes.
