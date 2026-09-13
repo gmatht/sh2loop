@@ -109,3 +109,4 @@ harness/f
 /.shir-verify-target/
 
 otranspilerl/target/
+bash-o4/target/

@@ -1,0 +1,35 @@
+# bash-o4-manifest.toml — hash-pinned fetch manifest (docs/BASH-O4.md §4.6).
+#
+# Every entry with a `sha256` pin may be auto-fetched (consent policy in
+# `bash-O4 --fetch-libs`). Entries WITHOUT a pin are ALWAYS refused:
+# an unpinned upstream cannot be verified. Pin new upstreams by fetching
+# once over a trusted link, recording `sha256sum` + `size` here.
+
+[[lib]]
+name = "volk.h"
+version = "master-20260913"
+url = "https://raw.githubusercontent.com/zeux/volk/master/volk.h"
+sha256 = "dc2cb753d467353380dc4384ca479551a2a527b32b80527f8aee312de6510a78"
+size = 194818
+kind = "header"
+license = "MIT"
+
+[[lib]]
+name = "volk.c"
+version = "master-20260913"
+url = "https://raw.githubusercontent.com/zeux/volk/master/volk.c"
+sha256 = "64159146b843e1b3d9f5dc14035b2716e16868b9e5ec4d7aef8f57f6b674a875"
+size = 348538
+kind = "lib"
+license = "MIT"
+
+# SPIR-V compiler (system glslangValidator preferred; fetched only when
+# absent). No release asset is pinned yet (google/shaderc publishes to
+# storage.googleapis.com, not versioned GitHub assets) — pinning it is
+# open work; until then this entry is refused, never half-fetched.
+[[lib]]
+name = "shaderc"
+version = "unpinned"
+url = "https://storage.googleapis.com/shaderc/artifacts/prod/README"
+kind = "toolchain"
+license = "Apache-2.0"

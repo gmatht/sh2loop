@@ -1,0 +1,22 @@
+[package]
+name = "bash-o4"
+version = "0.1.0"
+edition = "2021"
+description = "bash-O4: bash → C → Vulkan. -O4 optimizing compiler driver (tcc JIT/AOT + autoshaderise)."
+
+[workspace]
+
+[lib]
+name = "bash_o4"
+path = "src/lib.rs"
+crate-type = ["rlib"]
+
+[[bin]]
+name = "bash-O4"
+path = "src/main.rs"
+
+[dependencies]
+otranspilerl = { path = "../otranspilerl" }
+debashl = { path = "../sh2perl" }
+serde_json = "=1.0.151"
+sha2 = "=0.10.9"
