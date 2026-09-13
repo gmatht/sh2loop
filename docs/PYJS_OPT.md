@@ -643,3 +643,27 @@ values as straight-line code, so current facts hold inside.
 Verification: lib 700/0 (+2 net; 1 pre-existing C failure unchanged),
 c_fn_locals/params pass (c_isqrt red = standing handoff), 93/93 estree
 valid (t95/t96 pre-existing), oracle MATCH.
+
+## Round 20 — positional-arg guards via call graph (2026-09-12)
+
+`sh2.positional[K] ?? D` guards missing args. `fnCall` provisions the
+frame (`this.positional = flat`, verified); `callDirect` does not touch
+it — so only `fnCall` calls inform verdicts.
+
+51. **Call-graph defaults.** Per singly-defined, inline-arrow function
+    (identifier-bound arrows may alias into direct calls — gated out;
+    `functions.get("f")` value-escape poisons that name, non-literal
+    poisons all; dynamic `fnCall` names poison all; redefinitions and
+    body writes to `positional` bail): every call supplies non-nullish
+    literal/template at K → drop guard; no call supplies K → use D;
+    else keep. Identifier args (t52's loop var — needs element typing)
+    and zero-call functions (t75's `first`) correctly kept. t23/t76
+    fold (4 sites). **DONE**: `fold_positional_defaults` (census +
+    verdicts + frame-local rewrite, nested frames skipped). +3 tests
+    (drop, default, mixed veto). Debug note: a level-mismatch in the
+    frame matcher silently disabled everything — caught only by asserting
+    counts, fixed + pinned.
+
+Verification: lib 703/0 (+3 net; 1 pre-existing C failure unchanged),
+c_fn_locals/params pass (c_isqrt red = standing handoff), 93/93 estree
+valid (t95/t96 pre-existing), oracle MATCH.
