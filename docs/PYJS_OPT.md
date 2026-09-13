@@ -594,3 +594,28 @@ t59's while-body `i += 1` folds). Audit of every pass walker below.
     worker-domain analyses (call convention, migration/type system,
     loop/range, liveness, frontend) — no further peepholes recommended
     after this round's item.
+
+## Round 18 — walker-coverage completion (2026-09-12)
+
+Implemented Round-17 item 44.
+
+48. **Fact-free full recursion**: `fold_compound_assign` and
+    `fold_const_exprs` now descend into `for`/`for-of`/`do`/`try`/
+    `switch` bodies (+ Object/Spread/New/Function expression positions).
+    t71's for-body `total = total + i` folds (`t59` parity). No
+    soundness interaction (no facts cross scopes — the r8 concern
+    doesn't apply; `try` bodies safe: operator-form changes evaluate
+    identically, dropped `if (false)` never executed).
+49. **Loop-body lists for inline/copyprop**: both walks rewritten from
+    index-paths (Block-only) to direct recursion (plain/branch/loop
+    bodies; `try`/`switch`/functions still vetoed — throw-fate and
+    deferred execution). Decl+use in one iteration body is
+    per-iteration straight-line (same argument as same-list folding).
+    Copyprop's global `eval` veto refined from whole-program bail to
+    precise recursion first (a `for` anywhere had vetoed everything —
+    caught by the new loop test, not corpus).
+    +3 behavioral tests (compound/inline/copyprop loop bodies).
+
+Verification: lib 698/0 (+3 net; 1 pre-existing C failure unchanged),
+c_fn_locals/params pass (c_isqrt red = standing handoff), 93/93 estree
+valid (t95/t96 pre-existing), oracle MATCH.
