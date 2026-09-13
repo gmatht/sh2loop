@@ -507,6 +507,20 @@ confirmed.
 - Case `$()` patterns evaluated in-process via core Parser + capture.
 - tty/062 gate flakes (pty number, parallel load); binaries correct.
 
+### 7.11 Quirk revised + -f plan (no gate movement)
+- parse-dollar is NOT a lexer quirk: unset/empty vars (named AND
+  positional) expand to EMPTY TEXT in arith (verified `$u*2` errors
+  too); `+1`/`-1`/empty then parse normally (1/-1/0), others error
+  → skip command. Uniform empty-expansion. Fix needs: (a) backend
+  arith-text substitution of empty (not 0) for unset, (b) parse-fail
+  → skip (echo ternary / site arbitration with argv propagation).
+  Attempted site-out (regressed called-with-args — child lacks argv);
+  reverted clean. Proper fix is positional propagation to sites first.
+- typeset `-f` needs source spans (Parser records offsets; AST
+  Function lacks span; IR lacks text field; thread source through
+  ast_to_ir). Medium cross-layer slice; -n done via alias map.
+- typeset `-p/-F/-x/-i/-l/-u/-r` all pass; only `-n`(done)/`-f` red.
+
 ### 7.4 Recommended order
 Arith-error (2 files, one mechanism) → utf8 (trace first, may be
 single-point) → tty redirects (medium, well-scoped) → eval /
