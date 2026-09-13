@@ -1,6 +1,6 @@
 # INVESTIGATION: a natively-lifted variable used as an ARRAY INDEX
 
-Status: **PARTLY FIXED.** The runtime/JS-side half is fixed in
+Status: **FIXED** (both halves; reproducers 01/05/06 all match real bash). The v30 text below is kept for the history: The runtime/JS-side half is fixed in
 sh2runtime's toolkit (`src/lower.js` `interpolateNativeIndexNames`) —
 mimecroft's 3D mime cubes move again. The **A1 frontend half is still
 OPEN**: reproducer `upstream-repros/01-lifted-var-in-array-index.sh`.
@@ -176,3 +176,28 @@ compacted order.
 
 Both halves are visible in mimecroft: `set_treasure_pos` records one
 artifact instead of ten.
+
+
+## FIXED (final)
+
+The whole class — a variable whose only use is inside an array-index name
+— is fixed in three places, all verified by `upstream-repros/`:
+
+1. `shir.rs` (`Acc`/`var_const`): the `$var` refs inside a BAKED index
+   name count as assignment sites, so the index variable is no longer
+   classified `Const`.
+2. `shir.rs` (`pub(crate) fn index_name_refs`) + `shir_passes/optimize.rs`:
+   all THREE read scans (`stmt_reads`, `record_stmt_reads`,
+   `collect_stmt_read_names` — the last one feeds DCE) now treat a baked
+   index name's refs as READS, so the definition feeding the index is not
+   dead and is not dropped.
+
+Result: `arr[$i]=v` stores the right element, and the positional args keep
+their original numbering. mimecroft's `set_treasure_pos` now records all
+ten artifacts (`__claim-all-test.mjs`: 10/10 claimed by walking into
+them), where before only one was recorded.
+
+A second bug the reproducers exposed was fixed in the runtime:
+`${a[*]}` / `${a[@]}` / `${#a[@]}` must skip indices that were never
+assigned (bash has holes, not empty elements), and `${a[@]}` needed the
+missing `sh2.arrayValues` bridge.
