@@ -1,7 +1,9 @@
 # INVESTIGATION: a natively-lifted variable used as an ARRAY INDEX
 
-Status: **OPEN** (found while building mimecroft; reproducer
-`upstream-repros/01-lifted-var-in-array-index.sh`).
+Status: **PARTLY FIXED.** The runtime/JS-side half is fixed in
+sh2runtime's toolkit (`src/lower.js` `interpolateNativeIndexNames`) —
+mimecroft's 3D mime cubes move again. The **A1 frontend half is still
+OPEN**: reproducer `upstream-repros/01-lifted-var-in-array-index.sh`.
 
 ## Symptom
 
@@ -25,7 +27,27 @@ echo "direct: [${lookup[67]}]"
     real bash        direct: [-1]
     transpiled       direct: []
 
-## Cause
+## Cause (A1 level — the remaining open half)
+
+The A1 for reproducer 01 is:
+
+```json
+{"type":"Assign","targets":[{"var":"a"}],        "expr": Str "3"}
+{"type":"Assign","targets":[{"var":"b"}],        "expr": Str "4"}
+{"type":"Assign","targets":[{"var":"lookup[$cell]"}], "expr": Str "-1"}
+```
+
+`cell=$((b*16+a))` is **absent**: the indexed target was lowered to a raw
+STRING `"lookup[$cell]"` (left for the runtime to expand), so the
+frontend's own liveness pass cannot see that the statement uses `cell`
+and drops it as dead code. At run time the store has no `cell`, `$cell`
+expands to "", and the write lands on `lookup[]`.
+
+Fix: carry the key as a real expression in the indexed target (so
+liveness and the backends see the use), instead of embedding `$var` in
+the target's rendered name.
+
+## Cause (below the A1, for completeness)
 
 `cell` is assigned from `$((…))`, so the emitter lifts it to a **native
 JS `let`** and assigns it natively. The indexed write is emitted as
