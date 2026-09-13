@@ -50,4 +50,62 @@ junk/backends/
 /junk/-
 /junk/[0-9]
 
+# ── root-level shell-accident outputs: redirection / expansion / probe scratch ──
+# (were tracked by accident; removed with `git rm --cached`, working-tree files kept)
+# `2c` and `2js` are real scripts (tracked, unaffected); `/2j`/`/2p` below are typo duplicates.
+/&*
+/-
+/[0-9]*
+/"*
+/,rhs:*
+/5}]*
+/STDERR,*
+/Sanitized:*
+/Uppercase:*
+/$__sh2_rd0
+/MYVAR=*
+/MY_VAR=*
+/readonly *
+/sh: *
+/m_out=*
+/.hidden
+/.neww
+/temp_file*.txt
+/a.txt
+/b.txt
+/a.sh
+/s.sh
+/b.log
+/c.dat
+/js.out
+/alpha
+/beta
+/gamma
+/file.txt
+/note.txt
+/comparison*.txt
+/config.txt
+/users.txt
+/errors.log
+/final_result.txt
+/f
+/__ps_tmp*
+/__tmp_*.pl
+/pc-*.pl
+/pc_analyze-*.pl
+/*.plist
+*.swp
+*~
+
+# ── scratch typo-duplicates of real scripts ──
+/2j
+/2p
+/sj
+frontends/py-sh-go/f
+harness/f
+
+# ── generated run-state dirs (never commit) ──
+/log-archive/
+/.shir-verify-target/
+
 otranspilerl/target/
