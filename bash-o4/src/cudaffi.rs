@@ -196,11 +196,18 @@ impl Cuda {
 pub struct CudaRunner {
     cu: Cuda,
     ctx: CUcontext,
+    /// JITted modules by PTX text (a dispatch reuses; unloaded at drop).
+    /// PTX JIT costs tens of ms — without this, every timed rep would
+    /// measure compilation, not compute.
+    modules: std::cell::RefCell<std::collections::HashMap<String, CUmodule>>,
 }
 
 impl Drop for CudaRunner {
     fn drop(&mut self) {
         unsafe {
+            for (_, m) in self.modules.borrow_mut().drain() {
+                (self.cu.f.mod_unload)(m);
+            }
             (self.cu.f.ctx_destroy)(self.ctx);
         }
     }
@@ -223,7 +230,27 @@ impl CudaRunner {
         if rc != CUDA_SUCCESS {
             return Err(cu.err(rc));
         }
-        Ok(CudaRunner { cu, ctx })
+        Ok(CudaRunner { cu, ctx, modules: std::cell::RefCell::new(std::collections::HashMap::new()) })
+    }
+
+    /// Load (or fetch cached) module for PTX text.
+    fn module_for(&self, ptx: &str) -> Result<(CUmodule, bool), String> {
+        if let Some(&m) = self.modules.borrow().get(ptx) {
+            return Ok((m, true));
+        }
+        let f = &self.cu.f;
+        let err = |rc| self.cu.err(rc);
+        let cptx = CString::new(ptx).map_err(|e| e.to_string())?;
+        let mut module: CUmodule = ptr::null_mut();
+        let rc = unsafe { (f.mod_load)(&mut module, cptx.as_ptr()) };
+        if rc != CUDA_SUCCESS {
+            if std::env::var("BASH_O4_CUDA_DUMPPTX").is_ok() {
+                let _ = std::fs::write("/tmp/cudabench-last.ptx", ptx);
+            }
+            return Err(format!("ptx jit: {} (set BASH_O4_CUDA_DUMPPTX=1 to dump)", err(rc)));
+        }
+        self.modules.borrow_mut().insert(ptx.to_string(), module);
+        Ok((module, false))
     }
 
     /// Allocate a device i64 array (persistent across dispatches for
@@ -284,17 +311,11 @@ impl CudaRunner {
         if grid == 0 || block == 0 {
             return Err("empty grid/block".to_string());
         }
-        let cptx = CString::new(ptx).map_err(|e| e.to_string())?;
-        let mut module: CUmodule = ptr::null_mut();
-        let rc = unsafe { (f.mod_load)(&mut module, cptx.as_ptr()) };
-        if rc != CUDA_SUCCESS {
-            return Err(format!("ptx jit: {}", err(rc)));
-        }
+        let (module, _cached) = self.module_for(ptx)?;
         let cname = CString::new(kernel).map_err(|e| e.to_string())?;
         let mut func: CUfunction = ptr::null_mut();
         let rc = unsafe { (f.mod_getfn)(&mut func, module, cname.as_ptr()) };
         if rc != CUDA_SUCCESS {
-            unsafe { (f.mod_unload)(module) };
             return Err(format!("getfunc: {}", err(rc)));
         }
         let mut slots: Vec<u64> = bufs.to_vec();
@@ -313,11 +334,9 @@ impl CudaRunner {
             )
         };
         if rc != CUDA_SUCCESS {
-            unsafe { (f.mod_unload)(module) };
             return Err(format!("launch: {}", err(rc)));
         }
         let rc = unsafe { (f.sync)() };
-        unsafe { (f.mod_unload)(module) };
         if rc != CUDA_SUCCESS {
             return Err(format!("sync: {}", err(rc)));
         }
@@ -347,21 +366,12 @@ impl CudaRunner {
         if grid == 0 || block == 0 {
             return Err("empty grid/block".to_string());
         }
-        // JIT
-        let cptx = CString::new(ptx).map_err(|e| e.to_string())?;
-        let mut module: CUmodule = ptr::null_mut();
-        let rc = unsafe { (f.mod_load)(&mut module, cptx.as_ptr()) };
-        if rc != CUDA_SUCCESS {
-            if std::env::var("BASH_O4_CUDA_DUMPPTX").is_ok() {
-                let _ = std::fs::write("/tmp/cudabench-last.ptx", ptx);
-            }
-            return Err(format!("ptx jit: {} (set BASH_O4_CUDA_DUMPPTX=1 to dump)", err(rc)));
-        }
+        // JIT (cached by PTX text across dispatches).
+        let (module, _cached) = self.module_for(ptx)?;
         let cname = CString::new(kernel).map_err(|e| e.to_string())?;
         let mut func: CUfunction = ptr::null_mut();
         let rc = unsafe { (f.mod_getfn)(&mut func, module, cname.as_ptr()) };
         if rc != CUDA_SUCCESS {
-            unsafe { (f.mod_unload)(module) };
             return Err(format!("getfunc: {}", err(rc)));
         }
         // Output buffers (host-zeroed staging, like vkffi write_mem).
@@ -376,7 +386,6 @@ impl CudaRunner {
                 for q in &devptrs {
                     unsafe { (f.free)(*q) };
                 }
-                unsafe { (f.mod_unload)(module) };
                 return Err(format!("alloc: {}", err(rc)));
             }
             devptrs.push(p);
@@ -386,7 +395,6 @@ impl CudaRunner {
                 for q in &devptrs {
                     unsafe { (f.free)(*q) };
                 }
-                unsafe { (f.mod_unload)(module) };
                 return Err(format!("h2d zero: {}", err(rc)));
             }
             host.push(vec![0i64; len]);
@@ -411,7 +419,6 @@ impl CudaRunner {
             for q in &devptrs {
                 unsafe { (f.free)(*q) };
             }
-            unsafe { (f.mod_unload)(module) };
             return Err(format!("launch: {}", err(rc)));
         }
         let rc = unsafe { (f.sync)() };
@@ -419,7 +426,6 @@ impl CudaRunner {
             for q in &devptrs {
                 unsafe { (f.free)(*q) };
             }
-            unsafe { (f.mod_unload)(module) };
             return Err(format!("sync: {}", err(rc)));
         }
         for (i, &p) in devptrs.iter().enumerate() {
@@ -429,14 +435,12 @@ impl CudaRunner {
                 for q in &devptrs {
                     unsafe { (f.free)(*q) };
                 }
-                unsafe { (f.mod_unload)(module) };
                 return Err(format!("d2h: {}", err(rc)));
             }
         }
         for q in &devptrs {
             unsafe { (f.free)(*q) };
         }
-        unsafe { (f.mod_unload)(module) };
         Ok(host)
     }
 }
