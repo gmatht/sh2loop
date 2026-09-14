@@ -12,16 +12,22 @@ There are three GPU vehicles, deliberately separate:
 | `cutranspile` | bash → ShIR → candidacy → **PTX** → CUDA, no hand kernels | working; this is the *transpiled* CUDA claim |
 | `cudabench` | handwritten PTX → CUDA | the hand-kernel reference the transpiled leg is measured against |
 | `gpuleg`/`vkbench` | handwritten GLSL → SPIR-V → **Vulkan** | working, but the only device here is Lavapipe (software) |
-| `bash-O4 --gpu` | — | **not wired**: the driver's own flag still compiles CPU-only (`--gpu=auto`) and exits 3 on `--gpu=force` |
+| `bash-O4 --gpu` | same `cu_run` vehicle as `cutranspile` | working: `--gpu[=auto\|force\|off] --n N [--runs K] [--bind VAR=VAL]` |
 
-The transpiled-GPU path is reached today through `cutranspile` (bash)
-and `python-O4 --gpu` (Python) — both share the `bash_o4::cu_run`
-vehicle. Wiring the `bash-O4` driver flag is deliberately deferred: in
-this driver `--gpu=auto` is a *policy* meaning "CPU fallback if no
-device", and `harness/gpu_gate.sh` compares that leg's stdout against
-bash, so making `auto` dispatch would change a flag the gate depends
-on. Doing it properly means adding an explicit `--gpu` (like
-python-O4's) plus `--n/--runs/--bind` and a new gate leg.
+All three drivers now reach the transpiled-GPU path through the same
+`bash_o4::cu_run` vehicle, with the **same flags**: `--gpu` is an
+explicit opt-in, so a bare `bash-O4 prog.sh` (and `--cpu-only`) always
+stay on the CPU path; `--gpu=auto` dispatches when a candidate resolves
+and otherwise falls back to the CPU path; `--gpu=force` exits 3 when
+nothing can dispatch. `harness/gpu_gate.sh` therefore uses `--cpu-only`
+for its CPU leg and asserts the `--gpu` leg's checksum against bash's
+stdout whenever it actually dispatches.
+
+The shared flag surface lives in `bash-o4/src/flags.rs` (one parser,
+one help block) and `tests/flag_parity.rs` drives both binaries to pin
+it — before that the two drivers had drifted apart (two private
+`GpuMode` enums, `--gpu` meaning different things, and
+`--n/--runs/--bind/--help` missing from bash-O4 entirely).
 
 ## Build & quickstart
 
@@ -44,13 +50,15 @@ loud fallback, never silent.
 ## Flags (see `bash-O4` usage for the full list)
 
 `-o FILE`, `--emit-c`, `--emit-shader ID`, `--check`, `--dump-shir`,
-`--cpu-only`/`--no-gpu`, `--gpu=auto|force|off`,
+`--cpu-only`/`--no-gpu`, `--gpu[=auto|force|off]`, `--n N`, `--runs K`,
+`--bind VAR=VAL`, `-h`/`--help`, `-V`/`--version`,
 `--fetch-libs[=ask|auto|off]`, `--cache-dir PATH`, `--offline`,
 `--prefetch`, `--audit-fetch`, `-O0|-Og|-O2|-Os|-Oz|-O3|-O4`,
 `--true64|--no-true64`, `--verbose`.
 
 Exit codes: 0 (or the JIT program's own code), 1 compile/lower error,
 2 usage, 3 `--gpu=force` with nothing dispatchable, 4 fetch refusal.
+Unknown flags are usage errors (2) in every driver.
 
 Notes:
 
@@ -161,7 +169,7 @@ items where the CPU does 10⁸).
 
 ```sh
 cargo test --offline            # unit + integration (parity, gates below)
-bash ../harness/gpu_gate.sh     # differential gate: bash vs --cpu-only vs --gpu=auto
+bash ../harness/gpu_gate.sh     # differential gate: bash vs --cpu-only vs --gpu (transpiled)
 bash ../harness/c_gate_main.sh  # C backend corpus gate
 ```
 
@@ -177,9 +185,11 @@ M1 (driver+tcc+cache) and M2 (candidacy+`--check`) done; M4
 GLSL emission + SPIR-V proof + on-device dispatch proof, with the
 generated-code host split (`_sh_gpu_*` in `c_backend`) remaining.
 M5 (parallel reductions) is done on the CUDA side (`cu_candidacy` +
-`cuda_backend` + `cu_run`), including sequential lane-nests; the
-Vulkan backend still only runs *handwritten* shaders, and the driver's
-`--gpu` flag is not wired (see the table at the top).
+`cuda_backend` + `cu_run`), including sequential lane-nests, and the
+`bash-O4` driver now dispatches it in-process (`--gpu`), with the same
+flag surface as `python-O4`. The Vulkan backend still only runs
+*handwritten* shaders (the generated-code host split `_sh_gpu_*` is the
+remaining M3 item), so `--gpu` reaches CUDA, not Vulkan.
 
 Deviations from the design are recorded in the design doc.
 

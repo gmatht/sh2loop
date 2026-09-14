@@ -12,91 +12,33 @@
 
 use std::path::{Path, PathBuf};
 
+use bash_o4::flags::GpuMode;
 use bash_o4::{cache, cu_run, pipeline, py, tcc};
 
-const USAGE: &str = "\
-usage: python-O4 [options] program.py [-- args...]\n\
-\n\
-  -o FILE              AOT: write native executable (via tcc), do not run\n\
-  --emit-c             print the CPU C source (debug), do not compile\n\
-  --check              parse + CUDA-candidacy report, no codegen\n\
-  --dump-shir          print the ShIR A1 JSON, nothing else\n\
-  --gpu[=auto|force|off]  CUDA path: dispatch a transpiled kernel and print\n\
-                       `<median_ms> <checksum>` (auto skips to CPU; force\n\
-                       exits 3 with no dispatchable shape/device)\n\
-  --n N                bound value for the GPU leg (default 0)\n\
-  --runs K             GPU timing repetitions (default 3)\n\
-  --bind VAR=VAL       bind a non-single extern for the GPU leg\n\
-  --cpu-only, --no-gpu force the CPU path\n\
-  --cache-dir PATH     override the artifact cache root\n\
-  -O0|-Og|-O2|-Os|-Oz|-O3|-O4  render presets (default O4)\n\
-  --true64|--no-true64  true 64-bit arithmetic (default true)\n\
-  --verbose            diagnostics\n\
-  -h, --help           this help, exit 0\n\
-  -V, --version        version, exit 0\n\
-\n\
-JIT (default) compiles with tcc to a temp executable and runs it\n\
-(inherited stdio; exits with the program's own exit code). A tcc\n\
-compile failure retries once via cc/gcc/clang with a stderr note.\n\
-\n\
-The GPU leg is the bench/offload vehicle (per-loop offload; the\n\
-whole-program host split is the open M3 item, same as bash-O4): it\n\
-prints the offloaded loop's checksum, which equals the program's\n\
-stdout for the map/reduce bench shapes.";
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum GpuMode {
-    Auto,
-    Force,
-    Off,
+fn usage() -> String {
+    format!(
+        "usage: python-O4 [options] program.py [-- args...]\n\n\
+         {}\n\
+         {}\n\n\
+         The GPU leg is the bench/offload vehicle (per-loop offload; the\
+         whole-program host split is the open M3 item, same as bash-O4): it\
+         prints the offloaded loop's checksum, which equals the program's\
+         stdout for the map/reduce bench shapes.\n\n\
+         Front end: py-sh-go (.py -> A1 shIR) -> the shared -O4 stages.",
+        bash_o4::flags::common_usage(),
+        bash_o4::flags::common_footer()
+    )
 }
 
+/// Exactly the shared flag set — `python-O4` adds no driver-specific
+/// flags, so its options ARE `CommonFlags` (see `bash_o4::flags`).
+#[derive(Debug, Clone, Default)]
 struct Options {
-    prog: Option<String>,
-    prog_args: Vec<String>,
-    out_exe: Option<String>,
-    emit_c: bool,
-    check: bool,
-    dump_shir: bool,
-    gpu: GpuMode,
-    gpu_flag: bool,
-    n: u64,
-    runs: usize,
-    binds: Vec<(String, i64)>,
-    cache_dir: Option<String>,
-    opt_level: String,
-    true64: Option<bool>,
-    verbose: bool,
-    help: bool,
-    version: bool,
-}
-
-impl Default for Options {
-    fn default() -> Self {
-        Options {
-            prog: None,
-            prog_args: Vec::new(),
-            out_exe: None,
-            emit_c: false,
-            check: false,
-            dump_shir: false,
-            gpu: GpuMode::Auto,
-            gpu_flag: false,
-            n: 0,
-            runs: 3,
-            binds: Vec::new(),
-            cache_dir: None,
-            opt_level: "O4".to_string(),
-            true64: None,
-            verbose: false,
-            help: false,
-            version: false,
-        }
-    }
+    common: bash_o4::flags::CommonFlags,
 }
 
 fn usage_err(msg: &str) -> i32 {
-    eprintln!("python-O4: {msg}\n{USAGE}");
+    eprintln!("python-O4: {msg}\n{}", usage());
     2
 }
 
@@ -106,55 +48,18 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
     let mut seen_prog = false;
     while let Some(a) = it.next() {
         if seen_prog {
-            o.prog_args.push(a.clone());
+            o.common.prog_args.push(a.clone());
+            continue;
+        }
+        // Every flag python-O4 accepts is a SHARED flag, so the whole
+        // match delegates: the common surface cannot drift from bash-O4.
+        if bash_o4::flags::try_common(a, &mut it, &mut o.common)? {
             continue;
         }
         match a.as_str() {
-            "-o" => o.out_exe = Some(it.next().ok_or("-o needs FILE")?.clone()),
-            "--emit-c" => o.emit_c = true,
-            "--check" => o.check = true,
-            "--dump-shir" => o.dump_shir = true,
-            "--cpu-only" | "--no-gpu" => {
-                o.gpu_flag = true;
-                o.gpu = GpuMode::Off;
-            }
-            "-h" | "--help" => o.help = true,
-            "-V" | "--version" => o.version = true,
-            "--gpu" => {
-                o.gpu_flag = true;
-                o.gpu = GpuMode::Auto;
-            }
-            s if s.starts_with("--gpu=") => {
-                o.gpu_flag = true;
-                o.gpu = match &s["--gpu=".len()..] {
-                    "auto" => GpuMode::Auto,
-                    "force" => GpuMode::Force,
-                    "off" => GpuMode::Off,
-                    v => return Err(format!("bad --gpu={v:?} (want auto|force|off)")),
-                };
-            }
-            "--n" => o.n = it.next().ok_or("--n needs N")?.parse().map_err(|_| "--n N")?,
-            "--runs" => {
-                o.runs = it.next().ok_or("--runs needs K")?.parse().map_err(|_| "--runs K")?
-            }
-            "--bind" => {
-                let kv = it.next().ok_or("--bind VAR=VAL")?;
-                let (k, v) = kv.split_once('=').ok_or("--bind VAR=VAL")?;
-                o.binds.push((k.to_string(), v.parse().map_err(|_| "bind value")?));
-            }
-            "--true64" => o.true64 = Some(true),
-            "--no-true64" => o.true64 = Some(false),
-            "--verbose" => o.verbose = true,
-            "-O0" | "-Og" | "-O2" | "-Os" | "-Oz" | "-O3" | "-O4" => {
-                o.opt_level = a[1..].to_string();
-            }
-            s if s.starts_with("--cache-dir=") => {
-                o.cache_dir = Some(s["--cache-dir=".len()..].to_string())
-            }
-            "--cache-dir" => o.cache_dir = Some(it.next().ok_or("--cache-dir needs PATH")?.clone()),
             s if s.starts_with('-') => return Err(format!("unknown flag {s:?}")),
             _ => {
-                o.prog = Some(a.clone());
+                o.common.prog = Some(a.clone());
                 seen_prog = true;
             }
         }
@@ -163,7 +68,7 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
 }
 
 fn verbose(o: &Options, msg: &str) {
-    if o.verbose {
+    if o.common.verbose {
         eprintln!("python-O4: {msg}");
     }
 }
@@ -179,15 +84,15 @@ fn run(args: &[String]) -> i32 {
         Ok(o) => o,
         Err(e) => return usage_err(&e),
     };
-    if o.help {
-        print!("{USAGE}");
+    if o.common.help {
+        print!("{}", usage());
         return 0;
     }
-    if o.version {
+    if o.common.version {
         println!("python-O4 {}", env!("CARGO_PKG_VERSION"));
         return 0;
     }
-    let Some(prog) = o.prog.clone() else {
+    let Some(prog) = o.common.prog.clone() else {
         return usage_err("need program.py");
     };
     let prog_path = PathBuf::from(&prog);
@@ -200,7 +105,7 @@ fn run(args: &[String]) -> i32 {
             return 1;
         }
     };
-    if o.dump_shir {
+    if o.common.dump_shir {
         println!("{a1}");
         return 0;
     }
@@ -236,7 +141,7 @@ fn run(args: &[String]) -> i32 {
     loops += T::counted_arith_forinit::transform(&mut prog_flat.stmts) as usize;
     let appends = T::append_to_store::transform(&mut prog_flat.stmts) as usize;
 
-    if o.check {
+    if o.common.check {
         for v in bash_o4::cu_candidacy::analyze(&prog_flat) {
             println!("MAP {v}");
         }
@@ -246,21 +151,21 @@ fn run(args: &[String]) -> i32 {
         for v in bash_o4::cu_candidacy::analyze_seq(&prog_ir) {
             println!("SEQ {v}");
         }
-        if o.verbose {
+        if o.common.verbose {
             eprintln!("python-O4: recovered {loops} counted loop(s), {appends} append(s)");
         }
         return 0;
     }
 
     // ③ GPU leg (bench/offload vehicle).
-    if o.gpu_flag && o.gpu != GpuMode::Off {
-        match cu_run::run(&prog_ir, &prog_flat, o.n, &o.binds, o.runs) {
+    if o.common.gpu_flag && o.common.gpu != GpuMode::Off {
+        match cu_run::run(&prog_ir, &prog_flat, o.common.n, &o.common.binds, o.common.runs) {
             Ok((ms, checksum)) => {
                 println!("{ms:.3} {checksum}");
                 return 0;
             }
             Err(skip) => {
-                if o.gpu == GpuMode::Force {
+                if o.common.gpu == GpuMode::Force {
                     eprintln!("python-O4: --gpu=force: {skip}");
                     return 3;
                 }
@@ -278,16 +183,16 @@ fn run(args: &[String]) -> i32 {
         }
     };
     let tc_id = format!("{tc:?}");
-    let t64key = match o.true64 {
+    let t64key = match o.common.true64 {
         Some(true) => "t64=1",
         Some(false) => "t64=0",
         None => "t64=env",
     };
-    let opts_key = format!("py opt={} {t64key} gpu={:?}", o.opt_level, o.gpu);
+    let opts_key = format!("py opt={} {t64key} gpu={:?}", o.common.opt_level, o.common.gpu);
     let key = cache::artifact_key(&a1, &opts_key, &tc_id);
-    let cache_root = cache::cache_root(o.cache_dir.as_deref());
-    let opt_level = o.opt_level.clone();
-    let true64 = o.true64;
+    let cache_root = cache::cache_root(o.common.cache_dir.as_deref());
+    let opt_level = o.common.opt_level.clone();
+    let true64 = o.common.true64;
     let cached = match cache::cached_c(&cache_root, &key, &a1, || {
         pipeline::render_c_with(&a1, &opt_level, true64)
     }) {
@@ -300,12 +205,12 @@ fn run(args: &[String]) -> i32 {
     verbose(&o, &format!("cache {} {}", if cached.hit { "hit" } else { "miss" }, key));
     let c_file = cached.dir.join("prog.c");
 
-    if o.emit_c {
+    if o.common.emit_c {
         print!("{}", cached.c_src);
         return 0;
     }
 
-    if let Some(out) = o.out_exe.clone() {
+    if let Some(out) = o.common.out_exe.clone() {
         match tcc::build_aot(&tc, &c_file, &PathBuf::from(&out), &cached.c_src) {
             Ok(()) => 0,
             Err(e) => {
@@ -314,7 +219,7 @@ fn run(args: &[String]) -> i32 {
             }
         }
     } else {
-        match tcc::run_jit(&tc, &c_file, &cached.c_src, &prog_path, &o.prog_args) {
+        match tcc::run_jit(&tc, &c_file, &cached.c_src, &prog_path, &o.common.prog_args) {
             Ok(rc) => rc,
             Err(e) => {
                 eprintln!("python-O4: {e}");

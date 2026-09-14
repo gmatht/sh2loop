@@ -77,10 +77,11 @@ of `docs/BASH-O4.md`. The short list:
   `cc`/`gcc`/`clang` **loudly** (never silently).
 - The C backend keeps a fixed array-capacity backstop (`ARR_CAP`, 1024)
   for arrays whose size it cannot prove.
-- `bash-O4 --gpu` is **not wired**: the driver flag still compiles
-  CPU-only. The transpiled path is reached via `cutranspile` or
-  `python-O4 --gpu`. (Wiring it means changing `--gpu=auto`, which
-  `harness/gpu_gate.sh` depends on, so it needs a new gate leg.)
+- `--gpu` offloads **one loop**, not the whole program: the kernel's trip
+  count comes from `--n`/`--bind`, so a loop whose bound the driver cannot
+  supply (a function-local) is vetoed by the candidacy, and a program outside
+  the single-integer-output contract reports the offloaded loop's checksum
+  rather than its stdout. The whole-program host split is the open M3 item.
 - `hash` has no hand-written GPU kernel: its `cuda-tx` row is
   correct-and-fast, not proven-optimal.
 - `./fail` (Perl corpus) sits at a pre-existing 260/552 baseline owned by

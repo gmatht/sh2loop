@@ -505,14 +505,33 @@ something the design doc did not anticipate.
    unconditionally: it is only applied where a `v > 1` while-guard
    makes `v` provably non-negative. Both are refuse-first and
    documented at the emitter.
-7. **The transpiled CUDA path is reached via `cutranspile` /
-   `python-O4 --gpu`, NOT `bash-O4 --gpu`.** In this driver
-   `--gpu=auto` is a *policy* ("CPU fallback if no device") and
-   `harness/gpu_gate.sh` compares that leg's stdout against bash;
-   making `auto` dispatch would change a flag a gate depends on. The
-   honest fix is an explicit `--gpu` (python-O4's shape) plus
-   `--n/--runs/--bind` and a new gate leg — open work, not a
-   regression. Until then, `bash-O4 --gpu=force` exits 3 by design.
+7. **All three `-O4` drivers share one flag surface and one dispatch
+   vehicle.** `bash-O4 --gpu[=auto|force|off] --n N [--runs K]
+   [--bind VAR=VAL]` now dispatches the same transpiled CUDA path as
+   `python-O4 --gpu` and `cutranspile`, through `bash_o4::cu_run`. The
+   shared parser and help block live in `bash-o4/src/flags.rs` because
+   the two drivers had *drifted*: separate private `GpuMode` enums,
+   `--gpu` meaning "policy, never dispatch" in bash-O4 and "dispatch" in
+   python-O4, and `--n/--runs/--bind/--help` absent from bash-O4.
+   `tests/flag_parity.rs` drives both real binaries so the surface cannot
+   re-diverge. `--gpu` stays an explicit opt-in, so `--cpu-only` (and a
+   bare run) keep the CPU path that `harness/gpu_gate.sh` compares
+   against bash; the gate's GPU leg now asserts the dispatched checksum
+   against bash's stdout, or requires CPU-equivalent output when the
+   candidacy declines.
+
+   Two product bugs fell out of adding that leg, both fixed in-product:
+   - the CUDA candidacies descended into shell **function** bodies and
+     accepted a loop whose bound is a function-local (`099`-class
+     `local n=$1`), which the driver cannot supply — it dispatched with
+     `trips=0` and reported `0` while bash printed `120720`. Function
+     bodies are now out of scope (the same v1 rule `walk_seq` states).
+   - the artifact cache used a **shared** `prog.c.tmp` and renamed it,
+     so two concurrent drivers truncated the same temp file and the
+     loser's `rename` failed with ENOENT — exit 1, no bad program
+     involved. `gpu_gate`'s 8-way parallelism surfaced it as a single
+     FAIL that moved between files each run. Temp names are now unique
+     per writer and a loser reads the winner's committed file.
 8. **The `cuda` and `cuda-tx` bench columns are checksum-anchored but
    only `cuda-tx` is transpiled.** `cudabench` dispatches handwritten
    PTX block templates; `cutranspile` runs the compiler pipeline. Both
