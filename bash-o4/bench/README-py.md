@@ -46,36 +46,42 @@ counted loop's single `a.append(v)` into the affine store `a[i] = v` for
 the candidacy view, so the CPython-valid append source is also the
 GPU-candidacy shape (`docs/PYTHON-O4.md` §2).
 
-## Results (`--scale opt`, runs=3, RTX 2070 Super / WSL, gcc 13.3)
+## Results (`--scale opt`, runs=1, RTX 2070 Super / WSL, gcc 13.3)
 
 | problem | N | gcc-O3 | pyo4-gcc | pyo4-gpu | GPU vs C |
 |---|---:|---:|---:|---:|---:|
-| sumred | 1e9 | 572 ms | 67480 ms (GMP) | **3.76 ms** | **152x** |
-| collatz | 1.8e7 | 774 ms | 892 ms | **12.70 ms** | **61x** |
-| squares-map | 1e8 | ~280 ms | 27433 ms (GMP) | ~270 ms (fused) | ~1x |
+| sumred | 1e9 | 1041 ms | 1175 ms (0.89x) | **3.55 ms** | **293x** |
+| collatz | 1.8e7 | 774 ms | 892 ms (0.87x) | **12.70 ms** | **61x** |
+| squares-map | 1e8 | 278 ms | **170 ms** (1.63x) | ~950 ms | ~0.3x |
 
 All checksums byte-agree across legs. `pyo4-gpu` reproduces the bash
 `cutranspile` times on the same shapes (4.07 ms / 13.79 ms), i.e. the
 Python frontend reaches the same kernels.
 
 Fast scale (`--scale fast`, CPython included) is for correctness, not
-throughput: at 1e6 the GPU legs are launch-dominated (0.2–0.3 ms) and
-the CPU legs ~1–3 ms vs CPython 114–330 ms.
+throughput: at 1e6 the GPU legs are launch-dominated (0.2-0.3 ms) and
+the CPU legs ~1-5 ms vs CPython 1100-1700 ms.
 
 ### Reading the numbers
 
 - **The GPU win is on reductions.** A 1e9-trip mod-reduce and an
   18M-trip branchy Collatz chain beat the handwritten C ceiling by
-  152x / 61x — the two things a single scalar thread does worst.
-- **`squares-map` is fused** (map + reduce, partials only read back) and
-  lands at parity with C: it is transfer/allocation-bound (800 MB of
-  device traffic + an 800 MB device allocation per dispatch on shared
-  RAM). The `bench-opt.sh` note records the same for the hand kernels —
-  that row is physics, not a lowering gap.
-- **The GMP rows are Python semantics**: unbounded ints past ±2^53 lower
-  to exact `mpz_t` unless a width is provable (collatz's ranges are;
-  sumred's mod-chain composition hides them). The CUDA path is i64-exact
-  by construction and agrees.
+  293x / 61x — the two things a single scalar thread does worst.
+- **The CPU legs are no longer GMP.** The mod-reduce and map rows used
+  to run 67480 ms / 27433 ms in GMP because the frontend proved integer
+  ranges against the JS Number bound (2^53). With `--exact-i64` (prove
+  against signed i64) plus the generic versioning plan accepting the
+  frontend's structured condition, they run native: **1175 ms** and
+  **170 ms**. The CUDA path is i64-exact by construction and agrees.
+- **`squares-map` CPU beats the handwritten C (1.63x) by doing less
+  work**: the shared `fuse-fill-consume` transform forwards the
+  single-append fill into its same-index consumer, so the 800 MB
+  materialisation disappears on the CPU path. The CUDA leg still
+  materialises (it is the map vehicle) and is transfer-bound — the
+  source is shared, the lowering is not. Read that row as "CPU > C
+  because it does less", not as a kernel-quality claim.
+- **`pyo4-tcc` is tcc-codegen-bound** (0.04x); it is the default
+  `python-O4 -o` path, so use `gcc` when measuring backend quality.
 - Sub-10 ms rows are startup-dominated; compare the `opt` rows.
 
 ## Reproducing
