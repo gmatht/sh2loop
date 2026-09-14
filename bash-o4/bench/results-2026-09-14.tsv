@@ -1,16 +1,19 @@
-problem	N	leg	s	ns_item	speedup_vs_gcc	vec_loops
-sumred	1000000000	gcc-O3	0.895	0.89	1.0	0
-sumred	1000000000	bo4-gcc	0.918	0.92	1.0	0
-sumred	1000000000	gpu	0.332	0.33	2.7	-
-sumred	1000000000	cuda	0.004	0.00	218.3	-
-sumred	1000000000	cuda-tx	0.005	0.00	196.9	-
-squares-map	100000000	gcc-O3	0.233	2.33	1.0	0
-squares-map	100000000	bo4-gcc	0.093	0.93	2.5	0
-squares-map	100000000	gpu	0.036	0.36	6.4	-
-squares-map	100000000	cuda	0.001	0.01	302.7	-
-squares-map	100000000	cuda-tx	0.001	0.01	231.7	-
-collatz	18000000	gcc-O3	1.141	63.38	1.0	0
-collatz	18000000	bo4-gcc	0.926	51.45	1.2	0
-collatz	18000000	gpu	0.603	33.49	1.9	-
-collatz	18000000	cuda	0.014	0.75	84.4	-
-collatz	18000000	cuda-tx	0.017	0.94	67.5	-
+# problem	N	leg	seconds	ratio_vs_gcc	vec
+sumred	1000000000	gcc-O3	1.1070	1.0	0
+sumred	1000000000	bo4-gcc	1.0280	1.1	0
+sumred	1000000000	gpu	0.4070	2.7	-
+sumred	1000000000	cuda	0.0040	276.8	-
+sumred	1000000000	cuda-tx	0.0040	276.8	-
+squares-map	100000000	gcc-O3	0.3260	1.0	0
+squares-map	100000000	bo4-gcc	0.1150	2.8	0
+squares-map	100000000	gpu	0.0460	7.1	-
+squares-map	100000000	cuda	0.0010	326.0	-
+squares-map	100000000	cuda-tx	0.0010	326.0	-
+twoarr	50000000	gcc-O3	0.4230	1.0	0
+twoarr	50000000	bo4-gcc	0.0660	6.4	0
+twoarr	50000000	cuda-tx	0.0010	423.0	-
+collatz	18000000	gcc-O3	1.3650	1.0	0
+collatz	18000000	bo4-gcc	1.1780	1.2	0
+collatz	18000000	gpu	0.7850	1.7	-
+collatz	18000000	cuda	0.0130	105.0	-
+collatz	18000000	cuda-tx	0.0140	97.5	-

@@ -50,9 +50,9 @@ command -v gcc >/dev/null || { echo "need gcc" >&2; exit 1; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 # problems: name | sh | N (empty = no arg) | handwritten C
-PROBLEMS="addsum addsum32 squares hash collatz sqrt1337"
+PROBLEMS="addsum addsum32 squares hash twoarr collatz sqrt1337"
 prob_sh()   { case "$1" in sqrt1337) echo sqrt1337.sh;; addsum32) echo addsum.sh;; *) echo "$1.sh";; esac; }
-prob_n()    { case "$1" in addsum) echo 1000000;; addsum32) echo 46340;; squares) echo 1000000;; hash) echo 1000000;; collatz) echo 500;; sqrt1337) echo "";; esac; }
+prob_n()    { case "$1" in addsum) echo 1000000;; addsum32) echo 46340;; squares) echo 1000000;; hash) echo 1000000;; twoarr) echo 200000;; collatz) echo 500;; sqrt1337) echo "";; esac; }
 prob_c()    { echo "$1.c"; }
 if [ -n "$ONLY" ]; then PROBLEMS="$ONLY"; fi
 

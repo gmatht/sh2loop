@@ -110,3 +110,11 @@ harness/f
 
 otranspilerl/target/
 bash-o4/target/
+
+# python bytecode (transpiler bench scratch — never commit)
+__pycache__/
+*.pyc
+
+# agent session logs / scratch (never commit)
+.pir/
+.scratch/

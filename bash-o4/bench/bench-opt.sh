@@ -67,18 +67,19 @@ command -v gcc >/dev/null || { echo "need gcc" >&2; exit 1; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 # problems: name | N | sh or "-" | handwritten C | gpuleg problem or "-"
-PROBLEMS="sumred squares-map collatz"
+PROBLEMS="sumred squares-map twoarr collatz"
 # N calibrated so the SLOWER leg lands ~1s (order-of-one-second scale,
 # not ms noise): sumred-1B (gpu ~0.6s), squares-map-100M (gpu ~1.3s),
 # collatz-18M (gcc ~0.9s).
-prob_n()   { case "$1" in sumred) echo 1000000000;; squares-map) echo 100000000;; collatz) echo 18000000;; esac; }
-prob_sh()  { case "$1" in sumred) echo sumred.sh;; collatz) echo collatz.sh;; squares-map) echo squares-map.sh;; *) echo "-";; esac; }
-prob_c()   { case "$1" in sumred) echo sumred.c;; squares-map) echo squaresmap.c;; collatz) echo collatz.c;; esac; }
-prob_gpu() { case "$1" in sumred) echo sumred;; squares-map) echo squares-map;; collatz) echo collatz;; esac; }
+prob_n()   { case "$1" in sumred) echo 1000000000;; squares-map) echo 100000000;; twoarr) echo 50000000;; collatz) echo 18000000;; esac; }
+prob_sh()  { case "$1" in sumred) echo sumred.sh;; collatz) echo collatz.sh;; squares-map) echo squares-map.sh;; twoarr) echo twoarr.sh;; *) echo "-";; esac; }
+prob_c()   { case "$1" in sumred) echo sumred.c;; squares-map) echo squaresmap.c;; twoarr) echo twoarr.c;; collatz) echo collatz.c;; esac; }
+prob_gpu() { case "$1" in sumred) echo sumred;; squares-map) echo squares-map;; collatz) echo collatz;; *) echo "-";; esac; }
 prob_bo4() { # "" = runnable, else skip reason
   case "$1" in
     sumred) echo "";;
     squares-map) echo "";; # counter-dynamic fills route to growable vecs
+    twoarr) echo "";; # multi-store fill: fused by fuse-fill-consume
     collatz) echo "";;
   esac
 }
@@ -139,13 +140,26 @@ for p in $PROBLEMS; do
   run() { local label=$1; shift; timeout "$TIMEOUT" "$@" > "$TMP/$label.out" 2>/dev/null; echo $?; }
   r_hand=$(run ref-hand "$TMP/$p-hand" "$n")
   [ -z "$bo4skip" ] && r_bgcc=$(run ref-gcc "$TMP/$p-gcc" "$n")
-  gpu_line=$(timeout "$TIMEOUT" "$GPULEG" "$gprob" "$n" --runs 1 2>"$TMP/$p-gpu.err") || { cat "$TMP/$p-gpu.err" >&2; fail "gpu $p"; }
-  gpu_ms=$(echo "$gpu_line" | awk '{print $1}'); gpu_sum=$(echo "$gpu_line" | awk '{print $2}')
-  echo "$gpu_sum" > "$TMP/ref-gpu.out"; r_gpu=0
+  # "-" = no handwritten GPU kernel for this shape: the gpu and cuda legs
+  # SKIP (they are checksum-anchored hand kernels by design), while
+  # cuda-tx — the TRANSPILED leg — still runs and still gates.
+  gskip=""
+  if [ "$gprob" = "-" ]; then
+    gskip="no handwritten GPU kernel"
+    echo "  $p: gpu/cuda skipped ($gskip)" >&2
+  fi
+  if [ -z "$gskip" ]; then
+    gpu_line=$(timeout "$TIMEOUT" "$GPULEG" "$gprob" "$n" --runs 1 2>"$TMP/$p-gpu.err") || { cat "$TMP/$p-gpu.err" >&2; fail "gpu $p"; }
+    gpu_ms=$(echo "$gpu_line" | awk '{print $1}'); gpu_sum=$(echo "$gpu_line" | awk '{print $2}')
+    echo "$gpu_sum" > "$TMP/ref-gpu.out"; r_gpu=0
+  fi
   # ---- cuda leg (SKIP when no CUDA device: exit 2 + SKIP message) ----
-  cuda_skip=""
+  cuda_skip="$gskip"
+  cuda_rc=0
+  if [ -z "$gskip" ]; then
   cuda_line=$(timeout "$TIMEOUT" "$CUDABENCH" "$gprob" "$n" --runs 1 2>"$TMP/$p-cuda.err")
   cuda_rc=$?
+  fi
   if [ "$cuda_rc" -eq 2 ]; then
     cuda_skip="$(cat "$TMP/$p-cuda.err" 2>/dev/null | head -n 1)"
     echo "  $p: cuda skipped ($cuda_skip)" >&2
@@ -157,7 +171,9 @@ for p in $PROBLEMS; do
     cuda_sum=$(echo "$cuda_line" | awk '{print $2}')
     [ "$cuda_sum" = "$hand_sum" ] || fail "$p: cuda checksum $cuda_sum != gcc $hand_sum"
   fi
-  [ "$gpu_sum" = "$hand_sum" ] || fail "$p: gpu checksum $gpu_sum != gcc $hand_sum"
+  if [ -z "$gskip" ]; then
+    [ "$gpu_sum" = "$hand_sum" ] || fail "$p: gpu checksum $gpu_sum != gcc $hand_sum"
+  fi
   if [ -z "$bo4skip" ]; then
     bgcc_sum=$(cat "$TMP/ref-gcc.out")
     [ "$bgcc_sum" = "$hand_sum" ] || fail "$p: bo4-gcc checksum $bgcc_sum != gcc $hand_sum"
@@ -171,8 +187,10 @@ for p in $PROBLEMS; do
   [ -z "$bo4skip" ] && "$TMP/$p-gcc" "$n" >/dev/null 2>&1
   ns_hand=$(t_ns "$RUNS" "$TMP/$p-hand" "$n") || fail "timing hand $p"
   if [ -z "$bo4skip" ]; then ns_bgcc=$(t_ns "$RUNS" "$TMP/$p-gcc" "$n") || fail "timing bo4 $p"; fi
-  gpu_line=$(timeout "$TIMEOUT" "$GPULEG" "$gprob" "$n" --runs "$RUNS" 2>/dev/null) || fail "timing gpu $p"
-  ns_gpu=$(awk -v m="$(echo "$gpu_line" | awk '{print $1}')" 'BEGIN {printf "%d", m*1e6}')
+  if [ -z "$gskip" ]; then
+    gpu_line=$(timeout "$TIMEOUT" "$GPULEG" "$gprob" "$n" --runs "$RUNS" 2>/dev/null) || fail "timing gpu $p"
+    ns_gpu=$(awk -v m="$(echo "$gpu_line" | awk '{print $1}')" 'BEGIN {printf "%d", m*1e6}')
+  fi
   if [ -z "$cuda_skip" ]; then
     cuda_line=$(timeout "$TIMEOUT" "$CUDABENCH" "$gprob" "$n" --runs "$RUNS" 2>/dev/null) || fail "timing cuda $p"
     ns_cuda=$(awk -v m="$(echo "$cuda_line" | awk '{print $1}')" 'BEGIN {printf "%d", m*1e6}')
@@ -211,7 +229,7 @@ for p in $PROBLEMS; do
   }
   row gcc-O3 "$ns_hand" "$v_hand"
   if [ -z "$bo4skip" ]; then row bo4-gcc "$ns_bgcc" "$v_gen"; else printf '%-12s %11s %-8s %12s %12s %10s %4s %s\n' "$p" "$n" "bo4-gcc" "SKIP" "-" "-" "-" "($bo4skip)" >&2; echo "  $p: bo4-gcc skipped ($bo4skip)" >&2; fi
-  row gpu "$ns_gpu" "-"
+  if [ -z "$gskip" ]; then row gpu "$ns_gpu" "-"; else printf '%-12s %11s %-8s %12s %12s %10s %4s %s\n' "$p" "$n" "gpu" "SKIP" "-" "-" "-" "($gskip)" >&2; fi
   if [ -z "$cuda_skip" ]; then row cuda "$ns_cuda" "-"; else echo "  $p: cuda skipped ($cuda_skip)" >&2; fi
   if [ -z "$cutx_skip" ]; then
     cutx_line=$(timeout "$TIMEOUT" "$CUTRANSPILE" "$BENCH/sh/$cutx_sh" "$n" --runs "$RUNS" 2>/dev/null) || fail "timing cuda-tx $p"
