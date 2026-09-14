@@ -1,8 +1,8 @@
 [package]
 name = "bash-o4"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
-description = "bash-O4: bash → C → Vulkan. -O4 optimizing compiler driver (tcc JIT/AOT + autoshaderise)."
+description = "bash-O4: bash → C → CUDA/Vulkan. -O4 optimizing compiler driver (tcc JIT/AOT + autoshaderise)."
 
 [workspace]
 

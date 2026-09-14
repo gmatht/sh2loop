@@ -1,4 +1,4 @@
-# bash-O4 — bash → C → Vulkan (-O4 driver)
+# bash-O4 — bash → C → CUDA/Vulkan (-O4 driver)
 
 `bash-O4` is the optimizing compiler driver of docs/BASH-O4.md:
 bash source → ShIR → C → native execution via `tcc` (millisecond
