@@ -68,7 +68,8 @@ the CPU legs ~1-5 ms vs CPython 1100-1700 ms.
   18M-trip branchy Collatz chain beat the handwritten C ceiling by
   293x / 61x — the two things a single scalar thread does worst.
 - **collatz's CPU row is GMP now, and that is correct**: its inner
-  `v = 3*v+1` grows without a provable bound, so the old 892 ms i64 leg
+  `v = 3*v+1` is not provably bounded (the test workload's actual peak is
+  9232), so the old 892 ms i64 leg
   was the B1 miscompile class (silent overflow for some inputs). The
   CUDA leg is i64-exact by construction and unchanged. Recovery needs
   overflow-guarded i64→GMP tiering (`docs/PYTHON-O4.md` §8.1 B1).

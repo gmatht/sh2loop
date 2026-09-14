@@ -166,11 +166,13 @@ opt` (bench-opt N, ~1 s CPU legs, CPython dropped) measures steady state.
 | squares-map | 1e8 | 278 ms | **170 ms** (1.63x) | ~950 ms | ~0.3x |
 
 - **collatz's CPU row is GMP now, and that is the correct result.** Its
-  inner `v = 3*v+1` grows without a provable bound, so narrowing it to
-  i64 (the 892 ms it used to measure) was the B1 miscompile class: some
-  inputs would overflow silently. Exactness costs ~170x on that leg; the
-  GPU leg (i64-exact by construction) is unaffected, and recovering the
-  CPU speed needs overflow-guarded i64→GMP tiering (§8.1 B1 follow-up).
+  inner `v = 3*v+1` is **not provably bounded** (the interval analysis
+  widens it without bound — though the program's actual peak is 9232 for
+  this workload), so narrowing it to i64 (the 892 ms it used to measure)
+  was the B1 miscompile class: some inputs would overflow silently.
+  Exactness costs ~170x on that leg; the GPU leg (i64-exact by
+  construction) is unaffected. Recovery needs guarded routing, not the
+  entry-guarded dual loop — see §8.1 B1 “why dual loops do not apply”.
 
 - The CUDA times match the *bash* `cutranspile` vehicle on the same
   shapes (sumred 4.07 ms, collatz 13.79 ms): the Python frontend's A1
@@ -286,16 +288,37 @@ and the bench agreement gate (all checksums still byte-agree).
 Residual, honestly:
 
 - **Performance.** An unprovable loop-carried growth is exact but GMP:
-  collatz CPU 892 ms → ~154 s. Recovering it needs **overflow-guarded
-  tiering** — compute in i64 with `__builtin_*_overflow` and spill to
-  GMP on the first violation (the `SH2_ASSUME_OBSERVED_WIDTHS`
-  `__int128`+GMP tier is the prototype). That is the next perf item, not
-  a correctness one.
+  collatz CPU 892 ms → ~154 s.
 - **Additive accumulators** (`s = s + i` in a loop) are still narrowed
   to i64 when the per-iteration operand has a known range; they can in
   principle exceed i64 for an astronomically long loop. Closing that
-  needs the same overflow guard (or a trip-count bound). Documented, not
-  claimed sound.
+  needs the same guard as below.
+
+#### “Why not dual loops?” — because the guard must be per-iteration
+
+`v` is not *unbounded*; it is not *provably* bounded. The benchmark's
+peak is 9232, and every start in this program is `(k*37+3)%251 ≤ 250`,
+so i64 would in fact be exact — but the interval analysis cannot know
+that (it widens `3*v+1` each iteration). `docs/DUAL_LOOPS.MD` §0 splits
+the three ways to exploit a faster tier, and collatz falls outside the
+first one:
+
+| mechanism | guard | fits collatz? |
+|---|---|---|
+| **versioned loop** (entry-guarded dual loop, `dual_version_while`) | one check **at entry**, over ranges *proven for the whole trip* | **No.** Its fast arm's range must hold for every iteration; `v` changes inside the loop, and the proof that it stays in i64 is exactly what is missing. Emitting it anyway is “a version without a guard” — the miscompile class B1. (It is also the JS/-O3 mechanism and needs a monotone versionable op subset; `counter_reserve_loop` requires `i++`/`i+=k`, which Collatz's `v//2`/`3v+1` step is not.) |
+| **split routing** (per-iteration test) | a class check **at each operation** | **Yes.** `if (v fits i64) i64 path else mpz path`, with the mpz side as the guard. Sound, no proof needed; the branch is cold when the value stays small. |
+| **speculative dual arm** (a real dual loop) | run the i64 arm with a **sticky overflow flag**, then **replay** the bigint arm if it fired | **Yes.** Snapshot `(v0,s0)`, run i64 with `__builtin_*_overflow`; on overflow restore and re-run in GMP. The loop is side-effect-free apart from its result, so replay is safe. Cheap: one flag per loop, fast arm unchanged. |
+| **tiered lift** (single widened body) | none (the type is exact for all inputs) | GMP today (slow); `__int128`+GMP spill is the guarded middle. |
+
+So yes to “dual loops” in the routing/speculative sense, no to the
+*entry-guarded* one. The concrete next step is the **speculative dual
+arm** or the **per-iteration routed tier** for the class `growsUnbounded`
+marks: the renderer already has the pieces (`tiered_vars` with an
+`__int128` fast mirror + `mpz_t` spill from `SH2_ASSUME_OBSERVED_WIDTHS`,
+and `__builtin_*_overflow` in `tiered_store`); generalising it from
+`x = x op k` to an arbitrary RHS with a numeric read shim
+(`v_big ? mpz_get_si(v) : v_f`) is the work. That would put collatz back
+at ~1 s with a cold guard while staying exact.
 
 **B2. The artifact cache can serve stale C across backend upgrades.**
 `cache::artifact_key` folds bash-o4's `RENDERER_REV:PIPELINE_REV` and
