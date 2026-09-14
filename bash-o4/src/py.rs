@@ -171,6 +171,28 @@ mod tests {
         assert!(has_forinit(&p.stmts), "no ForInit: {:?}", p.stmts);
     }
 
+    /// `a1_for_source` runs the frontend with `--exact-i64`, so an
+    /// integer proven within signed i64 stays native instead of being
+    /// wrapped in `Cast(Int64)` (the bigint marker that homes it in
+    /// GMP). sumred's mod-2^32 chain is the motivating shape; a genuine
+    /// `2**100` must still be marked bigint.
+    #[test]
+    fn exact_i64_keeps_bounded_mod_chain_native() {
+        let a1 = a1_for_source(
+            "N = 1000000000\ns = 0\nfor i in range(N):\n    s = (s + (i * i) % 4294967296) % 4294967296\nprint(s)\n",
+        )
+        .expect("frontend");
+        assert!(
+            !a1.contains("\"Int64\""),
+            "bounded mod-chain still carries the bigint marker:\n{a1}"
+        );
+        let big = a1_for_source("x = 2 ** 100\nprint(x)\n").expect("frontend");
+        assert!(
+            big.contains("\"Int64\""),
+            "2**100 must stay bigint (exactness):\n{big}"
+        );
+    }
+
     #[test]
     fn append_in_counted_loop_becomes_store() {
         let mut p = prog("N = 10\na = []\nfor i in range(N):\n    a.append(i * i)\nprint(a[0])\n");
