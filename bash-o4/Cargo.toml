@@ -2,7 +2,19 @@
 name = "bash-o4"
 version = "0.1.1"
 edition = "2021"
-description = "bash-O4: bash → C → CUDA/Vulkan. -O4 optimizing compiler driver (tcc JIT/AOT + autoshaderise)."
+description = "The -O4 driver family (bash-O4 / python-O4): shell or Python → ShIR → C (tcc JIT/AOT) and transpiled CUDA (PTX), plus GLSL-450 emission and Vulkan dispatch."
+readme = "README.md"
+# NO `license` / `license-file` key yet, deliberately.  bash-o4 links the
+# sh2perl core, whose LICENSE states GPL-3 with an additional Apache-2.0
+# permission for named paid-work recipients and their subrecipients — that
+# expression has no single SPDX id, and a wrong or missing declaration is
+# worse than none.  Settle it before the release (most likely
+# `license-file` pointing at a copy of `../sh2perl/LICENSE`).
+# Not `cargo publish`-able: the workspace crates are path dependencies
+# (`../sh2perl`, `../otranspilerl`) and the frontend binaries are built
+# separately (see README "Build & quickstart").  The `[workspace]` table
+# below keeps this a standalone workspace so `cargo build`/`test` here do
+# not pull the parent tree.
 
 [workspace]
 

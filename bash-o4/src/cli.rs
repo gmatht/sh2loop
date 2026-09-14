@@ -292,12 +292,40 @@ fn cmd_check(o: &Options, a1: &str) -> i32 {
             return 1;
         }
     };
-    let verdicts = candidacy::analyze(&prog);
-    let n_cand = verdicts.iter().filter(|v| v.is_candidate()).count();
-    for v in &verdicts {
-        println!("{v}");
+    // Two candidacies exist and they answer different questions, so report
+    // BOTH under distinct labels.  The GLSL/Vulkan one (`sh_loop_*`) is what
+    // `--emit-shader` renders; the CUDA one is what `--gpu` dispatches.  Only
+    // the GLSL half used to be printed, which made `--check` actively
+    // misleading: `squares-map` has no GLSL candidate (scalar accumulate) yet
+    // it offloads fine, and the report said CANDIDATES=0.
+    let gpu = candidacy::analyze(&prog);
+    let g_cand = gpu.iter().filter(|v| v.is_candidate()).count();
+    for v in &gpu {
+        println!("GLSL {v}");
     }
-    println!("CANDIDATES={n_cand} LOOPS={}", verdicts.len());
+    // The CUDA section is byte-identical to python-O4's (same labels, same
+    // analysis), so `--check` means the same thing in every driver.
+    let mut cuda = 0usize;
+    for v in crate::cu_candidacy::analyze(&prog) {
+        if v.is_candidate() {
+            cuda += 1;
+        }
+        println!("MAP {v}");
+    }
+    for v in crate::cu_candidacy::analyze_reduce(&prog) {
+        if matches!(v.verdict, crate::cu_candidacy::CuVerdictKind::Candidate) {
+            cuda += 1;
+        }
+        println!("RED {v}");
+    }
+    for v in crate::cu_candidacy::analyze_seq(&prog) {
+        if matches!(v.verdict, crate::cu_candidacy::CuVerdictKind::Candidate) {
+            cuda += 1;
+        }
+        println!("SEQ {v}");
+    }
+    println!("GLSL_CANDIDATES={g_cand} GLSL_LOOPS={}", gpu.len());
+    println!("CUDA_CANDIDATES={cuda}");
     if o.common.verbose {
         println!(
             "device: {}",

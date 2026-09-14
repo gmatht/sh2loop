@@ -1,4 +1,9 @@
-# bash-O4 changelog
+# `-O4` driver changelog
+
+Covers the whole `-O4` driver family — `bash-O4` and `python-O4` are two front
+ends over one pipeline (`ShIR` → C via tcc, or → PTX via the CUDA candidacy),
+sharing one flag surface (`bash-o4/src/flags.rs`) and one dispatch vehicle
+(`bash_o4::cu_run`).
 
 ## 0.1.1 — 2026-09-14
 
@@ -65,6 +70,19 @@ Per-leg minimum over 3 suite runs of 5 reps, on a shared 8-CPU box.
 - Signed `%` blocking strength reduction (the previous round's identified
   ~2× gap), via the shared maskable analysis + versioning.
 - Loop-invariant bound hoisting (LIC), worth ~4–6× on bound-variable loops.
+
+### Open release decisions (not code)
+
+- **Licensing is undeclared.** `bash-o4` links the `sh2perl` core, whose
+  `LICENSE` states GPL-3 *with an additional Apache-2.0 permission* for named
+  paid-work recipients and their subrecipients. That has no single SPDX id, so
+  `Cargo.toml` deliberately carries no `license`/`license-file` key rather than
+  a wrong one. Decide before publishing (probably `license-file` pointing at a
+  copy of `../sh2perl/LICENSE`).
+- **Not `cargo publish`-able**: `../sh2perl` and `../otranspilerl` are path
+  dependencies and the frontends build separately.
+- **`tcc` is a runtime dependency** for the default (JIT) path, with a loud
+  cc/gcc/clang fallback; it is not vendored.
 
 ### Known limitations
 

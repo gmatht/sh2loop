@@ -818,9 +818,7 @@ fn analyze_seq_init(
 /// for all evens, see Shr docs).
 fn even_guard_var(t: &debashl::cuda_backend::CuTest) -> Option<String> {
     use debashl::cuda_backend::{CuArith as C, CuTest as T};
-    let T::Cmp { op, lhs, rhs } = t else {
-        return None;
-    };
+    let T::Cmp { op, lhs, rhs } = t;
     if op != "==" {
         return None;
     }
@@ -885,9 +883,7 @@ fn shr_even_stmt(s: &mut debashl::cuda_backend::CuSeqStmt, var: &str) {
 /// `>= n>=1`, either side order — guard dominates the body).
 fn guard_nonneg_vars(t: &debashl::cuda_backend::CuTest) -> Vec<String> {
     use debashl::cuda_backend::{CuArith as C, CuTest as T};
-    let T::Cmp { op, lhs, rhs } = t else {
-        return vec![];
-    };
+    let T::Cmp { op, lhs, rhs } = t;
     let lane_ge = |a: &C, b: &C| -> Option<String> {
         match (a, b) {
             (C::Lane(v), C::Num(n)) if (op == ">" && *n >= 0) || (op == ">=" && *n >= 1) => {
@@ -963,9 +959,7 @@ fn and_nonneg_stmt(s: &mut debashl::cuda_backend::CuSeqStmt, var: &str) {
 
 fn and_nonneg_test(t: &mut debashl::cuda_backend::CuTest, var: &str) {
     use debashl::cuda_backend::CuTest as T;
-    let T::Cmp { lhs, rhs, .. } = t else {
-        return;
-    };
+    let T::Cmp { lhs, rhs, .. } = t;
     and_nonneg_expr(lhs, var);
     and_nonneg_expr(rhs, var);
 }
@@ -1360,13 +1354,6 @@ fn acc_init_rule(
                         scan(b, acc, in_skip, true, found);
                     }
                     scan(else_, acc, in_skip, true, found);
-                }
-                IrStmt::ForInit { init, step, body, .. } => {
-                    // init runs once (straight-line); step/body repeat.
-                    scan(init, acc, in_skip, conditional, found);
-                    if writes_acc(step, acc, in_skip) || writes_acc(body, acc, in_skip) {
-                        found.bad = true;
-                    }
                 }
                 _ => {
                     if writes_acc(std::slice::from_ref(s), acc, in_skip) {
@@ -2042,13 +2029,16 @@ fn cu_written(stmts: &[IrStmt]) -> Option<BTreeSet<String>> {
             }
             IrStmt::Expr(e)
             | IrStmt::Output { value: e, .. }
-            | IrStmt::WriteFile { content: e, .. }
             | IrStmt::Return(Some(e))
             | IrStmt::Exit(Some(e))
             | IrStmt::Die { expr: e, .. }
             | IrStmt::Warn { expr: e, .. }
             | IrStmt::SetChildError(e) => wexpr(e, out),
-            IrStmt::WriteFile { path, .. } => wexpr(path, out),
+            // Both operands: the earlier shape bound only `content` in an
+            // arm that nevertheless matched every WriteFile, so a `path`
+            // expression was never scanned for writes (unreachable-pattern
+            // warning was the tell).
+            IrStmt::WriteFile { path, content, .. } => wexpr(path, out) && wexpr(content, out),
             IrStmt::If { cond, then, elsifs, else_, .. } => {
                 wexpr(cond, out)
                     && then.iter().all(|x| wstmt(x, out))
@@ -2107,29 +2097,6 @@ fn cu_written(stmts: &[IrStmt]) -> Option<BTreeSet<String>> {
 /// site or any gate fails — render signed). Gates: lo>=0, boundvar !=
 /// counter, counter/boundvar written only by init/step (cu_writes
 /// discipline over body+step).
-/// Any Var/Ident mention of `name` in a CuArith tree.
-fn mentions_var(e: &debashl::cuda_backend::CuArith, name: &str) -> bool {
-    use debashl::cuda_backend::CuArith as C;
-    match e {
-        // LoopVar is the counter, never the accum (distinct names —
-        // candidacy rejects acc==counter upstream).
-        C::LoopVar | C::Num(_) => false,
-        // ExtVar could alias acc textually — conservative true only on
-        // exact match (over-approx miss, safe).
-        C::ExtVar(n) => n == name,
-        C::Add(a, b) | C::Sub(a, b) | C::Mul(a, b) | C::Div(a, b) | C::Mod(a, b) => {
-            mentions_var(a, name) || mentions_var(b, name)
-        }
-        C::Min(a, b) | C::Max(a, b) | C::And(a, b) => {
-            mentions_var(a, name) || mentions_var(b, name)
-        }
-        C::ArrRead { index, .. } => mentions_var(index, name),
-        // Lane-local (seq prelude): exact-name match (same rule as ExtVar).
-        C::Lane(n) => n == name,
-        C::Shr(a, _) => mentions_var(a, name),
-    }
-}
-
 fn cu_mask_plan_map(
     body: &[IrStmt],
     step: &[IrStmt],

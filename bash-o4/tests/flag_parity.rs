@@ -193,3 +193,53 @@ fn bare_invocation_does_not_opt_into_dispatch() {
         );
     }
 }
+
+/// `--check` is a shared flag, so its *report* must be recognisably the same
+/// report.  The verdict sets legitimately differ per front end (the shell A1
+/// has already been through `fuse-fill-consume`, a raw frontend A1 has not),
+/// so this pins the FORMAT and the section vocabulary: the CUDA lines use the
+/// same `MAP`/`RED`/`SEQ` labels with the same `candidate|veto cu_*` shape in
+/// both drivers, and both count their CUDA candidates under the same name.
+#[test]
+fn check_report_uses_the_same_labels_in_both() {
+    let cases: &[(&str, &str)] = &[
+        ("bash-O4", "../bash-o4/bench/sh/squares-map.sh"),
+        ("python-O4", "../bash-o4/bench/py/squares-map.py"),
+    ];
+    for (driver, prog) in cases {
+        let (code, stdout, stderr) = run(driver, &["--check", prog]);
+        assert_eq!(code, 0, "{driver} --check {prog} failed: {stderr}");
+        let mut seen = std::collections::BTreeSet::new();
+        for line in stdout.lines() {
+            if let Some(rest) = line.split_once(' ').map(|(l, r)| (l, r)) {
+                if ["MAP", "RED", "SEQ"].contains(&rest.0) {
+                    seen.insert(rest.0.to_string());
+                    assert!(
+                        rest.1.starts_with("candidate cu_") || rest.1.starts_with("veto cu_"),
+                        "{driver}: malformed CUDA verdict line {line:?}"
+                    );
+                }
+            }
+        }
+        assert!(
+            !seen.is_empty(),
+            "{driver}: --check printed no CUDA verdicts for {prog}:\n{stdout}"
+        );
+        assert!(
+            stdout.contains("CUDA_CANDIDATES="),
+            "{driver}: --check must report the CUDA candidate count:\n{stdout}"
+        );
+        // The GLSL half is bash-O4's own backend; python-O4 has no GLSL path.
+        if *driver == "bash-O4" {
+            assert!(
+                stdout.contains("GLSL_CANDIDATES="),
+                "bash-O4 --check must distinguish the GLSL count:\n{stdout}"
+            );
+        } else {
+            assert!(
+                !stdout.contains("GLSL "),
+                "python-O4 has no GLSL backend, so it must not claim GLSL verdicts"
+            );
+        }
+    }
+}

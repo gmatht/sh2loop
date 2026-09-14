@@ -142,15 +142,30 @@ fn run(args: &[String]) -> i32 {
     let appends = T::append_to_store::transform(&mut prog_flat.stmts) as usize;
 
     if o.common.check {
+        // Same labels AND the same summary line as bash-O4's CUDA section, so
+        // `--check` reads the same in every driver (pinned by
+        // tests/flag_parity.rs).
+        use bash_o4::cu_candidacy::CuVerdictKind;
+        let mut cuda = 0usize;
         for v in bash_o4::cu_candidacy::analyze(&prog_flat) {
+            if v.is_candidate() {
+                cuda += 1;
+            }
             println!("MAP {v}");
         }
         for v in bash_o4::cu_candidacy::analyze_reduce(&prog_flat) {
+            if matches!(v.verdict, CuVerdictKind::Candidate) {
+                cuda += 1;
+            }
             println!("RED {v}");
         }
         for v in bash_o4::cu_candidacy::analyze_seq(&prog_ir) {
+            if matches!(v.verdict, CuVerdictKind::Candidate) {
+                cuda += 1;
+            }
             println!("SEQ {v}");
         }
+        println!("CUDA_CANDIDATES={cuda}");
         if o.common.verbose {
             eprintln!("python-O4: recovered {loops} counted loop(s), {appends} append(s)");
         }

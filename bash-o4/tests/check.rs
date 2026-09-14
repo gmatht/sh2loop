@@ -34,7 +34,33 @@ fn squares_cfor_is_candidate() {
     assert_eq!(rc, 0);
     assert!(o.contains("candidate sh_loop_main_0"), "{o}");
     assert!(o.contains("trips=1024"), "{o}");
-    assert!(o.contains("CANDIDATES=1 LOOPS=1"), "{o}");
+    // The counts are now namespaced: this program is a GLSL candidate and
+    // NOT a CUDA one (the CUDA candidacy wants a dynamic bound), so assert
+    // both halves explicitly rather than a bare `CANDIDATES=`.
+    assert!(o.contains("GLSL_CANDIDATES=1 GLSL_LOOPS=1"), "{o}");
+    assert!(o.contains("CUDA_CANDIDATES=0"), "{o}");
+}
+
+#[test]
+fn offloadable_shape_reports_a_cuda_candidate() {
+    // Regression: `--check` used to print ONLY the GLSL candidacy and a bare
+    // `CANDIDATES=`, so a program that offloads fine through `--gpu`
+    // reported `CANDIDATES=0` — the flag actively misled.  This is the
+    // bench squares-map shape (fill, then a masked sum), which the shell
+    // path fuses into one reduction candidate.
+    let (o, rc) = check(
+        "#!/bin/bash\nn=$1\nfor ((i=0;i<n;i++)); do a[$i]=$((i*i)); done\n\
+         s=0\nfor ((i=0;i<n;i++)); do s=$(((s + a[i]) & 0xFFFFFFFF)); done\n",
+    );
+    assert_eq!(rc, 0);
+    assert!(
+        o.contains("RED candidate") || o.contains("MAP candidate"),
+        "the CUDA section must show the offloadable candidate:\n{o}"
+    );
+    assert!(
+        !o.contains("CUDA_CANDIDATES=0"),
+        "an offloadable shape must not report zero CUDA candidates:\n{o}"
+    );
 }
 
 #[test]
@@ -42,7 +68,7 @@ fn brace_range_is_candidate() {
     let (o, rc) = check("#!/bin/bash\nfor i in {0..7}; do a[$i]=$((i+1)); done\n");
     assert_eq!(rc, 0);
     assert!(o.contains("candidate sh_loop_main_0"), "{o}");
-    assert!(o.contains("CANDIDATES=1"), "{o}");
+    assert!(o.contains("GLSL_CANDIDATES=1"), "{o}");
 }
 
 #[test]
@@ -50,7 +76,7 @@ fn accumulate_is_scalar_carry_veto() {
     let (o, rc) = check("#!/bin/bash\ns=0\nfor i in {1..10}; do s=$((s+i)); done\n");
     assert_eq!(rc, 0);
     assert!(o.contains("veto") && o.contains("scalar-carry"), "{o}");
-    assert!(o.contains("CANDIDATES=0"), "{o}");
+    assert!(o.contains("GLSL_CANDIDATES=0"), "{o}");
 }
 
 #[test]

@@ -78,11 +78,29 @@ Notes:
 
 ## GPU candidacy (`--check`)
 
+`--check` reports **both** candidacies, labelled, because they answer
+different questions: `GLSL` is what `--emit-shader` renders, `MAP`/`RED`/`SEQ`
+is what `--gpu` dispatches.  The CUDA section is byte-identical to
+python-O4's, so the flag means the same thing in every driver.
+
 ```
-candidate sh_loop_main_0 (main[0]: i in 0..1024 step 1 trips=1024)
-veto sh_loop_main_1 (main[3]: s): scalar-carry
-CANDIDATES=1 LOOPS=2
+GLSL candidate sh_loop_main_0 (main[0]: i in 0..1024 step 1 trips=1024)
+GLSL veto sh_loop_main_1 (main[3]: s): scalar-carry
+MAP  veto cu_loop_main_0 (main[2]: i): scalar-carry
+RED  candidate cu_red_main_0 (main[2]: i in 0..n(<) step 1)
+SEQ  veto cu_red_main_0 (main[2]: i): non-seq-body
+GLSL_CANDIDATES=1 GLSL_LOOPS=2
+CUDA_CANDIDATES=1
 ```
+
+Only the GLSL half used to be printed, and the trailing count was a bare
+`CANDIDATES=`, so `squares-map` — which offloads fine — reported
+`CANDIDATES=0`.  The two counts are now distinct names.
+
+The verdict *sets* legitimately differ per front end: the shell path runs
+`fuse-fill-consume` before candidacy, so a fill+consume pair is one `RED`
+candidate there, while a frontend A1 that has not been through that transform
+still shows the separate `MAP` and `RED` loops (both offload).
 
 The CPU map candidacy accepts counted loops (`for i in {a..b}`,
 `for ((...))`, ranges) whose bodies are independent affine

@@ -12,8 +12,6 @@
 //! python-O4 calls on its candidacy view. This module owns only the
 //! frontend invocation and the cast-stripped i64 candidacy view.
 
-use debashl::ir::{ArithAst, AssignTarget, IrExpr, IrProgram, IrStmt};
-use std::collections::{BTreeMap, BTreeSet};
 
 /// Locate the py-sh-go frontend binary.
 /// Precedence: `$PY_SH_GO` → workspace root's `frontends/py-sh-go/py-sh-go`
@@ -146,6 +144,10 @@ fn strip_casts_json(v: &mut serde_json::Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Used only here: the non-test build has no need for the IR types, so
+    // importing them at module scope made the library build warn.
+    use debashl::ir::{ArithAst, AssignTarget, IrExpr, IrProgram, IrStmt};
+    use std::collections::{BTreeMap, BTreeSet};
     use debashl::shir_json_in::shir_json_to_ir;
     use debashl::transforms as T;
 
