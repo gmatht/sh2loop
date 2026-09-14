@@ -11,6 +11,8 @@
 #             growable vecs since the array-cap fix)
 #   gpu     — gpuleg dispatch (FUSED squares-map map+reduce and M5-preview
 #             block templates for reductions) + host finish
+#   cuda    — cudabench dispatch (PTX block templates via cudaffi) + host
+#             finish; SKIPPED with a note when no CUDA device is present
 #
 # Agreement gate: every RUNNING leg's checksum must byte-agree (exit codes
 # too). Speedups are vs gcc-O3 (no bash baseline here by design).
@@ -23,6 +25,7 @@ BENCH="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$BENCH/../.." && pwd)"
 BO4="$ROOT/bash-o4/target/debug/bash-O4"
 GPULEG="$ROOT/bash-o4/target/debug/examples/gpuleg"
+CUDABENCH="$ROOT/bash-o4/target/debug/examples/cudabench"
 export BASH_O4_SH2PERL="$ROOT/sh2perl"
 RUNTIME="$ROOT/sh2perl/runtime"
 RUNS="${RUNS:-3}"
@@ -45,6 +48,9 @@ if [ ! -x "$BO4" ]; then
 fi
 if [ ! -x "$GPULEG" ]; then
   (cd "$ROOT/bash-o4" && cargo build --example gpuleg) >&2 || exit 1
+fi
+if [ ! -x "$CUDABENCH" ]; then
+  (cd "$ROOT/bash-o4" && cargo build --example cudabench) >&2 || exit 1
 fi
 command -v gcc >/dev/null || { echo "need gcc" >&2; exit 1; }
 
@@ -126,7 +132,21 @@ for p in $PROBLEMS; do
   gpu_line=$(timeout "$TIMEOUT" "$GPULEG" "$gprob" "$n" --runs 1 2>"$TMP/$p-gpu.err") || { cat "$TMP/$p-gpu.err" >&2; fail "gpu $p"; }
   gpu_ms=$(echo "$gpu_line" | awk '{print $1}'); gpu_sum=$(echo "$gpu_line" | awk '{print $2}')
   echo "$gpu_sum" > "$TMP/ref-gpu.out"; r_gpu=0
+  # ---- cuda leg (SKIP when no CUDA device: exit 2 + SKIP message) ----
+  cuda_skip=""
+  cuda_line=$(timeout "$TIMEOUT" "$CUDABENCH" "$gprob" "$n" --runs 1 2>"$TMP/$p-cuda.err")
+  cuda_rc=$?
+  if [ "$cuda_rc" -eq 2 ]; then
+    cuda_skip="$(cat "$TMP/$p-cuda.err" 2>/dev/null | head -n 1)"
+    echo "  $p: cuda skipped ($cuda_skip)" >&2
+  elif [ "$cuda_rc" -ne 0 ]; then
+    cat "$TMP/$p-cuda.err" >&2; fail "cuda $p"
+  fi
   hand_sum=$(cat "$TMP/ref-hand.out")
+  if [ -z "$cuda_skip" ] && [ "$cuda_rc" -eq 0 ]; then
+    cuda_sum=$(echo "$cuda_line" | awk '{print $2}')
+    [ "$cuda_sum" = "$hand_sum" ] || fail "$p: cuda checksum $cuda_sum != gcc $hand_sum"
+  fi
   [ "$gpu_sum" = "$hand_sum" ] || fail "$p: gpu checksum $gpu_sum != gcc $hand_sum"
   if [ -z "$bo4skip" ]; then
     bgcc_sum=$(cat "$TMP/ref-gcc.out")
@@ -143,6 +163,10 @@ for p in $PROBLEMS; do
   if [ -z "$bo4skip" ]; then ns_bgcc=$(t_ns "$RUNS" "$TMP/$p-gcc" "$n") || fail "timing bo4 $p"; fi
   gpu_line=$(timeout "$TIMEOUT" "$GPULEG" "$gprob" "$n" --runs "$RUNS" 2>/dev/null) || fail "timing gpu $p"
   ns_gpu=$(awk -v m="$(echo "$gpu_line" | awk '{print $1}')" 'BEGIN {printf "%d", m*1e6}')
+  if [ -z "$cuda_skip" ]; then
+    cuda_line=$(timeout "$TIMEOUT" "$CUDABENCH" "$gprob" "$n" --runs "$RUNS" 2>/dev/null) || fail "timing cuda $p"
+    ns_cuda=$(awk -v m="$(echo "$cuda_line" | awk '{print $1}')" 'BEGIN {printf "%d", m*1e6}')
+  fi
 
   v_hand=$(vec_report "$cref")
   if [ -z "$bo4skip" ]; then v_gen=$(vec_report "$TMP/$p-gen.c"); else v_gen="-"; fi
@@ -158,4 +182,5 @@ for p in $PROBLEMS; do
   row gcc-O3 "$ns_hand" "$v_hand"
   if [ -z "$bo4skip" ]; then row bo4-gcc "$ns_bgcc" "$v_gen"; else printf '%-12s %11s %-8s %12s %12s %10s %4s %s\n' "$p" "$n" "bo4-gcc" "SKIP" "-" "-" "-" "($bo4skip)" >&2; echo "  $p: bo4-gcc skipped ($bo4skip)" >&2; fi
   row gpu "$ns_gpu" "-"
+  if [ -z "$cuda_skip" ]; then row cuda "$ns_cuda" "-"; else echo "  $p: cuda skipped ($cuda_skip)" >&2; fi
 done

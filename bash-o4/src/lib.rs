@@ -11,6 +11,7 @@
 pub mod cache;
 pub mod candidacy;
 pub mod cli;
+pub mod cudaffi;
 pub mod fetch;
 pub mod pipeline;
 pub mod shader;

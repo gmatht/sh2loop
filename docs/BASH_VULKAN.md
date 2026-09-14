@@ -273,7 +273,12 @@ for the backend: (1) unversioned `cuMemAlloc` resolves to a stub —
 use explicit `_v2` symbols everywhere; (2) the PTX parser rejects
 multi-line entry headers (keep `.visible .entry f(...)` single-line)
 and user regs shadowing specials (`%tid` vs `%tid.x` — rename).
-Follow-up (scoped, not started): a CUDA backend (PTX emitter +
-`cuffi` mirroring `vkffi`) would put the 2070 behind every bench
-reduction at ~10–50×; lavapipe numbers throughout this doc are the
-floor, not the ceiling.
+Follow-up BUILT (same session): `bash-o4/src/cudaffi.rs` (driver-API,
+runtime-loaded, no link dep) + `bash-o4/examples/cudabench.rs` (PTX
+block templates mirroring the GLSL legs) + a `cuda` leg in bench-opt.sh
+(clean SKIP when absent). Measured on the 2070S (all checksums agree
+with gcc-O3): sumred-1B 4 ms (**174×**), squares-map-100M 1 ms
+(**223×**), collatz-18M 14 ms (**75×**). lavapipe numbers elsewhere in
+this doc are the floor, not the ceiling — and the ceiling is now
+measured. A full PTX *emitter* (vs hand templates) remains future work;
+so does multi-GPU selection (device 0 only).
