@@ -19,7 +19,10 @@ fn emit_squares_glsl() {
     let glsl = shader::emit_shader(&prog, "sh_loop_main_0").expect("emit");
     assert!(glsl.contains("#version 450"), "{glsl}");
     assert!(glsl.contains("gl_GlobalInvocationID"), "{glsl}");
-    assert!(glsl.contains("data_a[uint(t)] = (i_ * i_);"), "{glsl}");
+    // trips=1024 tiles exactly: loop-form unroll, four lanes per call.
+    assert!(glsl.contains("uint64_t base = t * 4u;"), "{glsl}");
+    assert!(glsl.contains("for (uint k = 0u; k < 4u; k++)"), "{glsl}");
+    assert!(glsl.contains("data_a[uint(idx)] = (i_ * i_);"), "{glsl}");
     // Vetoed loops never emit (refuse > guess).
     assert!(shader::emit_shader(&prog, "sh_loop_main_7").is_err());
 }
@@ -49,5 +52,5 @@ fn extern_const_flows_to_in_data() {
     let prog = pipeline::parse_program(&a1).expect("ingress");
     let glsl = shader::emit_shader(&prog, "sh_loop_main_0").expect("emit");
     assert!(glsl.contains("//   in_data[0] = k"), "{glsl}");
-    assert!(glsl.contains("data_a[uint(t)] = (i_ * in_data[0]);"), "{glsl}");
+    assert!(glsl.contains("data_a[uint(idx)] = (i_ * in_data[0]);"), "{glsl}");
 }

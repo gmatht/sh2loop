@@ -31,6 +31,8 @@ fn squares_spec() -> VkLoopSpec {
         hi_inclusive: false,
         step: 1,
         trips: 1024,
+        local_size_x: 256,
+        unroll: 1,
         externs: vec![],
         stores: vec![VkStore {
             array: "a".into(),
@@ -50,6 +52,8 @@ fn scaled_spec() -> VkLoopSpec {
         hi_inclusive: false,
         step: 1,
         trips: 256,
+        local_size_x: 256,
+        unroll: 1,
         externs: vec!["k".into()],
         stores: vec![VkStore {
             array: "b".into(),
@@ -86,19 +90,65 @@ fn dispatch_proof_on_device() {
     // Case 1: out[i] = i*i over 1024 lanes (4 workgroups of 256).
     let glsl = debashl::vulkan_backend::shir_to_vk_compute(&squares_spec());
     let spv = shader::compile_spv(&cc, &glsl, &root).expect("spv squares");
-    let out = runner.run(&spv, &[], 1024, 4).expect("dispatch squares");
-    assert_eq!(out.len(), 1024);
-    for (i, v) in out.iter().enumerate() {
+    let out = runner.run(&spv, None, &[1024], 4).expect("dispatch squares");
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0].len(), 1024);
+    for (i, v) in out[0].iter().enumerate() {
         assert_eq!(*v, (i as i64) * (i as i64), "lane {i}");
     }
 
     // Case 2: host-provided extern (in_data[0] = k = 7).
     let glsl = debashl::vulkan_backend::shir_to_vk_compute(&scaled_spec());
     let spv = shader::compile_spv(&cc, &glsl, &root).expect("spv scaled");
-    let out = runner.run(&spv, &[7], 256, 1).expect("dispatch scaled");
-    assert_eq!(out.len(), 256);
-    for (i, v) in out.iter().enumerate() {
+    let out = runner.run(&spv, Some(&[7]), &[256], 1).expect("dispatch scaled");
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0].len(), 256);
+    for (i, v) in out[0].iter().enumerate() {
         assert_eq!(*v, (i as i64) * 7, "lane {i}");
+    }
+
+    // Case 3: two output arrays in one dispatch (shared pipeline/descriptors).
+    let multi = debashl::vulkan_backend::VkLoopSpec {
+        id: "sh_loop_main_2".into(),
+        var: "i".into(),
+        lo: 0,
+        hi: 64,
+        hi_inclusive: false,
+        step: 1,
+        trips: 64,
+        local_size_x: 256,
+        unroll: 4,
+        externs: vec![],
+        stores: vec![
+            debashl::vulkan_backend::VkStore {
+                array: "a".into(),
+                index_a: 1,
+                index_b: 0,
+                value: debashl::vulkan_backend::VkArith::Mul(
+                    Box::new(debashl::vulkan_backend::VkArith::LoopVar),
+                    Box::new(debashl::vulkan_backend::VkArith::LoopVar),
+                ),
+            },
+            debashl::vulkan_backend::VkStore {
+                array: "b".into(),
+                index_a: 1,
+                index_b: 0,
+                value: debashl::vulkan_backend::VkArith::Add(
+                    Box::new(debashl::vulkan_backend::VkArith::LoopVar),
+                    Box::new(debashl::vulkan_backend::VkArith::Num(1)),
+                ),
+            },
+        ],
+    };
+    let glsl = debashl::vulkan_backend::shir_to_vk_compute(&multi);
+    let spv = shader::compile_spv(&cc, &glsl, &root).expect("spv multi");
+    let out = runner.run(&spv, None, &[64, 64], 1).expect("dispatch multi");
+    assert_eq!(out.len(), 2);
+    for (i, v) in out[0].iter().enumerate() {
+        assert_eq!(*v, (i as i64) * (i as i64), "a lane {i}");
+    }
+    for (i, v) in out[1].iter().enumerate() {
+        assert_eq!(*v, (i as i64) + 1, "b lane {i}");
     }
 
     let _ = std::fs::remove_dir_all(&root);

@@ -521,6 +521,23 @@ pub struct ComputeRunner {
     family: u32,
     mem_props: VkMemoryProps,
     dev_fns: DevFns,
+    pipe_cache: std::cell::RefCell<Option<CachedPipe>>,
+}
+
+/// One cached pipeline set: everything the driver COMPILES (module +
+/// layouts + pipeline + pool + set + command pool/buffer). Per-dispatch
+/// work stays buffers + descriptor writes + re-record + submit.
+struct CachedPipe {
+    hash: u64,
+    n_bindings: u32,
+    module: VkShaderModule,
+    set_layout: VkDescriptorSetLayout,
+    pipe_layout: VkPipelineLayout,
+    pipeline: VkPipeline,
+    pool: VkDescriptorPool,
+    set: VkDescriptorSet,
+    cmd_pool: VkCommandPool,
+    cmd: VkCommandBuffer,
 }
 
 #[derive(Clone, Copy)]
@@ -564,6 +581,7 @@ struct DevFns {
         unsafe extern "C" fn(VkCommandBuffer, u32, VkPipelineLayout, u32, u32, *const VkDescriptorSet, u32, *const u32) -> (),
     cmd_dispatch: unsafe extern "C" fn(VkCommandBuffer, u32, u32, u32) -> (),
     end_command_buffer: unsafe extern "C" fn(VkCommandBuffer) -> VkResult,
+    reset_command_buffer: unsafe extern "C" fn(VkCommandBuffer, u32) -> VkResult,
     create_fence: unsafe extern "C" fn(VkDevice, *const VkFenceCreateInfo, *const c_void, *mut VkFence) -> VkResult,
     destroy_fence: unsafe extern "C" fn(VkDevice, VkFence, *const c_void) -> (),
     queue_submit: unsafe extern "C" fn(VkQueue, u32, *const VkSubmitInfo, VkFence) -> VkResult,
@@ -654,6 +672,7 @@ impl ComputeRunner {
             cmd_bind_descriptor_sets: d!("vkCmdBindDescriptorSets"),
             cmd_dispatch: d!("vkCmdDispatch"),
             end_command_buffer: d!("vkEndCommandBuffer"),
+            reset_command_buffer: d!("vkResetCommandBuffer"),
             create_fence: d!("vkCreateFence"),
             destroy_fence: d!("vkDestroyFence"),
             queue_submit: d!("vkQueueSubmit"),
@@ -661,7 +680,7 @@ impl ComputeRunner {
             get_device_queue: d!("vkGetDeviceQueue"),
             destroy_device: d!("vkDestroyDevice"),
         };
-        Ok(ComputeRunner { vk, inst, dev, queue, family, mem_props, dev_fns })
+        Ok(ComputeRunner { vk, inst, dev, queue, family, mem_props, dev_fns, pipe_cache: std::cell::RefCell::new(None) })
     }
 
     fn mem_type(&self, bits: u32) -> Result<u32, String> {
@@ -735,157 +754,253 @@ impl ComputeRunner {
         Ok(out)
     }
 
-    /// Dispatch `spv` (a compute shader over binding0=in, binding1=out)
-    /// in `groups` workgroups; returns `out_len` int64s.
-    pub fn run(&self, spv: &[u8], in_data: &[i64], out_len: usize, groups: u32) -> Result<Vec<i64>, String> {
+    /// FNV-1a 64 over SPIR-V bytes: pipeline-cache key (no new deps).
+    fn spv_hash(spv: &[u8]) -> u64 {
+        let mut h: u64 = 0xcbf29ce484222325;
+        for b in spv {
+            h ^= *b as u64;
+            h = h.wrapping_mul(0x100000001b3);
+        }
+        h
+    }
+
+    /// Ensure cached pipeline objects for this shader+layout. The driver
+    /// COMPILE happens here, once per distinct (SPIR-V, binding count);
+    /// a different shader evicts (destroys) the previous entry (v1
+    /// single-entry limit — repeated alternating shapes recompile; the
+    /// future host split sizes this per hot loop).
+    fn ensure_pipe(&self, spv: &[u8], n_bindings: u32) -> Result<(), String> {
+        let hash = Self::spv_hash(spv);
+        if let Some(c) = self.pipe_cache.borrow().as_ref() {
+            if c.hash == hash && c.n_bindings == n_bindings {
+                return Ok(());
+            }
+        }
+        self.evict_pipe();
+        let f = &self.dev_fns;
+        let mut bindings = Vec::with_capacity(n_bindings as usize);
+        for b in 0..n_bindings {
+            bindings.push(VkSetLayoutBinding {
+                binding: b,
+                descriptor_type: DESC_STORAGE_BUFFER,
+                descriptor_count: 1,
+                stage_flags: STAGE_COMPUTE,
+                p_immutable_samplers: ptr::null(),
+            });
+        }
+        let slci = VkSetLayoutCreateInfo {
+            s_type: STYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+            p_next: ptr::null(),
+            flags: 0,
+            binding_count: n_bindings,
+            p_bindings: bindings.as_ptr(),
+        };
+        let mut set_layout: VkDescriptorSetLayout = 0;
+        vk_ok("set-layout", unsafe {
+            (f.create_descriptor_set_layout)(self.dev, &slci, ptr::null(), &mut set_layout)
+        })?;
+        let plci = VkPipelineLayoutCreateInfo {
+            s_type: STYPE_PIPELINE_LAYOUT_CREATE_INFO,
+            p_next: ptr::null(),
+            flags: 0,
+            set_layout_count: 1,
+            p_set_layouts: &set_layout,
+            push_constant_range_count: 0,
+            p_push_constant_ranges: ptr::null(),
+        };
+        let mut pipe_layout: VkPipelineLayout = 0;
+        vk_ok("pipe-layout", unsafe {
+            (f.create_pipeline_layout)(self.dev, &plci, ptr::null(), &mut pipe_layout)
+        })?;
+        let main = CString::new("main").unwrap();
+        let smci = VkShaderModuleCreateInfo {
+            s_type: STYPE_SHADER_MODULE_CREATE_INFO,
+            p_next: ptr::null(),
+            flags: 0,
+            code_size: spv.len(),
+            p_code: spv.as_ptr() as *const u32,
+        };
+        let mut module: VkShaderModule = 0;
+        vk_ok("shader-module", unsafe {
+            (f.create_shader_module)(self.dev, &smci, ptr::null(), &mut module)
+        })?;
+        let stage = VkShaderStageInfo {
+            s_type: 18, // VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO (vulkan_core.h)
+            p_next: ptr::null(),
+            flags: 0,
+            stage: STAGE_COMPUTE,
+            module,
+            p_name: main.as_ptr(),
+            p_specialization_info: ptr::null(),
+        };
+        let pci = VkComputePipelineCreateInfo {
+            s_type: STYPE_COMPUTE_PIPELINE_CREATE_INFO,
+            p_next: ptr::null(),
+            flags: 0,
+            stage,
+            layout: pipe_layout,
+            base_handle: 0,
+            base_index: -1,
+        };
+        let mut pipeline: VkPipeline = 0;
+        vk_ok("compute-pipeline", unsafe {
+            (f.create_compute_pipelines)(self.dev, 0, 1, &pci, ptr::null(), &mut pipeline)
+        })?;
+        let pool_size = VkPoolSize { ty: DESC_STORAGE_BUFFER, count: n_bindings };
+        let poolci = VkPoolCreateInfo {
+            s_type: STYPE_DESCRIPTOR_POOL_CREATE_INFO,
+            p_next: ptr::null(),
+            flags: 0,
+            max_sets: 1,
+            pool_size_count: 1,
+            p_pool_sizes: &pool_size,
+        };
+        let mut pool: VkDescriptorPool = 0;
+        vk_ok("desc-pool", unsafe {
+            (f.create_descriptor_pool)(self.dev, &poolci, ptr::null(), &mut pool)
+        })?;
+        let alloc = VkSetAllocInfo {
+            s_type: STYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            p_next: ptr::null(),
+            pool,
+            set_count: 1,
+            p_set_layouts: &set_layout,
+        };
+        let mut set: VkDescriptorSet = 0;
+        vk_ok("alloc-set", unsafe {
+            (f.allocate_descriptor_sets)(self.dev, &alloc, &mut set)
+        })?;
+        let cpci = VkCmdPoolCreateInfo {
+            s_type: STYPE_COMMAND_POOL_CREATE_INFO,
+            p_next: ptr::null(),
+            flags: 0,
+            queue_family_index: self.queue_family(),
+        };
+        let mut cmd_pool: VkCommandPool = 0;
+        vk_ok("cmd-pool", unsafe {
+            (f.create_command_pool)(self.dev, &cpci, ptr::null(), &mut cmd_pool)
+        })?;
+        let cai = VkCmdAllocInfo {
+            s_type: STYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            p_next: ptr::null(),
+            pool: cmd_pool,
+            level: CMD_LEVEL_PRIMARY,
+            count: 1,
+        };
+        let mut cmd: VkCommandBuffer = ptr::null_mut();
+        vk_ok("alloc-cmd", unsafe {
+            (f.allocate_command_buffers)(self.dev, &cai, &mut cmd)
+        })?;
+        *self.pipe_cache.borrow_mut() = Some(CachedPipe {
+            hash,
+            n_bindings,
+            module,
+            set_layout,
+            pipe_layout,
+            pipeline,
+            pool,
+            set,
+            cmd_pool,
+            cmd,
+        });
+        Ok(())
+    }
+
+    /// Destroy the cached entry, if any (eviction + Drop).
+    fn evict_pipe(&self) {
+        let f = &self.dev_fns;
+        if let Some(c) = self.pipe_cache.borrow_mut().take() {
+            unsafe { (f.destroy_command_pool)(self.dev, c.cmd_pool, ptr::null()) };
+            unsafe { (f.destroy_descriptor_pool)(self.dev, c.pool, ptr::null()) };
+            unsafe { (f.destroy_pipeline)(self.dev, c.pipeline, ptr::null()) };
+            unsafe { (f.destroy_shader_module)(self.dev, c.module, ptr::null()) };
+            unsafe { (f.destroy_pipeline_layout)(self.dev, c.pipe_layout, ptr::null()) };
+            unsafe { (f.destroy_descriptor_set_layout)(self.dev, c.set_layout, ptr::null()) };
+        }
+    }
+
+    /// Dispatch `spv` in `groups` workgroups.
+    ///
+    /// Buffer contract (shared with the emitter): binding 0 is `in_data`
+    /// IFF `in_data` is `Some` (externs present); output arrays follow in
+    /// `out_lens` order from binding `in_data.is_some() as u32`. Returns
+    /// one `Vec<i64>` per output. Buffers are per-call (sizes vary);
+    /// pipeline objects come from the cache.
+    pub fn run(
+        &self,
+        spv: &[u8],
+        in_data: Option<&[i64]>,
+        out_lens: &[usize],
+        groups: u32,
+    ) -> Result<Vec<Vec<i64>>, String> {
         if spv.len() % 4 != 0 {
             return Err("SPIR-V length not a multiple of 4".to_string());
         }
+        if out_lens.is_empty() {
+            return Err("no output arrays".to_string());
+        }
+        if groups == 0 {
+            return Err("zero workgroups (trips must be > 0)".to_string());
+        }
         let f = &self.dev_fns;
-        let in_bytes = ((in_data.len().max(1)) * 8) as u64;
-        let out_bytes = (out_len.max(1) * 8) as u64;
-        let (in_buf, in_mem) = self.make_buffer(in_bytes)?;
-        let (out_buf, out_mem) = self.make_buffer(out_bytes)?;
-        let result = (|| {
-            self.write_mem(in_mem, &{
-                let mut v = in_data.to_vec();
+        let n_bindings = out_lens.len() as u32 + if in_data.is_some() { 1 } else { 0 };
+        self.ensure_pipe(spv, n_bindings)?;
+        // Per-call buffers: [in?] + outs.
+        let mut bufs: Vec<(VkBuffer, VkDeviceMemory)> = Vec::new();
+        let mut infos: Vec<VkDescriptorBufferInfo> = Vec::new();
+        if let Some(data) = in_data {
+            let bytes = ((data.len().max(1)) * 8) as u64;
+            let (b, m) = self.make_buffer(bytes)?;
+            bufs.push((b, m));
+            self.write_mem(m, &{
+                let mut v = data.to_vec();
                 if v.is_empty() {
                     v.push(0);
                 }
                 v
             })?;
-            self.write_mem(out_mem, &vec![0i64; out_len.max(1)])?;
-            // Descriptor set layout: two storage buffers, compute stage.
-            let bindings = [
-                VkSetLayoutBinding { binding: 0, descriptor_type: DESC_STORAGE_BUFFER, descriptor_count: 1, stage_flags: STAGE_COMPUTE, p_immutable_samplers: ptr::null() },
-                VkSetLayoutBinding { binding: 1, descriptor_type: DESC_STORAGE_BUFFER, descriptor_count: 1, stage_flags: STAGE_COMPUTE, p_immutable_samplers: ptr::null() },
-            ];
-            let slci = VkSetLayoutCreateInfo {
-                s_type: STYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-                p_next: ptr::null(),
-                flags: 0,
-                binding_count: 2,
-                p_bindings: bindings.as_ptr(),
-            };
-            let mut set_layout: VkDescriptorSetLayout = 0;
-            vk_ok("set-layout", unsafe {
-                (f.create_descriptor_set_layout)(self.dev, &slci, ptr::null(), &mut set_layout)
-            })?;
-            let plci = VkPipelineLayoutCreateInfo {
-                s_type: STYPE_PIPELINE_LAYOUT_CREATE_INFO,
-                p_next: ptr::null(),
-                flags: 0,
-                set_layout_count: 1,
-                p_set_layouts: &set_layout,
-                push_constant_range_count: 0,
-                p_push_constant_ranges: ptr::null(),
-            };
-            let mut pipe_layout: VkPipelineLayout = 0;
-            vk_ok("pipe-layout", unsafe {
-                (f.create_pipeline_layout)(self.dev, &plci, ptr::null(), &mut pipe_layout)
-            })?;
-            let main = CString::new("main").unwrap();
-            let smci = VkShaderModuleCreateInfo {
-                s_type: STYPE_SHADER_MODULE_CREATE_INFO,
-                p_next: ptr::null(),
-                flags: 0,
-                code_size: spv.len(),
-                p_code: spv.as_ptr() as *const u32,
-            };
-            let mut module: VkShaderModule = 0;
-            vk_ok("shader-module", unsafe {
-                (f.create_shader_module)(self.dev, &smci, ptr::null(), &mut module)
-            })?;
-            let stage = VkShaderStageInfo {
-                s_type: 18, // VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO (vulkan_core.h)
-                p_next: ptr::null(),
-                flags: 0,
-                stage: STAGE_COMPUTE,
-                module,
-                p_name: main.as_ptr(),
-                p_specialization_info: ptr::null(),
-            };
-            let pci = VkComputePipelineCreateInfo {
-                s_type: STYPE_COMPUTE_PIPELINE_CREATE_INFO,
-                p_next: ptr::null(),
-                flags: 0,
-                stage,
-                layout: pipe_layout,
-                base_handle: 0,
-                base_index: -1,
-            };
-            let mut pipeline: VkPipeline = 0;
-            vk_ok("compute-pipeline", unsafe {
-                (f.create_compute_pipelines)(self.dev, 0, 1, &pci, ptr::null(), &mut pipeline)
-            })?;
-            let pool_size = VkPoolSize { ty: DESC_STORAGE_BUFFER, count: 2 };
-            let poolci = VkPoolCreateInfo {
-                s_type: STYPE_DESCRIPTOR_POOL_CREATE_INFO,
-                p_next: ptr::null(),
-                flags: 0,
-                max_sets: 1,
-                pool_size_count: 1,
-                p_pool_sizes: &pool_size,
-            };
-            let mut pool: VkDescriptorPool = 0;
-            vk_ok("desc-pool", unsafe {
-                (f.create_descriptor_pool)(self.dev, &poolci, ptr::null(), &mut pool)
-            })?;
-            let alloc = VkSetAllocInfo {
-                s_type: STYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-                p_next: ptr::null(),
-                pool,
-                set_count: 1,
-                p_set_layouts: &set_layout,
-            };
-            let mut set: VkDescriptorSet = 0;
-            vk_ok("alloc-set", unsafe {
-                (f.allocate_descriptor_sets)(self.dev, &alloc, &mut set)
-            })?;
-            let infos = [
-                VkDescriptorBufferInfo { buffer: in_buf, offset: 0, range: in_bytes },
-                VkDescriptorBufferInfo { buffer: out_buf, offset: 0, range: out_bytes },
-            ];
-            let writes = [
-                VkWriteSet { s_type: STYPE_WRITE_DESCRIPTOR_SET, p_next: ptr::null(), dst_set: set, dst_binding: 0, dst_array_element: 0, descriptor_count: 1, descriptor_type: DESC_STORAGE_BUFFER, p_image_info: ptr::null(), p_buffer_info: &infos[0], p_texel_view: ptr::null() },
-                VkWriteSet { s_type: STYPE_WRITE_DESCRIPTOR_SET, p_next: ptr::null(), dst_set: set, dst_binding: 1, dst_array_element: 0, descriptor_count: 1, descriptor_type: DESC_STORAGE_BUFFER, p_image_info: ptr::null(), p_buffer_info: &infos[1], p_texel_view: ptr::null() },
-            ];
-            unsafe { (f.update_descriptor_sets)(self.dev, 2, writes.as_ptr(), 0, ptr::null()) };
-            // Command buffer: bind + dispatch.
-            let cpci = VkCmdPoolCreateInfo {
-                s_type: STYPE_COMMAND_POOL_CREATE_INFO,
-                p_next: ptr::null(),
-                flags: 0,
-                queue_family_index: self.queue_family(),
-            };
-            let mut cmd_pool: VkCommandPool = 0;
-            vk_ok("cmd-pool", unsafe {
-                (f.create_command_pool)(self.dev, &cpci, ptr::null(), &mut cmd_pool)
-            })?;
-            let cai = VkCmdAllocInfo {
-                s_type: STYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-                p_next: ptr::null(),
-                pool: cmd_pool,
-                level: CMD_LEVEL_PRIMARY,
-                count: 1,
-            };
-            let mut cmd: VkCommandBuffer = ptr::null_mut();
-            vk_ok("alloc-cmd", unsafe {
-                (f.allocate_command_buffers)(self.dev, &cai, &mut cmd)
-            })?;
+            infos.push(VkDescriptorBufferInfo { buffer: b, offset: 0, range: bytes });
+        }
+        for &len in out_lens {
+            let bytes = (len.max(1) * 8) as u64;
+            let (b, m) = self.make_buffer(bytes)?;
+            bufs.push((b, m));
+            self.write_mem(m, &vec![0i64; len.max(1)])?;
+            infos.push(VkDescriptorBufferInfo { buffer: b, offset: 0, range: bytes });
+        }
+        let result = (|| {
+            let cache = self.pipe_cache.borrow();
+            let c = cache.as_ref().ok_or("pipeline cache empty")?;
+            let mut writes: Vec<VkWriteSet> = Vec::with_capacity(infos.len());
+            for (i, info) in infos.iter().enumerate() {
+                writes.push(VkWriteSet {
+                    s_type: STYPE_WRITE_DESCRIPTOR_SET,
+                    p_next: ptr::null(),
+                    dst_set: c.set,
+                    dst_binding: i as u32,
+                    dst_array_element: 0,
+                    descriptor_count: 1,
+                    descriptor_type: DESC_STORAGE_BUFFER,
+                    p_image_info: ptr::null(),
+                    p_buffer_info: info as *const VkDescriptorBufferInfo,
+                    p_texel_view: ptr::null(),
+                });
+            }
+            unsafe { (f.update_descriptor_sets)(self.dev, writes.len() as u32, writes.as_ptr(), 0, ptr::null()) };
+            vk_ok("reset-cmd", unsafe { (f.reset_command_buffer)(c.cmd, 0) })?;
             let bi = VkCmdBeginInfo {
                 s_type: STYPE_COMMAND_BUFFER_BEGIN_INFO,
                 p_next: ptr::null(),
                 flags: 1, // ONE_TIME_SUBMIT
                 p_inheritance_info: ptr::null(),
             };
-            vk_ok("begin-cmd", unsafe { (f.begin_command_buffer)(cmd, &bi) })?;
-            unsafe { (f.cmd_bind_pipeline)(cmd, BIND_COMPUTE, pipeline) };
+            vk_ok("begin-cmd", unsafe { (f.begin_command_buffer)(c.cmd, &bi) })?;
+            unsafe { (f.cmd_bind_pipeline)(c.cmd, BIND_COMPUTE, c.pipeline) };
             unsafe {
-                (f.cmd_bind_descriptor_sets)(cmd, BIND_COMPUTE, pipe_layout, 0, 1, &set, 0, ptr::null())
+                (f.cmd_bind_descriptor_sets)(c.cmd, BIND_COMPUTE, c.pipe_layout, 0, 1, &c.set, 0, ptr::null())
             };
-            unsafe { (f.cmd_dispatch)(cmd, groups, 1, 1) };
-            vk_ok("end-cmd", unsafe { (f.end_command_buffer)(cmd) })?;
+            unsafe { (f.cmd_dispatch)(c.cmd, groups, 1, 1) };
+            vk_ok("end-cmd", unsafe { (f.end_command_buffer)(c.cmd) })?;
             let fci = VkFenceCreateInfo { s_type: STYPE_FENCE_CREATE_INFO, p_next: ptr::null(), flags: 0 };
             let mut fence: VkFence = 0;
             vk_ok("fence", unsafe { (f.create_fence)(self.dev, &fci, ptr::null(), &mut fence) })?;
@@ -896,7 +1011,7 @@ impl ComputeRunner {
                 p_wait_sems: ptr::null(),
                 p_wait_masks: ptr::null(),
                 cmd_count: 1,
-                p_cmds: &cmd,
+                p_cmds: &c.cmd,
                 signal_count: 0,
                 p_signal_sems: ptr::null(),
             };
@@ -905,20 +1020,23 @@ impl ComputeRunner {
             vk_ok("wait-fence", unsafe {
                 (f.wait_for_fences)(self.dev, 1, &fence, 1, 30_000_000_000)
             })?;
-            let out = self.read_mem(out_mem, out_len.max(1))?;
             unsafe { (f.destroy_fence)(self.dev, fence, ptr::null()) };
-            unsafe { (f.destroy_command_pool)(self.dev, cmd_pool, ptr::null()) };
-            unsafe { (f.destroy_descriptor_pool)(self.dev, pool, ptr::null()) };
-            unsafe { (f.destroy_pipeline)(self.dev, pipeline, ptr::null()) };
-            unsafe { (f.destroy_shader_module)(self.dev, module, ptr::null()) };
-            unsafe { (f.destroy_pipeline_layout)(self.dev, pipe_layout, ptr::null()) };
-            unsafe { (f.destroy_descriptor_set_layout)(self.dev, set_layout, ptr::null()) };
-            Ok(out)
+            drop(cache);
+            let mut outs = Vec::with_capacity(out_lens.len());
+            for (i, &len) in out_lens.iter().enumerate() {
+                if len == 0 {
+                    outs.push(Vec::new());
+                    continue;
+                }
+                let idx = i + if in_data.is_some() { 1 } else { 0 };
+                outs.push(self.read_mem(bufs[idx].1, len)?);
+            }
+            Ok(outs)
         })();
-        unsafe { (f.destroy_buffer)(self.dev, in_buf, ptr::null()) };
-        unsafe { (f.free_memory)(self.dev, in_mem, ptr::null()) };
-        unsafe { (f.destroy_buffer)(self.dev, out_buf, ptr::null()) };
-        unsafe { (f.free_memory)(self.dev, out_mem, ptr::null()) };
+        for (b, m) in bufs {
+            unsafe { (f.destroy_buffer)(self.dev, b, ptr::null()) };
+            unsafe { (f.free_memory)(self.dev, m, ptr::null()) };
+        }
         result
     }
 
@@ -929,6 +1047,7 @@ impl ComputeRunner {
 
 impl Drop for ComputeRunner {
     fn drop(&mut self) {
+        self.evict_pipe();
         unsafe { (self.dev_fns.destroy_device)(self.dev, ptr::null()) };
         let destroy: unsafe extern "C" fn(VkInstance, *const c_void) -> () =
             ifn(&self.vk, self.inst, "vkDestroyInstance");
