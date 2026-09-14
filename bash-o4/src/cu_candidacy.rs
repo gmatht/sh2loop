@@ -126,10 +126,15 @@ fn walk_stmts(stmts: &[IrStmt], path: &str, scope: &mut Scope, out: &mut Vec<CuV
             IrStmt::ForInit { init, cond, step, body } => {
                 out.push(analyze_for_init(scope, &here, init, cond, step, body));
             }
-            IrStmt::Function { name, body, .. } => {
-                let mut inner = Scope::new(name.clone(), scope.types);
-                walk_stmts(body, &format!("{name}/body"), &mut inner, out);
-            }
+            // A loop inside a FUNCTION body is not offloadable by this
+            // vehicle: the kernel's trip count comes from the driver
+            // (`--n` / `--bind VAR=VAL`), and a function-local bound (the
+            // usual `local n=$1`) cannot be supplied from there.  Descent
+            // here used to accept `for ((i=2;i<=n;i++))` inside a shell
+            // function and dispatch it with trips=0 — the gpu_gate caught
+            // it (092_for_arith_func.sh: checksum 0 vs bash's 120720).
+            // Top-level loops only (the same v1 scope `walk_seq` states).
+            IrStmt::Function { .. } => {}
             IrStmt::If { then, elsifs, else_, .. } => {
                 walk_stmts(then, &here, scope, out);
                 for (_, b) in elsifs {
@@ -1228,10 +1233,15 @@ fn walk_reduce(
                     scope, &here, init, cond, step, body, types, prog,
                 ));
             }
-            IrStmt::Function { name, body, .. } => {
-                let mut inner = Scope::new(name.clone(), types);
-                walk_reduce(body, &format!("{name}/body"), &mut inner, out, types, prog);
-            }
+            // A loop inside a FUNCTION body is not offloadable by this
+            // vehicle: the kernel's trip count comes from the driver
+            // (`--n` / `--bind VAR=VAL`), and a function-local bound (the
+            // usual `local n=$1`) cannot be supplied from there.  Descent
+            // here used to accept `for ((i=2;i<=n;i++))` inside a shell
+            // function and dispatch it with trips=0 — the gpu_gate caught
+            // it (092_for_arith_func.sh: checksum 0 vs bash's 120720).
+            // Top-level loops only (the same v1 scope `walk_seq` states).
+            IrStmt::Function { .. } => {}
             IrStmt::If { then, elsifs, else_, .. } => {
                 walk_reduce(then, &here, scope, out, types, prog);
                 for (_, b) in elsifs {
@@ -2378,6 +2388,32 @@ mod seq_tests {
         let vs = analyze_seq(&prog);
         assert_eq!(vs.len(), 1);
         assert!(matches!(vs[0].verdict, CuVerdictKind::Veto { .. }), "map must veto: {}", vs[0]);
+    }
+
+    #[test]
+    fn function_local_bound_is_not_a_candidate() {
+        // Regression (gpu_gate / 092_for_arith_func.sh): a loop inside a
+        // FUNCTION whose bound is the function's own `local n` cannot be
+        // offloaded, because the driver supplies the trip count.  It used
+        // to dispatch with trips=0 and report 0 while bash printed 120720.
+        let src = "#!/bin/bash\nfactorial() {\n  local n=$1\n  local result=1\n  local i\n  for (( i = 2; i <= n; i++ )); do\n    result=$(( result * i ))\n  done\n  echo \"$result\"\n}\nfactorial 5\n";
+        let prog = prog_of(src);
+        assert!(
+            analyze(&prog).iter().all(|v| !v.is_candidate()),
+            "map candidacy must not accept a function-local bound"
+        );
+        assert!(
+            analyze_reduce(&prog)
+                .iter()
+                .all(|v| !matches!(v.verdict, CuVerdictKind::Candidate)),
+            "reduce candidacy must not accept a function-local bound"
+        );
+        assert!(
+            analyze_seq(&prog)
+                .iter()
+                .all(|v| !matches!(v.verdict, CuVerdictKind::Candidate)),
+            "seq candidacy must not accept a function-local bound"
+        );
     }
 
     #[test]

@@ -9,6 +9,12 @@
 
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Per-process temp-file discriminator.  Combined with the pid this makes
+/// every cache temp path unique, which is what lets concurrent writers
+/// race safely (see `cached_c`).
+static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// Resolve the cache root: explicit dir > `$XDG_CACHE_HOME` > `~/.cache`.
 pub fn cache_root(explicit: Option<&str>) -> PathBuf {
@@ -108,11 +114,24 @@ pub fn cached_c(
     }
     let c_src = render()?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("cache mkdir: {e}"))?;
-    // Atomic store: temp file + rename (concurrent gates must never read
-    // a half-written prog.c).
-    let tmp = dir.join("prog.c.tmp");
+    // Atomic store.  The temp name MUST be unique per writer: the previous
+    // shared `prog.c.tmp` let two concurrent drivers (gpu_gate runs 8 jobs,
+    // each now doing several driver invocations) truncate and write the same
+    // file, after which the loser's `rename` failed with ENOENT and the
+    // driver exited 1 — a spurious FAIL with no miscompiled program behind
+    // it.  Unique temp + "loser reads the winner" makes the race benign, and
+    // the content is identical anyway (same key ⇒ same render).
+    let tmp = unique_tmp(&dir, "prog.c");
     std::fs::write(&tmp, &c_src).map_err(|e| format!("cache write: {e}"))?;
-    std::fs::rename(&tmp, &c_file).map_err(|e| format!("cache commit: {e}"))?;
+    if let Err(e) = std::fs::rename(&tmp, &c_file) {
+        let _ = std::fs::remove_file(&tmp);
+        // Lost the race, or a filesystem without rename semantics: fall
+        // back to whatever is now committed — never to an error.
+        return match std::fs::read_to_string(&c_file) {
+            Ok(c_src) => Ok(Cached { c_src, hit: true, dir }),
+            Err(_) => Err(format!("cache commit: {e}")),
+        };
+    }
     let meta_txt = format!(
         "{{\"key\":{key:?},\"shir_sha256\":{:?},\"created\":{}}}",
         sha256_hex(shir.as_bytes()),
@@ -121,13 +140,62 @@ pub fn cached_c(
             .map(|d| d.as_secs())
             .unwrap_or(0)
     );
-    std::fs::write(&meta, meta_txt).map_err(|e| format!("cache meta: {e}"))?;
+    // `meta.json` is only an informational marker (and part of the hit
+    // test), so it gets the same atomic treatment to avoid a reader seeing
+    // a truncated marker.
+    let meta_tmp = unique_tmp(&dir, "meta.json");
+    std::fs::write(&meta_tmp, meta_txt).map_err(|e| format!("cache meta: {e}"))?;
+    if std::fs::rename(&meta_tmp, &meta).is_err() {
+        let _ = std::fs::remove_file(&meta_tmp);
+    }
     Ok(Cached { c_src, hit: false, dir })
+}
+
+/// A temp path in `dir` that no other writer can be using: pid + a
+/// per-process counter disambiguate concurrent processes *and* concurrent
+/// threads within one process.
+fn unique_tmp(dir: &Path, stem: &str) -> PathBuf {
+    let n = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
+    dir.join(format!("{stem}.{}.{}.tmp", std::process::id(), n))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn concurrent_writers_never_fail_or_return_partial_content() {
+        // Regression: a shared `prog.c.tmp` made parallel drivers clobber
+        // each other's temp file, and the loser's rename failed (ENOENT) —
+        // `bash-O4 --gpu <prog>` exited 1 with no bad program involved.
+        // gpu_gate's 8-way parallelism surfaced it as a single spurious
+        // FAIL that moved between files on each run.
+        let root = std::env::temp_dir().join(format!("bo4-cache-race-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let want = "/* rendered */\nint main(void){return 0;}\n";
+        let mut hs = Vec::new();
+        for _ in 0..16 {
+            let root = root.clone();
+            hs.push(std::thread::spawn(move || {
+                // Distinct render bodies would be a key collision; all 16
+                // threads share one key on purpose, so they race.
+                cached_c(&root, "deadbeef", "shir", || Ok(want.to_string()))
+                    .map(|c| c.c_src)
+            }));
+        }
+        for h in hs {
+            let got = h.join().expect("thread panicked");
+            assert_eq!(got.expect("cached_c must never fail on a race"), want);
+        }
+        // And a subsequent read is a clean hit with identical bytes.
+        let again = cached_c(&root, "deadbeef", "shir", || {
+            panic!("must be a cache hit")
+        })
+        .expect("hit");
+        assert!(again.hit);
+        assert_eq!(again.c_src, want);
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn key_is_deterministic_and_sensitive() {
