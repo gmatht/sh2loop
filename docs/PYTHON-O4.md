@@ -332,13 +332,20 @@ It only fires when the body is in the supported scalar subset (Assign of
 arith, If of arith conditions, no calls/arrays/captures/redirects), so a
 loop it cannot reason about stays pure GMP — slow, never wrong.
 
-**B2. The artifact cache can serve stale C across backend upgrades.**
-`cache::artifact_key` folds bash-o4's `RENDERER_REV:PIPELINE_REV` and
-the rendered A1, but **not** the `debashl`/`otranspilerl` revision. A
-backend change (e.g. the loop-versioning generalization in §2.4) does
-not bump those constants, so a warm cache keeps the old render after
-an upgrade. Fold the backend build id/revision into the key (the
-profiler already does the equivalent with `source_hash`).
+**B2. Cache staleness — largely covered; two residual edges.**
+`cache::artifact_key` folds `RENDERER_REV:PIPELINE_REV`, the rendered
+A1, and the toolchain id, and `build.rs` computes `PIPELINE_REV` by
+**content-addressing the renderer**: per repo (workspace + sh2perl
+submodule) the HEAD SHA, the exact `git diff HEAD` bytes, and untracked
+files as (path, size, mtime). So a backend edit re-keys the cache on the
+next build — verified live this session (a c_backend change produced a
+`cache miss` and the new render, where a stale `python-O4` *binary* had
+been the real cause of an old timing). Residual edges to close:
+- a gitless build falls back to `BAZO4_REV_FALLBACK` (a constant), so
+  content changes are invisible there — either refuse to cache in that
+  mode or hash the source tree directly;
+- untracked files use mtime, which a same-mtime content change can miss
+  (rare; tracked edits are exact via the diff bytes).
 
 **B3. No differential corpus gate for python-O4.**
 The only python-O4 correctness gate is the 8-problem bench agreement
