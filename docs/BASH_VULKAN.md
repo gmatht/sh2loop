@@ -283,7 +283,29 @@ this doc are the floor, not the ceiling — and the ceiling is now
 measured. A full PTX *emitter* (vs hand templates) remains future work;
 so does multi-GPU selection (device 0 only).
 
-## 10. Scale tier: CUDA is not launch-latency (100x workload)
+## 10. CUDA transpiler backend (bash -> candidacy -> PTX -> 2070)
+
+`sh2perl/src/cuda_backend.rs` (mirrors `vulkan_backend`): `CuLoopSpec`
+(id/var/lo/**dynamic bound var**/step/threads/externs/stores) +
+`CuArith` (+,-,*,/,`%` — signed `div`/`rem`, bash-compatible wrap) +
+`shir_to_cu_compute` (total PTX emitter; WSL-parser rules baked in:
+single-line headers, `q`-prefixed regs, no `[reg+reg]`, u32 shared
+offsets, full-width literals, guarded dynamic divisors).
+`bash-o4/src/cu_candidacy.rs` (mirrors `candidacy`, ForInit-dyn only):
+literal bounds refuse (`static-bound`, GLSL owns them); scalar accumulates
+veto `scalar-carry` (map-only v1); value externs need Int-verdict, bound
+vars are type-permissive (host atolls like bash — comparison-only use).
+`bash-o4/examples/cutranspile.rs`: first candidate -> PTX -> dispatch
+with `--bind`/auto-N externs -> host mod-2^32 checksum. `cudaffi` gained
+scalar params; `tests/cuda_dispatch.rs` pins emitter->device exactness.
+
+Measured (all agree): squares-map-100M **cuda-tx 1.3s (0.2x)** — correct
+and fully transpiled, readback-bound (800MB DtoH over WSL); the fused
+hand kernel is 1ms. The gap to close is transpiled *reduction* (M5-style
+tree in the emitter), not mapping. sumred/collatz cuda-tx SKIP loudly
+(`scalar-carry` vetoes) — honest map-only boundary.
+
+## 11. Scale tier: CUDA is not launch-latency (100x workload)
 
 The bench-opt rows keep CUDA legs at 1–14 ms — legitimately suspicious
 (launch + a few ms of kernel could be dismissed as trivial). Two answers,

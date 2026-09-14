@@ -227,13 +227,16 @@ impl CudaRunner {
     }
 
     /// Dispatch `ptx` (entry `kernel`) over `grid`×`block`, returning the
-    /// output i64 arrays (lengths `out_lens`). Module JIT + buffers are
-    /// per-call (callers hoist what matters outside timers).
+    /// output i64 arrays (lengths `out_lens`). Scalar `.param` values
+    /// (`scalars`, in declaration order after the buffer pointers) feed
+    /// extern slots and trip counts. Module JIT + buffers are per-call
+    /// (callers hoist what matters outside timers).
     pub fn run(
         &self,
         ptx: &str,
         kernel: &str,
         out_lens: &[usize],
+        scalars: &[i64],
         grid: u32,
         block: u32,
     ) -> Result<Vec<Vec<i64>>, String> {
@@ -289,11 +292,16 @@ impl CudaRunner {
             }
             host.push(vec![0i64; len]);
         }
-        // Launch: one pointer param per output buffer.
+        // Launch: one pointer param per output buffer, then scalar
+        // values (slots must outlive the launch — held in `svals`).
+        let mut svals: Vec<u64> = scalars.iter().map(|v| *v as u64).collect();
         let mut params: Vec<*mut c_void> = devptrs
             .iter_mut()
             .map(|p| p as *mut CUdeviceptr as *mut c_void)
             .collect();
+        for v in svals.iter_mut() {
+            params.push(v as *mut u64 as *mut c_void);
+        }
         let rc = unsafe {
             (f.launch)(
                 func, grid, 1, 1, block, 1, 1, 0, ptr::null_mut(),

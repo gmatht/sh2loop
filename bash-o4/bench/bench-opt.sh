@@ -18,6 +18,9 @@
 #             block templates for reductions) + host finish
 #   cuda    — cudabench dispatch (PTX block templates via cudaffi) + host
 #             finish; SKIPPED with a note when no CUDA device is present
+#   cuda-tx — cutranspile dispatch (TRANSPILED bash->candidacy->PTX, no
+#             hand kernels) + host finish; SKIPPED when candidacy vetoes
+#             (map-only v1: scalar-carry reductions) or no device
 #
 # Agreement gate: every RUNNING leg's checksum must byte-agree (exit codes
 # too). Speedups are vs gcc-O3 (no bash baseline here by design).
@@ -31,6 +34,7 @@ ROOT="$(cd "$BENCH/../.." && pwd)"
 BO4="$ROOT/bash-o4/target/debug/bash-O4"
 GPULEG="$ROOT/bash-o4/target/debug/examples/gpuleg"
 CUDABENCH="$ROOT/bash-o4/target/debug/examples/cudabench"
+CUTRANSPILE="$ROOT/bash-o4/target/debug/examples/cutranspile"
 export BASH_O4_SH2PERL="$ROOT/sh2perl"
 RUNTIME="$ROOT/sh2perl/runtime"
 RUNS="${RUNS:-3}"
@@ -56,6 +60,9 @@ if [ ! -x "$GPULEG" ]; then
 fi
 if [ ! -x "$CUDABENCH" ]; then
   (cd "$ROOT/bash-o4" && cargo build --example cudabench) >&2 || exit 1
+fi
+if [ ! -x "$CUTRANSPILE" ]; then
+  (cd "$ROOT/bash-o4" && cargo build --example cutranspile) >&2 || exit 1
 fi
 command -v gcc >/dev/null || { echo "need gcc" >&2; exit 1; }
 
@@ -172,6 +179,26 @@ for p in $PROBLEMS; do
     cuda_line=$(timeout "$TIMEOUT" "$CUDABENCH" "$gprob" "$n" --runs "$RUNS" 2>/dev/null) || fail "timing cuda $p"
     ns_cuda=$(awk -v m="$(echo "$cuda_line" | awk '{print $1}')" 'BEGIN {printf "%d", m*1e6}')
   fi
+  # ---- cuda-tx leg (TRANSPILED: bash -> candidacy -> PTX -> device) ----
+  # Only problems with a .sh source attempt it; candidacy vetoes and
+  # missing devices SKIP (exit 2) instead of failing.
+  cutx_skip=""
+  cutx_sh="$(prob_sh "$p")"
+  if [ "$cutx_sh" != "-" ]; then
+    cutx_line=$(timeout "$TIMEOUT" "$CUTRANSPILE" "$BENCH/sh/$cutx_sh" "$n" --runs 1 2>"$TMP/$p-cutx.err")
+    cutx_rc=$?
+    if [ "$cutx_rc" -eq 2 ]; then
+      cutx_skip="$(cat "$TMP/$p-cutx.err" 2>/dev/null | head -n 1)"
+      echo "  $p: cuda-tx skipped ($cutx_skip)" >&2
+    elif [ "$cutx_rc" -ne 0 ]; then
+      cat "$TMP/$p-cutx.err" >&2; fail "cuda-tx $p"
+    else
+      cutx_sum=$(echo "$cutx_line" | awk '{print $2}')
+      [ "$cutx_sum" = "$hand_sum" ] || fail "$p: cuda-tx checksum $cutx_sum != gcc $hand_sum"
+    fi
+  else
+    cutx_skip="no .sh source"
+  fi
 
   v_hand=$(vec_report "$cref")
   if [ -z "$bo4skip" ]; then v_gen=$(vec_report "$TMP/$p-gen.c"); else v_gen="-"; fi
@@ -188,4 +215,11 @@ for p in $PROBLEMS; do
   if [ -z "$bo4skip" ]; then row bo4-gcc "$ns_bgcc" "$v_gen"; else printf '%-12s %11s %-8s %12s %12s %10s %4s %s\n' "$p" "$n" "bo4-gcc" "SKIP" "-" "-" "-" "($bo4skip)" >&2; echo "  $p: bo4-gcc skipped ($bo4skip)" >&2; fi
   row gpu "$ns_gpu" "-"
   if [ -z "$cuda_skip" ]; then row cuda "$ns_cuda" "-"; else echo "  $p: cuda skipped ($cuda_skip)" >&2; fi
+  if [ -z "$cutx_skip" ]; then
+    cutx_line=$(timeout "$TIMEOUT" "$CUTRANSPILE" "$BENCH/sh/$cutx_sh" "$n" --runs "$RUNS" 2>/dev/null) || fail "timing cuda-tx $p"
+    ns_cutx=$(awk -v m="$(echo "$cutx_line" | awk '{print $1}')" 'BEGIN {printf "%d", m*1e6}')
+    row cuda-tx "$ns_cutx" "-"
+  else
+    echo "  $p: cuda-tx skipped ($cutx_skip)" >&2
+  fi
 done

@@ -12,6 +12,7 @@ pub mod cache;
 pub mod candidacy;
 pub mod cli;
 pub mod cudaffi;
+pub mod cu_candidacy;
 pub mod fetch;
 pub mod pipeline;
 pub mod shader;
