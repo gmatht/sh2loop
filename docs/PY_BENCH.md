@@ -372,10 +372,11 @@ loop-carried accumulator to the exact bigint domain, (2) the
 mod-bounded accumulators stay native), and (3) a C-backend fix that a
 mixed plain/bigint variable is declared and stored consistently as
 `mpz_t`. `factorial(30)` is exact now; sumred/addsum/squares stay
-native. The cost is on genuinely unprovable growth: collatz's CPU leg
-is exact-but-GMP (~154 s vs the unsound 892 ms). Recovering that needs
-overflow-guarded i64→GMP tiering; the profile-guided `__int128`+GMP
-tier (finding D) is the prototype.
+native. Genuinely unprovable growth (collatz) was exact-but-GMP
+(~154 s vs the unsound 892 ms); it is now recovered by the
+**speculative dual arm** — an i64 fast arm with `__builtin_*_overflow`
+stores and an exact GMP replay on the cold overflow flag — at ~2.1 s,
+still exact (`docs/PYTHON-O4.md` §8.1 B1).
 
 ## 9. Non-goals and next yardsticks
 

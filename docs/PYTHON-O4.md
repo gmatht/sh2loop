@@ -17,13 +17,15 @@
 > condition as well as the shell's text one. sumred CPU is now 1.18 s
 > (was 67.5 s) and squares-map 0.17 s (was 27.4 s).
 >
-> **B1 fixed (§8.1): exact loop-carried integers.** The straight-line
-> range proof used to narrow an unprovable loop-carried accumulator to
-> i64, so `factorial(30)` silently wrapped; it is exact now
-> (a loop-growth guard plus a `x % m → [0,m-1]` range rule and a
-> C-backend mixed-accumulator fix). The cost: collatz's growing `v` is
-> now correctly GMP on the **CPU** leg (154 s at 1.8e7 vs 892 ms when it
-> was unsoundly i64); the CUDA leg is unchanged at 12.70 ms.
+> **B1 fixed (§8.1): exact loop-carried integers, fast again.** The
+> straight-line range proof used to narrow an unprovable loop-carried
+> accumulator to i64, so `factorial(30)` silently wrapped; it is exact
+> now (a loop-growth guard plus a `x % m → [0,m-1]` range rule and a
+> C-backend mixed-accumulator fix). Exactness first made collatz's
+> growing `v` pure GMP (154 s), but the **speculative dual arm** — an
+> i64 fast arm with `__builtin_*_overflow` stores and an exact GMP
+> replay on the (cold) overflow flag — puts the CPU leg back at ~2.1 s,
+> still exact. The CUDA leg is unchanged at 12.70 ms.
 
 ## 1. The binary
 
@@ -162,17 +164,16 @@ opt` (bench-opt N, ~1 s CPU legs, CPython dropped) measures steady state.
 | problem | N | gcc-O3 | python-O4 CPU (gcc) | python-O4 GPU | GPU vs C |
 |---|---:|---:|---:|---:|---:|
 | sumred | 1e9 | 1041 ms | **1175 ms** (0.89x) | **3.55 ms** | **293x** |
-| collatz | 1.8e7 | 774 ms | ~154 s (GMP, exact) | **12.70 ms** | **61x** |
+| collatz | 1.8e7 | 840 ms | **~2.1 s** (speculative, exact) | **12.93 ms** | **65x** |
 | squares-map | 1e8 | 278 ms | **170 ms** (1.63x) | ~950 ms | ~0.3x |
 
-- **collatz's CPU row is GMP now, and that is the correct result.** Its
-  inner `v = 3*v+1` is **not provably bounded** (the interval analysis
-  widens it without bound — though the program's actual peak is 9232 for
-  this workload), so narrowing it to i64 (the 892 ms it used to measure)
-  was the B1 miscompile class: some inputs would overflow silently.
-  Exactness costs ~170x on that leg; the GPU leg (i64-exact by
-  construction) is unaffected. Recovery needs guarded routing, not the
-  entry-guarded dual loop — see §8.1 B1 “why dual loops do not apply”.
+- **collatz's CPU row is exact and speculative.** Its inner `v = 3*v+1`
+  is not provably bounded, so the old 892 ms i64 leg was the B1
+  miscompile class (silent overflow for some inputs) and the exact GMP
+  leg was 154 s. `try_spec_loop` now emits an i64 fast arm with checked
+  stores plus a GMP replay from the loop entry state on the first
+  overflow; ~2.1 s, checksum exact. The GPU leg (i64-exact by
+  construction) is unchanged.
 
 - The CUDA times match the *bash* `cutranspile` vehicle on the same
   shapes (sumred 4.07 ms, collatz 13.79 ms): the Python frontend's A1
@@ -287,8 +288,11 @@ and the bench agreement gate (all checksums still byte-agree).
 
 Residual, honestly:
 
-- **Performance.** An unprovable loop-carried growth is exact but GMP:
-  collatz CPU 892 ms → ~154 s.
+- **Performance.** An unprovable loop-carried growth was exact but GMP
+  (collatz CPU 892 ms → 154 s). **Recovered**: the speculative dual arm
+  below puts collatz at ~2.1 s, still exact. The residual ~2.4x over the
+  unsound i64 leg is the `__builtin_*_overflow` stores (two per odd step)
+  plus the outer `v = (k*37+3)%251` still being a bigint assignment.
 - **Additive accumulators** (`s = s + i` in a loop) are still narrowed
   to i64 when the per-iteration operand has a known range; they can in
   principle exceed i64 for an astronomically long loop. Closing that
@@ -307,18 +311,26 @@ first one:
 |---|---|---|
 | **versioned loop** (entry-guarded dual loop, `dual_version_while`) | one check **at entry**, over ranges *proven for the whole trip* | **No.** Its fast arm's range must hold for every iteration; `v` changes inside the loop, and the proof that it stays in i64 is exactly what is missing. Emitting it anyway is “a version without a guard” — the miscompile class B1. (It is also the JS/-O3 mechanism and needs a monotone versionable op subset; `counter_reserve_loop` requires `i++`/`i+=k`, which Collatz's `v//2`/`3v+1` step is not.) |
 | **split routing** (per-iteration test) | a class check **at each operation** | **Yes.** `if (v fits i64) i64 path else mpz path`, with the mpz side as the guard. Sound, no proof needed; the branch is cold when the value stays small. |
-| **speculative dual arm** (a real dual loop) | run the i64 arm with a **sticky overflow flag**, then **replay** the bigint arm if it fired | **Yes.** Snapshot `(v0,s0)`, run i64 with `__builtin_*_overflow`; on overflow restore and re-run in GMP. The loop is side-effect-free apart from its result, so replay is safe. Cheap: one flag per loop, fast arm unchanged. |
+| **speculative dual arm** (a real dual loop) | run the i64 arm with a **sticky overflow flag**, then **replay** the bigint arm if it fired | **Yes — implemented** (`try_spec_loop`). Snapshot the loop's entry state, run i64 with `__builtin_*_overflow`; on the first overflow restore and replay in GMP. Cheap: one flag per loop, fast arm unchanged. Collatz 154 s → ~2.1 s, exact. |
 | **tiered lift** (single widened body) | none (the type is exact for all inputs) | GMP today (slow); `__int128`+GMP spill is the guarded middle. |
 
 So yes to “dual loops” in the routing/speculative sense, no to the
-*entry-guarded* one. The concrete next step is the **speculative dual
-arm** or the **per-iteration routed tier** for the class `growsUnbounded`
-marks: the renderer already has the pieces (`tiered_vars` with an
-`__int128` fast mirror + `mpz_t` spill from `SH2_ASSUME_OBSERVED_WIDTHS`,
-and `__builtin_*_overflow` in `tiered_store`); generalising it from
-`x = x op k` to an arbitrary RHS with a numeric read shim
-(`v_big ? mpz_get_si(v) : v_f`) is the work. That would put collatz back
-at ~1 s with a cold guard while staying exact.
+*entry-guarded* one. The **speculative dual arm is implemented**
+(`try_spec_loop`, pinned by
+`speculative_growth_loop_emits_i64_fast_arm_and_gmp_replay`):
+
+- the loop is detected when a bigint var grows in its body
+  (`arith_self_growth`) and drives the condition;
+- a shadow `long long <v>_s` runs the body with checked `+`/`-`/`*`
+  (`__builtin_*_overflow`) into the shadow;
+- on the first overflow the flag fires, the loop-carried scalars are
+  restored and the body replays on the mpz (no mpz copy is needed for
+  the bigint var itself — the fast arm never touches it);
+- otherwise the i64 result is written back with `mpz_set_si`.
+
+It only fires when the body is in the supported scalar subset (Assign of
+arith, If of arith conditions, no calls/arrays/captures/redirects), so a
+loop it cannot reason about stays pure GMP — slow, never wrong.
 
 **B2. The artifact cache can serve stale C across backend upgrades.**
 `cache::artifact_key` folds bash-o4's `RENDERER_REV:PIPELINE_REV` and
