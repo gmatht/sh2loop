@@ -51,7 +51,7 @@ GPU-candidacy shape (`docs/PYTHON-O4.md` §2).
 | problem | N | gcc-O3 | pyo4-gcc | pyo4-gpu | GPU vs C |
 |---|---:|---:|---:|---:|---:|
 | sumred | 1e9 | 1041 ms | 1175 ms (0.89x) | **3.55 ms** | **293x** |
-| collatz | 1.8e7 | 840 ms | **~2.1 s** (speculative, exact) | **12.93 ms** | **65x** |
+| collatz | 1.8e7 | 840 ms | **~1.8 s** (speculative, exact) | **12.93 ms** | **65x** |
 | squares-map | 1e8 | 278 ms | **170 ms** (1.63x) | ~950 ms | ~0.3x |
 
 All checksums byte-agree across legs. `pyo4-gpu` reproduces the bash

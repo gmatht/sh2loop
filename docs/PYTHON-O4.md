@@ -24,7 +24,8 @@
 > C-backend mixed-accumulator fix). Exactness first made collatz's
 > growing `v` pure GMP (154 s), but the **speculative dual arm** — an
 > i64 fast arm with `__builtin_*_overflow` stores and an exact GMP
-> replay on the (cold) overflow flag — puts the CPU leg back at ~2.1 s,
+> replay on the (cold) overflow flag — plus a native store for a bigint
+> target whose RHS is i64-provable — puts the CPU leg back at ~1.8 s,
 > still exact. The CUDA leg is unchanged at 12.70 ms.
 
 ## 1. The binary
@@ -164,7 +165,7 @@ opt` (bench-opt N, ~1 s CPU legs, CPython dropped) measures steady state.
 | problem | N | gcc-O3 | python-O4 CPU (gcc) | python-O4 GPU | GPU vs C |
 |---|---:|---:|---:|---:|---:|
 | sumred | 1e9 | 1041 ms | **1175 ms** (0.89x) | **3.55 ms** | **293x** |
-| collatz | 1.8e7 | 840 ms | **~2.1 s** (speculative, exact) | **12.93 ms** | **65x** |
+| collatz | 1.8e7 | 840 ms | **~1.8 s** (speculative, exact) | **12.93 ms** | **65x** |
 | squares-map | 1e8 | 278 ms | **170 ms** (1.63x) | ~950 ms | ~0.3x |
 
 - **collatz's CPU row is exact and speculative.** Its inner `v = 3*v+1`
@@ -289,10 +290,16 @@ and the bench agreement gate (all checksums still byte-agree).
 Residual, honestly:
 
 - **Performance.** An unprovable loop-carried growth was exact but GMP
-  (collatz CPU 892 ms → 154 s). **Recovered**: the speculative dual arm
-  below puts collatz at ~2.1 s, still exact. The residual ~2.4x over the
-  unsound i64 leg is the `__builtin_*_overflow` stores (two per odd step)
-  plus the outer `v = (k*37+3)%251` still being a bigint assignment.
+  (collatz CPU 892 ms → 154 s). **Recovered stepwise**, measured
+  back-to-back on one machine:
+  the speculative dual arm (154 s → ~2.3 s, and it removed the mpz
+  snapshot), then a **native store for a bigint target whose RHS reads no
+  bigint var and is i64-provable** (`arith_range_native`; the outer
+  `v = (k*37+3)%251` was 4 mpz calls per iteration — 3.79 s → 2.29 s
+  back-to-back). Now ~1.8 s, still exact. The residual ~2x over the
+  unsound i64 leg is the `__builtin_*_overflow` stores (two per odd step
+  over ~8e8 steps) plus the per-outer-iteration tier handoff
+  (`mpz_fits_slong_p`/`mpz_get_si`/`mpz_set_si`).
 - **Additive accumulators** (`s = s + i` in a loop) are still narrowed
   to i64 when the per-iteration operand has a known range; they can in
   principle exceed i64 for an astronomically long loop. Closing that
