@@ -13,9 +13,11 @@ separately:
 Everything is reproducible from
 `frontends/py-sh-go/profile_example/`; §6 has the by-hand commands.
 
-Status: living document. Numbers below are from one capture on the dev
-box (2026-09-14, Python 3.12.3, gcc 13.3.0, Cython 3.0.8) and are
-*indicative*, not a gate — see §7 for why absolute numbers move.
+Status: living document. The §3–§5 captures are from the dev box
+(2026-09-15, Python 3.12.3, gcc 13.3.0, Cython 3.0.8) and are
+*indicative*, not a gate — see §7 for why absolute numbers move. The
+shared C-backend profile/width work (`docs/PYTHON-O4.md` §2.4, §8.1)
+landed after earlier captures and is reflected here.
 
 ---
 
@@ -75,117 +77,129 @@ through Python → A1 → C, compiles, executes, and diffs stdout with
 CPython:
 
 ```
-total 95   match 94   mismatch 1  (t91_set_sum_fallback)   emit fail 0  cc fail 0
+total 95   match 92   mismatch 3   emit fail 0  cc fail 0  timeout 0
+  t91_set_sum_fallback        known C-backend gap (in KNOWN_GAPS)
+  t86_factor, t88_factor53    NEW — concurrent core-worker regression
 ```
 
-`t91` is a **C-backend** gap (a set with one bigint element: the C sum
-accumulator is not exact for that shape); the frontend itself passes
-95/95 through the ESTree backend. Known gaps are listed in the script
+- `t91` is a **C-backend** gap (a set with one bigint element: the C sum
+  accumulator is not exact for that shape).
+- `t86`/`t88` are **not** the profiler/width work: they reproduce with
+  the recent C-backend changes reverted, and the frontend A1 is
+  byte-identical across those versions. Their `int(n**0.5)` isqrt call
+  reaches an `sh2_stub` in the shared renderer — a regression from the
+  concurrent `isolate-accumulate` / `fuse-fill-consume` / `shir_passes`
+  WIP in the tree. They are left **red on purpose** (never blessed): it
+  is a real correctness bug for whoever owns that WIP.
+
+The frontend itself passes **95/95** through the ESTree backend (the
+py-sh-go gate). Known gaps are listed in the script
 so a *new* mismatch fails the run, and a resolved one is reported
 ("known gap RESOLVED — remove from KNOWN_GAPS") rather than silently
 tolerated.
 
 ## 4. CPython vs transpiled C
 
-`bench_vs_cpython.sh` (capture: `TARGET_SECS=5 REPS=2`):
+`bench_vs_cpython.sh` (capture: `TARGET_SECS=3 REPS=2`):
 
 ```
-sizes: sum_squares=10000000  rolling_hash=20000000  bignum_mul=300000  io=6000000 lines
+sizes: sum_squares=10000000  rolling_hash=16000000  bignum_mul=300000  io=8000000 lines
 
-rolling_hash (20000000)          time(s)   rss(MB)   speedup
-  CPython                          5.420      10.1      1.0x
-  C                                0.165       1.6     32.9x
+rolling_hash (16000000)          time(s)   rss(MB)   speedup
+  CPython                          2.712      10.1      1.0x
+  C                                0.100       1.6     27.1x
 
 sum_squares (10000000)           time(s)   rss(MB)   speedup
-  CPython                          2.711     392.8      1.0x
-  C                                0.088      79.1     30.9x
+  CPython                          1.608     392.5      1.0x
+  C                                0.038      78.3     42.0x
 
 bignum_mul (300000 x*=3 from 2**100)
-  CPython                          5.275      10.2      1.0x
-  C (GMP)                          2.483       2.2      2.1x
+  CPython                          3.267      10.2      1.0x
+  C (GMP)                          1.318       2.2      2.5x
 
-app.py (io/6000000 lines)
-  CPython                          5.032     515.3      1.0x
-  C                                2.236     322.9      2.3x
+app.py (io/8000000 lines)
+  CPython                          3.152     684.7      1.0x
+  C                                0.977     429.9      3.2x
 ```
 
 Read the shapes, not one number:
 
 - **Scalar recurrence** (`rolling_hash`, non-foldable modulo loop):
-  ~33× faster, 6× less RAM. This is CPython's boxed-`PyLong` +
-  bytecode-dispatch cost, which the C loop simply doesn't pay.
-- **Vector + wide aggregate** (`sum_squares`): ~31×, 5× less RAM. The
+  ~27× faster, 6× less RAM. This is CPython's boxed-`PyLong` +
+  bytecode-dispatch cost, which the C loop simply doesn't pay (the C
+  backend versions the counted loop too — `docs/PYTHON-O4.md` §2.4).
+- **Vector + wide aggregate** (`sum_squares`): ~42×, 5× less RAM. The
   C uses a native `long long` vector and an **exact `__int128` sum**;
   CPython allocates 10 M `PyLong`s.
-- **Bigint** (`bignum_mul`): only ~2×. Both sides call GMP / CPython's
+- **Bigint** (`bignum_mul`): only ~2.5×. Both sides call GMP / CPython's
   big-int, which are in the same league; the win is memory (5×) and, in
-  the Cython table, startup. This is the honest counterweight to 33×.
-- **Line I/O** (`app.py`): ~2.3×, 1.6× less RAM. Both read lines and
+  the Cython table, startup. This is the honest counterweight to 27–42×.
+- **Line I/O** (`app.py`): ~3.2×, 1.6× less RAM. Both read lines and
   store two growable lists; the win here is smaller and dominated by
   parsing/alloc, not arithmetic.
 
 ## 5. Cython: pure and typed
 
-`bench_cython.sh` (capture: `TARGET_SECS=5 REPS=2`):
+`bench_cython.sh` (capture: `TARGET_SECS=3 REPS=2`):
 
 ```
-sizes: rolling_hash=16000000  sum_squares=10000000  bignum_mul=300000  io=6000000 lines
+sizes: rolling_hash=16000000  sum_squares=10000000  bignum_mul=300000  io=8000000 lines
 
 startup floor (empty program)    time(s)   rss(MB)   speedup
-  CPython                          0.052       0.0      1.0x
-  Cython (embedded)                0.057       0.0      0.9x
-  py-sh-go C                       0.001       0.0     47.6x
+  CPython                          0.030       0.0      1.0x
+  Cython (embedded)                0.031       0.0      1.0x
+  py-sh-go C                       0.000       0.0     63.0x
 
 rolling_hash (16000000)          time(s)   rss(MB)   speedup
-  CPython                          4.305      10.1      1.0x
-  Cython (pure)                    4.779      10.9      0.9x
-  Cython (typed)                   0.135      10.9     32.0x
-  py-sh-go C                       0.130       1.7     33.2x
+  CPython                          2.643      10.1      1.0x
+  Cython (pure)                    3.119      11.0      0.8x
+  Cython (typed)                   0.084      11.1     31.4x
+  py-sh-go C                       0.091       1.7     29.1x
 
 sum_squares (10000000)           time(s)   rss(MB)   speedup
-  CPython                          2.901     394.2      1.0x
-  Cython (pure)                    3.012     395.2      1.0x
+  CPython                          1.438     394.0      1.0x
+  Cython (pure)                    1.809     395.4      0.8x
   Cython (typed)                       -         -   n/a (no __int128)
-  py-sh-go C                       0.064      78.4     45.3x
+  py-sh-go C                       0.033      78.0     44.1x
 
-app.py (io/6000000 lines)        time(s)   rss(MB)   speedup
-  CPython                          7.828     515.2      1.0x
-  Cython (pure)                   11.414     516.2      0.7x
-  Cython (typed)                   1.701     333.0      4.6x
-  py-sh-go C                       1.729     324.7      4.5x
+app.py (io/8000000 lines)        time(s)   rss(MB)   speedup
+  CPython                          2.909     683.8      1.0x
+  Cython (pure)                    5.419     685.5      0.5x
+  Cython (typed)                   0.960     439.3      3.0x
+  py-sh-go C                       0.907     430.8      3.2x
 
 bignum_mul (300000 x*=3 from 2**100)
-  CPython                          6.252      10.2      1.0x
-  Cython (pure)                    8.549      11.2      0.7x
-  Cython (typed)                   1.831      11.4      3.4x
-  py-sh-go C (GMP)                 2.834       2.2      2.2x
+  CPython                          2.797      10.1      1.0x
+  Cython (pure)                    2.903      11.2      1.0x
+  Cython (typed)                   0.845      11.4      3.3x
+  py-sh-go C (GMP)                 1.249       2.1      2.2x
 ```
 
 ### What this says
 
-1. **Cython-pure is not faster than CPython on any shape** (0.7–1.0×).
+1. **Cython-pure is not faster than CPython on any shape** (0.5–1.0×).
    Compiling to C does not help while values stay boxed `PyLong`s and
    every operation still crosses the C-API. Cython is a *typed*
    compiler; without types it is CPython at C speed with extra
    indirection.
 2. **Typed Cython wins only after a human rewrites the hot code** with
    `cdef` types (and, for bigint, hand-binds GMP via
-   `cdef extern from "gmp.h"`). Where it applies it is fast — it *ties
-   py-sh-go* on `rolling_hash` (0.135 vs 0.130) and on I/O (1.701 vs
-   1.729), which is the expected result for two compilers emitting the
-   same C.
+   `cdef extern from "gmp.h"`). Where it applies it is fast: it *ties*
+   py-sh-go on `rolling_hash` (0.084 vs 0.091, within run noise) and
+   py-sh-go edges it on I/O (0.907 vs 0.960), the expected result for two
+   compilers emitting the same C.
 3. **The differentiators for py-sh-go are what it does without help:**
    - it infers the types (no annotations), so it wins on the shapes
      where Cython-pure is slow;
-   - it starts in **~1 ms** vs Cython's **~57 ms** (it does not link
-     libpython) — a 48× floor that dominates short programs;
+   - it starts in **<1 ms** vs Cython's **~31 ms** (it does not link
+     libpython) — a 63× floor that dominates short programs;
    - it stays at **~2 MB** RSS on bigint vs Cython's ~11 MB (again no
      interpreter runtime);
    - it emits an **exact `__int128` aggregate** for `sum(xs)` that
      hand-typed Cython cannot express without GMP (hence the `n/a`).
-4. **Typed Cython does edge out py-sh-go on bigint time** (1.83 vs
-   2.83 s) — see §8, finding B: that is a codegen quality gap, not a
-   fundamental one, and it is fixable.
+4. **Typed Cython edges out py-sh-go on bigint time** (0.845 vs
+   1.249 s) — see §8, finding B: a codegen quality gap (an aliasing copy
+   plus `mpz_mul` where `mpz_mul_ui` would do), not a fundamental one.
 
 ## 6. Reproducing by hand
 
@@ -302,10 +316,11 @@ top of every run.
 
 ## 8. Findings from building this (open work)
 
-The benchmark earned its keep by surfacing four real issues. Three are
-fixed; one (B) is open. The most serious — E, a silent miscompile of
-valid Python — was found here and is now fixed (`docs/PYTHON-O4.md` §8.1
-B1 records the residual performance cost).
+The benchmark earned its keep by surfacing five real issues. Three are
+fixed (A, D, E); two are open (B, C). The most serious — E, a silent
+miscompile of valid Python — was found here and is now fixed, and the
+performance it cost has since been recovered (`docs/PYTHON-O4.md` §8.1
+B1): the exact build is now *faster* than the unsound one.
 
 **A. Fixed — `long long` int-array sum wrapped.** At 10 M elements the C
 `sum(xs)` printed `1291890006563070912` where CPython printed
@@ -373,12 +388,14 @@ mod-bounded accumulators stay native), and (3) a C-backend fix that a
 mixed plain/bigint variable is declared and stored consistently as
 `mpz_t`. `factorial(30)` is exact now; sumred/addsum/squares stay
 native. Genuinely unprovable growth (collatz) was exact-but-GMP
-(~154 s vs the unsound 892 ms); it is now recovered by the
-**speculative dual arm** — an i64 fast arm with `__builtin_*_overflow`
-stores and an exact GMP replay on the cold overflow flag, a native
-store for i64-provable bigint assignments, and outer-loop speculation —
-at **687 ms (1.46x the handwritten C)**,
-still exact (`docs/PYTHON-O4.md` §8.1 B1).
+(~154 s vs the unsound 892 ms); it is now recovered by a **speculative
+dual arm** and lands at **687 ms (1.46x the handwritten C)**, still
+exact (`docs/PYTHON-O4.md` §8.1 B1). The recovery was stepwise: an i64
+fast arm with a one-compare affine overflow check (and
+`__builtin_*_overflow` for the general case) plus an exact GMP replay on
+the cold flag, a native store for i64-provable bigint assignments, and
+speculation at the **outer** loop (so the i64<->mpz handoff is paid
+once).
 
 ## 9. Non-goals and next yardsticks
 
@@ -395,6 +412,6 @@ still exact (`docs/PYTHON-O4.md` §8.1 B1).
   (already ~1 ms / ~2 MB here) is a product-level claim worth its own
   table.
 - **GPU**: the in-tree `docs/PYTHON-O4.md` path already transpiles
-  Python compute loops to CUDA (`python-O4`, ~60–150x over `gcc -O3` on
-  its microbenches); folding a GPU row into this table would show the
-  same source running across CPU and GPU backends.
+  Python compute loops to CUDA (`python-O4`: 293x on a 1e9 mod-reduce,
+  72x on Collatz, over `gcc -O3`); folding a GPU row into this table
+  would show the same source running across CPU and GPU backends.
