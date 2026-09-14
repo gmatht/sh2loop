@@ -116,6 +116,13 @@ Non-goals (v1):
    texts into structured `Arith` at lowering so range/numeric lifts
    see sh-source loop vars. Without this, `j=$(($j*$i))` stays
    `char*`+`atoll` and neither CPU-narrowing nor GPU candidacy fires.
+   *Related (done):* the dual-loop **versioning** plan had the mirror
+   problem — it parsed only the shell's `builtin("let", ["i<n"])`
+   text, so a frontend emitting structured `Arith(Bin{<, …})` (py-sh-go)
+   never versioned. `counter_reserve_loop` now accepts both shapes, so
+   the -O3/-O4 hot-loop versioning is frontend-agnostic
+   (`docs/PYTHON-O4.md` §2.4; pinned by
+   `counter_reserve_loop_accepts_structured_cond`).
 2. Split-free native echo (BASHC_OPT item 3): unify the
    `echo $i` (shell-out) and `echo "Number: $i"` (native) paths on a
    proven split-freeness verdict. Per-iteration fork must die first.

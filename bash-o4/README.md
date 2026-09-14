@@ -108,6 +108,7 @@ The same -O4 machinery also drives Python: `python-O4 prog.py` runs
 `prog.py` through the workspace's py-sh-go frontend to A1 shIR, then
 reuses this crate's C render + tcc JIT/AOT (CPU) and CUDA
 candidacy/PTX dispatch (`--gpu`, the shared `cu_run` vehicle).
+`-h/--help` and `-V/--version` report usage and the version.
 
 ```sh
 cargo build --bin python-O4
@@ -118,8 +119,12 @@ cargo build --bin python-O4
 
 Bench: [`bench/bench-py.py`](bench/bench-py.py) — Python sources in
 `bench/py/`, results in [`bench/README-py.md`](bench/README-py.md).
-Transpiled Python reaches `gcc -O3`'s ×152 on a 1e9 mod-reduction and
-×61 on branchy Collatz; design/status in `docs/PYTHON-O4.md`.
+Transpiled Python now reaches **×293** of `gcc -O3` on a 1e9
+mod-reduction (3.55 ms) and ×61 on branchy Collatz; the CPU legs are
+native i64 too (`--exact-i64` plus a generalized loop-versioning plan),
+so sumred is 1.18 s vs `gcc -O3`'s 1.04 s where it used to be 67.5 s in
+GMP. Design, results and the **release-readiness checklist** are in
+[`docs/PYTHON-O4.md`](../../docs/PYTHON-O4.md) (§8).
 
 ## Transpiled CUDA (`cutranspile`)
 

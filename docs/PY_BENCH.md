@@ -302,8 +302,10 @@ top of every run.
 
 ## 8. Findings from building this (open work)
 
-The benchmark earned its keep by surfacing three real issues. Two are
-fixed; two are open.
+The benchmark earned its keep by surfacing four real issues. Two are
+fixed, two are open; the fourth (E) is the most serious — a silent
+miscompile of valid Python — and is the release blocker called out in
+`docs/PYTHON-O4.md` §8 B1.
 
 **A. Fixed — `long long` int-array sum wrapped.** At 10 M elements the C
 `sum(xs)` printed `1291890006563070912` where CPython printed
@@ -350,6 +352,28 @@ saturated because the *instrumented* build wrapped first; a wide probe
 (`SH2_PROFILE_WIDE`) plus bucket 17 now distinguishes 64 / 128 /
 arbitrary, letting the build pick `__int128` instead of GMP
 (`profile_example/run_width_demo.sh`).
+
+**E. Open (release blocker) — unproven loop-carried ints overflow.** The
+frontend's range proof is straight-line, so a loop-carried accumulator
+it cannot bound is typed native and silently wraps — in the **default**
+path, not only under a profile flag:
+
+```python
+f = 1
+for i in range(1, 30):
+    f = f * i
+print(f)     # CPython 8841761993739701954543616000000
+```
+
+The transpiled C prints `-7055958792655077376` (and the Perl backend
+loses it to a float, the ESTree path to a JS Number). This is the same
+class as the `app_grow` observation above (the default C is wrong past
+i64); the profile-guided width tier fixes only the shapes it is fed.
+The fix is a loop-aware range fixed point plus a conservative
+unknown-range fallback; see `docs/PYTHON-O4.md` §8 B1 for the shape and
+the interim-guard option. Until then, do not claim Python-int
+exactness for arbitrary programs — `check_cpython_parity.sh` passes
+94/95 only because its corpus happens not to hit the class.
 
 ## 9. Non-goals and next yardsticks
 

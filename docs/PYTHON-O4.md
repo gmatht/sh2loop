@@ -172,11 +172,12 @@ opt` (bench-opt N, ~1 s CPU legs, CPython dropped) measures steady state.
   for both. Before the fix the same rows were 67480 ms / 27433 ms.
 - `python-O4` fast-scale CPU rows are ~1–3 ms at 1e6 (tcc JIT includes
   compile; AOT binaries are faster) vs CPython's 114–330 ms.
-- The two GMP rows are **Python semantics, not a backend limit**:
-  Python ints are unbounded, so `s = s + i*i` past ±2^53 lowers to exact
-  `mpz_t` unless the frontend can prove a width (collatz does; sumred's
-  mod-chain is not narrowed because the composition hides the range).
-  The GPU path is i64-exact by construction and the checksums agree.
+- The old “GMP rows are Python semantics, not a backend limit” note is
+  **superseded**: both CPU rows are native now (§2.4). A *proven*-huge
+  value (a real `2**100`) still homes in GMP, but the frontend can also
+  **over-narrow a loop-carried accumulator it cannot bound** — see §8
+  B1, a release blocker. Every bench shape is provably bounded, so the
+  agreement gate does not exercise that class.
 
 ## 4. Exit codes
 
@@ -220,3 +221,125 @@ non-pow2 floor-mod reduce op; device-buffer reuse in `cu_run`;
 string containment in py-sh-go; `sys.argv` (so the driver stops
 substituting `N` in-source); PGO/width seeding for the remaining CPU
 rows (hash is 0.84x, `pyo4-tcc` is tcc-codegen-bound).
+
+## 8. Release readiness
+
+What is green today: the bench agreement gate (all legs byte-agree),
+bash-o4's own tests, the py-sh-go gate (95/95), and the shell C corpus
+(637/0/7). What is **not** ready is Python *exactness* in general — the
+frontend narrows on a straight-line range proof and silently drops to a
+native width when the proof is missing. That is the release blocker.
+
+### 8.1 Blockers (fix before a release)
+
+**B1. Silent miscompile of unproven loop-carried Python ints.**
+
+The frontend's range tracking is single-pass: inside a loop body
+`intDom` still sees the range from the *pre-loop* assignment, and its
+unknown-range fallback is optimistic (`"int"`), contradicting the
+documented “unproven → bigint”. An accumulator with no provable bound
+is therefore homed in i64 / JS Number / Perl NV and overflows.
+
+```python
+f = 1
+for i in range(1, 30):
+    f = f * i
+print(f)     # CPython 8841761993739701954543616000000
+```
+
+`python-O4` prints `-7055958792655077376`; so do py-sh-go→C and the
+Perl backend (and the ESTree path loses the same digits in a Number).
+This is **not** introduced by `--exact-i64` — the default 2^53 bound
+has the same hole — and it is why the `sum_squares`/`app_grow` rows in
+`docs/PY_BENCH.md` note the default build is wrong past i64.
+
+Fix shape:
+
+1. make the range analysis loop-aware — iterate/widen each loop body's
+   abstract ranges to a fixed point (linear bounds so `s = s + i` over
+   `range(N)` proves `N²/2` and stays native);
+2. make the unknown-range fallback conservative (`big`);
+3. let the `x % m → [0, m-1]` rule fire from the divisor alone (it
+   currently requires the dividend's range too), so mod-bounded
+   accumulators — the sumred/squares win — stay native under (2).
+
+Interim (acceptable for a first release): a **guard** that refuses or
+warns when an integer is assigned inside a loop from a self-referential
+`*`/`**`/`<<` with no modulo bound. It closes the common class without
+claiming general exactness, and is testable. Either way, python-O4 must
+not ship a “exact Python ints” claim until (1)–(3) land, and B3 would
+have caught it.
+
+**B2. The artifact cache can serve stale C across backend upgrades.**
+`cache::artifact_key` folds bash-o4's `RENDERER_REV:PIPELINE_REV` and
+the rendered A1, but **not** the `debashl`/`otranspilerl` revision. A
+backend change (e.g. the loop-versioning generalization in §2.4) does
+not bump those constants, so a warm cache keeps the old render after
+an upgrade. Fold the backend build id/revision into the key (the
+profiler already does the equivalent with `source_hash`).
+
+**B3. No differential corpus gate for python-O4.**
+The only python-O4 correctness gate is the 8-problem bench agreement
+gate plus bash-o4's unit tests. The py-sh-go gate is ESTree-only and
+`c_gate_main.sh` is shell-only. Add a corpus runner that transpiles
+`frontends/py-sh-go/testdata/*.py` through `python-O4` CPU, runs it,
+and diffs stdout with CPython — the harness pattern already exists
+(`frontends/py-sh-go/profile_example/check_cpython_parity.sh`, 94/95);
+wire it to `python-O4` and run it in CI. It would have caught B1.
+
+**B4. Packaging and CLI surface.**
+- `-h/--help` now prints usage and exits 0; `-V/--version` reports the
+  crate version. (Both landed with this doc.)
+- The driver shells out to the `py-sh-go` binary (`$PY_SH_GO`, else a
+  workspace-relative path). A release artifact must ship/build it, and
+  the missing-frontend path (exit 1, clear message) must be tested on
+  a machine without the source tree.
+- No install/package target; `Cargo.toml` says `0.1.1` while the docs
+  say “first landing”.
+- `--gpu=auto` degrades cleanly and `--gpu=force` exits 3 with no
+  device; add a **no-driver** CI case (the dev box always has one).
+
+**B5. Shared-core test reds must be triaged.**
+`sh2perl` `cargo test --lib` is 797 passed / 7 failed (6 `estree`
+pre-existing per PLAN v43, plus `numeric_reduction_assign_reads_aggregate_natively`,
+which reproduces with the recent c_backend work reverted — a worker
+transform regression). A release should not ship with red core tests;
+fix or bless-with-issue explicitly.
+
+### 8.2 Should fix (quality / coverage)
+
+- **`sqrt1337` has no Python leg.** py-sh-go v1 lacks string
+  containment / `.find`, so the `strstr` showcase is SKIP.
+- **GPU is a per-loop offload vehicle** that prints the offloaded
+  loop's checksum — not a general `--gpu` codegen. The whole-program
+  host split is the open M3 item shared with bash-O4.
+- **`squares-map` re-`cuMemAlloc`s the output every dispatch**; caching
+  the device buffer would recover most of the ~950 ms.
+- **`pyo4-tcc` (the default JIT/`-o` path) is 0.04x** — that is tcc
+  codegen, not the lowering. Either default `-o` to `cc`/`gcc` or say
+  so in the usage line.
+- **`hash` is 0.84x**; **non-pow2 floor-mod** reduce op is unimplemented.
+- **`sys.argv` in the frontend**, so callers stop substituting `N`
+  in-source or needing `--bind`.
+
+### 8.3 The gate to keep green
+
+- `bash-o4/bench/bench-py.py` agreement gate: every running leg
+  byte-agrees on checksums (fast and opt scales).
+- `bash-o4` `cargo test` (lib 50 + the `tests/` integration targets).
+- py-sh-go gate: 95/95 over the corpus, **default** 2^53 bound (the
+  `--exact-i64` path is opt-in and cannot change it).
+- `harness/c_gate_main.sh`: 637 PASS / 0 FAIL / 7 SKIP (the shell
+  frontend still takes the text-condition path; the sanitize pass is
+  available for memory/UB checks).
+- New pins from the CPU work:
+  `counter_reserve_loop_accepts_structured_cond` (c_backend) and
+  `exact_i64_keeps_bounded_mod_chain_native` (py.rs).
+
+### 8.4 Correct but slower (not blockers)
+
+- A *proven*-huge value (`2**100`) homes in GMP — exact, ~15x slower
+  than `__int128`; the profile-guided width tier can narrow it.
+- `--exact-i64` is sound **relative to the existing range proofs**: it
+  only widens the “proven” branch, so it cannot create B1 (which exists
+  at the default bound too).

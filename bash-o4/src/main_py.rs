@@ -32,6 +32,8 @@ usage: python-O4 [options] program.py [-- args...]\n\
   -O0|-Og|-O2|-Os|-Oz|-O3|-O4  render presets (default O4)\n\
   --true64|--no-true64  true 64-bit arithmetic (default true)\n\
   --verbose            diagnostics\n\
+  -h, --help           this help, exit 0\n\
+  -V, --version        version, exit 0\n\
 \n\
 JIT (default) compiles with tcc to a temp executable and runs it\n\
 (inherited stdio; exits with the program's own exit code). A tcc\n\
@@ -65,6 +67,8 @@ struct Options {
     opt_level: String,
     true64: Option<bool>,
     verbose: bool,
+    help: bool,
+    version: bool,
 }
 
 impl Default for Options {
@@ -85,6 +89,8 @@ impl Default for Options {
             opt_level: "O4".to_string(),
             true64: None,
             verbose: false,
+            help: false,
+            version: false,
         }
     }
 }
@@ -112,6 +118,8 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
                 o.gpu_flag = true;
                 o.gpu = GpuMode::Off;
             }
+            "-h" | "--help" => o.help = true,
+            "-V" | "--version" => o.version = true,
             "--gpu" => {
                 o.gpu_flag = true;
                 o.gpu = GpuMode::Auto;
@@ -171,6 +179,14 @@ fn run(args: &[String]) -> i32 {
         Ok(o) => o,
         Err(e) => return usage_err(&e),
     };
+    if o.help {
+        print!("{USAGE}");
+        return 0;
+    }
+    if o.version {
+        println!("python-O4 {}", env!("CARGO_PKG_VERSION"));
+        return 0;
+    }
     let Some(prog) = o.prog.clone() else {
         return usage_err("need program.py");
     };
@@ -208,11 +224,17 @@ fn run(args: &[String]) -> i32 {
             return 1;
         }
     };
-    let loops = py::normalize_counted(&mut prog_ir);
-    py::normalize_counted(&mut prog_flat);
-    // `append` → affine indexed store for the map candidacy (valid
-    // CPython source, GPU-candidacy shape). Map/reduce only.
-    let appends = py::normalize_appends(&mut prog_flat);
+    // Candidacy-view normalisation: the SHARED shIR transforms (the same
+    // ones the A1 ingress runs for every backend) recover the core's
+    // `ForInit` from the frontend's structured-Arith counted whiles and
+    // turn counted-loop appends into affine stores. The sequential-lane
+    // analysis uses the raw view (it keys on the frontend's Cast
+    // markers); the cast-stripped flat view feeds map/reduce.
+    use debashl::transforms as T;
+    let mut loops = 0usize;
+    loops += T::counted_arith_forinit::transform(&mut prog_ir.stmts) as usize;
+    loops += T::counted_arith_forinit::transform(&mut prog_flat.stmts) as usize;
+    let appends = T::append_to_store::transform(&mut prog_flat.stmts) as usize;
 
     if o.check {
         for v in bash_o4::cu_candidacy::analyze(&prog_flat) {
