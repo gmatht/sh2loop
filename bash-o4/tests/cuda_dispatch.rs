@@ -15,6 +15,8 @@ fn squares_spec() -> CuLoopSpec {
         step: 1,
         threads: 256,
         externs: vec!["n".to_string()],
+        mask_thresh: None,
+        mask_fast: false,
         stores: vec![CuStore {
             array: "a".to_string(),
             index_a: 1,

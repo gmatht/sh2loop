@@ -39,8 +39,18 @@ fn render_env_key() -> String {
 /// fixes, profile mapping, new native arms). The artifact cache key
 /// includes it, so fixed renders can never hide behind stale entries.
 /// History: 1 = initial M1; 2 = opt-profile mirroring; 3 = true64-safe
-/// default + split-temp/hoist/array fixes.
-pub const RENDERER_REV: u32 = 3;
+/// default + split-temp/hoist/array fixes; 4 = LIC bound hoist;
+/// 5 = let_compare arith sides.
+/// (Mid-session lesson: landing backend fixes without bumping served
+/// stale pre-fix renders from the cache — twice. The build-time
+/// git-state rev below now covers it automatically; keep this bumped
+/// too for nogit environments.)
+pub const RENDERER_REV: u32 = 5;
+
+// Content-addressed at BUILD time (see build.rs): HEAD SHAs + dirt hash
+// of the workspace and the sh2perl submodule. Uncommitted edits change
+// the key (safe direction: miss, never stale-hit).
+include!(concat!(env!("OUT_DIR"), "/pipeline_rev.rs"));
 
 /// SHA-256 hex of bytes.
 pub fn sha256_hex(bytes: &[u8]) -> String {
@@ -63,7 +73,7 @@ fn hex_of(digest: &[u8]) -> String {
 /// renderer revision is folded in (see RENDERER_REV).
 pub fn artifact_key(shir: &str, opts: &str, toolchain_id: &str) -> String {
     let mut h = Sha256::new();
-    h.update(format!("bash-o4-cache-r{RENDERER_REV}\0").as_bytes());
+    h.update(format!("bash-o4-cache-r{RENDERER_REV}:{PIPELINE_REV}\0").as_bytes());
     h.update(shir.as_bytes());
     h.update([0]);
     h.update(opts.as_bytes());

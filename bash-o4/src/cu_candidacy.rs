@@ -181,18 +181,20 @@ fn analyze_for_init(
             }
             let n = match expr {
                 IrExpr::Int(n) => Some(*n),
-                IrExpr::Arith(a) => match a.as_ref() {
-                    ArithAst::Num(n) => Some(*n),
-                    ArithAst::Assign { var: v, op, rhs }
-                        if v == &t.var && op == "=" =>
-                    {
-                        match rhs.as_ref() {
-                            ArithAst::Num(n) => Some(*n),
+                IrExpr::Arith(a) => {
+                    if let Some(n) = arith_num(a) {
+                        Some(n)
+                    } else {
+                        match a.as_ref() {
+                            ArithAst::Assign { var: v, op, rhs }
+                                if v == &t.var && op == "=" =>
+                            {
+                                arith_num(rhs)
+                            }
                             _ => None,
                         }
                     }
-                    _ => None,
-                },
+                }
                 _ => None,
             };
             let Some(n) = n else {
@@ -219,25 +221,16 @@ fn analyze_for_init(
                 IrExpr::Arith(a) => match a.as_ref() {
                     ArithAst::IncDec { var: v, delta, .. } if v == &var => Some(*delta),
                     ArithAst::Assign { var: v, op, rhs } if v == &var => match op.as_str() {
-                        "+=" => match rhs.as_ref() {
-                            ArithAst::Num(n) => Some(*n),
-                            _ => None,
-                        },
-                        "-=" => match rhs.as_ref() {
-                            ArithAst::Num(n) => Some(-n),
-                            _ => None,
-                        },
+                        "+=" => arith_num(rhs),
+                        "-=" => arith_num(rhs).map(|n| -n),
                         _ => None,
                     },
                     ArithAst::Bin { op, lhs, rhs }
                         if op == "+"
-                            && matches!(lhs.as_ref(), ArithAst::Var(v) | ArithAst::Ident(v) if v == &var)
-                            && matches!(rhs.as_ref(), ArithAst::Num(n) if *n > 0) =>
+                            && arith_ident(lhs) == Some(var.as_str())
+                            && arith_num(rhs).is_some_and(|n| n > 0) =>
                     {
-                        match rhs.as_ref() {
-                            ArithAst::Num(n) => Some(*n),
-                            _ => None,
-                        }
+                        arith_num(rhs)
                     }
                     _ => None,
                 },
@@ -259,9 +252,60 @@ fn analyze_for_init(
     finish(scope, path, &var, lo, &bound_var, inclusive, st, body, step)
 }
 
-/// Find `loopvar </<= IDENT` text in a condition call (dynamic bound).
-/// Literal bounds refuse here (`static-bound` — the GLSL path owns them).
+/// Strip the frontends' `Cast(ty, e)` markers. The Python frontend
+/// (py-sh-go) wraps integer-domain reads in `Cast(Int64, …)` as an
+/// exactness marker; cu_candidacy's whole model is signed i64, so the
+/// cast is an identity here (the C backend keeps its own bigint
+/// interpretation — this is the CUDA candidacy's view only).
+fn strip_cast(a: &ArithAst) -> &ArithAst {
+    match a {
+        ArithAst::Cast { arg, .. } => strip_cast(arg),
+        _ => a,
+    }
+}
+
+/// Numeric literal under any Cast wrapping.
+fn arith_num(a: &ArithAst) -> Option<i64> {
+    match strip_cast(a) {
+        ArithAst::Num(n) => Some(*n),
+        _ => None,
+    }
+}
+
+/// The identifier a (possibly cast-wrapped) arith subtree names, if any.
+fn arith_ident(a: &ArithAst) -> Option<&str> {
+    match strip_cast(a) {
+        ArithAst::Var(v) | ArithAst::Ident(v) => Some(v.as_str()),
+        _ => None,
+    }
+}
+
+/// Find `loopvar </<= IDENT` in a condition. Two shapes are accepted:
+/// the shell frontend's text form (`builtin("let", ["i<n"])`) and the
+/// Python frontend's structured `Arith(Bin{<, i, n})` form (py-sh-go
+/// never emits condition text). Literal bounds still refuse here
+/// (`static-bound` — the GLSL path owns those).
 fn cond_dyn_bound(cond: &IrExpr, var: &str) -> Option<(String, bool)> {
+    // Structured form: `while i < N:` / `while i <= N:`.
+    if let IrExpr::Arith(a) = cond {
+        if let ArithAst::Bin { op, lhs, rhs } = strip_cast(a) {
+            let op: &str = op;
+            if op == "<" || op == "<=" {
+                if let Some(lv) = arith_ident(lhs) {
+                    if lv == var {
+                        if let Some(rv) = arith_ident(rhs) {
+                            // A numeric-looking bound stays the shell
+                            // path's business (literal-bound refusal).
+                            if rv.parse::<i64>().is_err() {
+                                return Some((rv.to_string(), op == "<="));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return None;
+    }
     fn texts(e: &IrExpr, out: &mut Vec<String>) {
         match e {
             IrExpr::Str(s, _) => out.push(s.clone()),
@@ -479,6 +523,8 @@ fn lower_arith(
             }
         }
         ArithAst::Index { .. } => Err("index-read"),
+        // Identity (see strip_cast): the CUDA model is signed i64.
+        ArithAst::Cast { arg, .. } => lower_arith(arg, cx, lane),
         _ => Err("non-arith-expr"),
     }
 }
@@ -580,18 +626,20 @@ fn seq_counted_header(
             }
             let n = match expr {
                 IrExpr::Int(n) => Some(*n),
-                IrExpr::Arith(a) => match a.as_ref() {
-                    ArithAst::Num(n) => Some(*n),
-                    ArithAst::Assign { var: v, op, rhs }
-                        if v == &t.var && op == "=" =>
-                    {
-                        match rhs.as_ref() {
-                            ArithAst::Num(n) => Some(*n),
+                IrExpr::Arith(a) => {
+                    if let Some(n) = arith_num(a) {
+                        Some(n)
+                    } else {
+                        match a.as_ref() {
+                            ArithAst::Assign { var: v, op, rhs }
+                                if v == &t.var && op == "=" =>
+                            {
+                                arith_num(rhs)
+                            }
                             _ => None,
                         }
                     }
-                    _ => None,
-                },
+                }
                 _ => None,
             };
             let Some(n) = n else {
@@ -615,25 +663,16 @@ fn seq_counted_header(
                 IrExpr::Arith(a) => match a.as_ref() {
                     ArithAst::IncDec { var: v, delta, .. } if v == &var => Some(*delta),
                     ArithAst::Assign { var: v, op, rhs } if v == &var => match op.as_str() {
-                        "+=" => match rhs.as_ref() {
-                            ArithAst::Num(n) => Some(*n),
-                            _ => None,
-                        },
-                        "-=" => match rhs.as_ref() {
-                            ArithAst::Num(n) => Some(-n),
-                            _ => None,
-                        },
+                        "+=" => arith_num(rhs),
+                        "-=" => arith_num(rhs).map(|n| -n),
                         _ => None,
                     },
                     ArithAst::Bin { op, lhs, rhs }
                         if op == "+"
-                            && matches!(lhs.as_ref(), ArithAst::Var(v) | ArithAst::Ident(v) if v == &var)
-                            && matches!(rhs.as_ref(), ArithAst::Num(n) if *n > 0) =>
+                            && arith_ident(lhs) == Some(var.as_str())
+                            && arith_num(rhs).is_some_and(|n| n > 0) =>
                     {
-                        match rhs.as_ref() {
-                            ArithAst::Num(n) => Some(*n),
-                            _ => None,
-                        }
+                        arith_num(rhs)
                     }
                     _ => None,
                 },
@@ -750,6 +789,10 @@ fn analyze_seq_init(
         arrays: vec![],
         mask_thresh: None,
         mask_fast: false,
+        // Coworker's in-flight `mask_outer` field (cuda_backend.rs) —
+        // this constructor is the seq path, which never masks, so the
+        // documented default is correct here.
+        mask_outer: true,
         seq_prelude: prelude,
     };
     CuReduceVerdict {
@@ -1395,18 +1438,20 @@ fn analyze_reduce_init(
             }
             let n = match expr {
                 IrExpr::Int(n) => Some(*n),
-                IrExpr::Arith(a) => match a.as_ref() {
-                    ArithAst::Num(n) => Some(*n),
-                    ArithAst::Assign { var: v, op, rhs }
-                        if v == &t.var && op == "=" =>
-                    {
-                        match rhs.as_ref() {
-                            ArithAst::Num(n) => Some(*n),
+                IrExpr::Arith(a) => {
+                    if let Some(n) = arith_num(a) {
+                        Some(n)
+                    } else {
+                        match a.as_ref() {
+                            ArithAst::Assign { var: v, op, rhs }
+                                if v == &t.var && op == "=" =>
+                            {
+                                arith_num(rhs)
+                            }
                             _ => None,
                         }
                     }
-                    _ => None,
-                },
+                }
                 _ => None,
             };
             let Some(n) = n else {
@@ -1431,25 +1476,16 @@ fn analyze_reduce_init(
                 IrExpr::Arith(a) => match a.as_ref() {
                     ArithAst::IncDec { var: v, delta, .. } if v == &var => Some(*delta),
                     ArithAst::Assign { var: v, op, rhs } if v == &var => match op.as_str() {
-                        "+=" => match rhs.as_ref() {
-                            ArithAst::Num(n) => Some(*n),
-                            _ => None,
-                        },
-                        "-=" => match rhs.as_ref() {
-                            ArithAst::Num(n) => Some(-n),
-                            _ => None,
-                        },
+                        "+=" => arith_num(rhs),
+                        "-=" => arith_num(rhs).map(|n| -n),
                         _ => None,
                     },
                     ArithAst::Bin { op, lhs, rhs }
                         if op == "+"
-                            && matches!(lhs.as_ref(), ArithAst::Var(v) | ArithAst::Ident(v) if v == &var)
-                            && matches!(rhs.as_ref(), ArithAst::Num(n) if *n > 0) =>
+                            && arith_ident(lhs) == Some(var.as_str())
+                            && arith_num(rhs).is_some_and(|n| n > 0) =>
                     {
-                        match rhs.as_ref() {
-                            ArithAst::Num(n) => Some(*n),
-                            _ => None,
-                        }
+                        arith_num(rhs)
                     }
                     _ => None,
                 },
@@ -1498,73 +1534,181 @@ fn analyze_reduce_init(
     // Op classification over (acc-side, other-side).
     let mut cx = BodyCx { var: &var, types, externs: BTreeSet::new() };
     // Returns (op, X-subtree) with X lowered after.
-    enum Shape<'x> {
-        Add(&'x ArithAst),
-        Mul(&'x ArithAst),
-        Mod(&'x ArithAst, i64),
-        Mask(&'x ArithAst, i64),
+    // Owned X subtrees (flat arms clone the borrow; nested-spine
+    // arms rebuild via peel_accum) — downstream borrows the owned X.
+    enum Shape {
+        Add(ArithAst),
+        Mul(ArithAst),
+        Mod(ArithAst, i64),
+        Mask(ArithAst, i64),
     }
     fn is_acc(x: &ArithAst, acc: &str) -> bool {
-        matches!(x, ArithAst::Var(v) | ArithAst::Ident(v) if v == acc)
+        matches!(strip_cast(x), ArithAst::Var(v) | ArithAst::Ident(v) if v == acc)
     }
-    let shape: Option<Shape> = match ast.as_ref() {
-        ArithAst::Bin { op, lhs, rhs } if op == "+" || op == "*" => {
-            if is_acc(lhs, &acc) {
-                Some(if op == "+" { Shape::Add(rhs) } else { Shape::Mul(rhs) })
-            } else if is_acc(rhs, &acc) {
-                Some(if op == "+" { Shape::Add(lhs) } else { Shape::Mul(lhs) })
-            } else {
-                None
+    /// Peel a left- or right-nested accumulate spine into flat `acc + X`
+    /// (resp. `*`), rebuilding X right-leaning: `((acc+X1)+X2)` →
+    /// `X1+X2`, `(X1+(X2+acc))` → `X1+X2`. Wrapping `+`/`*` associate
+    /// (ring-exact), so evaluation order never changes values. Only
+    /// peels through the SAME op (never across `%`/`&`/calls). Requires
+    /// exactly one acc occurrence (else the rebuilt X still names acc
+    /// and lowering vetoes on width — fail-closed either way).
+    fn peel_accum(e: &ArithAst, acc: &str, op: &str) -> Option<ArithAst> {
+        fn count_acc(x: &ArithAst, acc: &str) -> usize {
+            match x {
+                ArithAst::Var(v) | ArithAst::Ident(v) => usize::from(v == acc),
+                ArithAst::Bin { lhs, rhs, .. } => count_acc(lhs, acc) + count_acc(rhs, acc),
+                ArithAst::Un { arg, .. } => count_acc(arg, acc),
+                ArithAst::Cond { test, then, else_ } => {
+                    count_acc(test, acc) + count_acc(then, acc) + count_acc(else_, acc)
+                }
+                ArithAst::Assign { var, rhs, .. } => {
+                    usize::from(var == acc) + count_acc(rhs, acc)
+                }
+                ArithAst::IncDec { var, .. } => usize::from(var == acc),
+                ArithAst::Cast { arg, .. } => count_acc(arg, acc),
+                ArithAst::Index { var, key } => {
+                    usize::from(var == acc) + count_acc(key, acc)
+                }
+                _ => 0,
             }
+        }
+        fn peel(x: &ArithAst, acc: &str, op: &str) -> Option<ArithAst> {
+            match strip_cast(x) {
+                ArithAst::Bin { op: op2, lhs, rhs } if op2 == op => {
+                    if is_acc(lhs, acc) {
+                        Some((**rhs).clone())
+                    } else if is_acc(rhs, acc) {
+                        Some((**lhs).clone())
+                    } else if count_acc(lhs, acc) == 1 {
+                        Some(ArithAst::Bin {
+                            op: op.to_string(),
+                            lhs: Box::new(peel(lhs, acc, op)?),
+                            rhs: rhs.clone(),
+                        })
+                    } else if count_acc(rhs, acc) == 1 {
+                        Some(ArithAst::Bin {
+                            op: op.to_string(),
+                            lhs: lhs.clone(),
+                            rhs: Box::new(peel(rhs, acc, op)?),
+                        })
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            }
+        }
+        if count_acc(e, acc) != 1 {
+            return None;
+        }
+        peel(e, acc, op)
+    }
+    /// Detect the Python frontend's floor-mod composition
+    /// `((A % m) + m) % m` (emitted whenever the dividend's sign is
+    /// unproven) and return `(A, m)`. For pow2 `m` the composition is
+    /// EXACTLY `A & (m-1)` for every sign (bitwise low bits = the
+    /// nonnegative residue), so it lowers to the existing `MaskAdd`
+    /// vehicle — no PTX change and no nonneg proof needed.
+    fn floor_mod_parts(a: &ArithAst) -> Option<(ArithAst, i64)> {
+        let ArithAst::Bin { op, lhs, rhs } = strip_cast(a) else {
+            return None;
+        };
+        if op != "%" {
+            return None;
+        }
+        let m3 = arith_num(rhs)?;
+        let ArithAst::Bin { op: op2, lhs: l2, rhs: r2 } = strip_cast(lhs) else {
+            return None;
+        };
+        if op2 != "+" {
+            return None;
+        }
+        let m2 = arith_num(r2)?;
+        let ArithAst::Bin { op: op3, lhs: inner, rhs: r3 } = strip_cast(l2) else {
+            return None;
+        };
+        if op3 != "%" {
+            return None;
+        }
+        let m1 = arith_num(r3)?;
+        if m1 > 0 && m1 == m2 && m2 == m3 {
+            Some(((**inner).clone(), m1))
+        } else {
+            None
+        }
+    }
+    let shape: Option<Shape> = if let Some((inner, m)) = floor_mod_parts(ast.as_ref()) {
+        // Non-pow2 floor-mod would need a dedicated op — refuse, never
+        // guess (a truncated `rem` is wrong for negative dividends).
+        if (m as u64).is_power_of_two() {
+            peel_accum(&inner, &acc, "+").map(|x| Shape::Mask(x, m - 1))
+        } else {
+            None
+        }
+    } else {
+        match strip_cast(ast.as_ref()) {
+        ArithAst::Bin { op, lhs, rhs } if op == "+" || op == "*" => {
+            // Flat (`acc+X`) or nested-spine (`(acc+X1)+X2`, …) accumulate.
+            let x = if is_acc(lhs, &acc) {
+                Some((**rhs).clone())
+            } else if is_acc(rhs, &acc) {
+                Some((**lhs).clone())
+            } else {
+                peel_accum(strip_cast(ast.as_ref()), &acc, op)
+            };
+            x.map(|x| {
+                if op == "+" {
+                    Shape::Add(x)
+                } else {
+                    Shape::Mul(x)
+                }
+            })
         }
         ArithAst::Bin { op, lhs, rhs } if op == "%" => {
             // `(acc+X) % m` / `(X+acc) % m`, m literal in 1..=2^32
             // (2^32 needs u64 compare — u32::MAX excludes it).
-            let Some((inner, m)) = (match rhs.as_ref() {
-                ArithAst::Num(m) if *m >= 1 && (*m as u64) <= (1u64 << 32) => Some((lhs.as_ref(), *m)),
-                _ => None,
-            }) else {
+            let Some(m) = arith_num(rhs).filter(|m| *m >= 1 && (*m as u64) <= (1u64 << 32))
+            else {
                 return rveto(scope, path, &var, "non-accum-op");
             };
+            let inner = strip_cast(lhs);
             match inner {
                 ArithAst::Bin { op: op2, lhs: l2, rhs: r2 } if op2 == "+" => {
                     if is_acc(l2, &acc) {
-                        Some(Shape::Mod(r2, m))
+                        Some(Shape::Mod((**r2).clone(), m))
                     } else if is_acc(r2, &acc) {
-                        Some(Shape::Mod(l2, m))
+                        Some(Shape::Mod((**l2).clone(), m))
                     } else {
-                        None
+                        // Nested spine (`(acc+X1)+X2`, …) — peel to flat.
+                        peel_accum(inner, &acc, "+").map(|x| Shape::Mod(x, m))
                     }
                 }
-                _ => None,
+                _ => peel_accum(inner, &acc, "+").map(|x| Shape::Mod(x, m)),
             }
         }
         ArithAst::Bin { op, lhs, rhs } if op == "&" => {
             // `(acc+X) & mask` / `(X+acc) & mask`, mask+1 pow2 <= 2^32.
-            let Some((inner, mask)) = (match rhs.as_ref() {
-                ArithAst::Num(m) if *m >= 0 && ((*m as u64) + 1).is_power_of_two()
-                    && (*m as u64) < (1u64 << 32) =>
-                {
-                    Some((lhs.as_ref(), *m))
-                }
-                _ => None,
+            let Some(mask) = arith_num(rhs).filter(|m| {
+                *m >= 0 && ((*m as u64) + 1).is_power_of_two() && (*m as u64) < (1u64 << 32)
             }) else {
                 return rveto(scope, path, &var, "non-accum-op");
             };
+            let inner = strip_cast(lhs);
             match inner {
                 ArithAst::Bin { op: op2, lhs: l2, rhs: r2 } if op2 == "+" => {
                     if is_acc(l2, &acc) {
-                        Some(Shape::Mask(r2, mask))
+                        Some(Shape::Mask((**r2).clone(), mask))
                     } else if is_acc(r2, &acc) {
-                        Some(Shape::Mask(l2, mask))
+                        Some(Shape::Mask((**l2).clone(), mask))
                     } else {
-                        None
+                        peel_accum(inner, &acc, "+").map(|x| Shape::Mask(x, mask))
                     }
                 }
-                _ => None,
+                _ => peel_accum(inner, &acc, "+").map(|x| Shape::Mask(x, mask)),
             }
         }
         _ => None,
+    }
     };
     // (X must mention acc for Min/Max? No — Min/Max aren't matched here
     // at all in v1 (call-shaped, not arith). Add/Mul/Mod/Mask above.)
@@ -1594,6 +1738,7 @@ fn analyze_reduce_init(
                 let k = lower_value(key, cx, var)?;
                 Ok(CuArith::ArrRead { array: arr.clone(), index: Box::new(k) })
             }
+            ArithAst::Cast { arg, .. } => lower_value(arg, cx, var),
             _ => Err("non-arith-expr"),
         }
     }
@@ -1621,22 +1766,28 @@ fn analyze_reduce_init(
             _ => {}
         }
     }
-    let (op, x_ast) = match shape {
+    let (op, x_owned) = match shape {
         Shape::Add(x) => (CuReduceOp::Add, x),
         Shape::Mul(x) => (CuReduceOp::Mul, x),
         Shape::Mod(x, m) => (CuReduceOp::ModAdd { modulus: m }, x),
         Shape::Mask(x, m) => (CuReduceOp::MaskAdd { mask: m }, x),
     };
+    let x_ast = &x_owned;
     let value = match lower_value(x_ast, &mut cx, &var) {
         Ok(v) => v,
         Err(r) => return rveto(scope, path, &var, r),
     };
     let mut arrays: Vec<String> = Vec::new();
     collect_arrays(x_ast, &mut arrays);
-    // Maskable pow2-mods (None = render signed; miss, safe).
-    let mask_thresh = cu_mask_plan_reduce_side(
+    // Maskable pow2-mods (None = render signed; miss, safe). The bool
+    // is mask_outer (false demotes a pow2 outer to `rem` while covered
+    // inners still mask — exact either way).
+    let (mask_thresh, mask_outer) = match cu_mask_plan_reduce_side(
         body, step, &var, lo, &bound_var, !inclusive, &acc, acc_init, &op, x_ast,
-    );
+    ) {
+        Some((t, o)) => (Some(t), o),
+        None => (None, true),
+    };
     let id = scope.next_id().replace("cu_loop_", "cu_red_");
     let mut externs: Vec<String> = cx.externs.into_iter().collect();
     externs.sort();
@@ -1656,6 +1807,7 @@ fn analyze_reduce_init(
         arrays,
         mask_thresh,
         mask_fast: false,
+        mask_outer,
         seq_prelude: vec![],
     };
     CuReduceVerdict {
@@ -2087,7 +2239,7 @@ fn cu_mask_plan_reduce_side(
     acc_init: i64,
     op: &debashl::cuda_backend::CuReduceOp,
     x_ast: &ArithAst,
-) -> Option<i128> {
+) -> Option<(i128, bool)> {
     use debashl::cuda_backend::CuReduceOp as Op;
     use debashl::shir_passes::maskable as M;
     if lo < 0 || boundvar == var {
@@ -2115,20 +2267,22 @@ fn cu_mask_plan_reduce_side(
             // outer's sake (inners below still join).
         } else {
             // Pow2 outer masks iff X verified + acc entry in range.
-            if *modulus < 1
-                || !(0 <= acc_init && (acc_init as u64) < (*modulus as u64))
-            {
-                return None;
-            }
-            if ast_mentions(x_ast, acc) {
-                return None;
-            }
-            match M::mask_threshold(x_ast, *modulus, var, lt, true) {
-                Some(t) => {
+            // Otherwise DEMOTE: the outer stays `rem` (exact for any X
+            // and any init — no induction needed), while versionable
+            // inner pow2 sites still mask (their thresholds join below;
+            // any inner mentioning acc fails the walk fail-closed).
+            let outer_ok = *modulus >= 1
+                && (0 <= acc_init && (acc_init as u64) < (*modulus as u64))
+                && !ast_mentions(x_ast, acc);
+            match (
+                outer_ok,
+                M::mask_threshold(x_ast, *modulus, var, lt, true),
+            ) {
+                (true, Some(t)) => {
                     thresh.push(t);
                     will_mask_outer = true;
                 }
-                None => return None,
+                _ => {}
             }
         }
     }
@@ -2142,16 +2296,14 @@ fn cu_mask_plan_reduce_side(
     if !will_mask_outer && !inner_pow2_found {
         return None;
     }
-    // (Empty means nothing versionable: no outer coverage and no
-    // inner pow2 sites — masking would change nothing.)
-    if thresh.is_empty() {
-        return None;
-    }
     let finite: Vec<i128> = thresh.iter().copied().filter(|t| *t < M::VER_INF).collect();
     if !finite.is_empty() && finite.iter().min().copied().unwrap_or(0) < 16 {
         return None;
     }
-    Some(thresh.into_iter().min().unwrap_or(M::VER_INF))
+    Some((
+        thresh.into_iter().min().unwrap_or(M::VER_INF),
+        will_mask_outer,
+    ))
 }
 
 /// Walk one CuArith value for pow2-mod sites, joining thresholds.
@@ -2235,6 +2387,23 @@ mod seq_tests {
         let vs = analyze_seq(&prog);
         assert_eq!(vs.len(), 1);
         assert!(matches!(vs[0].verdict, CuVerdictKind::Veto { .. }), "plain sum must veto: {}", vs[0]);
+    }
+
+    const HASH: &str = "#!/bin/bash\nn=$1\ns=0\nfor ((i=0;i<n;i++)); do a=$(( (i*53) % 256 )); b=$(( (i*89) % 256 )); s=$(( (s + a*31 + b*17) % 256 )); done\n";
+
+    #[test]
+    fn hash_demotes_outer() {
+        // Isolated + peeled `((s+X1)+X2)%256`: candidate with inners
+        // masked (threshold from the 53/89 linears) but outer demoted
+        // to `rem` (X unversionable as a whole).
+        let prog = prog_of(HASH);
+        let vs = analyze_reduce(&prog);
+        assert_eq!(vs.len(), 1, "one loop verdict: {vs:?}");
+        let v = &vs[0];
+        assert!(matches!(v.verdict, CuVerdictKind::Candidate), "expected candidate: {v}");
+        let spec = v.spec.as_ref().expect("spec");
+        assert!(spec.mask_thresh.is_some(), "inners covered");
+        assert!(!spec.mask_outer, "outer demoted");
     }
 }
 

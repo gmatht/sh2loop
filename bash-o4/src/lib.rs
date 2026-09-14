@@ -11,10 +11,12 @@
 pub mod cache;
 pub mod candidacy;
 pub mod cli;
+pub mod cu_run;
 pub mod cudaffi;
 pub mod cu_candidacy;
 pub mod fetch;
 pub mod pipeline;
+pub mod py;
 pub mod shader;
 pub mod tcc;
 pub mod vkffi;

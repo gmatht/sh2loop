@@ -15,6 +15,10 @@ crate-type = ["rlib"]
 name = "bash-O4"
 path = "src/main.rs"
 
+[[bin]]
+name = "python-O4"
+path = "src/main_py.rs"
+
 [dependencies]
 otranspilerl = { path = "../otranspilerl" }
 debashl = { path = "../sh2perl" }
