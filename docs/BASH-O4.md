@@ -442,7 +442,14 @@ around 10⁵–10⁶ trips; below ~10⁴ trips the GPU always loses. Hence:
 7. **Source reads are byte-preserving** (U+F800 PUA markers, mirroring
    `otranspilerl`'s private `read_source`): plain lossy reads
    corrupted `utf8-non-utf8-content.sh`.
-8. **Three core soundness fixes came free with M1/M2 verification**
+8. **Loop-invariant bound hoist came free with benchmarking**
+   (2026-09-13): the bench exposed `atoll(bound)` re-parsed per
+   iteration (~85% of scalar loops). Narrow refuse-first LIC in the
+   `While` arm (bare-ident bounds unwritten by the body, trap-free)
+   plus three regression tests; bo4-gcc closed 7× → ~1.5× vs
+   handwritten on bound-variable loops. Full story in
+   `bash-o4/bench/README.md`.
+9. **Three core soundness fixes came free with M1/M2 verification**
    (each found by a failing test, fixed in-product with regression
    tests): `hoist_loop_invariants` hoisted `For`-counter-dependent
    stores (`a[$i]=i+1` executed once); `emit_array_assign` wrote a
@@ -451,7 +458,84 @@ around 10⁵–10⁶ trips; below ~10⁴ trips the GPU always loses. Hence:
    The C gate stayed 637/0/7 throughout (no corpus case covered those
    shapes — which is how they hid).
 
-## 5. Appendix — file-level touch list (for the implementer, later)
+## 7. M5 + transpiled CUDA — deviations and honest limits (2026-09-14)
+
+Ten more decisions, recorded because each trades generality for
+something the design doc did not anticipate.
+
+1. **Candidacy for the GPU is a *third* path, not the CPU one.**
+   `cu_candidacy::{analyze,analyze_reduce,analyze_seq}` in `bash-o4/`
+   (same zero-blast-radius rule as §6.1). The CPU map candidacy stayed
+   as-is; the CUDA path accepts more (multi-store fills, array-reading
+   reductions, sequential lane-nests) and is deliberately allowed to
+   diverge, because it sizes arrays by trip count instead of the C
+   backend's fixed `ARR_CAP` backstop.
+2. **Map+reduce fuse only on identical iteration spaces.** Coverage
+   must be exact or the reduce could read unwritten slots; the
+   vehicle refuses (SKIP) rather than synthesising a bound.
+3. **`mask_fast` is a *vehicle-side clone flag*, not a shIR verdict.**
+   The emitter renders `% 2^k` as `& (2^k-1)` only when the driver
+   passes a bound inside the proved threshold. Rationale: the mask
+   identity needs both non-negativity *and* nowrap, and baking that
+   into the module would make one PTX module bound-specific (no
+   caching). The cost is that a shape whose bound exceeds the
+   threshold silently gets the signed slow path — correct, slower.
+4. **`mask_outer` demotion instead of all-or-nothing.** When a pow2
+   *outer* accumulate modulo is unversionable but *inner* pow2 sites
+   are covered, the outer stays `rem` and the inners mask. Emitting
+   either both-or-neither would throw away a 2× win for a shape the
+   analysis could almost prove.
+5. **Sequential lane-nests are admitted via a shared *privatization*
+   analysis, not a special case.** `shir_passes::lane_private` proves
+   (ordered init dominance, chain writes dominated by inits,
+   accumulate only in the tail, pure tests) that an outer iteration is
+   independent, so one lane may run the whole chain. Collatz is the
+   motivating shape; the analysis has no Collatz knowledge in it.
+6. **The `CuArith::Shr` peephole is path-sensitive on purpose.** A
+   guard `(v % 2) == 0` proves the dividend even, and *for even s64*
+   truncation and floor agree — so the shift is exact without needing
+   non-negativity. The `(v & 1) == 0` rewrite is *not* emitted
+   unconditionally: it is only applied where a `v > 1` while-guard
+   makes `v` provably non-negative. Both are refuse-first and
+   documented at the emitter.
+7. **The transpiled CUDA path is reached via `cutranspile` /
+   `python-O4 --gpu`, NOT `bash-O4 --gpu`.** In this driver
+   `--gpu=auto` is a *policy* ("CPU fallback if no device") and
+   `harness/gpu_gate.sh` compares that leg's stdout against bash;
+   making `auto` dispatch would change a flag a gate depends on. The
+   honest fix is an explicit `--gpu` (python-O4's shape) plus
+   `--n/--runs/--bind` and a new gate leg — open work, not a
+   regression. Until then, `bash-O4 --gpu=force` exits 3 by design.
+8. **The `cuda` and `cuda-tx` bench columns are checksum-anchored but
+   only `cuda-tx` is transpiled.** `cudabench` dispatches handwritten
+   PTX block templates; `cutranspile` runs the compiler pipeline. Both
+   are gated against the *same* C checksum, so a `cuda-tx`/`cuda`
+   divergence would be a compiler bug — not a re-tune of one side.
+9. **The Vulkan column here is software.** The only presentable
+   Vulkan device is Lavapipe; `gpuleg` therefore measures the scaffold
+   (and loses ~6× on transfer-bound maps over shared RAM). Real
+   hardware needs a discrete GPU with a working Vulkan ICD. Recorded
+   so the `gpu` column is never read as a hardware claim.
+10. **Bench methodology: minimum over repeated suite runs.** The
+    reference box is a shared 8-CPU laptop that regularly sits at load
+    average 7–10 from concurrent builds, and single CPU-leg timings
+    varied up to ~4× run to run. Quoted figures are per-leg minima
+    over 3 runs of 5 reps; the *within-run* ratios (bo4-gcc/gcc-O3,
+    cuda-tx/cuda) are stable because both sides see the same
+    interference. An earlier single-run table was discarded for this
+    reason rather than published with error bars.
+
+### What is provably *not* claimed
+
+- `hash` runs on the transpiled CUDA leg, but has **no handwritten GPU
+  kernel**, so its row is correct-and-fast, not proven-optimal.
+- `./fail` (Perl corpus) is **not green** (pre-existing 260/552
+  baseline owned by the ESTree/Perl workstream). The gates for this
+  work are `c_gate_main.sh` (637/0/7) and `gpu_gate.sh` (545/0/7).
+- The `ARR_CAP` (1024) backstop and the tcc `<regex.h>` fallback both
+  remain; neither is a silent behaviour.
+
+## 8. Appendix — file-level touch list (for the implementer, later)
 
 - NEW `bash-o4/` crate (driver, fetch/cache, `gpu.costs.toml`
   calibration, `gpu_gate.sh`): does not touch shared code.
