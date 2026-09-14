@@ -16,6 +16,14 @@
 > shared versioning plan now accepts the frontend's *structured*
 > condition as well as the shell's text one. sumred CPU is now 1.18 s
 > (was 67.5 s) and squares-map 0.17 s (was 27.4 s).
+>
+> **B1 fixed (§8.1): exact loop-carried integers.** The straight-line
+> range proof used to narrow an unprovable loop-carried accumulator to
+> i64, so `factorial(30)` silently wrapped; it is exact now
+> (a loop-growth guard plus a `x % m → [0,m-1]` range rule and a
+> C-backend mixed-accumulator fix). The cost: collatz's growing `v` is
+> now correctly GMP on the **CPU** leg (154 s at 1.8e7 vs 892 ms when it
+> was unsoundly i64); the CUDA leg is unchanged at 12.70 ms.
 
 ## 1. The binary
 
@@ -154,8 +162,15 @@ opt` (bench-opt N, ~1 s CPU legs, CPython dropped) measures steady state.
 | problem | N | gcc-O3 | python-O4 CPU (gcc) | python-O4 GPU | GPU vs C |
 |---|---:|---:|---:|---:|---:|
 | sumred | 1e9 | 1041 ms | **1175 ms** (0.89x) | **3.55 ms** | **293x** |
-| collatz | 1.8e7 | 774 ms | 892 ms (0.87x) | **12.70 ms** | **61x** |
+| collatz | 1.8e7 | 774 ms | ~154 s (GMP, exact) | **12.70 ms** | **61x** |
 | squares-map | 1e8 | 278 ms | **170 ms** (1.63x) | ~950 ms | ~0.3x |
+
+- **collatz's CPU row is GMP now, and that is the correct result.** Its
+  inner `v = 3*v+1` grows without a provable bound, so narrowing it to
+  i64 (the 892 ms it used to measure) was the B1 miscompile class: some
+  inputs would overflow silently. Exactness costs ~170x on that leg; the
+  GPU leg (i64-exact by construction) is unaffected, and recovering the
+  CPU speed needs overflow-guarded i64→GMP tiering (§8.1 B1 follow-up).
 
 - The CUDA times match the *bash* `cutranspile` vehicle on the same
   shapes (sumred 4.07 ms, collatz 13.79 ms): the Python frontend's A1
@@ -226,19 +241,18 @@ rows (hash is 0.84x, `pyo4-tcc` is tcc-codegen-bound).
 
 What is green today: the bench agreement gate (all legs byte-agree),
 bash-o4's own tests, the py-sh-go gate (95/95), and the shell C corpus
-(637/0/7). What is **not** ready is Python *exactness* in general — the
-frontend narrows on a straight-line range proof and silently drops to a
-native width when the proof is missing. That is the release blocker.
+(637/0/7). B1 (Python exactness for loop-carried ints) is **fixed**;
+the remaining blockers are packaging/process (B2–B5) rather than
+miscompiles.
 
 ### 8.1 Blockers (fix before a release)
 
-**B1. Silent miscompile of unproven loop-carried Python ints.**
+**B1. Silent miscompile of unproven loop-carried Python ints — FIXED.**
 
-The frontend's range tracking is single-pass: inside a loop body
-`intDom` still sees the range from the *pre-loop* assignment, and its
-unknown-range fallback is optimistic (`"int"`), contradicting the
-documented “unproven → bigint”. An accumulator with no provable bound
-is therefore homed in i64 / JS Number / Perl NV and overflows.
+The frontend's range proof was single-pass: inside a loop `intDom` saw
+the range from the *pre-loop* assignment, and its unknown-range fallback
+was optimistic (`"int"`). An accumulator with no provable bound was
+homed in i64 / JS Number / Perl NV and overflowed:
 
 ```python
 f = 1
@@ -247,28 +261,41 @@ for i in range(1, 30):
 print(f)     # CPython 8841761993739701954543616000000
 ```
 
-`python-O4` prints `-7055958792655077376`; so do py-sh-go→C and the
-Perl backend (and the ESTree path loses the same digits in a Number).
-This is **not** introduced by `--exact-i64` — the default 2^53 bound
-has the same hole — and it is why the `sum_squares`/`app_grow` rows in
-`docs/PY_BENCH.md` note the default build is wrong past i64.
+Three changes make it exact (all verified):
 
-Fix shape:
+1. **Loop-growth guard** (`growsUnbounded`): a variable assigned inside a
+   loop (tracked by `loopDepth`) whose RHS is a self-referential
+   `*`/`**`/`<<`, or `v` appearing twice additively (`v = v + v`), is
+   forced to the bigint domain. A top-level modulo is bounded and is not
+   growth. `factorial(30)` and `s = s*3` are exact now; `s = s + i`,
+   collatz's `s += 1`, addsum, squares and sumred stay native.
+2. **`x % m → [0, m-1]` from the divisor alone** (`rangeOf`): a
+   loop-carried dividend no longer hides the bound, which is what keeps
+   a mod-bounded accumulator (`sumred`) provably i64.
+3. **C-backend mixed-accumulator fix**: `analyze_bigint_vars` recorded
+   only the *first* assignment per variable, so a var assigned a plain
+   arith once and a `Cast(Int64)` arith later was declared `long long`
+   while the later store rendered `mpz_add(v,…)`. It now records every
+   assignment, and a bigint-homed target always renders through
+   `bigint_into`. Pinned by `mixed_bigint_assignment_homes_the_var`.
 
-1. make the range analysis loop-aware — iterate/widen each loop body's
-   abstract ranges to a fixed point (linear bounds so `s = s + i` over
-   `range(N)` proves `N²/2` and stays native);
-2. make the unknown-range fallback conservative (`big`);
-3. let the `x % m → [0, m-1]` rule fire from the divisor alone (it
-   currently requires the dividend's range too), so mod-bounded
-   accumulators — the sumred/squares win — stay native under (2).
+Verification: `testdata` gate 95/95, shell C corpus 637/0/7,
+`unbounded_loop_accumulator_is_exact_bounded_stays_native` (py.rs),
+and the bench agreement gate (all checksums still byte-agree).
 
-Interim (acceptable for a first release): a **guard** that refuses or
-warns when an integer is assigned inside a loop from a self-referential
-`*`/`**`/`<<` with no modulo bound. It closes the common class without
-claiming general exactness, and is testable. Either way, python-O4 must
-not ship a “exact Python ints” claim until (1)–(3) land, and B3 would
-have caught it.
+Residual, honestly:
+
+- **Performance.** An unprovable loop-carried growth is exact but GMP:
+  collatz CPU 892 ms → ~154 s. Recovering it needs **overflow-guarded
+  tiering** — compute in i64 with `__builtin_*_overflow` and spill to
+  GMP on the first violation (the `SH2_ASSUME_OBSERVED_WIDTHS`
+  `__int128`+GMP tier is the prototype). That is the next perf item, not
+  a correctness one.
+- **Additive accumulators** (`s = s + i` in a loop) are still narrowed
+  to i64 when the per-iteration operand has a known range; they can in
+  principle exceed i64 for an astronomically long loop. Closing that
+  needs the same overflow guard (or a trip-count bound). Documented, not
+  claimed sound.
 
 **B2. The artifact cache can serve stale C across backend upgrades.**
 `cache::artifact_key` folds bash-o4's `RENDERER_REV:PIPELINE_REV` and
@@ -333,8 +360,10 @@ fix or bless-with-issue explicitly.
   frontend still takes the text-condition path; the sanitize pass is
   available for memory/UB checks).
 - New pins from the CPU work:
-  `counter_reserve_loop_accepts_structured_cond` (c_backend) and
-  `exact_i64_keeps_bounded_mod_chain_native` (py.rs).
+  `counter_reserve_loop_accepts_structured_cond` (c_backend),
+  `exact_i64_keeps_bounded_mod_chain_native` and
+  `unbounded_loop_accumulator_is_exact_bounded_stays_native` (py.rs),
+  `mixed_bigint_assignment_homes_the_var` (c_backend).
 
 ### 8.4 Correct but slower (not blockers)
 

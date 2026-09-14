@@ -51,7 +51,7 @@ GPU-candidacy shape (`docs/PYTHON-O4.md` §2).
 | problem | N | gcc-O3 | pyo4-gcc | pyo4-gpu | GPU vs C |
 |---|---:|---:|---:|---:|---:|
 | sumred | 1e9 | 1041 ms | 1175 ms (0.89x) | **3.55 ms** | **293x** |
-| collatz | 1.8e7 | 774 ms | 892 ms (0.87x) | **12.70 ms** | **61x** |
+| collatz | 1.8e7 | 774 ms | ~154 s (GMP, exact) | **12.70 ms** | **61x** |
 | squares-map | 1e8 | 278 ms | **170 ms** (1.63x) | ~950 ms | ~0.3x |
 
 All checksums byte-agree across legs. `pyo4-gpu` reproduces the bash
@@ -67,7 +67,12 @@ the CPU legs ~1-5 ms vs CPython 1100-1700 ms.
 - **The GPU win is on reductions.** A 1e9-trip mod-reduce and an
   18M-trip branchy Collatz chain beat the handwritten C ceiling by
   293x / 61x — the two things a single scalar thread does worst.
-- **The CPU legs are no longer GMP.** The mod-reduce and map rows used
+- **collatz's CPU row is GMP now, and that is correct**: its inner
+  `v = 3*v+1` grows without a provable bound, so the old 892 ms i64 leg
+  was the B1 miscompile class (silent overflow for some inputs). The
+  CUDA leg is i64-exact by construction and unchanged. Recovery needs
+  overflow-guarded i64→GMP tiering (`docs/PYTHON-O4.md` §8.1 B1).
+- **The other CPU legs are no longer GMP.** The mod-reduce and map rows used
   to run 67480 ms / 27433 ms in GMP because the frontend proved integer
   ranges against the JS Number bound (2^53). With `--exact-i64` (prove
   against signed i64) plus the generic versioning plan accepting the

@@ -302,10 +302,10 @@ top of every run.
 
 ## 8. Findings from building this (open work)
 
-The benchmark earned its keep by surfacing four real issues. Two are
-fixed, two are open; the fourth (E) is the most serious — a silent
-miscompile of valid Python — and is the release blocker called out in
-`docs/PYTHON-O4.md` §8 B1.
+The benchmark earned its keep by surfacing four real issues. Three are
+fixed; one (B) is open. The most serious — E, a silent miscompile of
+valid Python — was found here and is now fixed (`docs/PYTHON-O4.md` §8.1
+B1 records the residual performance cost).
 
 **A. Fixed — `long long` int-array sum wrapped.** At 10 M elements the C
 `sum(xs)` printed `1291890006563070912` where CPython printed
@@ -353,10 +353,10 @@ saturated because the *instrumented* build wrapped first; a wide probe
 arbitrary, letting the build pick `__int128` instead of GMP
 (`profile_example/run_width_demo.sh`).
 
-**E. Open (release blocker) — unproven loop-carried ints overflow.** The
-frontend's range proof is straight-line, so a loop-carried accumulator
-it cannot bound is typed native and silently wraps — in the **default**
-path, not only under a profile flag:
+**E. Fixed — unproven loop-carried ints overflowed.** The frontend's
+range proof is straight-line, so a loop-carried accumulator it could not
+bound was typed native and silently wrapped — in the **default** path,
+not only under a profile flag:
 
 ```python
 f = 1
@@ -365,15 +365,17 @@ for i in range(1, 30):
 print(f)     # CPython 8841761993739701954543616000000
 ```
 
-The transpiled C prints `-7055958792655077376` (and the Perl backend
-loses it to a float, the ESTree path to a JS Number). This is the same
-class as the `app_grow` observation above (the default C is wrong past
-i64); the profile-guided width tier fixes only the shapes it is fed.
-The fix is a loop-aware range fixed point plus a conservative
-unknown-range fallback; see `docs/PYTHON-O4.md` §8 B1 for the shape and
-the interim-guard option. Until then, do not claim Python-int
-exactness for arbitrary programs — `check_cpython_parity.sh` passes
-94/95 only because its corpus happens not to hit the class.
+The transpiled C printed `-7055958792655077376`. Fixed by (1) a
+loop-growth guard (`growsUnbounded`) that forces a self-multiplying
+loop-carried accumulator to the exact bigint domain, (2) the
+`x % m → [0, m-1]` range rule firing from the divisor alone (so
+mod-bounded accumulators stay native), and (3) a C-backend fix that a
+mixed plain/bigint variable is declared and stored consistently as
+`mpz_t`. `factorial(30)` is exact now; sumred/addsum/squares stay
+native. The cost is on genuinely unprovable growth: collatz's CPU leg
+is exact-but-GMP (~154 s vs the unsound 892 ms). Recovering that needs
+overflow-guarded i64→GMP tiering; the profile-guided `__int128`+GMP
+tier (finding D) is the prototype.
 
 ## 9. Non-goals and next yardsticks
 

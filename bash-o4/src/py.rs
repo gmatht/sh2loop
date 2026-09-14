@@ -171,6 +171,30 @@ mod tests {
         assert!(has_forinit(&p.stmts), "no ForInit: {:?}", p.stmts);
     }
 
+    /// Release blocker B1: a loop-carried accumulator with no provable
+    /// bound must stay exact (bigint), not narrowed to i64 on its stale
+    /// pre-loop range — `factorial(30)` used to print a wrapped value.
+    /// A mod-bounded accumulator must remain native.
+    #[test]
+    fn unbounded_loop_accumulator_is_exact_bounded_stays_native() {
+        let fac = a1_for_source(
+            "f = 1\nfor i in range(1, 30):\n    f = f * i\nprint(f)\n",
+        )
+        .expect("frontend");
+        assert!(
+            fac.contains("\"Int64\""),
+            "unbounded loop accumulator was narrowed to i64:\n{fac}"
+        );
+        let bounded = a1_for_source(
+            "s = 0\nfor i in range(100):\n    s = (s + i * i) % 4294967296\nprint(s)\n",
+        )
+        .expect("frontend");
+        assert!(
+            !bounded.contains("\"Int64\""),
+            "mod-bounded accumulator was needlessly widened:\n{bounded}"
+        );
+    }
+
     /// `a1_for_source` runs the frontend with `--exact-i64`, so an
     /// integer proven within signed i64 stays native instead of being
     /// wrapped in `Cast(Int64)` (the bigint marker that homes it in
