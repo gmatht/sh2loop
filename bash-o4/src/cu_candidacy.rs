@@ -361,7 +361,7 @@ fn finish(
             stores.push(CuStore { array: arr.to_string(), index_a: a, index_b: b, value });
             continue;
         };
-        let value = match lower_arith(ast, &mut cx) {
+        let value = match lower_arith(ast, &mut cx, None) {
             Ok(v) => v,
             Err(r) => return veto(scope, path, var, r),
         };
@@ -451,15 +451,24 @@ struct BodyCx<'a> {
     externs: BTreeSet<String>,
 }
 
-fn lower_arith(e: &ArithAst, cx: &mut BodyCx) -> Result<CuArith, &'static str> {
+fn lower_arith(
+    e: &ArithAst,
+    cx: &mut BodyCx,
+    lane: Option<&BTreeSet<String>>,
+) -> Result<CuArith, &'static str> {
     match e {
         ArithAst::Num(n) => Ok(CuArith::Num(*n)),
         ArithAst::Var(name) | ArithAst::Ident(name) => {
+            // Lane-local (seq prelude): domination-proven by the
+            // lane-privatization analysis — renders as the lane reg.
+            if lane.is_some_and(|l| l.contains(name)) {
+                return Ok(CuArith::Lane(name.clone()));
+            }
             let v = cx.var;
             read_scalar(cx, v, name).ok_or("unproven-width")
         }
         ArithAst::Bin { op, lhs, rhs } => {
-            let (l, r) = (lower_arith(lhs, cx)?, lower_arith(rhs, cx)?);
+            let (l, r) = (lower_arith(lhs, cx, lane)?, lower_arith(rhs, cx, lane)?);
             match op.as_str() {
                 "+" => Ok(CuArith::Add(Box::new(l), Box::new(r))),
                 "-" => Ok(CuArith::Sub(Box::new(l), Box::new(r))),
@@ -507,6 +516,650 @@ enum AccInit {
 /// straight-line — never under If/loops/functions, where conditionality
 /// would make the entry value unknowable). Zero outside assigns means
 /// bash-unset (reads 0 in arith) — accepted as init 0.
+/// Analyze a program for SEQUENTIAL-LANE reduction candidates: an outer
+/// counted loop whose body is a lane-nest (private seeds, one
+/// data-dependent While chain, one scalar accumulate) per
+/// `shir_passes::lane_private::classify_seq_chain` (collatz). Returns
+/// `CuReduceVerdict`s with array-free `CuReduceSpec`s carrying a
+/// `seq_prelude` — the existing Reduce vehicle dispatches them
+/// unchanged (partials + host finish).
+///
+/// Soundness: signed PTX throughout (wrap-identical to bash; the chain
+/// guard keeps divisors positive so no div edge exists). No range
+/// proofs in v1 (unsigned/shift specializations are V2 speed opts).
+/// Whole-program scope (no private reads/writes outside the nest
+/// except the acc literal init) is enforced here, not just in the
+/// analysis.
+pub fn analyze_seq(prog: &IrProgram) -> Vec<CuReduceVerdict> {
+    let types: BTreeMap<String, IrType> =
+        prog.var_types.iter().map(|(n, t)| (n.clone(), t.clone())).collect();
+    let mut out = Vec::new();
+    let mut scope = Scope::new("main".to_string(), &types);
+    walk_seq(&prog.stmts, "main", &mut scope, &mut out, &types, prog);
+    out
+}
+
+/// Top-level scan only (v1 scope): nested lane-nests are an honest
+/// miss (no verdict, never a misfire) — the whole-program scope check
+/// below is exact only when the nest sits at top level.
+fn walk_seq(
+    stmts: &[IrStmt],
+    path: &str,
+    scope: &mut Scope,
+    out: &mut Vec<CuReduceVerdict>,
+    types: &BTreeMap<String, IrType>,
+    prog: &IrProgram,
+) {
+    for (i, s) in stmts.iter().enumerate() {
+        let here = format!("{path}[{i}]");
+        match s {
+            IrStmt::ForInit { init, cond, step, body } => {
+                out.push(analyze_seq_init(scope, &here, init, cond, step, body, types, prog, i));
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Header parse twin of analyze_for_init/analyze_reduce_init (documented
+/// duplication: same counted-loop contract, seq-specific downstream).
+/// Returns (var, lo, bound_var, inclusive, step) or a veto reason.
+fn seq_counted_header(
+    init: &[IrStmt],
+    cond: &IrExpr,
+    step: &[IrStmt],
+    types: &BTreeMap<String, IrType>,
+) -> Result<(String, i64, String, bool, i64), &'static str> {
+    let (var, lo) = match init.last() {
+        Some(IrStmt::Assign { targets, expr, .. }) => {
+            let Some(t) = targets.first() else {
+                return Err("non-counted-init");
+            };
+            if targets.len() != 1 || t.var.contains('[') {
+                return Err("non-counted-init");
+            }
+            let n = match expr {
+                IrExpr::Int(n) => Some(*n),
+                IrExpr::Arith(a) => match a.as_ref() {
+                    ArithAst::Num(n) => Some(*n),
+                    ArithAst::Assign { var: v, op, rhs }
+                        if v == &t.var && op == "=" =>
+                    {
+                        match rhs.as_ref() {
+                            ArithAst::Num(n) => Some(*n),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                },
+                _ => None,
+            };
+            let Some(n) = n else {
+                return Err("non-counted-init");
+            };
+            (t.var.clone(), n)
+        }
+        _ => return Err("non-counted-init"),
+    };
+    if types.get(&var).is_some_and(|t| !is_signed_int(t)) {
+        return Err("unproven-width");
+    }
+    let (bound_var, inclusive) = match cond_dyn_bound(cond, &var) {
+        Some(v) => v,
+        None => return Err("non-counted-cond"),
+    };
+    let st = match step {
+        [IrStmt::Assign { targets, expr, .. }] => {
+            let is_var = targets.len() == 1 && targets[0].var == var;
+            let d = match expr {
+                IrExpr::Arith(a) => match a.as_ref() {
+                    ArithAst::IncDec { var: v, delta, .. } if v == &var => Some(*delta),
+                    ArithAst::Assign { var: v, op, rhs } if v == &var => match op.as_str() {
+                        "+=" => match rhs.as_ref() {
+                            ArithAst::Num(n) => Some(*n),
+                            _ => None,
+                        },
+                        "-=" => match rhs.as_ref() {
+                            ArithAst::Num(n) => Some(-n),
+                            _ => None,
+                        },
+                        _ => None,
+                    },
+                    ArithAst::Bin { op, lhs, rhs }
+                        if op == "+"
+                            && matches!(lhs.as_ref(), ArithAst::Var(v) | ArithAst::Ident(v) if v == &var)
+                            && matches!(rhs.as_ref(), ArithAst::Num(n) if *n > 0) =>
+                    {
+                        match rhs.as_ref() {
+                            ArithAst::Num(n) => Some(*n),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                },
+                _ => None,
+            };
+            if !is_var {
+                return Err("non-counted-step");
+            }
+            match d {
+                Some(n) if n != 0 => n,
+                _ => return Err("non-counted-step"),
+            }
+        }
+        _ => return Err("non-counted-step"),
+    };
+    if st <= 0 {
+        return Err("non-positive-step");
+    }
+    Ok((var, lo, bound_var, inclusive, st))
+}
+
+fn analyze_seq_init(
+    scope: &mut Scope,
+    path: &str,
+    init: &[IrStmt],
+    cond: &IrExpr,
+    step: &[IrStmt],
+    body: &[IrStmt],
+    types: &BTreeMap<String, IrType>,
+    prog: &IrProgram,
+    loop_idx: usize,
+) -> CuReduceVerdict {
+    use debashl::cuda_backend::{CuArith, CuReduceOp, CuReduceSpec};
+    use debashl::shir_passes::lane_private as LP;
+    let (var, lo, bound_var, inclusive, st) = match seq_counted_header(init, cond, step, types) {
+        Ok(h) => h,
+        Err(r) => return rveto(scope, path, "?", r),
+    };
+    if lo < 0 || bound_var == var {
+        return rveto(scope, path, &var, "seq-bounds");
+    }
+    // Lane-nest classification (privatization proof).
+    let chain = match LP::classify_seq_chain(body, &var, &[&bound_var]) {
+        Some(c) => c,
+        None => return rveto(scope, path, &var, "non-seq-body"),
+    };
+    // Acc init (same rule as plain reductions: ≤1 literal init outside).
+    let acc_init = match acc_init_rule(prog, &chain.acc, body) {
+        Some(AccInit::Lit(n)) => n,
+        Some(AccInit::Unset) => 0,
+        None => return rveto(scope, path, &var, "seq-acc-init"),
+    };
+    // Whole-program scope: privates mentioned ONLY inside the nest
+    // (headers scanned too — they run on host, lane state must not).
+    if !seq_scope_ok(prog, loop_idx, init, cond, step, &chain) {
+        return rveto(scope, path, &var, "seq-scope");
+    }
+    // Lower.
+    let mut cx = BodyCx { var: &var, types, externs: BTreeSet::new() };
+    let lanes: BTreeSet<String> = chain.private.iter().cloned().collect();
+    let mut prelude: Vec<debashl::cuda_backend::CuSeqStmt> = Vec::new();
+    for (name, rhs) in &chain.inits {
+        let v = match rhs {
+            LP::InitRhs::Num(n) => CuArith::Num(*n),
+            LP::InitRhs::Arith(a) => match lower_arith(a, &mut cx, Some(&lanes)) {
+                Ok(v) => v,
+                Err(r) => return rveto(scope, path, &var, r),
+            },
+        };
+        prelude.push(debashl::cuda_backend::CuSeqStmt::Assign { var: name.clone(), expr: v });
+    }
+    let IrStmt::While { cond: wcond, body: wbody } = &body[chain.while_idx] else {
+        return rveto(scope, path, &var, "seq-chain-shape");
+    };
+    let wtest = match lower_seq_test(wcond, &mut cx, &lanes) {
+        Some(t) => t,
+        None => return rveto(scope, path, &var, "seq-chain-test"),
+    };
+    let mut wblock = Vec::new();
+    for s in wbody.iter() {
+        match lower_seq_stmt(s, &mut cx, &lanes) {
+            Some(q) => wblock.push(q),
+            None => return rveto(scope, path, &var, "seq-chain-stmt"),
+        }
+    }
+    // Guard-nonneg peephole: a `Lane(v) > positive` while-test proves
+    // v nonneg for the whole body, so pow2 mods on v render as `&`
+    // (unsigned-speed, signed-sound — nonneg makes them identical).
+    for v in guard_nonneg_vars(&wtest) {
+        for q in wblock.iter_mut() {
+            and_nonneg_stmt(q, &v);
+        }
+    }
+    prelude.push(debashl::cuda_backend::CuSeqStmt::While { test: wtest, body: wblock });
+    // Externs follow the reduce convention (bound EXCLUDED — the
+    // vehicle binds it from N/trips; the kernel never reads it).
+    // Privates and counter never externs (lane/counter regs).
+    let id = scope.next_id().replace("cu_loop_", "cu_seq_");
+    let mut externs: Vec<String> = cx.externs.into_iter().collect();
+    externs.sort();
+    let spec = CuReduceSpec {
+        id: id.clone(),
+        var: var.clone(),
+        lo,
+        bound_var: bound_var.clone(),
+        bound_lt: !inclusive,
+        step: st,
+        threads: 256,
+        block_items: 1024,
+        op: CuReduceOp::Add,
+        value: CuArith::Lane(chain.acc_var.clone()),
+        acc_init,
+        externs,
+        arrays: vec![],
+        mask_thresh: None,
+        mask_fast: false,
+        seq_prelude: prelude,
+    };
+    CuReduceVerdict {
+        id,
+        path: path.to_string(),
+        var: var.clone(),
+        lo,
+        bound_var: bound_var.clone(),
+        bound_lt: !inclusive,
+        step: st,
+        verdict: CuVerdictKind::Candidate,
+        spec: Some(spec),
+    }
+}
+
+/// Lane var proven even by an `(X%2)==0` equality test (either side
+/// order). Powers beyond 2 need nonneg too — restricted to 2 (exact
+/// for all evens, see Shr docs).
+fn even_guard_var(t: &debashl::cuda_backend::CuTest) -> Option<String> {
+    use debashl::cuda_backend::{CuArith as C, CuTest as T};
+    let T::Cmp { op, lhs, rhs } = t else {
+        return None;
+    };
+    if op != "==" {
+        return None;
+    }
+    let lane_mod = |a: &C, b: &C| -> Option<String> {
+        match (a, b) {
+            (C::Mod(x, y), C::Num(0)) | (C::Num(0), C::Mod(x, y)) => match (x.as_ref(), y.as_ref()) {
+                (C::Lane(v), C::Num(2)) => Some(v.clone()),
+                _ => None,
+            },
+            _ => None,
+        }
+    };
+    lane_mod(lhs, rhs)
+}
+
+/// Rewrite `Lane(v)/2` as `Shr(Lane(v),1)` under an even-guard (pure
+/// recursion — every CuArith child is effect-free).
+fn shr_even_expr(e: &mut debashl::cuda_backend::CuArith, var: &str) {
+    use debashl::cuda_backend::CuArith as C;
+    match e {
+        C::Div(a, b)
+            if matches!(a.as_ref(), C::Lane(v) if v == var)
+                && matches!(b.as_ref(), C::Num(2)) =>
+        {
+            *e = C::Shr(Box::new(C::Lane(var.to_string())), 1);
+        }
+        C::Add(a, b)
+        | C::Sub(a, b)
+        | C::Mul(a, b)
+        | C::Div(a, b)
+        | C::Mod(a, b)
+        | C::Min(a, b)
+        | C::Max(a, b)
+        | C::And(a, b) => {
+            shr_even_expr(a, var);
+            shr_even_expr(b, var);
+        }
+        C::Shr(a, _) => shr_even_expr(a, var),
+        C::ArrRead { index, .. } => shr_even_expr(index, var),
+        _ => {}
+    }
+}
+
+fn shr_even_stmt(s: &mut debashl::cuda_backend::CuSeqStmt, var: &str) {
+    use debashl::cuda_backend::CuSeqStmt as Q;
+    match s {
+        Q::Assign { expr, .. } => shr_even_expr(expr, var),
+        Q::If { then, else_, .. } => {
+            for x in then.iter_mut().chain(else_.iter_mut()) {
+                shr_even_stmt(x, var);
+            }
+        }
+        Q::While { body, .. } => {
+            for x in body {
+                shr_even_stmt(x, var);
+            }
+        }
+    }
+}
+
+/// Lane vars proven nonneg by a while-test (`Lane(v) > n>=0` or
+/// `>= n>=1`, either side order — guard dominates the body).
+fn guard_nonneg_vars(t: &debashl::cuda_backend::CuTest) -> Vec<String> {
+    use debashl::cuda_backend::{CuArith as C, CuTest as T};
+    let T::Cmp { op, lhs, rhs } = t else {
+        return vec![];
+    };
+    let lane_ge = |a: &C, b: &C| -> Option<String> {
+        match (a, b) {
+            (C::Lane(v), C::Num(n)) if (op == ">" && *n >= 0) || (op == ">=" && *n >= 1) => {
+                Some(v.clone())
+            }
+            (C::Num(n), C::Lane(v)) if (op == "<" && *n >= 0) || (op == "<=" && *n >= 1) => {
+                Some(v.clone())
+            }
+            _ => None,
+        }
+    };
+    lane_ge(lhs, rhs).into_iter().collect()
+}
+
+/// Rewrite `Mod(Lane(v), pow2)` as `And(Lane(v), mask)` under a
+/// nonneg-guard (identical for nonneg dividends; pow2-only — the mask
+/// identity fails otherwise).
+fn and_nonneg_expr(e: &mut debashl::cuda_backend::CuArith, var: &str) {
+    use debashl::cuda_backend::CuArith as C;
+    use debashl::shir_passes::maskable as M;
+    match e {
+        C::Mod(a, b) => {
+            let hit = matches!(a.as_ref(), C::Lane(v) if v == var)
+                && matches!(b.as_ref(), C::Num(d) if M::is_pow2_lit(*d));
+            if hit {
+                let d = match b.as_ref() {
+                    C::Num(d) => *d,
+                    _ => 0,
+                };
+                *e = C::And(
+                    Box::new(C::Lane(var.to_string())),
+                    Box::new(C::Num(d - 1)),
+                );
+            } else {
+                and_nonneg_expr(a, var);
+                and_nonneg_expr(b, var);
+            }
+        }
+        C::Add(a, b)
+        | C::Sub(a, b)
+        | C::Mul(a, b)
+        | C::Div(a, b)
+        | C::Min(a, b)
+        | C::Max(a, b)
+        | C::And(a, b) => {
+            and_nonneg_expr(a, var);
+            and_nonneg_expr(b, var);
+        }
+        C::Shr(a, _) => and_nonneg_expr(a, var),
+        C::ArrRead { index, .. } => and_nonneg_expr(index, var),
+        _ => {}
+    }
+}
+
+fn and_nonneg_stmt(s: &mut debashl::cuda_backend::CuSeqStmt, var: &str) {
+    use debashl::cuda_backend::CuSeqStmt as Q;
+    match s {
+        Q::Assign { expr, .. } => and_nonneg_expr(expr, var),
+        Q::If { test, then, else_ } => {
+            and_nonneg_test(test, var);
+            for x in then.iter_mut().chain(else_.iter_mut()) {
+                and_nonneg_stmt(x, var);
+            }
+        }
+        Q::While { test, body } => {
+            and_nonneg_test(test, var);
+            for x in body {
+                and_nonneg_stmt(x, var);
+            }
+        }
+    }
+}
+
+fn and_nonneg_test(t: &mut debashl::cuda_backend::CuTest, var: &str) {
+    use debashl::cuda_backend::CuTest as T;
+    let T::Cmp { lhs, rhs, .. } = t else {
+        return;
+    };
+    and_nonneg_expr(lhs, var);
+    and_nonneg_expr(rhs, var);
+}
+
+/// Lower one chain statement (Assign/If, no nesting beyond flat ifs —
+/// the analysis guarantees the shape; anything else is an internal
+/// refusal, never silent).
+fn lower_seq_stmt(
+    s: &IrStmt,
+    cx: &mut BodyCx,
+    lanes: &BTreeSet<String>,
+) -> Option<debashl::cuda_backend::CuSeqStmt> {
+    use debashl::cuda_backend::CuSeqStmt as Q;
+    match s {
+        IrStmt::Assign { targets, expr, .. } => {
+            let [t] = targets.as_slice() else {
+                return None;
+            };
+            let IrExpr::Arith(a) = expr else {
+                return None;
+            };
+            let v = lower_arith(a, cx, Some(lanes)).ok()?;
+            Some(Q::Assign { var: t.var.clone(), expr: v })
+        }
+        IrStmt::If { cond, then, elsifs, else_, .. } => {
+            let test = lower_seq_test(cond, cx, lanes)?;
+            // Even-guard peephole: `(v%2)==0` proves v even on the then
+            // path, so `v/2` renders as `shr` (exact for all even s64 —
+            // truncation and floor agree on evens; no nonneg needed).
+            let even = even_guard_var(&test);
+            let mut tq = Vec::new();
+            for x in then.iter() {
+                let mut q = lower_seq_stmt_flat(x, cx, lanes)?;
+                if let Some(v) = &even {
+                    shr_even_stmt(&mut q, v);
+                }
+                tq.push(q);
+            }
+            // (elsifs audited flat by the analysis; lower each arm —
+            // V2 could nest Q::If, v1 chains on then/else shape… actually
+            // just lower elsifs as nested Ifs (uniform, no extra code).
+            let mut else_q: Vec<Q> = Vec::new();
+            for x in else_.iter() {
+                else_q.push(lower_seq_stmt_flat(x, cx, lanes)?);
+            }
+            // Fold elsifs inside-out into nested Ifs.
+            for (c, b) in elsifs.iter().rev() {
+                let t = lower_seq_test(c, cx, lanes)?;
+                let mut tq2 = Vec::new();
+                for x in b.iter() {
+                    tq2.push(lower_seq_stmt_flat(x, cx, lanes)?);
+                }
+                else_q = vec![Q::If { test: t, then: tq2, else_: else_q }];
+            }
+            Some(Q::If { test, then: tq, else_: else_q })
+        }
+        _ => None,
+    }
+}
+
+/// Flat chain assign (no nested ifs — analysis pins flat arms).
+fn lower_seq_stmt_flat(
+    s: &IrStmt,
+    cx: &mut BodyCx,
+    lanes: &BTreeSet<String>,
+) -> Option<debashl::cuda_backend::CuSeqStmt> {
+    use debashl::cuda_backend::CuSeqStmt as Q;
+    let IrStmt::Assign { targets, expr, .. } = s else {
+        return None;
+    };
+    let [t] = targets.as_slice() else {
+        return None;
+    };
+    let IrExpr::Arith(a) = expr else {
+        return None;
+    };
+    let v = lower_arith(a, cx, Some(lanes)).ok()?;
+    Some(Q::Assign { var: t.var.clone(), expr: v })
+}
+
+/// Lower a chain test: let-text comparison or Arith comparison, sides
+/// restricted to literals/bare vars/single-binop(var,op,lit).
+fn lower_seq_test(
+    cond: &IrExpr,
+    cx: &mut BodyCx,
+    lanes: &BTreeSet<String>,
+) -> Option<debashl::cuda_backend::CuTest> {
+    use debashl::cuda_backend::CuTest as T;
+    // Collect (op, lhs-text, rhs-text) or (op, lhs-arith, rhs-arith).
+    enum Side {
+        Text(String),
+        Arith(ArithAst),
+    }
+    let (op, l, r): (String, Side, Side) = match cond {
+        IrExpr::Call { func, args } if func == "builtin" || func == "exec" => {
+            let is_let = matches!(args.first(), Some(IrExpr::Str(n, _)) if n == "let");
+            if !is_let {
+                return None;
+            }
+            let mut texts = Vec::new();
+            for a in args.iter().skip(1) {
+                match a {
+                    IrExpr::Str(s, _) => texts.push(s.clone()),
+                    IrExpr::Array(els) => {
+                        for e in els {
+                            if let IrExpr::Str(s, _) = e {
+                                texts.push(s.clone());
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if texts.len() != 1 {
+                return None;
+            }
+            let (o, a, b) = split_test_text(&texts[0])?;
+            (o, Side::Text(a), Side::Text(b))
+        }
+        IrExpr::Arith(a) => match a.as_ref() {
+            ArithAst::Bin { op, lhs, rhs }
+                if matches!(op.as_str(), "<" | ">" | "<=" | ">=" | "==" | "!=") =>
+            {
+                (op.clone(), Side::Arith((**lhs).clone()), Side::Arith((**rhs).clone()))
+            }
+            _ => return None,
+        },
+        _ => return None,
+    };
+    if !matches!(op.as_str(), "<" | ">" | "<=" | ">=" | "==" | "!=") {
+        return None;
+    }
+    let lower_side = |s: Side, cx: &mut BodyCx| -> Option<debashl::cuda_backend::CuArith> {
+        match s {
+            Side::Arith(a) => lower_arith(&a, cx, Some(lanes)).ok(),
+            Side::Text(t) => {
+                let a = parse_test_side(&t)?;
+                lower_arith(&a, cx, Some(lanes)).ok()
+            }
+        }
+    };
+    let (l, r) = (lower_side(l, cx)?, lower_side(r, cx)?);
+    // (lower_arith enforces counter/lane/extern/literal shapes; Lane
+    // reads are domination-proven by the analysis.)
+    Some(T::Cmp { op, lhs: l, rhs: r })
+}
+
+/// Split `A < B` text at the top-level comparison (longest ops first).
+fn split_test_text(t: &str) -> Option<(String, String, String)> {
+    for op in ["<=", ">=", "==", "!=", "<", ">"] {
+        if let Some((l, r)) = t.split_once(op) {
+            return Some((op.to_string(), l.to_string(), r.to_string()));
+        }
+    }
+    None
+}
+
+/// Restricted test-side parser: numeric literal (optional `$`), bare
+/// var, or a single binop over recursively-parsed sides. Anything else
+/// refuses (miss, safe). Width discipline is downstream's job
+/// (lower_arith vetoes unproven vars as externs).
+fn parse_test_side(t: &str) -> Option<ArithAst> {
+    let s: String = t.chars().filter(|c| !c.is_whitespace()).collect();
+    let s = s.strip_prefix('$').unwrap_or(&s);
+    if let Ok(n) = s.parse::<i64>() {
+        return Some(ArithAst::Num(n));
+    }
+    if is_seq_var(s) {
+        return Some(ArithAst::Var(s.to_string()));
+    }
+    // Left-assoc: split on the LAST occurrence (so `a-b-c` is
+    // `(a-b)-c`, not `a-(b-c)`). Both parts strictly shorter, so this
+    // terminates. (Negative literals never reach here — the lit parse
+    // above accepts a leading `-`.)
+    for op in ["*", "/", "%", "+", "-"] {
+        let (l, r) = match s.rfind(op) {
+            Some(pos) if pos > 0 && pos + 1 < s.len() => s.split_at(pos),
+            _ => continue,
+        };
+        let r = &r[1..];
+        let (la, ra) = (parse_test_side(l)?, parse_test_side(r)?);
+        return Some(ArithAst::Bin {
+            op: op.to_string(),
+            lhs: Box::new(la),
+            rhs: Box::new(ra),
+        });
+    }
+    None
+}
+
+/// Plain scalar var name for test sides.
+fn is_seq_var(s: &str) -> bool {
+    let mut cs = s.chars();
+    match cs.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    cs.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// Whole-program scope for seq privates, on the shared exhaustive
+/// scanners (`fuse_fill_consume`): every private is mentioned NOWHERE
+/// except the nest body — headers included (they evaluate on host).
+/// The acc is exempt (its init discipline is proven by acc_init_rule;
+/// reads reproduce on host via the reduced checksum — the standard
+/// reduce contract). Top-level nests only (see walk_seq).
+fn seq_scope_ok(
+    prog: &IrProgram,
+    loop_idx: usize,
+    init: &[IrStmt],
+    cond: &IrExpr,
+    step: &[IrStmt],
+    chain: &debashl::shir_passes::lane_private::SeqChain,
+) -> bool {
+    use debashl::transforms::fuse_fill_consume as Fuse;
+    for p in &chain.private {
+        if Fuse::stmts_have_arr(init, p)
+            || Fuse::expr_has_arr(cond, p)
+            || Fuse::stmts_have_arr(step, p)
+        {
+            return false;
+        }
+        for (i, s) in prog.stmts.iter().enumerate() {
+            if i == loop_idx {
+                continue;
+            }
+            if Fuse::stmt_has_arr(s, p) {
+                return false;
+            }
+        }
+        for sub in &prog.subs {
+            if Fuse::stmts_have_arr(&sub.body, p) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Lower one chain statement (Assign/If, no nesting beyond flat ifs —
+/// the analysis guarantees the shape; anything else is an internal
+/// refusal, never silent).
 pub fn analyze_reduce(prog: &IrProgram) -> Vec<CuReduceVerdict> {
     let types: BTreeMap<String, IrType> =
         prog.var_types.iter().map(|(n, t)| (n.clone(), t.clone())).collect();
@@ -1003,6 +1656,7 @@ fn analyze_reduce_init(
         arrays,
         mask_thresh,
         mask_fast: false,
+        seq_prelude: vec![],
     };
     CuReduceVerdict {
         id,
@@ -1233,7 +1887,7 @@ fn cu_written(stmts: &[IrStmt]) -> Option<BTreeSet<String>> {
             | IrStmt::Warn { expr: e, .. }
             | IrStmt::SetChildError(e) => wexpr(e, out),
             IrStmt::WriteFile { path, .. } => wexpr(path, out),
-            IrStmt::If { cond, then, elsifs, else_ } => {
+            IrStmt::If { cond, then, elsifs, else_, .. } => {
                 wexpr(cond, out)
                     && then.iter().all(|x| wstmt(x, out))
                     && elsifs.iter().all(|(c, b)| wexpr(c, out) && b.iter().all(|x| wstmt(x, out)))
@@ -1257,7 +1911,7 @@ fn cu_written(stmts: &[IrStmt]) -> Option<BTreeSet<String>> {
                 redirects.iter().all(|r| wexpr(&r.target, out))
                     && inner.iter().all(|x| wstmt(x, out))
             }
-            IrStmt::Case { discriminant, clauses } => {
+            IrStmt::Case { discriminant, clauses, .. } => {
                 wexpr(discriminant, out)
                     && clauses.iter().all(|c| c.body.iter().all(|x| wstmt(x, out)))
             }
@@ -1308,6 +1962,9 @@ fn mentions_var(e: &debashl::cuda_backend::CuArith, name: &str) -> bool {
             mentions_var(a, name) || mentions_var(b, name)
         }
         C::ArrRead { index, .. } => mentions_var(index, name),
+        // Lane-local (seq prelude): exact-name match (same rule as ExtVar).
+        C::Lane(n) => n == name,
+        C::Shr(a, _) => mentions_var(a, name),
     }
 }
 
@@ -1530,6 +2187,54 @@ fn collect_pow2(
         }
         C::ArrRead { index, .. } => collect_pow2(index, counter, lt, out),
         _ => true,
+    }
+}
+
+#[cfg(test)]
+mod seq_tests {
+    use super::*;
+
+    fn prog_of(src: &str) -> IrProgram {
+        let a1 = otranspilerl::shell_to_shir(src);
+        debashl::shir_json_in::shir_json_to_ir(&a1).expect("ingress")
+    }
+
+    const COLLATZ: &str = "#!/bin/bash\nn=$1\ntotal=0\nfor ((k=0;k<n;k++)); do v=$(( (k*37+3) % 251 )); s=0; while ((v > 1)); do if ((v % 2 == 0)); then v=$((v/2)); else v=$((3*v+1)); fi; s=$((s+1)); done; total=$((total+s)); done\n";
+
+    #[test]
+    fn collatz_is_seq_candidate() {
+        let prog = prog_of(COLLATZ);
+        let vs = analyze_seq(&prog);
+        assert_eq!(vs.len(), 1, "one loop verdict: {vs:?}");
+        let v = &vs[0];
+        assert!(matches!(v.verdict, CuVerdictKind::Candidate), "expected candidate: {v}");
+        assert!(v.id.starts_with("cu_seq_"), "seq id: {}", v.id);
+        let spec = v.spec.as_ref().expect("spec");
+        assert!(spec.arrays.is_empty());
+        assert!(spec.externs.is_empty(), "bound excluded: {:?}", spec.externs);
+        assert!(!spec.seq_prelude.is_empty(), "prelude present");
+        assert!(matches!(
+            spec.value,
+            debashl::cuda_backend::CuArith::Lane(_)
+        ));
+    }
+
+    #[test]
+    fn plain_map_is_not_seq() {
+        // A fill loop has no chain/tail (classify fails, never panics).
+        let prog = prog_of("#!/bin/bash\nn=$1\nfor ((i=0;i<n;i++)); do a[$i]=$((i*i)); done\n");
+        let vs = analyze_seq(&prog);
+        assert_eq!(vs.len(), 1);
+        assert!(matches!(vs[0].verdict, CuVerdictKind::Veto { .. }), "map must veto: {}", vs[0]);
+    }
+
+    #[test]
+    fn plain_sum_is_not_seq() {
+        // A single-accumulate reduce has no chain either.
+        let prog = prog_of("#!/bin/bash\nn=$1\ns=0\nfor ((i=0;i<n;i++)); do s=$((s+i)); done\n");
+        let vs = analyze_seq(&prog);
+        assert_eq!(vs.len(), 1);
+        assert!(matches!(vs[0].verdict, CuVerdictKind::Veto { .. }), "plain sum must veto: {}", vs[0]);
     }
 }
 

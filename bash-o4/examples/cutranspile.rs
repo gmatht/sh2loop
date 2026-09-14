@@ -64,6 +64,18 @@ fn main() {
                 None
             }
         });
+    // Sequential-lane reductions (collatz chains): array-free specs with
+    // a seq_prelude — the Reduce vehicle dispatches them unchanged.
+    let seq_spec = cu_candidacy::analyze_seq(&prog).into_iter().find_map(|v| {
+        if matches!(v.verdict, cu_candidacy::CuVerdictKind::Candidate) {
+            v.spec.clone()
+        } else {
+            None
+        }
+    });
+    // A seq candidate takes precedence for dispatch (its loop is also
+    // vetoed by map/reduce, so no ambiguity — this just orders modes).
+    let red_spec = seq_spec.or(red_spec);
     // Mode selection.
     enum Mode {
         Fused(CuLoopSpec, CuReduceSpec),
