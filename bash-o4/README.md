@@ -150,7 +150,7 @@ mod-reduction (3.55 ms) and ×61 on branchy Collatz; the CPU legs are
 native i64 too (`--exact-i64` plus a generalized loop-versioning plan),
 so sumred is 1.18 s vs `gcc -O3`'s 1.04 s where it used to be 67.5 s in
 GMP. Design, results and the **release-readiness checklist** are in
-[`docs/PYTHON-O4.md`](../../docs/PYTHON-O4.md) (§8).
+[`docs/PYTHON-O4.md`](../docs/PYTHON-O4.md) (§8).
 
 ## Transpiled CUDA (`cutranspile`)
 

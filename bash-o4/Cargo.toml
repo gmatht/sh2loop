@@ -32,6 +32,10 @@ name = "python-O4"
 path = "src/main_py.rs"
 
 [dependencies]
+# Only for `restore_sigpipe_default` (see lib.rs): Rust ignores SIGPIPE, so
+# piping our output into a reader that exits early panicked instead of
+# dying quietly like every other Unix tool.
+libc = "0.2"
 otranspilerl = { path = "../otranspilerl" }
 debashl = { path = "../sh2perl" }
 serde_json = "=1.0.151"

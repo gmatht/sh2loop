@@ -8,6 +8,24 @@
 //! `fetch` (M4 manifest + consented downloads), `vkffi` (M3 device
 //! detect + minimal compute runner, lavapipe-capable).
 
+/// Restore the default `SIGPIPE` disposition. Call this first thing in
+/// `main`.
+///
+/// Rust's runtime sets `SIGPIPE` to `SIG_IGN`, so writing to a pipe whose
+/// reader has already exited surfaces as an `Err` from `println!`, and
+/// `println!` *panics* on error.  The result was that
+/// `bash-O4 --check prog.sh | head -n 1` exited **101** with a Rust backtrace
+/// instead of just stopping — and because `SIG_IGN` is inherited across
+/// `exec`, the `tcc`/`gcc` children were ignoring it too.  Restoring the
+/// default gives the normal Unix behaviour (die on `SIGPIPE`, status 141).
+pub fn restore_sigpipe_default() {
+    // SAFETY: installing a signal disposition has no memory-safety
+    // implications and is safe to call before any threads exist.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+}
+
 pub mod cache;
 pub mod candidacy;
 pub mod cli;

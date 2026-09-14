@@ -16,6 +16,7 @@ name = "bash-o4"
 version = "0.1.1"
 dependencies = [
  "debashl",
+ "libc",
  "otranspilerl",
  "serde_json",
  "sha2",

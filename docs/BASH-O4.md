@@ -88,7 +88,7 @@ Non-goals (v1):
    and 6 (sh-source numeric homing via opaque `arith("…")` text) are
    DEFERRED — exactly the loops a GPU pass would most want native.
    Shaderising a loop whose body still forks per iteration is pointless.
-4. **59 known C-gate reds** (`docs/c-backend-limitations.md`:
+4. **59 known C-gate reds** (`sh2perl/docs/c-backend-limitations.md`:
    578/644 at design time; **637/644 since**). The blocking classes for bash-O4: `eval`/`source` parent
    effects (unmarshallable — must veto GPU *and* stay child-bash on
    CPU), process-substitution ordering, assoc iteration order, quoted

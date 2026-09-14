@@ -74,6 +74,8 @@ fn verbose(o: &Options, msg: &str) {
 }
 
 fn main() {
+    // Before anything can write to stdout (see the fn docs).
+    bash_o4::restore_sigpipe_default();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let code = run(&args);
     std::process::exit(code);
