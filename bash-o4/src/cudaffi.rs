@@ -25,7 +25,7 @@ type CUdevice = c_int;
 type CUcontext = *mut c_void;
 type CUmodule = *mut c_void;
 type CUfunction = *mut c_void;
-type CUdeviceptr = u64;
+pub type CUdeviceptr = u64;
 const CUDA_SUCCESS: CUresult = 0;
 
 /// Candidate libcuda paths: env override, WSL passthrough, standard names.
@@ -226,7 +226,106 @@ impl CudaRunner {
         Ok(CudaRunner { cu, ctx })
     }
 
+    /// Allocate a device i64 array (persistent across dispatches for
+    /// multi-kernel pipelines like map+reduce sharing). Zero-filled on
+    /// host-staged upload (mirrors run's semantics). Free with `free()`.
+    pub fn alloc_array(&self, len: usize) -> Result<CUdeviceptr, String> {
+        let len = len.max(1);
+        let bytes = len * 8;
+        let mut p: CUdeviceptr = 0;
+        let rc = unsafe { (self.cu.f.alloc)(&mut p, bytes) };
+        if rc != CUDA_SUCCESS {
+            return Err(format!("alloc_array: {}", self.cu.err(rc)));
+        }
+        let zeros = vec![0i64; len];
+        let rc = unsafe { (self.cu.f.htod)(p, zeros.as_ptr() as *const c_void, bytes) };
+        if rc != CUDA_SUCCESS {
+            unsafe { (self.cu.f.free)(p) };
+            return Err(format!("alloc_array zero: {}", self.cu.err(rc)));
+        }
+        Ok(p)
+    }
+
+    /// Free a device array from `alloc_array`.
+    pub fn free_array(&self, p: CUdeviceptr) {
+        unsafe {
+            (self.cu.f.free)(p);
+        }
+    }
+
+    /// Read back a device i64 array into host memory.
+    pub fn read_array(&self, p: CUdeviceptr, len: usize) -> Result<Vec<i64>, String> {
+        let len = len.max(1);
+        let mut host = vec![0i64; len];
+        let rc = unsafe {
+            (self.cu.f.dtoh)(host.as_mut_ptr() as *mut c_void, p, len * 8)
+        };
+        if rc != CUDA_SUCCESS {
+            return Err(format!("read_array: {}", self.cu.err(rc)));
+        }
+        Ok(host)
+    }
+
+    /// Dispatch `ptx` using PRE-ALLOCATED device buffers (no alloc/free;
+    /// for pipelines sharing arrays across kernels). `bufs` are device
+    /// pointers in param order, followed by `scalars`. Reads back nothing
+    /// (callers read what they need via `read_array`).
+    pub fn run_buffers(
+        &self,
+        ptx: &str,
+        kernel: &str,
+        bufs: &[CUdeviceptr],
+        scalars: &[i64],
+        grid: u32,
+        block: u32,
+    ) -> Result<(), String> {
+        let f = &self.cu.f;
+        let err = |rc| self.cu.err(rc);
+        if grid == 0 || block == 0 {
+            return Err("empty grid/block".to_string());
+        }
+        let cptx = CString::new(ptx).map_err(|e| e.to_string())?;
+        let mut module: CUmodule = ptr::null_mut();
+        let rc = unsafe { (f.mod_load)(&mut module, cptx.as_ptr()) };
+        if rc != CUDA_SUCCESS {
+            return Err(format!("ptx jit: {}", err(rc)));
+        }
+        let cname = CString::new(kernel).map_err(|e| e.to_string())?;
+        let mut func: CUfunction = ptr::null_mut();
+        let rc = unsafe { (f.mod_getfn)(&mut func, module, cname.as_ptr()) };
+        if rc != CUDA_SUCCESS {
+            unsafe { (f.mod_unload)(module) };
+            return Err(format!("getfunc: {}", err(rc)));
+        }
+        let mut slots: Vec<u64> = bufs.to_vec();
+        let mut svals: Vec<u64> = scalars.iter().map(|v| *v as u64).collect();
+        let mut params: Vec<*mut c_void> = Vec::new();
+        for p in slots.iter_mut() {
+            params.push(p as *mut u64 as *mut c_void);
+        }
+        for v in svals.iter_mut() {
+            params.push(v as *mut u64 as *mut c_void);
+        }
+        let rc = unsafe {
+            (f.launch)(
+                func, grid, 1, 1, block, 1, 1, 0, ptr::null_mut(),
+                params.as_mut_ptr(), ptr::null_mut(),
+            )
+        };
+        if rc != CUDA_SUCCESS {
+            unsafe { (f.mod_unload)(module) };
+            return Err(format!("launch: {}", err(rc)));
+        }
+        let rc = unsafe { (f.sync)() };
+        unsafe { (f.mod_unload)(module) };
+        if rc != CUDA_SUCCESS {
+            return Err(format!("sync: {}", err(rc)));
+        }
+        Ok(())
+    }
+
     /// Dispatch `ptx` (entry `kernel`) over `grid`×`block`, returning the
+    /// output i64 arrays (lengths `out_lens`). Scalar `.param` values    /// Dispatch `ptx` (entry `kernel`) over `grid`×`block`, returning the
     /// output i64 arrays (lengths `out_lens`). Scalar `.param` values
     /// (`scalars`, in declaration order after the buffer pointers) feed
     /// extern slots and trip counts. Module JIT + buffers are per-call

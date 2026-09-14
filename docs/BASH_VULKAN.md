@@ -285,6 +285,36 @@ so does multi-GPU selection (device 0 only).
 
 ## 10. CUDA transpiler backend (bash -> candidacy -> PTX -> 2070)
 
+Map loops (`CuLoopSpec`, `cu_candidacy::analyze`, `cutranspile` map
+mode) landed first: squares-map-100M cuda-tx runs + agrees (1.3s,
+readback-bound).
+
+### 10a. Transpiled reduction (this round)
+
+`CuReduceSpec` (`Add/Mul/Min/Max/ModAdd/MaskAdd` + `ArrRead` values) +
+`shir_to_cu_reduce` (per-lane sequential + shared tree + partials) +
+`cu_candidacy::analyze_reduce` (single-accumulate detection, literal-or-
+unset init rule, modulus/mask bounds) + `cutranspile` reduce/fused modes
+(persistent device arrays shared across kernels — no array roundtrip).
+
+Soundness (exactness, not just agreement): Add/Mul wrap mod 2^64
+(ring-exact vs bash); Min/Max exact; Mod/Mask lane-fold per step with
+raw-add tree + signed host folding (exact given modulus/mask <= 2^32,
+enforced by veto; intermediates fit by construction). Acc init seeds
+the host finish (literal or bash-unset-0). Fused mode requires identical
+iteration spaces (same var/lo/bound/op/step) plus the reduce reading
+the map's array — coverage-exact by construction.
+
+Measured (all agree): sumred-1B cuda-tx **54ms (15x)** — fully
+transpiled reduction; squares-map-100M fused cuda-tx **221ms (0.9x)**
+— transpiled map+reduce sharing device arrays (vs 1.3s map-only).
+collatz stays SKIP (`scalar-carry` on the branchy inner loop — nested
+sequential lanes are future work). The fused-hand gap (mask vs signed
+rem per element) is the documented next optimization, not a
+correctness gap.
+
+## 10. CUDA transpiler backend (bash -> candidacy -> PTX -> 2070)
+
 `sh2perl/src/cuda_backend.rs` (mirrors `vulkan_backend`): `CuLoopSpec`
 (id/var/lo/**dynamic bound var**/step/threads/externs/stores) +
 `CuArith` (+,-,*,/,`%` — signed `div`/`rem`, bash-compatible wrap) +
@@ -299,11 +329,10 @@ vars are type-permissive (host atolls like bash — comparison-only use).
 with `--bind`/auto-N externs -> host mod-2^32 checksum. `cudaffi` gained
 scalar params; `tests/cuda_dispatch.rs` pins emitter->device exactness.
 
-Measured (all agree): squares-map-100M **cuda-tx 1.3s (0.2x)** — correct
-and fully transpiled, readback-bound (800MB DtoH over WSL); the fused
-hand kernel is 1ms. The gap to close is transpiled *reduction* (M5-style
-tree in the emitter), not mapping. sumred/collatz cuda-tx SKIP loudly
-(`scalar-carry` vetoes) — honest map-only boundary.
+Measured at the time (all agreed): squares-map-100M cuda-tx 1.3s
+(0.2x) — correct and fully transpiled but readback-bound (800MB DtoH);
+sumred/collatz SKIPped loudly. §10a below closes both with transpiled
+reduction (sumred 15x, squares-fused parity).
 
 ## 11. Scale tier: CUDA is not launch-latency (100x workload)
 
