@@ -282,3 +282,29 @@ with gcc-O3): sumred-1B 4 ms (**174×**), squares-map-100M 1 ms
 this doc are the floor, not the ceiling — and the ceiling is now
 measured. A full PTX *emitter* (vs hand templates) remains future work;
 so does multi-GPU selection (device 0 only).
+
+## 10. Scale tier: CUDA is not launch-latency (100x workload)
+
+The bench-opt rows keep CUDA legs at 1–14 ms — legitimately suspicious
+(launch + a few ms of kernel could be dismissed as trivial). Two answers,
+both measured 2026-09-14, all checksums agreeing unless noted:
+
+**Full agreement at 10x N** (same gate as bench-opt, CPU legs included):
+- squares-map 1B (8 GB array — fits 47 GB box): bo4 5.1 s, cuda 14.6 ms.
+  Handwritten hit swap death here (82 s, box memory pressure) — the bo4
+  leg is the stable CPU reference at this scale.
+- collatz 180M (O(1) memory, never wraps at any N): ref 11.9 s, bo4
+  8.1 s, cuda 95 ms (~125x). Branchy-irregular work at scale.
+
+**GPU-only scaling past CPU-agreement range** (linear = compute-bound,
+not launch overhead):
+- sumred: 1B → 4.7 ms, 10B → 48 ms, 100B → 284 ms. CPU agreement is
+  IMPOSSIBLE past N = 3037000500 (i*i wraps negative; signed-CPU and
+  masked-GPU provably diverge — the versioning threshold from §6, and
+  the reason bench-opt keeps sumred at 1B). The scaling itself is the
+  evidence: 100B elements in 284 ms cannot be launch latency.
+
+Column honesty (see bench-opt.sh header): only bo4-gcc is transpiled
+output. gpu/cuda are hand-tuned reference kernels anchored by checksum
+agreement — they measure the hardware prize a future bash→ShIR→PTX
+emitter is playing for, not current transpiler output.
