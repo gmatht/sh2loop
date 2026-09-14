@@ -375,8 +375,9 @@ mixed plain/bigint variable is declared and stored consistently as
 native. Genuinely unprovable growth (collatz) was exact-but-GMP
 (~154 s vs the unsound 892 ms); it is now recovered by the
 **speculative dual arm** — an i64 fast arm with `__builtin_*_overflow`
-stores and an exact GMP replay on the cold overflow flag, plus a
-native store for i64-provable bigint assignments — at ~1.8 s,
+stores and an exact GMP replay on the cold overflow flag, a native
+store for i64-provable bigint assignments, and outer-loop speculation —
+at **687 ms (1.46x the handwritten C)**,
 still exact (`docs/PYTHON-O4.md` §8.1 B1).
 
 ## 9. Non-goals and next yardsticks

@@ -24,9 +24,10 @@
 > C-backend mixed-accumulator fix). Exactness first made collatz's
 > growing `v` pure GMP (154 s), but the **speculative dual arm** — an
 > i64 fast arm with `__builtin_*_overflow` stores and an exact GMP
-> replay on the (cold) overflow flag — plus a native store for a bigint
-> target whose RHS is i64-provable — puts the CPU leg back at ~1.8 s,
-> still exact. The CUDA leg is unchanged at 12.70 ms.
+> replay on the (cold) overflow flag, a native store for i64-provable
+> bigint RHSs, and speculation at the OUTER loop (so the i64<->mpz
+> handoff happens once, not per iteration) — puts the CPU leg at
+> **687 ms, faster than the handwritten C (1005 ms, 1.46x)**, exact. The CUDA leg is unchanged at 12.70 ms.
 
 ## 1. The binary
 
@@ -165,7 +166,7 @@ opt` (bench-opt N, ~1 s CPU legs, CPython dropped) measures steady state.
 | problem | N | gcc-O3 | python-O4 CPU (gcc) | python-O4 GPU | GPU vs C |
 |---|---:|---:|---:|---:|---:|
 | sumred | 1e9 | 1041 ms | **1175 ms** (0.89x) | **3.55 ms** | **293x** |
-| collatz | 1.8e7 | 840 ms | **~1.8 s** (speculative, exact) | **12.93 ms** | **65x** |
+| collatz | 1.8e7 | 1005 ms | **687 ms** (speculative, exact — 1.46x C) | **13.9 ms** | **72x** |
 | squares-map | 1e8 | 278 ms | **170 ms** (1.63x) | ~950 ms | ~0.3x |
 
 - **collatz's CPU row is exact and speculative.** Its inner `v = 3*v+1`
@@ -290,16 +291,26 @@ and the bench agreement gate (all checksums still byte-agree).
 Residual, honestly:
 
 - **Performance.** An unprovable loop-carried growth was exact but GMP
-  (collatz CPU 892 ms → 154 s). **Recovered stepwise**, measured
-  back-to-back on one machine:
-  the speculative dual arm (154 s → ~2.3 s, and it removed the mpz
-  snapshot), then a **native store for a bigint target whose RHS reads no
-  bigint var and is i64-provable** (`arith_range_native`; the outer
-  `v = (k*37+3)%251` was 4 mpz calls per iteration — 3.79 s → 2.29 s
-  back-to-back). Now ~1.8 s, still exact. The residual ~2x over the
-  unsound i64 leg is the `__builtin_*_overflow` stores (two per odd step
-  over ~8e8 steps) plus the per-outer-iteration tier handoff
-  (`mpz_fits_slong_p`/`mpz_get_si`/`mpz_set_si`).
+  (collatz CPU 892 ms → 154 s). **Recovered stepwise**, each measured
+  back-to-back:
+  1. speculative dual arm (154 s → ~2.3 s) — and no mpz snapshot is
+     needed, since the fast arm never touches the bigint var;
+  2. a **native store for a bigint RHS that reads no bigint var and is
+     i64-provable** (`arith_range_native`; the outer `v = (k*37+3)%251`
+     was 4 mpz calls per iteration) — 3.79 s → 2.29 s;
+  3. an **affine checked store**: `3*v+1` overflows iff `v` leaves one
+     precomputed interval, so one compare replaces the two
+     `__builtin_*_overflow` per odd step — ~9%;
+  4. **speculation at the OUTER loop**, not the inner one. The i64<->mpz
+     handoff (`mpz_fits_slong_p`/`mpz_get_si`/`mpz_set_si`) was paid once
+     per inner-loop entry (1.8e7 times); targeting the outermost loop
+     containing the growth makes the whole loop body (outer assignment,
+     inner growth, accumulators) run in the i64 arm and pays the handoff
+     once. A nested loop inside the fast arm propagates the flag with
+     `if (_sp_ovf) break;`; an exact replay arm never speculates again.
+  Result: **687 ms**, exact, and 1.46x the handwritten C. There is no
+  remaining "unsound is faster" gap to close — the exact build is now the
+  faster one.
 - **Additive accumulators** (`s = s + i` in a loop) are still narrowed
   to i64 when the per-iteration operand has a known range; they can in
   principle exceed i64 for an astronomically long loop. Closing that
