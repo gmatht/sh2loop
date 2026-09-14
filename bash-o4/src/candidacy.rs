@@ -121,7 +121,12 @@ fn walk_stmts(stmts: &[IrStmt], path: &str, scope: &mut Scope, out: &mut Vec<Loo
     }
 }
 
-/// Extract (lo, hi, step) from a `For` iterator.
+/// Extract (lo, hi, step) from a `For` iterator. Both brace ranges
+/// (`{a..b}`, Json payload) and `IrExpr::Range` (which renders as
+/// `$(seq lo hi)`) are INCLUSIVE on both ends — the C backend renders
+/// the brace form as `i <= hi`, and `seq` includes both endpoints.
+/// (An earlier revision treated them as exclusive and silently dropped
+/// the last lane; the C backend's `<=` is the oracle.)
 fn for_bounds(iter: &IrExpr) -> Result<(i64, i64, i64), &'static str> {
     match iter {
         IrExpr::Range { start, end } => Ok((*start, *end, 1)),
@@ -200,7 +205,7 @@ fn parse_range_value(v: &serde_json::Value) -> Option<(i64, i64, i64)> {
 }
 
 /// Split `name[idx]` target text into (array, index-text).
-fn split_target(var: &str) -> Option<(&str, &str)> {
+pub(crate) fn split_target(var: &str) -> Option<(&str, &str)> {
     let open = var.rfind('[')?;
     if !var.ends_with(']') {
         return None;
@@ -214,7 +219,7 @@ fn split_target(var: &str) -> Option<(&str, &str)> {
 
 /// Parse an affine index in the loop var: `i | $i | i±N | N±i | N*i`.
 /// Returns (a, b) with idx = a*i + b.
-fn affine_index(text: &str, var: &str) -> Option<(i64, i64)> {
+pub(crate) fn affine_index(text: &str, var: &str) -> Option<(i64, i64)> {
     let t: String = text.chars().filter(|c| !c.is_whitespace()).collect();
     let t = t.strip_prefix('$').unwrap_or(&t);
     if t == var {
@@ -307,7 +312,7 @@ fn lower_arith(e: &ArithAst, cx: &mut BodyCx) -> Result<VkArith, &'static str> {
 }
 
 /// Trips for lo + k*step `<`/`<=` hi (checked; None on overflow/empty).
-fn trips(lo: i64, hi: i64, step: i64, inclusive: bool) -> Option<u64> {
+pub(crate) fn trips(lo: i64, hi: i64, step: i64, inclusive: bool) -> Option<u64> {
     if step <= 0 {
         return None;
     }
@@ -355,7 +360,8 @@ fn analyze_for(
     if step <= 0 {
         return veto(scope, path, var, "non-positive-step");
     }
-    finish(scope, path, var, lo, hi, step, false, body)
+    // For iters are inclusive (see for_bounds): the upper bound counts.
+    finish(scope, path, var, lo, hi, step, true, body)
 }
 
 fn analyze_for_init(
@@ -542,6 +548,10 @@ fn finish(
         return veto(scope, path, var, "empty-body");
     }
     let id = scope.next_id();
+    // Unroll four lanes per invocation when the tiling is exact
+    // (guards provably dead, measured ~1.3x on lavapipe); scalar
+    // otherwise (per-element guards stay exact for any trip count).
+    let unroll = if trips % 4 == 0 { 4 } else { 1 };
     let spec = VkLoopSpec {
         id: id.clone(),
         var: var.to_string(),
@@ -550,6 +560,8 @@ fn finish(
         hi_inclusive: inclusive,
         step,
         trips,
+        local_size_x: 256,
+        unroll,
         externs: cx.externs.into_iter().collect(),
         stores,
     };
@@ -629,7 +641,19 @@ mod tests {
         let v = analyze(&p);
         assert_eq!(v.len(), 1);
         assert!(v[0].is_candidate(), "{}", v[0]);
-        assert_eq!((v[0].lo, v[0].hi, v[0].trips), (0, 7, 7));
+        // Brace ranges are inclusive (0..7 = 8 trips — the C backend's
+        // `<=` is the oracle; an exclusive reading drops the last lane).
+        assert_eq!((v[0].lo, v[0].hi, v[0].trips), (0, 7, 8));
+    }
+
+    #[test]
+    fn seq_range_loop_is_candidate() {
+        // `$(seq)` lowers to a structured Range (inclusive, like seq).
+        let p = prog_of("#!/bin/bash\nfor i in $(seq 1 100); do a[$i]=$((i*2)); done\n");
+        let v = analyze(&p);
+        assert_eq!(v.len(), 1);
+        assert!(v[0].is_candidate(), "{}", v[0]);
+        assert_eq!((v[0].lo, v[0].hi, v[0].trips), (1, 100, 100));
     }
 
     #[test]

@@ -186,7 +186,7 @@ fn main() {
 
     // Warmup (proves correctness once, outside timer).
     let out = runner
-        .run(&ptx, "kern", &out_lens, groups, THREADS)
+        .run(&ptx, "kern", &out_lens, &[], groups, THREADS)
         .expect("warmup dispatch");
     let checksum = finish_all(&finish, &out);
     // Timed: median dispatches + host finish each rep.
@@ -194,7 +194,7 @@ fn main() {
     for _ in 0..runs {
         let t = std::time::Instant::now();
         let out = runner
-            .run(&ptx, "kern", &out_lens, groups, THREADS)
+            .run(&ptx, "kern", &out_lens, &[], groups, THREADS)
             .expect("dispatch");
         let _ = finish_all(&finish, &out);
         ts.push(t.elapsed().as_secs_f64() * 1000.0);
