@@ -8,16 +8,14 @@
 #   gcc-O3  — handwritten C + gcc -O3 (the CPU ceiling)
 #   bo4-gcc — bash-O4 --emit-c recompiled with gcc -O3 (backend quality;
 #             all three problems run: counter-dynamic fills route to
-#             growable vecs since the array-cap fix). THIS IS THE ONLY
-#             TRANSPILED COLUMN — gpu/cuda below are hand-tuned reference
-#             kernels (same checksums), measuring what the hardware can
-#             do, not what the transpiler emits. Transpiled-GPU
-#             (bash→ShIR→PTX emitter) is future work; the handwritten
-#             kernels scope its prize.
+#             growable vecs since the array-cap fix). TRANSPILED (like
+#             cuda-tx below) — compare against gcc-O3 to read backend
+#             quality directly.
 #   gpu     — gpuleg dispatch (FUSED squares-map map+reduce and M5-preview
 #             block templates for reductions) + host finish
-#   cuda    — cudabench dispatch (PTX block templates via cudaffi) + host
-#             finish; SKIPPED with a note when no CUDA device is present
+#   cuda    — cudabench dispatch (handwritten PTX block templates via
+#             cudaffi) + host finish; the hardware ceiling for cuda-tx.
+#             SKIPPED with a note when no CUDA device is present
 #   cuda-tx — cutranspile dispatch (TRANSPILED bash->candidacy->PTX, no
 #             hand kernels) + host finish; SKIPPED when candidacy vetoes
 #             (map-only v1: scalar-carry reductions) or no device

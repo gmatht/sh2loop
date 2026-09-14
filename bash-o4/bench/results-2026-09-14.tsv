@@ -1,0 +1,16 @@
+problem	N	leg	s	ns_item	speedup_vs_gcc	vec_loops
+sumred	1000000000	gcc-O3	0.895	0.89	1.0	0
+sumred	1000000000	bo4-gcc	0.918	0.92	1.0	0
+sumred	1000000000	gpu	0.332	0.33	2.7	-
+sumred	1000000000	cuda	0.004	0.00	218.3	-
+sumred	1000000000	cuda-tx	0.005	0.00	196.9	-
+squares-map	100000000	gcc-O3	0.233	2.33	1.0	0
+squares-map	100000000	bo4-gcc	0.093	0.93	2.5	0
+squares-map	100000000	gpu	0.036	0.36	6.4	-
+squares-map	100000000	cuda	0.001	0.01	302.7	-
+squares-map	100000000	cuda-tx	0.001	0.01	231.7	-
+collatz	18000000	gcc-O3	1.141	63.38	1.0	0
+collatz	18000000	bo4-gcc	0.926	51.45	1.2	0
+collatz	18000000	gpu	0.603	33.49	1.9	-
+collatz	18000000	cuda	0.014	0.75	84.4	-
+collatz	18000000	cuda-tx	0.017	0.94	67.5	-
