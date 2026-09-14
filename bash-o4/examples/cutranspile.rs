@@ -178,7 +178,15 @@ fn run_map(
     let mut scalars = evals;
     scalars.push(trips as i64);
     let groups = ((trips + m.threads as u64 - 1) / m.threads as u64) as u32;
-    let ptx = shir_to_cu_compute(m);
+    // Mask fast path (loop-versioned): bound within threshold → masked
+    // PTX clone; else the signed original. decided on CLI n upfront.
+    let mut m_fast = m.clone();
+    if let Some(t) = m.mask_thresh {
+        if t == i128::MAX || (t >= 0 && (n as u128) <= (t as u128)) {
+            m_fast.mask_fast = true;
+        }
+    }
+    let ptx = shir_to_cu_compute(&m_fast);
     let out = runner
         .run(&ptx, "kern", &out_lens, &scalars, groups, m.threads)
         .expect("map dispatch");
@@ -226,7 +234,14 @@ fn run_reduce(
     }
     let groups =
         ((trips + r.threads as u64 * r.block_items - 1) / (r.threads as u64 * r.block_items)) as u32;
-    let ptx = debashl::cuda_backend::shir_to_cu_reduce(r);
+    // Mask fast path (same rule as map): threshold-gated clone.
+    let mut r_fast = r.clone();
+    if let Some(t) = r.mask_thresh {
+        if t == i128::MAX || (t >= 0 && (n as u128) <= (t as u128)) {
+            r_fast.mask_fast = true;
+        }
+    }
+    let ptx = debashl::cuda_backend::shir_to_cu_reduce(&r_fast);
     // Param contract: arrays..., partials, externs..., trips.
     let partials = runner.alloc_array(groups as usize).expect("partials");
     let mut bufs: Vec<cudaffi::CUdeviceptr> = Vec::new();

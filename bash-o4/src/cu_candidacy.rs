@@ -256,7 +256,7 @@ fn analyze_for_init(
     if st <= 0 {
         return veto(scope, path, &var, "non-positive-step");
     }
-    finish(scope, path, &var, lo, &bound_var, inclusive, st, body)
+    finish(scope, path, &var, lo, &bound_var, inclusive, st, body, step)
 }
 
 /// Find `loopvar </<= IDENT` text in a condition call (dynamic bound).
@@ -301,6 +301,7 @@ fn finish(
     inclusive: bool,
     step: i64,
     body: &[IrStmt],
+    step_stmts: &[IrStmt],
 ) -> CuVerdict {
     use crate::candidacy;
     let mut cx = BodyCx { var, types: scope.types, externs: BTreeSet::new() };
@@ -378,6 +379,9 @@ fn finish(
             externs.push(e);
         }
     }
+    // Maskable pow2-mods in store values (None = none/stays signed).
+    // Needs the loop context (body/step for discipline gates).
+    let mask_thresh = cu_mask_plan_map(body, step_stmts, var, lo, bound_var, !inclusive, &stores);
     let spec = CuLoopSpec {
         id: id.clone(),
         var: var.to_string(),
@@ -388,6 +392,8 @@ fn finish(
         threads: 256,
         externs,
         stores,
+        mask_thresh,
+        mask_fast: false,
     };
     CuVerdict {
         id,
@@ -974,6 +980,10 @@ fn analyze_reduce_init(
     };
     let mut arrays: Vec<String> = Vec::new();
     collect_arrays(x_ast, &mut arrays);
+    // Maskable pow2-mods (None = render signed; miss, safe).
+    let mask_thresh = cu_mask_plan_reduce_side(
+        body, step, &var, lo, &bound_var, !inclusive, &acc, acc_init, &op, x_ast,
+    );
     let id = scope.next_id().replace("cu_loop_", "cu_red_");
     let mut externs: Vec<String> = cx.externs.into_iter().collect();
     externs.sort();
@@ -991,6 +1001,8 @@ fn analyze_reduce_init(
         acc_init,
         externs,
         arrays,
+        mask_thresh,
+        mask_fast: false,
     };
     CuReduceVerdict {
         id,
@@ -1056,12 +1068,468 @@ mod reduce_tests {
     }
 
     #[test]
+    fn sumred_gets_mask_threshold() {
+        // `(s+(i*i)%2^32)%2^32` with s=0: maskable, threshold 3037000500.
+        let prog = prog_of("#!/bin/bash\nn=$1\ns=0\nfor ((i=0;i<n;i++)); do s=$(((s + (i*i)%4294967296) % 4294967296)); done\n");
+        let vs = analyze_reduce(&prog);
+        assert_eq!(vs.len(), 1);
+        assert!(matches!(vs[0].verdict, CuVerdictKind::Candidate), "{}", vs[0]);
+        let spec = vs[0].spec.as_ref().expect("spec");
+        assert_eq!(spec.mask_thresh, Some(3037000500), "threshold");
+        assert!(!spec.mask_fast, "flag unset by candidacy");
+    }
+
+    #[test]
+    fn nonpow2_outer_stays_signed() {
+        // `(s+(i*i)%251)%251`: outer non-pow2 never masks, but the spec
+        // still classifies (inner is literal-bound... here dynamic, so
+        // inner unversionable too → no flag, but candidate stands).
+        let prog = prog_of("#!/bin/bash\nn=$1\ns=0\nfor ((i=0;i<n;i++)); do s=$(((s + (i*i)%251) % 251)); done\n");
+        let vs = analyze_reduce(&prog);
+        assert_eq!(vs.len(), 1);
+        assert!(matches!(vs[0].verdict, CuVerdictKind::Candidate), "{}", vs[0]);
+        let spec = vs[0].spec.as_ref().expect("spec");
+        assert_eq!(spec.mask_thresh, None, "no maskable pow2 site");
+    }
+
+    #[test]
     fn dynamic_init_vetoes() {
         // `s=$1` init (non-literal): entry value unknowable statically.
         let prog = prog_of("#!/bin/bash\nn=$1\ns=$2\nfor ((i=0;i<n;i++)); do s=$((s+i)); done\n");
         let vs = analyze_reduce(&prog);
         assert_eq!(vs.len(), 1);
         assert!(!matches!(vs[0].verdict, CuVerdictKind::Candidate), "{}", vs[0]);
+    }
+}
+
+/// Convert lowered CuArith back to ArithAst for shared threshold math,
+/// substituting the loop counter for LoopVar. Lossy (ExtVar/Min/Max/
+/// And/ArrRead have no counter-pure form) → None, which conservatively
+/// kills masking for that site (stays signed). Accumulator mentions are
+/// split out by callers before calling (see cu_mask_plan).
+fn cu_to_arith(e: &debashl::cuda_backend::CuArith, counter: &str) -> Option<ArithAst> {
+    use debashl::cuda_backend::CuArith as C;
+    match e {
+        C::Num(n) => Some(ArithAst::Num(*n)),
+        C::LoopVar => Some(ArithAst::Var(counter.to_string())),
+        C::Add(a, b) => Some(ArithAst::Bin {
+            op: "+".to_string(),
+            lhs: Box::new(cu_to_arith(a, counter)?),
+            rhs: Box::new(cu_to_arith(b, counter)?),
+        }),
+        C::Sub(a, b) => Some(ArithAst::Bin {
+            op: "-".to_string(),
+            lhs: Box::new(cu_to_arith(a, counter)?),
+            rhs: Box::new(cu_to_arith(b, counter)?),
+        }),
+        C::Mul(a, b) => Some(ArithAst::Bin {
+            op: "*".to_string(),
+            lhs: Box::new(cu_to_arith(a, counter)?),
+            rhs: Box::new(cu_to_arith(b, counter)?),
+        }),
+        C::Div(a, b) => Some(ArithAst::Bin {
+            op: "/".to_string(),
+            lhs: Box::new(cu_to_arith(a, counter)?),
+            rhs: Box::new(cu_to_arith(b, counter)?),
+        }),
+        C::Mod(a, b) => Some(ArithAst::Bin {
+            op: "%".to_string(),
+            lhs: Box::new(cu_to_arith(a, counter)?),
+            rhs: Box::new(cu_to_arith(b, counter)?),
+        }),
+        _ => None,
+    }
+}
+
+/// Written names under stmts (conservative None on unknown effects).
+/// Seed of a shared writes analysis (duplicated minimally here to avoid
+/// cross-crate churn; unify when it grows — see BASH-VULKAN §12).
+fn cu_written(stmts: &[IrStmt]) -> Option<BTreeSet<String>> {
+    fn wexpr(e: &IrExpr, out: &mut BTreeSet<String>) -> bool {
+        match e {
+            IrExpr::Arith(a) => warith(a, out),
+            IrExpr::Array(items) => items.iter().all(|x| wexpr(x, out)),
+            IrExpr::Call { func, args } => {
+                match func.as_str() {
+                    "test" | "arith" | "getVar" | "param" | "echo" | "true" | "false" | ":" => {
+                        args.iter().all(|a| wexpr(a, out))
+                    }
+                    _ => false,
+                }
+            }
+            IrExpr::BinOp { lhs, rhs, .. } => wexpr(lhs, out) && wexpr(rhs, out),
+            IrExpr::Ternary { cond, then, else_ } => {
+                wexpr(cond, out) && wexpr(then, out) && wexpr(else_, out)
+            }
+            IrExpr::DefinedOr { expr, default } => wexpr(expr, out) && wexpr(default, out),
+            IrExpr::Interpolate(parts) => parts.iter().all(|p| match p {
+                debashl::ir::InterpPart::Expr(x) => wexpr(x, out),
+                _ => true,
+            }),
+            IrExpr::Capture { .. }
+            | IrExpr::MethodCall { .. }
+            | IrExpr::RawExpr(_) => false,
+            IrExpr::Index { key, .. } => wexpr(key, out),
+            IrExpr::Splice(x) => wexpr(x, out),
+            IrExpr::Lambda { .. }
+            | IrExpr::Arrow(_)
+            | IrExpr::ArrayComp { .. }
+            | IrExpr::Ext(_) => false,
+            _ => true,
+        }
+    }
+    fn warith(a: &ArithAst, out: &mut BTreeSet<String>) -> bool {
+        match a {
+            ArithAst::Assign { var, rhs, .. } => {
+                out.insert(var.clone());
+                warith(rhs, out)
+            }
+            ArithAst::IncDec { var, .. } => {
+                out.insert(var.clone());
+                true
+            }
+            ArithAst::Bin { lhs, rhs, .. } => warith(lhs, out) && warith(rhs, out),
+            ArithAst::Un { arg, .. } => warith(arg, out),
+            ArithAst::Cond { test, then, else_ } => {
+                warith(test, out) && warith(then, out) && warith(else_, out)
+            }
+            ArithAst::Cast { arg, .. } => warith(arg, out),
+            ArithAst::Index { key, .. } => warith(key, out),
+            _ => true,
+        }
+    }
+    fn wstmt(s: &IrStmt, out: &mut BTreeSet<String>) -> bool {
+        match s {
+            IrStmt::Assign { targets, expr, .. } => {
+                for t in targets {
+                    let base = t.var.split('[').next().unwrap_or(&t.var);
+                    if !base.is_empty() {
+                        out.insert(base.to_string());
+                    }
+                    for ix in &t.indices {
+                        if !wexpr(ix, out) {
+                            return false;
+                        }
+                    }
+                }
+                wexpr(expr, out)
+            }
+            IrStmt::Declare { vars, init, .. } => {
+                for d in vars {
+                    out.insert(d.name.clone());
+                }
+                init.as_ref().is_none_or(|e| wexpr(e, out))
+            }
+            IrStmt::DeclareArray { var, elements, .. } => {
+                out.insert(var.clone());
+                elements.iter().all(|e| wexpr(e, out))
+            }
+            IrStmt::Expr(e)
+            | IrStmt::Output { value: e, .. }
+            | IrStmt::WriteFile { content: e, .. }
+            | IrStmt::Return(Some(e))
+            | IrStmt::Exit(Some(e))
+            | IrStmt::Die { expr: e, .. }
+            | IrStmt::Warn { expr: e, .. }
+            | IrStmt::SetChildError(e) => wexpr(e, out),
+            IrStmt::WriteFile { path, .. } => wexpr(path, out),
+            IrStmt::If { cond, then, elsifs, else_ } => {
+                wexpr(cond, out)
+                    && then.iter().all(|x| wstmt(x, out))
+                    && elsifs.iter().all(|(c, b)| wexpr(c, out) && b.iter().all(|x| wstmt(x, out)))
+                    && else_.iter().all(|x| wstmt(x, out))
+            }
+            IrStmt::While { cond, body } | IrStmt::DoWhile { body, cond, .. } => {
+                wexpr(cond, out) && body.iter().all(|x| wstmt(x, out))
+            }
+            IrStmt::For { var, iter, body } => {
+                out.insert(var.clone());
+                wexpr(iter, out) && body.iter().all(|x| wstmt(x, out))
+            }
+            IrStmt::ForInit { init, cond, step, body } => {
+                init.iter().all(|x| wstmt(x, out))
+                    && wexpr(cond, out)
+                    && step.iter().all(|x| wstmt(x, out))
+                    && body.iter().all(|x| wstmt(x, out))
+            }
+            IrStmt::Block(b) => b.iter().all(|x| wstmt(x, out)),
+            IrStmt::Redirect { inner, redirects } => {
+                redirects.iter().all(|r| wexpr(&r.target, out))
+                    && inner.iter().all(|x| wstmt(x, out))
+            }
+            IrStmt::Case { discriminant, clauses } => {
+                wexpr(discriminant, out)
+                    && clauses.iter().all(|c| c.body.iter().all(|x| wstmt(x, out)))
+            }
+            IrStmt::Try { body, excepts, else_body, finally_body } => {
+                body.iter().all(|x| wstmt(x, out))
+                    && excepts.iter().all(|e| {
+                        e.match_expr.as_ref().is_none_or(|m| wexpr(m, out))
+                            && e.body.iter().all(|x| wstmt(x, out))
+                    })
+                    && else_body.iter().all(|x| wstmt(x, out))
+                    && finally_body.iter().all(|x| wstmt(x, out))
+            }
+            IrStmt::Function { .. } => false,
+            IrStmt::Select { .. }
+            | IrStmt::Pipeline { .. }
+            | IrStmt::Subshell(_)
+            | IrStmt::Background(_) => false,
+            _ => true,
+        }
+    }
+    let mut out = BTreeSet::new();
+    if stmts.iter().all(|s| wstmt(s, &mut out)) {
+        Some(out)
+    } else {
+        None
+    }
+}
+
+/// Mask threshold for a MAP loop: min over pow2-mod sites in store
+/// values (None = none unmaskable... precisely: None when no maskable
+/// site or any gate fails — render signed). Gates: lo>=0, boundvar !=
+/// counter, counter/boundvar written only by init/step (cu_writes
+/// discipline over body+step).
+/// Any Var/Ident mention of `name` in a CuArith tree.
+fn mentions_var(e: &debashl::cuda_backend::CuArith, name: &str) -> bool {
+    use debashl::cuda_backend::CuArith as C;
+    match e {
+        // LoopVar is the counter, never the accum (distinct names —
+        // candidacy rejects acc==counter upstream).
+        C::LoopVar | C::Num(_) => false,
+        // ExtVar could alias acc textually — conservative true only on
+        // exact match (over-approx miss, safe).
+        C::ExtVar(n) => n == name,
+        C::Add(a, b) | C::Sub(a, b) | C::Mul(a, b) | C::Div(a, b) | C::Mod(a, b) => {
+            mentions_var(a, name) || mentions_var(b, name)
+        }
+        C::Min(a, b) | C::Max(a, b) | C::And(a, b) => {
+            mentions_var(a, name) || mentions_var(b, name)
+        }
+        C::ArrRead { index, .. } => mentions_var(index, name),
+    }
+}
+
+fn cu_mask_plan_map(
+    body: &[IrStmt],
+    step: &[IrStmt],
+    var: &str,
+    lo: i64,
+    boundvar: &str,
+    lt: bool,
+    stores: &[debashl::cuda_backend::CuStore],
+) -> Option<i128> {
+    use debashl::shir_passes::maskable as M;
+    if lo < 0 || boundvar == var {
+        return None;
+    }
+    // Discipline: body must not write counter (step's own write is
+    // expected machinery, checked separately below); nothing anywhere
+    // may write the bound (stale need).
+    let wb = match cu_written(body) {
+        Some(w) => w,
+        None => return None,
+    };
+    if wb.contains(var) || wb.contains(boundvar) {
+        return None;
+    }
+    let ws = match cu_written(step) {
+        Some(w) => w,
+        None => return None,
+    };
+    if ws.contains(boundvar) {
+        return None;
+    }
+    let mut thresh: Vec<i128> = Vec::new();
+    for st in stores {
+        if !collect_pow2(&st.value, var, lt, &mut thresh) {
+            return None;
+        }
+    }
+    if thresh.is_empty() {
+        return None;
+    }
+    let finite: Vec<i128> = thresh.iter().copied().filter(|t| *t < M::VER_INF).collect();
+    if !finite.is_empty() && finite.iter().min().copied().unwrap_or(0) < 16 {
+        return None;
+    }
+    Some(thresh.into_iter().min().unwrap_or(M::VER_INF))
+}
+
+/// Mask threshold for a REDUCE loop's accumulator site `(acc+X)%m`:
+/// X acc-free with threshold T(X) plus acc entry literal in [0,m).
+/// Other pow2 sites inside X join via the uniform walk. Non-pow2 outer
+/// moduli stay rem (never kill the flag — only pow2 sites participate).
+fn ast_pow2_sites(
+    ast: &ArithAst,
+    counter: &str,
+    lt: bool,
+    out: &mut Vec<i128>,
+) -> bool {
+    use debashl::shir_passes::maskable as M;
+    match ast {
+        ArithAst::Bin { op, lhs, rhs } if op == "%" || op == "/" => {
+            if let ArithAst::Num(d) = rhs.as_ref() {
+                if M::is_pow2_lit(*d) {
+                    match M::mask_threshold(lhs, *d, counter, lt, true) {
+                        Some(t) => out.push(t),
+                        None => return false,
+                    }
+                }
+            }
+            ast_pow2_sites(lhs, counter, lt, out) && ast_pow2_sites(rhs, counter, lt, out)
+        }
+        ArithAst::Bin { lhs, rhs, .. } => {
+            ast_pow2_sites(lhs, counter, lt, out) && ast_pow2_sites(rhs, counter, lt, out)
+        }
+        ArithAst::Un { arg, .. } => ast_pow2_sites(arg, counter, lt, out),
+        ArithAst::Cond { test, then, else_ } => {
+            ast_pow2_sites(test, counter, lt, out)
+                && ast_pow2_sites(then, counter, lt, out)
+                && ast_pow2_sites(else_, counter, lt, out)
+        }
+        ArithAst::Assign { rhs, .. } => ast_pow2_sites(rhs, counter, lt, out),
+        ArithAst::Cast { arg, .. } => ast_pow2_sites(arg, counter, lt, out),
+        ArithAst::Index { key, .. } => ast_pow2_sites(key, counter, lt, out),
+        _ => true,
+    }
+}
+
+/// Any Var/Ident mention of `name` in ArithAst (for acc-free checks).
+fn ast_mentions(a: &ArithAst, name: &str) -> bool {
+    match a {
+        ArithAst::Var(v) | ArithAst::Ident(v) => v == name,
+        ArithAst::Bin { lhs, rhs, .. } => ast_mentions(lhs, name) || ast_mentions(rhs, name),
+        ArithAst::Un { arg, .. } => ast_mentions(arg, name),
+        ArithAst::Cond { test, then, else_ } => {
+            ast_mentions(test, name) || ast_mentions(then, name) || ast_mentions(else_, name)
+        }
+        ArithAst::Assign { var, rhs, .. } => var == name || ast_mentions(rhs, name),
+        ArithAst::Cast { arg, .. } => ast_mentions(arg, name),
+        ArithAst::Index { var, key } => var == name || ast_mentions(key, name),
+        _ => false,
+    }
+}
+
+/// Mask threshold for a REDUCE loop. Two cases:
+/// - outer accum mod with POW2 modulus: the outer site itself masks
+///   (needs X threshold + acc-init gate), plus any inner pow2 sites.
+/// - otherwise (Add/Mul, non-pow2 outer): inner pow2 sites only; the
+///   outer stays rem/div regardless (never kills the flag).
+/// All-or-nothing per participating site; None = render signed.
+#[allow(clippy::too_many_arguments)]
+fn cu_mask_plan_reduce_side(
+    body: &[IrStmt],
+    step: &[IrStmt],
+    var: &str,
+    lo: i64,
+    boundvar: &str,
+    lt: bool,
+    acc: &str,
+    acc_init: i64,
+    op: &debashl::cuda_backend::CuReduceOp,
+    x_ast: &ArithAst,
+) -> Option<i128> {
+    use debashl::cuda_backend::CuReduceOp as Op;
+    use debashl::shir_passes::maskable as M;
+    if lo < 0 || boundvar == var {
+        return None;
+    }
+    let wb = match cu_written(body) {
+        Some(w) => w,
+        None => return None,
+    };
+    if wb.contains(var) || wb.contains(boundvar) {
+        return None;
+    }
+    let ws = match cu_written(step) {
+        Some(w) => w,
+        None => return None,
+    };
+    if ws.contains(boundvar) {
+        return None;
+    }
+    let mut thresh: Vec<i128> = Vec::new();
+    let mut will_mask_outer = false;
+    if let Op::ModAdd { modulus } | Op::MaskAdd { mask: modulus } = op {
+        if !M::is_pow2_lit(*modulus) {
+            // Non-pow2 outer stays rem — X needs no threshold for the
+            // outer's sake (inners below still join).
+        } else {
+            // Pow2 outer masks iff X verified + acc entry in range.
+            if *modulus < 1
+                || !(0 <= acc_init && (acc_init as u64) < (*modulus as u64))
+            {
+                return None;
+            }
+            if ast_mentions(x_ast, acc) {
+                return None;
+            }
+            match M::mask_threshold(x_ast, *modulus, var, lt, true) {
+                Some(t) => {
+                    thresh.push(t);
+                    will_mask_outer = true;
+                }
+                None => return None,
+            }
+        }
+    }
+    // Inner pow2 sites anywhere in X join uniformly (each must verify).
+    let before = thresh.len();
+    if !ast_pow2_sites(x_ast, var, lt, &mut thresh) {
+        return None;
+    }
+    let inner_pow2_found = thresh.len() > before;
+    // Usefulness: at least one site must actually mask.
+    if !will_mask_outer && !inner_pow2_found {
+        return None;
+    }
+    // (Empty means nothing versionable: no outer coverage and no
+    // inner pow2 sites — masking would change nothing.)
+    if thresh.is_empty() {
+        return None;
+    }
+    let finite: Vec<i128> = thresh.iter().copied().filter(|t| *t < M::VER_INF).collect();
+    if !finite.is_empty() && finite.iter().min().copied().unwrap_or(0) < 16 {
+        return None;
+    }
+    Some(thresh.into_iter().min().unwrap_or(M::VER_INF))
+}
+
+/// Walk one CuArith value for pow2-mod sites, joining thresholds.
+/// Returns false on the first unmaskable site (kills the flag).
+fn collect_pow2(
+    e: &debashl::cuda_backend::CuArith,
+    counter: &str,
+    lt: bool,
+    out: &mut Vec<i128>,
+) -> bool {
+    use debashl::cuda_backend::CuArith as C;
+    use debashl::shir_passes::maskable as M;
+    match e {
+        C::Mod(a, b) | C::Div(a, b) => {
+            if let C::Num(d) = b.as_ref() {
+                if M::is_pow2_lit(*d) {
+                    match cu_to_arith(a, counter) {
+                        Some(ast) => match M::mask_threshold(&ast, *d, counter, lt, true) {
+                            Some(t) => out.push(t),
+                            None => return false,
+                        },
+                        None => return false,
+                    }
+                }
+            }
+            collect_pow2(a, counter, lt, out) && collect_pow2(b, counter, lt, out)
+        }
+        C::Add(a, b) | C::Sub(a, b) | C::Mul(a, b) => {
+            collect_pow2(a, counter, lt, out) && collect_pow2(b, counter, lt, out)
+        }
+        C::Min(a, b) | C::Max(a, b) | C::And(a, b) => {
+            collect_pow2(a, counter, lt, out) && collect_pow2(b, counter, lt, out)
+        }
+        C::ArrRead { index, .. } => collect_pow2(index, counter, lt, out),
+        _ => true,
     }
 }
 
