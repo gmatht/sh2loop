@@ -17,7 +17,9 @@ Status: living document. The §3–§5 captures are from the dev box
 (2026-09-15, Python 3.12.3, gcc 13.3.0, Cython 3.0.8) and are
 *indicative*, not a gate — see §7 for why absolute numbers move. The
 shared C-backend profile/width work (`docs/PYTHON-O4.md` §2.4, §8.1)
-landed after earlier captures and is reflected here.
+landed after earlier captures and is reflected here; the §4/§5 captures
+below were refreshed after closing findings B (bigint `mpz_mul_ui`) and
+C (native computed int lists).
 
 ---
 
@@ -103,23 +105,23 @@ tolerated.
 `bench_vs_cpython.sh` (capture: `TARGET_SECS=3 REPS=2`):
 
 ```
-sizes: sum_squares=10000000  rolling_hash=16000000  bignum_mul=300000  io=8000000 lines
+sizes: sum_squares=10000000  rolling_hash=16000000  bignum_mul=300000  io=6000000 lines
 
 rolling_hash (16000000)          time(s)   rss(MB)   speedup
-  CPython                          2.712      10.1      1.0x
-  C                                0.100       1.6     27.1x
+  CPython                          2.831      10.0      1.0x
+  C                                0.098       1.5     29.0x
 
 sum_squares (10000000)           time(s)   rss(MB)   speedup
-  CPython                          1.608     392.5      1.0x
-  C                                0.038      78.3     42.0x
+  CPython                          1.517     392.4      1.0x
+  C                                0.035      77.8     42.9x
 
 bignum_mul (300000 x*=3 from 2**100)
-  CPython                          3.267      10.2      1.0x
-  C (GMP)                          1.318       2.2      2.5x
+  CPython                          2.920      10.1      1.0x
+  C (GMP)                          0.871       1.9      3.4x
 
-app.py (io/8000000 lines)
-  CPython                          3.152     684.7      1.0x
-  C                                0.977     429.9      3.2x
+app.py (io/6000000 lines)
+  CPython                          2.752     515.2      1.0x
+  C                                0.921     322.1      3.0x
 ```
 
 Read the shapes, not one number:
@@ -131,9 +133,10 @@ Read the shapes, not one number:
 - **Vector + wide aggregate** (`sum_squares`): ~42×, 5× less RAM. The
   C uses a native `long long` vector and an **exact `__int128` sum**;
   CPython allocates 10 M `PyLong`s.
-- **Bigint** (`bignum_mul`): only ~2.5×. Both sides call GMP / CPython's
-  big-int, which are in the same league; the win is memory (5×) and, in
-  the Cython table, startup. This is the honest counterweight to 27–42×.
+- **Bigint** (`bignum_mul`): only ~3.4× (was ~2.5× before finding B was
+  fixed). Both sides call GMP / CPython's big-int, which are in the same
+  league; the win is memory (5×) and, in the Cython table, startup.
+  This is the honest counterweight to 29–43×.
 - **Line I/O** (`app.py`): ~3.2×, 1.6× less RAM. Both read lines and
   store two growable lists; the win here is smaller and dominated by
   parsing/alloc, not arithmetic.
@@ -143,41 +146,41 @@ Read the shapes, not one number:
 `bench_cython.sh` (capture: `TARGET_SECS=3 REPS=2`):
 
 ```
-sizes: rolling_hash=16000000  sum_squares=10000000  bignum_mul=300000  io=8000000 lines
+sizes: rolling_hash=16000000  sum_squares=10000000  bignum_mul=300000  io=6000000 lines
 
 startup floor (empty program)    time(s)   rss(MB)   speedup
-  CPython                          0.030       0.0      1.0x
-  Cython (embedded)                0.031       0.0      1.0x
-  py-sh-go C                       0.000       0.0     63.0x
+  CPython                          0.034       0.0      1.0x
+  Cython (embedded)                0.032       0.0      1.1x
+  py-sh-go C                       0.001       0.0     56.0x
 
 rolling_hash (16000000)          time(s)   rss(MB)   speedup
-  CPython                          2.643      10.1      1.0x
-  Cython (pure)                    3.119      11.0      0.8x
-  Cython (typed)                   0.084      11.1     31.4x
-  py-sh-go C                       0.091       1.7     29.1x
+  CPython                          2.959      10.0      1.0x
+  Cython (pure)                    3.226      11.0      0.9x
+  Cython (typed)                   0.098      11.0     30.2x
+  py-sh-go C                       0.101       1.6     29.3x
 
 sum_squares (10000000)           time(s)   rss(MB)   speedup
-  CPython                          1.438     394.0      1.0x
-  Cython (pure)                    1.809     395.4      0.8x
+  CPython                          1.698     394.2      1.0x
+  Cython (pure)                    1.900     395.7      0.9x
   Cython (typed)                       -         -   n/a (no __int128)
-  py-sh-go C                       0.033      78.0     44.1x
+  py-sh-go C                       0.039      78.1     43.9x
 
-app.py (io/8000000 lines)        time(s)   rss(MB)   speedup
-  CPython                          2.909     683.8      1.0x
-  Cython (pure)                    5.419     685.5      0.5x
-  Cython (typed)                   0.960     439.3      3.0x
-  py-sh-go C                       0.907     430.8      3.2x
+app.py (io/6000000 lines)        time(s)   rss(MB)   speedup
+  CPython                          2.472     515.5      1.0x
+  Cython (pure)                    4.027     516.2      0.6x
+  Cython (typed)                   0.890     334.6      2.8x
+  py-sh-go C                       0.830     324.8      3.0x
 
 bignum_mul (300000 x*=3 from 2**100)
-  CPython                          2.797      10.1      1.0x
-  Cython (pure)                    2.903      11.2      1.0x
-  Cython (typed)                   0.845      11.4      3.3x
-  py-sh-go C (GMP)                 1.249       2.1      2.2x
+  CPython                          4.350      10.2      1.0x
+  Cython (pure)                    3.156      11.2      1.4x
+  Cython (typed)                   0.904      11.5      4.8x
+  py-sh-go C (GMP)                 0.831       1.9      5.2x
 ```
 
 ### What this says
 
-1. **Cython-pure is not faster than CPython on any shape** (0.5–1.0×).
+1. **Cython-pure is not faster than CPython on any shape** (0.6–1.4×).
    Compiling to C does not help while values stay boxed `PyLong`s and
    every operation still crosses the C-API. Cython is a *typed*
    compiler; without types it is CPython at C speed with extra
@@ -185,21 +188,23 @@ bignum_mul (300000 x*=3 from 2**100)
 2. **Typed Cython wins only after a human rewrites the hot code** with
    `cdef` types (and, for bigint, hand-binds GMP via
    `cdef extern from "gmp.h"`). Where it applies it is fast: it *ties*
-   py-sh-go on `rolling_hash` (0.084 vs 0.091, within run noise) and
-   py-sh-go edges it on I/O (0.907 vs 0.960), the expected result for two
+   py-sh-go on `rolling_hash` (0.098 vs 0.101, within run noise), and
+   py-sh-go now edges it on **both** I/O (0.890 vs 0.830) and bigint
+   (**0.904 vs 0.831**, finding B fixed) — the expected result for two
    compilers emitting the same C.
 3. **The differentiators for py-sh-go are what it does without help:**
    - it infers the types (no annotations), so it wins on the shapes
      where Cython-pure is slow;
-   - it starts in **<1 ms** vs Cython's **~31 ms** (it does not link
-     libpython) — a 63× floor that dominates short programs;
+   - it starts in **~1 ms** vs Cython's **~32 ms** (it does not link
+     libpython) — a ~56× floor that dominates short programs;
    - it stays at **~2 MB** RSS on bigint vs Cython's ~11 MB (again no
      interpreter runtime);
    - it emits an **exact `__int128` aggregate** for `sum(xs)` that
      hand-typed Cython cannot express without GMP (hence the `n/a`).
-4. **Typed Cython edges out py-sh-go on bigint time** (0.845 vs
-   1.249 s) — see §8, finding B: a codegen quality gap (an aliasing copy
-   plus `mpz_mul` where `mpz_mul_ui` would do), not a fundamental one.
+4. **py-sh-go now edges typed Cython on bigint time** (0.831 vs
+   0.904 s). Before this fix typed Cython won (0.845 vs 1.249 s) on what
+   was a codegen quality gap — an aliasing copy plus `mpz_mul` where
+   `mpz_mul_ui` would do — not a fundamental one. See §8, finding B.
 
 ## 6. Reproducing by hand
 
@@ -316,11 +321,13 @@ top of every run.
 
 ## 8. Findings from building this (open work)
 
-The benchmark earned its keep by surfacing five real issues. Three are
-fixed (A, D, E); two are open (B, C). The most serious — E, a silent
-miscompile of valid Python — was found here and is now fixed, and the
-performance it cost has since been recovered (`docs/PYTHON-O4.md` §8.1
-B1): the exact build is now *faster* than the unsound one.
+The benchmark earned its keep by surfacing five real issues, all now
+fixed (A–E). The most serious — E, a silent miscompile of valid Python —
+was found here and is now fixed, and the performance it cost has since
+been recovered (`docs/PYTHON-O4.md` §8.1 B1): the exact build is now
+*faster* than the unsound one. B and C (below) were codegen quality gaps
+the benchmark exposed; both were closed afterwards and the numbers below
+are refreshed.
 
 **A. Fixed — `long long` int-array sum wrapped.** At 10 M elements the C
 `sum(xs)` printed `1291890006563070912` where CPython printed
@@ -329,8 +336,8 @@ It now accumulates in `__int128` (exact for any memory-sized i64 array,
 `M·2^64 < 2^127`) and prints through `_sh_i128_str`. Recorded in the
 parity suite and by the `sum_squares` row.
 
-**B. Open — bigint multiply is not `mpz_mul_ui`.** For `x = x * 3` the
-backend emits
+**B. Fixed — bigint multiply now uses `mpz_mul_ui`.** For `x = x * 3`
+the backend used to emit
 
 ```c
 mpz_set(_bigint_tmp_1, x);
@@ -338,14 +345,19 @@ mpz_mul(x, _bigint_tmp_1, _bigint_3);
 ```
 
 two GMP calls plus an aliasing copy, where typed Cython emits
-`mpz_mul_ui(x, x, 3)` — one call. That is most of the 1.83 s vs 2.83 s
-gap in the bigint row. Proposed: when one operand is a small literal
-constant, emit `mpz_mul_ui`/`mpz_add_ui`/`mpz_sub_ui`, and drop the
-copy when the target aliases the left operand (GMP allows `a = a * b`).
+`mpz_mul_ui(x, x, 3)` — one call. `bigint_operand` now unwraps the
+frontend's identity `Cast(Int64, …)` so `Cast(Var x)` renders as `x`
+(no temp), and the `bigint_into` Bin arm specialises a small literal
+operand to `mpz_add_ui` / `mpz_sub_ui` / `mpz_mul_ui` (or `_si` for a
+negative multiplier) in place (GMP allows `a = a * b`). A 300 k-step
+microbench of the two forms: **1.31 s → 0.86 s**; end-to-end
+`bignum_mul` **1.318 → 0.871 s** in §4 and **1.249 → 0.831 s** in the
+Cython comparison, where py-sh-go now *edges* typed Cython
+(0.831 vs 0.904, §5).
 
-**C. Open — computed int lists fall back to a string vec.** `sum(xs)`
-licenses the C backend to home `xs` as a native vector. Replace the
-reduction with an explicit accumulator
+**C. Fixed — computed int lists home natively.** `sum(xs)` licensed the
+C backend to home `xs` as a native vector, but replacing the reduction
+with an explicit accumulator
 
 ```python
 xs = []
@@ -355,11 +367,19 @@ for i in range(N):
     total = (total + i * i) % 1000000007
 ```
 
-and `xs` becomes `char **` with `snprintf` + `strdup` per element
-(measured ~0.37 s vs ~0.05 s at the sizes above): a 25× regression on a
-program that should be identical. The fix is in the int-array analysis
-(home an array as native when every element is int-domain and it is
-never used as text), not in the benchmark.
+used to leave `xs` as `char **` with `snprintf` + `strdup` per element
+(measured ~0.37 s vs ~0.05 s): a 25× regression on a program that
+should be identical. The int-array analysis now homes an array as
+native when every write is int-domain **and it is never read at all**.
+A second, exhaustive `mark_reads_stmt`/`mark_reads_expr` pass marks
+every read — `Index`, `slice("arr", …)` (the `${arr[@]}` shape),
+`arrayItems`, `getVar`, and any call naming the array; `arrayLen`
+(`len(xs)`, `${#xs[@]}`) reads only the count and does not mark. An
+array that *is* read, or is an int consumer (`sum`/`min`/`max`), keeps
+its old storage, so the relaxation is narrow. `xs` is now a native
+`long long *` (narrowed to `uint8_t[N]` when the values fit): at 3 M
+elements **0.02 s vs CPython 0.96 s (~48×)**, and `sum_squares`'s 43×
+row is unaffected.
 
 **D. Fixed earlier — profile visibility** (`docs/PROFILING.md`,
 `docs/DUAL_LOOPS.MD` §4). The profiler's value bucket
