@@ -50,7 +50,7 @@ rm -f "$GATE/corpus"/*.sh "$GATE/ref"/*.out
 # 1. render the gate corpus (same corpus the dev gate uses)
 n=0; rendered=0; core_skip=0; refused=0
 : > "$GATE/cannot_translate.txt"
-for f in "$WORKSPACE"/sh2perl/examples/*.sh "$WORKSPACE"/frontends/*/testdata/*.sh; do
+for f in "$WORKSPACE"/sh2perl/examples/*.sh "$WORKSPACE"/sh2perl/frontends/*/testdata/*.sh; do
   [ -f "$f" ] || continue
   n=$((n+1))
   bn=$(basename "$f" .sh)

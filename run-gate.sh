@@ -51,7 +51,7 @@ if [ "$FRONTEND" = "--status" ]; then
 fi
 
 [ -n "$FRONTEND" ] || { echo "usage: run-gate.sh <frontend> [make-target] | --status" >&2; exit 2; }
-FE_DIR="$WORKSPACE/frontends/$FRONTEND"
+FE_DIR="$WORKSPACE/sh2perl/frontends/$FRONTEND"
 [ -d "$FE_DIR" ] || { echo "run-gate: no frontend $FRONTEND" >&2; exit 2; }
 
 mkdir -p "$REPORT_DIR"

@@ -83,7 +83,7 @@ declare -A TDD=( [cpp]=testdata_cpp )
 for lang in "${LANGS[@]}"; do
   pass=0; skip=0; fail=0; fails=""
   td="${TDD[$lang]:-testdata}"
-  for f in "$ROOT/frontends/${TD[$lang]}/$td/"*."${EXT[$lang]}"; do
+  for f in "$ROOT/sh2perl/frontends/${TD[$lang]}/$td/"*."${EXT[$lang]}"; do
     [ -f "$f" ] || continue
     bn=$(basename "$f")
     # refusal pins (*_refuse.*) are the frontend's negative tests — the
@@ -94,7 +94,7 @@ for lang in "${LANGS[@]}"; do
     if [ "$lang" = sh ]; then
       a1=$("$OTRANSPILERL" --target shir "$f" 2>/dev/null)
     else
-      a1=$("$ROOT/frontends/${BIN[$lang]}/${BIN[$lang]}" --shir "$f" 2>/dev/null)
+      a1=$("$ROOT/sh2perl/frontends/${BIN[$lang]}/${BIN[$lang]}" --shir "$f" 2>/dev/null)
     fi
     if [ -z "$a1" ]; then fail=$((fail+1)); fails="$fails $bn(parse)"; printf '%s\t%s\tFAIL\tparse\n' "$lang" "$bn" >> "$TSV"; continue; fi
     # 2. A1 → estree (default js render)

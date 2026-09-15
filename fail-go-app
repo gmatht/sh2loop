@@ -15,14 +15,14 @@
 # Usage: ./fail-go-app [--gate] [PREFIX]
 set -u
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-GOSH="$ROOT/frontends/go-sh/go-sh"
+GOSH="$ROOT/sh2perl/frontends/go-sh/go-sh"
 OTRANS="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
 RUNNER="$ROOT/harness/estree-runner.mjs"
 # emit.go FIRST: the concat parses sequentially, and the golib's own
 # run() references &shiremit.Program{...} — the type decl must be
 # registered (parseTypeDecl) before its first use.
-CONCAT="$ROOT/frontends/shir-emit-go/emit.go $ROOT/frontends/go-sh/cmd/go-sh/main.go $ROOT/frontends/go-sh/go-sh.go"
-CORPUS="$ROOT/frontends/go-sh/testdata"
+CONCAT="$ROOT/sh2perl/frontends/shir-emit-go/emit.go $ROOT/sh2perl/frontends/go-sh/cmd/go-sh/main.go $ROOT/sh2perl/frontends/go-sh/go-sh.go"
+CORPUS="$ROOT/sh2perl/frontends/go-sh/testdata"
 TIMEOUT=180
 GATE=0; PREFIX=""
 for a in "$@"; do

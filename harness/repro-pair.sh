@@ -8,7 +8,7 @@ ROOT=/home/llm/sh2loop
 CLI="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
 RUNNER="$ROOT/harness/estree-runner.mjs"
 FE="$1"; EX="$2"; BE="$3"
-FE_DIR="$ROOT/frontends/$FE"
+FE_DIR="$ROOT/sh2perl/frontends/$FE"
 SRC=""
 case "$FE" in
   sh2perl) SRC="$ROOT/sh2perl/examples/$EX"; A1=$("$CLI" "$SRC" --source-lang sh --target shir --raw 2>/dev/null);;

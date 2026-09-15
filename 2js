@@ -20,7 +20,7 @@ shift
 find_test() {
   local p="$1" f b matches=()
   # prefer py-sh-go (the primary frontend), then all frontends + examples
-  local dirs=("$WS/frontends/py-sh-go/testdata" "$WS/frontends"/*/testdata "$WS/examples")
+  local dirs=("$WS/sh2perl/frontends/py-sh-go/testdata" "$WS/frontends"/*/testdata "$WS/examples")
   local d
   for d in "${dirs[@]}"; do
     [ -d "$d" ] || continue

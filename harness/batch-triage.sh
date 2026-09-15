@@ -28,23 +28,23 @@ fe_emit() {  # fe example -> A1 json on stdout
   local fe="$1" ex="$2" bin
   case "$fe" in
     sh2perl) "$CLI" "$ROOT/sh2perl/examples/$ex" --source-lang sh --target shir --raw 2>/dev/null;;
-    c-sh-go) bin="$ROOT/frontends/c-sh-go/c-sh-go";;
-    cpp-sh-go) bin="$ROOT/frontends/cpp-sh-go/cpp-sh-go";;
-    bat-sh-go) bin="$ROOT/frontends/bat-sh-go/bat-sh-go";;
-    py-sh-go) bin="$ROOT/frontends/py-sh-go/py-sh-go";;
-    perl-sh-go) bin="$ROOT/frontends/perl-sh-go/perl-sh-go";;
-    posix-sh-go) bin="$ROOT/frontends/posix-sh-go/posix-sh-go";;
-    zsh-sh-go) bin="$ROOT/frontends/zsh-sh-go/zsh-sh-go";;
-    fish-sh-go) bin="$ROOT/frontends/fish-sh-go/fish-sh-go";;
-    go-sh) bin="$ROOT/frontends/go-sh/go-sh";;
-    powershell-sh-go) bin="$ROOT/frontends/powershell-sh-go/powershell-sh-go";;
-    rust-frontend) bin="$ROOT/frontends/rust-frontend/target/debug/rust-frontend";;
-    zig-sh-go) bin="$ROOT/frontends/zig-sh-go/zig-sh-go";;
+    c-sh-go) bin="$ROOT/sh2perl/frontends/c-sh-go/c-sh-go";;
+    cpp-sh-go) bin="$ROOT/sh2perl/frontends/cpp-sh-go/cpp-sh-go";;
+    bat-sh-go) bin="$ROOT/sh2perl/frontends/bat-sh-go/bat-sh-go";;
+    py-sh-go) bin="$ROOT/sh2perl/frontends/py-sh-go/py-sh-go";;
+    perl-sh-go) bin="$ROOT/sh2perl/frontends/perl-sh-go/perl-sh-go";;
+    posix-sh-go) bin="$ROOT/sh2perl/frontends/posix-sh-go/posix-sh-go";;
+    zsh-sh-go) bin="$ROOT/sh2perl/frontends/zsh-sh-go/zsh-sh-go";;
+    fish-sh-go) bin="$ROOT/sh2perl/frontends/fish-sh-go/fish-sh-go";;
+    go-sh) bin="$ROOT/sh2perl/frontends/go-sh/go-sh";;
+    powershell-sh-go) bin="$ROOT/sh2perl/frontends/powershell-sh-go/powershell-sh-go";;
+    rust-frontend) bin="$ROOT/sh2perl/frontends/rust-frontend/target/debug/rust-frontend";;
+    zig-sh-go) bin="$ROOT/sh2perl/frontends/zig-sh-go/zig-sh-go";;
   esac
   if [ -n "${bin:-}" ]; then
     local corpus="testdata"
     [ "$fe" = "cpp-sh-go" ] && corpus="testdata_cpp"
-    "$bin" --shir "$ROOT/frontends/$fe/$corpus/$ex" --raw 2>/dev/null
+    "$bin" --shir "$ROOT/sh2perl/frontends/$fe/$corpus/$ex" --raw 2>/dev/null
   fi
 }
 
@@ -52,11 +52,11 @@ fe_native() {  # fe example -> native output
   local fe="$1" ex="$2" tmp; tmp=$(mktemp -d "$TRIAGE/.bn.XXXXXX")
   case "$fe" in
     sh2perl|posix-sh-go) ( cd "$tmp" && timeout 20 bash "$ROOT/sh2perl/examples/$ex" ) < /dev/null 2>/dev/null;;
-    zsh-sh-go) ( cd "$ROOT/frontends/zsh-sh-go" && timeout 20 zsh "$ex" ) < /dev/null 2>/dev/null;;
-    fish-sh-go) ( cd "$ROOT/frontends/fish-sh-go" && timeout 20 fish "$ex" ) < /dev/null 2>/dev/null;;
-    go-sh) if grep -q 'func main()' "$ROOT/frontends/go-sh/testdata/$ex"; then cp "$ROOT/frontends/go-sh/testdata/$ex" "$tmp/main.go"; else { printf 'package main\nimport "fmt"\nfunc main() {\n'; cat "$ROOT/frontends/go-sh/testdata/$ex"; printf '}\n'; } > "$tmp/main.go"; fi; ( cd "$tmp" && timeout 20 go run main.go ) < /dev/null 2>/dev/null;;
-    py-sh-go) ( cd "$tmp" && timeout 20 python3 "$ROOT/frontends/py-sh-go/testdata/$ex" ) < /dev/null 2>/dev/null;;
-    perl-sh-go) ( cd "$tmp" && timeout 20 perl "$ROOT/frontends/perl-sh-go/testdata/$ex" ) < /dev/null 2>/dev/null;;
+    zsh-sh-go) ( cd "$ROOT/sh2perl/frontends/zsh-sh-go" && timeout 20 zsh "$ex" ) < /dev/null 2>/dev/null;;
+    fish-sh-go) ( cd "$ROOT/sh2perl/frontends/fish-sh-go" && timeout 20 fish "$ex" ) < /dev/null 2>/dev/null;;
+    go-sh) if grep -q 'func main()' "$ROOT/sh2perl/frontends/go-sh/testdata/$ex"; then cp "$ROOT/sh2perl/frontends/go-sh/testdata/$ex" "$tmp/main.go"; else { printf 'package main\nimport "fmt"\nfunc main() {\n'; cat "$ROOT/sh2perl/frontends/go-sh/testdata/$ex"; printf '}\n'; } > "$tmp/main.go"; fi; ( cd "$tmp" && timeout 20 go run main.go ) < /dev/null 2>/dev/null;;
+    py-sh-go) ( cd "$tmp" && timeout 20 python3 "$ROOT/sh2perl/frontends/py-sh-go/testdata/$ex" ) < /dev/null 2>/dev/null;;
+    perl-sh-go) ( cd "$tmp" && timeout 20 perl "$ROOT/sh2perl/frontends/perl-sh-go/testdata/$ex" ) < /dev/null 2>/dev/null;;
     *) : ;;
   esac
   rm -rf "$tmp"
@@ -73,7 +73,7 @@ while read -r fe ex be; do
     echo "SKIP-ESTREE-REF $fe/$ex/$be (render failed)"; rm -rf "$T"; continue
   fi
   src=""
-  if [ "$fe" = "sh2perl" ]; then src="$ROOT/sh2perl/examples/$ex"; elif [ "$fe" = "cpp-sh-go" ]; then src="$ROOT/frontends/cpp-sh-go/testdata_cpp/$ex"; else src="$ROOT/frontends/$fe/testdata/$ex"; fi
+  if [ "$fe" = "sh2perl" ]; then src="$ROOT/sh2perl/examples/$ex"; elif [ "$fe" = "cpp-sh-go" ]; then src="$ROOT/sh2perl/frontends/cpp-sh-go/testdata_cpp/$ex"; else src="$ROOT/sh2perl/frontends/$fe/testdata/$ex"; fi
   enorm=$(timeout 30 node "$RUNNER" "$T/e.json" --source "$src" 2>/dev/null | norm)
   if [ "${enorm:0:12}" = "__ESTREE_REF" ]; then
     echo "SKIP-ESTREE-REF $fe/$ex/$be (ref failed)"; rm -rf "$T"; continue

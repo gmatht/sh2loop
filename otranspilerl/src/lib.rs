@@ -18,12 +18,12 @@ pub mod wasi;
 // ── the dispatch tables (the single source of truth) ─────────────────
 // source extension → frontend executable (relative to the workspace root)
 pub const SOURCES: &[(&str, &str)] = &[
-    (".py", "frontends/py-sh-go/py-sh-go"),
-    (".c", "frontends/c-sh-go/c-sh-go"),
-    (".pl", "frontends/perl-sh-go/perl-sh-go"),
-    (".zsh", "frontends/zsh-sh-go/zsh-sh-go"),
-    (".fish", "frontends/fish-sh-go/fish-sh-go"),
-    (".go", "frontends/go-sh/go-sh"),
+    (".py", "sh2perl/frontends/py-sh-go/py-sh-go"),
+    (".c", "sh2perl/frontends/c-sh-go/c-sh-go"),
+    (".pl", "sh2perl/frontends/perl-sh-go/perl-sh-go"),
+    (".zsh", "sh2perl/frontends/zsh-sh-go/zsh-sh-go"),
+    (".fish", "sh2perl/frontends/fish-sh-go/fish-sh-go"),
+    (".go", "sh2perl/frontends/go-sh/go-sh"),
     // .sh and no-ext: the core itself (in-process)
 ];
 // target extension → the in-process backend renderer. `shir` = the

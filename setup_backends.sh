@@ -965,7 +965,7 @@ EOF
                       g_eq=1
                       rm -f /tmp/gate_probe_$$;;
                   esac
-                  corpus=$(ls "$SUB"/examples/*.sh "$WORKSPACE"/frontends/*/testdata/*.sh 2>/dev/null)
+                  corpus=$(ls "$SUB"/examples/*.sh "$WORKSPACE"/sh2perl/frontends/*/testdata/*.sh 2>/dev/null)
                   # ── EQUIVALENCE gate (every backend with a toolchain) ──────
                   # A render-clean file (exit 0; no stubs where the stub gate
                   # applies) must ALSO match bash's stdout when compiled+run

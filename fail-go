@@ -35,7 +35,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-GOSH="$ROOT/frontends/go-sh/go-sh"
+GOSH="$ROOT/sh2perl/frontends/go-sh/go-sh"
 OTRANS="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
 # the rust BACKEND renderer — otranspilerl-cli `- - --target rust` (the
 # A1 ingress + the main checkout's rust renderer, the same binary as the
@@ -43,7 +43,7 @@ OTRANS="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
 # debashc CLI layer).
 RUSTBIN="$OTRANS"
 RUNNER="$ROOT/harness/estree-runner.mjs"
-CORPUS="$ROOT/frontends/go-sh/testdata"
+CORPUS="$ROOT/sh2perl/frontends/go-sh/testdata"
 TIMEOUT=15
 JOBS="$(nproc 2>/dev/null || echo 4)"
 
@@ -125,8 +125,8 @@ measure_once() { # f -> run oracle+JS(+Rust) ONCE; store MO MORC MJ MJRC MJv MR 
   # any non-zero exit as rc=1 + "exit status N" on stderr, hiding the
   # app's true exit code from the gate's rc comparison.
   MODDIR=""
-  grep -q 'gmatht/sh2loop/frontends/go-sh' "$f" && MODDIR="$ROOT/frontends/go-sh"
-  grep -q 'gmatht/sh2loop/frontends/cpp-sh-go' "$f" && MODDIR="$ROOT/frontends/cpp-sh-go"
+  grep -q 'gmatht/sh2loop/frontends/go-sh' "$f" && MODDIR="$ROOT/sh2perl/frontends/go-sh"
+  grep -q 'gmatht/sh2loop/frontends/cpp-sh-go' "$f" && MODDIR="$ROOT/sh2perl/frontends/cpp-sh-go"
   if [ -n "$MODDIR" ]; then
     mod=$(grep '^module ' "$MODDIR/go.mod" | awk '{print $2}')
     {

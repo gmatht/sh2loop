@@ -9,7 +9,7 @@ CORE=${CORE_BIN:-$ROOT/otranspilerl/target/debug/otranspilerl-cli}
 WBIN=$ROOT/otranspilerl/target/debug/otranspilerl-cli
 CC=cc
 pass=0; fail=0; skip=0; fails=""
-if [ $# -gt 0 ]; then corpus="$@"; else corpus=$(ls $SUB/examples/*.sh $ROOT/frontends/*/testdata/*.sh 2>/dev/null); fi
+if [ $# -gt 0 ]; then corpus="$@"; else corpus=$(ls $SUB/examples/*.sh $ROOT/sh2perl/frontends/*/testdata/*.sh 2>/dev/null); fi
 for f in $corpus; do
   shir=$("$CORE" "$f" --source-lang sh --target shir --raw 2>/dev/null) || { skip=$((skip+1)); continue; }
   [ -z "$shir" ] && { skip=$((skip+1)); continue; }

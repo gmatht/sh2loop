@@ -284,8 +284,8 @@ run_native() {  # <file> -> stdout on stdout
     # fail-go's oracle setup; without it `go run` fails and the native
     # side is spuriously empty.
     moddir=""
-    grep -q 'gmatht/sh2loop/frontends/go-sh' "$f" && moddir="$root/frontends/go-sh"
-    grep -q 'gmatht/sh2loop/frontends/cpp-sh-go' "$f" && moddir="$root/frontends/cpp-sh-go"
+    grep -q 'gmatht/sh2loop/frontends/go-sh' "$f" && moddir="$root/sh2perl/frontends/go-sh"
+    grep -q 'gmatht/sh2loop/frontends/cpp-sh-go' "$f" && moddir="$root/sh2perl/frontends/cpp-sh-go"
     if [ -n "$moddir" ]; then
       mod=$(grep '^module ' "$moddir/go.mod" | awk '{print $2}')
       {

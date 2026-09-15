@@ -89,12 +89,12 @@ frontend_info() { echo "$FRONTENDS" | awk -F'|' -v n="$1" '$1==n {print $2"|"$3"
 # the others, the shared corpus dir for sh2perl).
 fe_abs() {  # fe field-value -> absolute
   [ "${2:0:1}" = "/" ] && { printf '%s' "$2"; return; }
-  printf '%s/frontends/%s/%s' "$ROOT" "$1" "$2"
+  printf '%s/sh2perl/frontends/%s/%s' "$ROOT" "$1" "$2"
 }
 fe_cd_dir() {  # fe -> the working dir for native runs
   local info; info=$(frontend_info "$1")
   IFS='|' read -r corpus ext bin native <<<"$info"
-  if [ "${corpus:0:1}" = "/" ]; then printf '%s' "$corpus"; else printf '%s/frontends/%s' "$ROOT" "$1"; fi
+  if [ "${corpus:0:1}" = "/" ]; then printf '%s' "$corpus"; else printf '%s/sh2perl/frontends/%s' "$ROOT" "$1"; fi
 }
 backend_info() { echo "$BACKENDS" | awk -F'|' -v n="$1" '$1==n {print $2"|"$3"|"$4"|"$5}'; }
 
@@ -117,10 +117,10 @@ emit_a1() {  # frontend example-file -> A1 JSON on stdout (transformed)
   # no per-frontend build/cd.
   if [ "${bin:0:1}" != "/" ] && \
      { [ ! -x "$absbin" ] || \
-       [ -n "$(find "$ROOT/frontends/$fe" -maxdepth 1 -type f \
+       [ -n "$(find "$ROOT/sh2perl/frontends/$fe" -maxdepth 1 -type f \
                 -newer "$absbin" ! -name "$bin" ! -name '.*' \
                 -print -quit 2>/dev/null)" ]; }; then
-    ( cd "$ROOT/frontends/$fe" && make build >/dev/null 2>&1 ) || true
+    ( cd "$ROOT/sh2perl/frontends/$fe" && make build >/dev/null 2>&1 ) || true
   fi
   # frontends speak `--shir F --raw`; the core otranspilerl-cli (the
   # sh2perl row's absolute bin) speaks `--source-lang/--target`.
@@ -397,7 +397,7 @@ sweep() {
     if [ "$fe" != "$last_fe" ] || [ "$ex" != "$last_ex" ]; then
       last_fe="$fe"; last_ex="$ex"
       local fe_corpus; fe_corpus=$(frontend_info "$fe" | cut -d'|' -f1)
-      local example="$ROOT/frontends/$fe/$fe_corpus/$ex"
+      local example="$ROOT/sh2perl/frontends/$fe/$fe_corpus/$ex"
       a1f=$(mktemp -d "$TRIAGE/.row.XXXXXX")
       if emit_a1 "$fe" "$example" > "$a1f/a1.json" 2>/dev/null; then
         # STALE-REFUSAL SELF-HEAL (2026-08-14): a successful emit

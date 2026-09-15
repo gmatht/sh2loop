@@ -50,13 +50,13 @@ TIMEOUT="${TIMEOUT:-20}"
 COMMIT="${COMMIT:-0}"
 
 # ── language table: name|ext|native|frontend-bin|byte-eq-oracle ──────
-LANG_SH="sh|sh|bash|$ROOT/frontends/posix-sh-go/posix-sh-go|1"
-LANG_ZSH="zsh|zsh|zsh|$ROOT/frontends/zsh-sh-go/zsh-sh-go|1"
-LANG_FISH="fish|fish|fish|$ROOT/frontends/fish-sh-go/fish-sh-go|0"
-LANG_PY="py|py|python3|$ROOT/frontends/py-sh-go/py-sh-go|0"
-LANG_PL="pl|pl|perl|$ROOT/frontends/perl-sh-go/perl-sh-go|0"
-LANG_GO="go|go|go|$ROOT/frontends/go-sh/go-sh|0"
-LANG_C="c|c|cc|$ROOT/frontends/c-sh-go/c-sh-go|0"
+LANG_SH="sh|sh|bash|$ROOT/sh2perl/frontends/posix-sh-go/posix-sh-go|1"
+LANG_ZSH="zsh|zsh|zsh|$ROOT/sh2perl/frontends/zsh-sh-go/zsh-sh-go|1"
+LANG_FISH="fish|fish|fish|$ROOT/sh2perl/frontends/fish-sh-go/fish-sh-go|0"
+LANG_PY="py|py|python3|$ROOT/sh2perl/frontends/py-sh-go/py-sh-go|0"
+LANG_PL="pl|pl|perl|$ROOT/sh2perl/frontends/perl-sh-go/perl-sh-go|0"
+LANG_GO="go|go|go|$ROOT/sh2perl/frontends/go-sh/go-sh|0"
+LANG_C="c|c|cc|$ROOT/sh2perl/frontends/c-sh-go/c-sh-go|0"
 
 usage() { sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
@@ -530,7 +530,7 @@ if [ "$COMMIT" = 1 ] && [ "$CMD" = fix -o "$CMD" = run ]; then
   # scoped commit (never git add .): frontends/<lang>/ + harness whitelist
   changes=$(git -C "$ROOT" status --porcelain 2>/dev/null \
             | awk '/^.. /{print $2}' \
-            | awk -v d="$ROOT/frontends/$SLANG" '$0 ~ "^"d || $0 ~ /^harness\// || $0 ~ /^templates\//' || true)
+            | awk -v d="$ROOT/sh2perl/frontends/$SLANG" '$0 ~ "^"d || $0 ~ /^harness\// || $0 ~ /^templates\//' || true)
   if [ -n "$changes" ]; then
     if (cd "$ROOT" && perl fail-estree --gate >/dev/null 2>&1); then
       git -C "$ROOT" add $changes

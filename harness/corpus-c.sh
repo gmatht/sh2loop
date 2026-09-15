@@ -32,7 +32,7 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CLI="${CLI:-$ROOT/otranspilerl/target/debug/otranspilerl-cli}"
-CSHGO="${CSHGO:-$ROOT/frontends/c-sh-go/c-sh-go}"
+CSHGO="${CSHGO:-$ROOT/sh2perl/frontends/c-sh-go/c-sh-go}"
 OUTPARAM="$ROOT/harness/outparam_to_returns.py"
 ESTREE_RUNNER="$ROOT/harness/estree-runner.mjs"
 GATE=0; ONLY=""; DIR=""; VERBOSE=0
@@ -45,7 +45,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-DIR="${DIR:-$ROOT/frontends/corpus-c}"
+DIR="${DIR:-$ROOT/sh2perl/frontends/corpus-c}"
 TMO="${TMO:-120}"
 
 have() { command -v "$1" >/dev/null 2>&1; }

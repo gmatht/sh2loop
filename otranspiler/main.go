@@ -29,13 +29,13 @@ import (
 // ── the dispatch tables (the single source of truth) ─────────────────
 // source extension → frontend command (the A1 emitters)
 var sources = map[string]string{
-	".py":   "frontends/py-sh-go/py-sh-go",
-	".c":    "frontends/c-sh-go/c-sh-go",
-	".pl":   "frontends/perl-sh-go/perl-sh-go",
-	".zsh":  "frontends/zsh-sh-go/zsh-sh-go",
-	".fish": "frontends/fish-sh-go/fish-sh-go",
-	".go":   "frontends/go-sh/go-sh",
-	".bat":  "frontends/bat-sh-go/bat-sh-go",
+	".py":   "sh2perl/frontends/py-sh-go/py-sh-go",
+	".c":    "sh2perl/frontends/c-sh-go/c-sh-go",
+	".pl":   "sh2perl/frontends/perl-sh-go/perl-sh-go",
+	".zsh":  "sh2perl/frontends/zsh-sh-go/zsh-sh-go",
+	".fish": "sh2perl/frontends/fish-sh-go/fish-sh-go",
+	".go":   "sh2perl/frontends/go-sh/go-sh",
+	".bat":  "sh2perl/frontends/bat-sh-go/bat-sh-go",
 	// .sh and no-ext: the core itself (otranspilerl-cli --shir)
 }
 // target extension → the backend invocation: "flag:<lang>" = the main
@@ -62,13 +62,13 @@ var targets = map[string]string{
 // `ensureFrontend` is the on-first-use seam: a fresh checkout of the
 // workspace builds each frontend the first time it is dispatched to.
 var frontendBuilds = map[string][]string{
-	"frontends/py-sh-go/py-sh-go":     {"build", "-o", "py-sh-go", "./cmd/py-sh-go"},
-	"frontends/c-sh-go/c-sh-go":       {"build", "-o", "c-sh-go", "./cmd/c-sh-go"},
-	"frontends/perl-sh-go/perl-sh-go": {"build", "-o", "perl-sh-go", "./cmd/perl-sh-go"},
-	"frontends/zsh-sh-go/zsh-sh-go":   {"build", "-o", "zsh-sh-go", "./cmd/zsh-sh-go"},
-	"frontends/fish-sh-go/fish-sh-go": {"build", "-o", "fish-sh-go", "./cmd/fish-sh-go"},
-	"frontends/go-sh/go-sh":           {"build", "-o", "go-sh", "./cmd/go-sh"},
-	"frontends/bat-sh-go/bat-sh-go":   {"build", "-o", "bat-sh-go", "./cmd/bat-sh-go"},
+	"sh2perl/frontends/py-sh-go/py-sh-go":     {"build", "-o", "py-sh-go", "./cmd/py-sh-go"},
+	"sh2perl/frontends/c-sh-go/c-sh-go":       {"build", "-o", "c-sh-go", "./cmd/c-sh-go"},
+	"sh2perl/frontends/perl-sh-go/perl-sh-go": {"build", "-o", "perl-sh-go", "./cmd/perl-sh-go"},
+	"sh2perl/frontends/zsh-sh-go/zsh-sh-go":   {"build", "-o", "zsh-sh-go", "./cmd/zsh-sh-go"},
+	"sh2perl/frontends/fish-sh-go/fish-sh-go": {"build", "-o", "fish-sh-go", "./cmd/fish-sh-go"},
+	"sh2perl/frontends/go-sh/go-sh":           {"build", "-o", "go-sh", "./cmd/go-sh"},
+	"sh2perl/frontends/bat-sh-go/bat-sh-go":   {"build", "-o", "bat-sh-go", "./cmd/bat-sh-go"},
 }
 
 // ensureFrontend — the frontend binary exists, building it on first use.

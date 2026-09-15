@@ -132,7 +132,7 @@ app_transpile() {
   mkdir -p "$SEEN"
   for f in $APP_FILES; do
     [ -f "$f" ] || continue
-    if ! a1=$("$WORKSPACE/frontends/go-sh/go-sh" --shir "$f" --raw 2>"$PROBES/app.err"); then
+    if ! a1=$("$WORKSPACE/sh2perl/frontends/go-sh/go-sh" --shir "$f" --raw 2>"$PROBES/app.err"); then
       err=$(head -1 "$PROBES/app.err" || true)
       ln=$(printf '%s' "$err" | grep -oE 'line [0-9]+' | head -1 | awk '{print $2}')
       # the seen key is the REFUSAL MESSAGE, not the line: a frontend fix
@@ -261,7 +261,7 @@ run_pass() {
     bash "$WORKSPACE/setup_backends.sh" --pi-fix-frontend go-sh >> "$LOG" 2>&1 || true
   fi
   if bash "$WORKSPACE/fail-go" --gate >> "$LOG" 2>&1 \
-     && (cd "$WORKSPACE/frontends/go-sh" && make test >> "$LOG" 2>&1); then
+     && (cd "$WORKSPACE/sh2perl/frontends/go-sh" && make test >> "$LOG" 2>&1); then
     local changes
     changes=$(git -C "$WORKSPACE" status --porcelain 2>/dev/null \
               | awk '/^.. /{print $2}' \
