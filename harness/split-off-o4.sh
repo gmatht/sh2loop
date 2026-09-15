@@ -517,6 +517,47 @@ set -- $t
 [ "${2:-1}" = "0" ] && ok "cargo test (${1} passed)" || bad "cargo test (${1} passed, ${2} failed)"
 
 echo "== warnings (bash-o4's own sources) =="
+# ONE cargo run, captured: repeating it per branch was noise, and a bare
+# `cd "$CRATE"` in a branch LEAKED the working directory for the rest of the
+# script — which silently broke the later `git submodule status sh2perl` (run
+# from inside bash-o4 it prints nothing, so the check reported an empty SHA).
+w_log=$( cd "$CRATE" && cargo build --offline --lib --message-format=short 2>&1 )
+w=$(printf '%s\n' "$w_log" | grep -E '^src/[^:]+:[0-9]+:[0-9]+: warning' | sort -u | wc -l | tr -d ' ')
+if [ "$w" -eq 0 ]; then
+  ok "warnings=0"
+elif [ "$w" -eq 1 ] && printf '%s\n' "$w_log" | grep -q 'vkffi.rs'; then
+  ok "warnings=1 (vkffi dead field — the Vulkan work's to drop)"
+else
+  printf '%s\n' "$w_log" | grep -E '^src/[^:]+:[0-9]+:[0-9]+: warning' | sort -u | sed 's/^/    /' >&2
+  bad "warnings=$w (listed above; deduped, since one source warning is re-emitted per target)"
+fi
+
+echo "== prerequisites (built, not tracked) =="
+CLI="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
+[ -x "$CLI" ] || ( cd "$ROOT/otranspilerl" && cargo build --offline --bin otranspilerl-cli >/dev/null 2>&1 ) || true
+[ -x "$CLI" ] && ok "otranspilerl-cli built" \
+  || bad "otranspilerl-cli missing (c_gate_main.sh SKIPs all 644 files without it)"
+
+FE="$ROOT/sh2perl/frontends/py-sh-go/py-sh-go"
+if [ ! -x "$FE" ] && [ -f "$ROOT/sh2perl/frontends/py-sh-go/Makefile" ]; then
+  ( cd "$ROOT/sh2perl/frontends/py-sh-go" && make >/dev/null 2>&1 ) || true
+fi
+[ -x "$FE" ] && ok "py-sh-go frontend built" \
+  || bad "py-sh-go missing (run: make -C sh2perl/frontends/py-sh-go)"
+
+SO="$ROOT/sh2perl/runtime/lib/libcoreutils_ffi.so"
+if [ ! -f "$SO" ] && [ -f "$ROOT/sh2perl/runtime/build_uu_ffi.sh" ]; then
+  ( cd "$ROOT/sh2perl" && bash runtime/build_uu_ffi.sh >/dev/null 2>&1 ) || true
+fi
+[ -f "$SO" ] && ok "libcoreutils_ffi.so built" \
+  || bad "libcoreutils_ffi.so missing — run sh2perl/runtime/build_uu_ffi.sh (needs an out-of-tree uu-ffi source; 30 examples fail without it)"
+
+echo "== tests =="
+t=$( cd "$CRATE" && cargo test --offline 2>&1 | grep -E '^test result' | awk '{p+=$4; f+=$6} END {print p+0" "f+0}')
+set -- $t
+[ "${2:-1}" = "0" ] && ok "cargo test (${1} passed)" || bad "cargo test (${1} passed, ${2} failed)"
+
+echo "== warnings (bash-o4's own sources) =="
 # Dedup: the same source warning is emitted once per TARGET that compiles it,
 # so a line count varies with what happened to be rebuilt.  Count uniques.
 w=$( cd "$CRATE" && cargo build --offline --lib --message-format=short 2>&1 \

@@ -82,7 +82,7 @@ pub fn run(
     });
     // Sequential-lane reductions (collatz chains): array-free specs with
     // a seq_prelude — the Reduce vehicle dispatches them unchanged.
-    let seq_spec = cu_candidacy::analyze_seq(prog_flat).into_iter().find_map(|v| {
+    let seq_spec = cu_candidacy::analyze_seq(prog).into_iter().find_map(|v| {
         if matches!(v.verdict, cu_candidacy::CuVerdictKind::Candidate) {
             v.spec.clone()
         } else {
