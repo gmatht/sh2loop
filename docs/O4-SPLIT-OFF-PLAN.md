@@ -44,7 +44,7 @@ o4/                        <- new repo, GPL-3 (inherits sh2perl's terms)
 │   └── LICENSE            <- copy of ../LICENSE, so `license-file` is in-package
 ├── otranspilerl/          <- from sh2loop/otranspilerl  (history preserved)
 ├── sh2perl/               <- SUBMODULE, pinned to the workspace gitlink SHA
-├── frontends/             <- SUBMODULE: otranspiler-frontends (D3)
+│   └── frontends/         <- SUBMODULE otranspiler-frontends (nested, D3)
 ├── docs/                  <- BASH-O4.md, BASH_VULKAN.md, PYTHON-O4.md, ...
 ├── harness/               <- c_gate_main.sh, gpu_gate.sh (ROOT made $0-relative)
 └── tests/release-check.sh <- self-verification written by the split
@@ -97,26 +97,47 @@ alternative (one squashed "release snapshot" commit) for when provenance does
 not matter; the full-history path is not exercised by the self-test because
 filter-repo rewrites a 4.7 GB repo.
 
-**D3 — Frontends get their own repo: `otranspiler-frontends`.**  Verified facts:
-`frontends/` is **not** in sh2perl (0 commits on any ref, and no `frontends/` in
-its worktree); it is 1392 tracked files living in sh2loop, actively developed
-there, and it has **no remote of its own**.  `harness/migrate-frontends-to-sh2perl.sh`
-is an **unapplied proposal**, not history.  So there is nothing to point a
-submodule at — until we make one.
+**D3 — Frontends: their own repo, mounted by sh2perl.**  Verified facts:
+`frontends/` is **not** in sh2perl (0 commits on any ref, no `frontends/` in its
+worktree); it is 1392 tracked files living in sh2loop, actively developed there,
+and it has **no remote of its own**; `migrate-frontends-to-sh2perl.sh` is an
+**unapplied proposal**.
 
-Therefore the split-off *produces* it: `frontends/` is split into its own
-repository named **`otranspiler-frontends`** (same `git filter-repo --path
-frontends/` machinery, history preserved), and the `-O4` repo consumes it as a
-**submodule at `frontends/`**.  That keeps `find_frontend()` working unchanged
-(it looks for `<root>/frontends/py-sh-go/py-sh-go`, where `<root>` is the
-directory containing `sh2perl`), and `$PY_SH_GO` still overrides it.
+Resolved as follows (done, not proposed):
 
-Ordering matters: the frontends repo must exist before the `-O4` repo can
-submodule it.  Run `--frontends-only`, push that repo, then run the main path
-with `--frontends-remote <url>`.  Alternatively `--frontends-src <path>` consumes
-a local checkout directly.  `--vendor-frontend` still exists as a deprecated
-fallback (a plain copy that *will* go stale) and `--no-frontend` omits it, in
-which case `python-O4` needs `$PY_SH_GO`.
+```
+otranspiler-frontends   NEW repo (GPL-3), 523 commits of frontends/ history
+        ^ submodule at frontends/
+     sh2perl            mounted as `sh2perl/frontends/`
+        ^ submodule at sh2perl/
+   -O4 repo / sh2loop
+```
+
+`harness/gen-frontends-repo.sh` generates the repo
+(`git filter-repo --path frontends/ --path-rename frontends/:`, so the repo
+root **is** the frontends tree) and, with `--add-to-sh2perl`, mounts it as
+sh2perl's `frontends` submodule.
+
+Consequences, all verified:
+
+- this split-off repo has **one** submodule (`sh2perl`); the frontends arrive
+  with it.  The `--frontends-*` / `--vendor-frontend` options are gone — there
+  is nothing to vendor and no second submodule to add;
+- a clone needs **`git submodule update --init --recursive`** (the frontends are
+  nested inside sh2perl), and `python-O4` needs
+  `make -C sh2perl/frontends/py-sh-go` because the frontend binaries are
+  gitignored upstream (build-on-test);
+- `bash-o4/src/py.rs::find_frontend()` now checks `<sh2perl>/frontends/…` before
+  the legacy `<root>/frontends/…`, so the authoritative copy wins where both
+  exist;
+- `find_frontend()`'s error message names the build command.
+
+Also surfaced by this change: sh2perl's index tracks **8 backend worktree
+gitlinks** with no `.gitmodules` mapping, so the first `.gitmodules` (ours) made
+`git submodule status` fail outright.  They are now mapped by path only, with a
+note recording that `backends/goto-dev` has no local branch and that sibling-
+branch gitlinks sit awkwardly with "CI is self-contained" — a backend-subsystem
+call, not this script's.
 
 **D4 — Where they live.**  The script never creates or infers a repository: `--name`
 (default `o4`) is a **local directory** name and `--remote` is explicit, because a
@@ -155,9 +176,9 @@ SIGPIPE fix. The fork inherits all of it; `tests/fork-check.sh` re-verifies it.
    bash-o4/ --path otranspilerl/` (or `--snapshot`).
 3. **Assemble** — init the new repo, fetch the extract, copy `README.md`,
    `CHANGELOG.md`, the release `docs/` and `harness/{c_gate_main.sh,gpu_gate.sh}`.
-3b. **Frontends** — split `frontends/` into the `otranspiler-frontends` repo
-   (`--frontends-only` stops here so it can be pushed first), then consume it as
-   a submodule at `frontends/`.
+3b. **Frontends** — nothing here: they are generated by
+   `harness/gen-frontends-repo.sh` and mounted by **sh2perl** at
+   `sh2perl/frontends/`, so they arrive with the sh2perl submodule.
 4. **Submodule** — `git submodule add <sh2perl-url> sh2perl`, then check out the
    frozen gitlink SHA (the local submodule may carry commits not yet pushed,
    so it is cloned from the local checkout and `origin` is re-pointed).
@@ -207,7 +228,7 @@ gate result, so the repo is **not** self-contained until they are addressed:
 | prerequisite | without it | remedy |
 |---|---|---|
 | `cargo build --bin otranspilerl-cli` | `c_gate_main.sh` SKIPs **all 644** files (`PASS=0 FAIL=0 SKIP=644`) — the gate shells out to that binary | documented in the fork's README + `release-check.sh` builds it |
-| `make -C frontends/py-sh-go` | `python-O4` cannot locate its frontend; the binary is **gitignored upstream** (frontends/.gitignore: build-on-test) | documented + built by `release-check.sh`; `$PY_SH_GO` overrides |
+| `make -C sh2perl/frontends/py-sh-go` | `python-O4` cannot locate its frontend; the binary is **gitignored upstream** (build-on-test), and 13 `py.rs` tests fail rather than skip | documented + built by `release-check.sh`; `$PY_SH_GO` overrides |
 | `bash sh2perl/runtime/build_uu_ffi.sh` | the gates link `runtime/lib/libcoreutils_ffi.so`; without it **30 examples fail** (`cpu=1`, every uu-ffi builtin: `test`, `uname`, `sleep`, …) | documented + built by `release-check.sh` |
 
 The third is the real finding: `sh2perl/runtime/lib/` has **0 tracked files**, and

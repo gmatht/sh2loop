@@ -38,6 +38,7 @@
 #
 # OPTIONS
 #   --workdir DIR          scratch dir (default: mktemp -d); kept for review
+#   --name NAME            repository/dir name (default: o4)
 #   --snapshot             one squashed "release snapshot" commit instead of
 #                          path-filtered history (fast; no commit-map)
 #   --sh2loop-ref REF      sh2loop base commit (default: live HEAD)
@@ -45,30 +46,21 @@
 #   --sh2perl-remote URL   submodule remote (default: .gitmodules entry)
 #   --sh2perl-src PATH     clone sh2perl from PATH (default: local submodule,
 #                          which may carry commits not yet pushed)
+#   --frontends-src PATH   local source for the NESTED frontends submodule
+#                          (inside sh2perl).  Needed for offline/local assembly
+#                          while the otranspiler-frontends remote does not exist,
+#                          because its committed .gitmodules URL is GitHub's.
+#                          Default: $HOME/src/<name> from that URL, else the
+#                          workspace's own sh2perl/frontends checkout.
 #   --remote URL           set the new repo's `origin` to URL
 #   --bare DIR             also create a local bare clone at DIR
-#   --frontends-only       build ONLY the frontends repo ($FRONTENDS_NAME) and
-#                          stop — push that first, then re-run for the -O4 repo
-#   --frontends-remote URL submodule URL for the frontends repo (default: derived
-#                          as <sh2perl-org>/$FRONTENDS_NAME on the same host)
-#   --frontends-src PATH   clone the frontends repo from PATH (a local checkout
-#                          you have already built) instead of splitting sh2loop
-#   --frontends-name NAME  default: otranspiler-frontends
-#   --drop-frontend-artifacts  exclude tracked build artifacts (*.d, *.o, *.rlib,
-#                          *.rmeta, *.wasm, */target/*) from the frontends import
-#                          — they are checked in upstream and their contents
-#                          name the old workspace path
-#   --vendor-frontend      fall back to a plain COPY of frontends/py-sh-go
-#                          (deprecated: it goes stale; use the submodule)
-#   --no-frontend          add no frontends at all; python-O4 then needs $PY_SH_GO
-#   --name NAME            repository/dir name (default: o4)
+#   --gh-org ORG           owner used only in the SUGGESTED `gh repo create`
+#                          line this prints (default: from the sh2perl URL)
 #   --allow-dirty          proceed even if the extracted live paths are dirty
-#   --gh-org ORG           owner used only in the *suggested* `gh repo create`
-#                          line it prints (default: parsed from the submodule URL)
 #   --allow-broken-ref     proceed even if a base REF is broken (committed merge
-#                          conflict markers). The split-off is REF-based, so it cannot
-#                          build from a broken ref however clean your worktree is.
-#   --selftest             assemble, build and run tests/release-check.sh, report
+#                          conflict markers).  The split-off is REF-based, so a
+#                          broken ref cannot be rescued by a clean worktree.
+#   --selftest             assemble, then run tests/release-check.sh and report
 #   --push                 push to origin (the ONLY live action)
 #   -h|--help
 set -euo pipefail
@@ -81,10 +73,7 @@ run()  { log "+ $*"; "$@"; }
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK=""; SNAP=0; SH2LOOP_REF=""; SH2PERL_REF=""; SH2PERL_REMOTE=""; SH2PERL_SRC=""
 NEW_REMOTE=""; BARE=""; WITH_FE=1; NAME="o4"; ALLOW_DIRTY=0; SELFTEST=0; PUSH=0
-ALLOW_BROKEN=0; GH_ORG=""
-FRONTENDS_NAME="otranspiler-frontends"   # decided: the frontends' own repo
-FRONTENDS_REMOTE=""; FRONTENDS_SRC=""; FRONTENDS_ONLY=0; VENDOR_FE=0
-DROP_FE_ART=0
+ALLOW_BROKEN=0; GH_ORG=""; FRONTENDS_SRC=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -96,17 +85,13 @@ while [ $# -gt 0 ]; do
     --sh2perl-src)     SH2PERL_SRC="$2"; shift 2;;
     --remote)          NEW_REMOTE="$2"; shift 2;;
     --bare)            BARE="$2"; shift 2;;
-    --frontends-only)  FRONTENDS_ONLY=1; shift;;
-    --frontends-remote) FRONTENDS_REMOTE="$2"; shift 2;;
-    --frontends-src)   FRONTENDS_SRC="$2"; shift 2;;
-    --vendor-frontend) VENDOR_FE=1; shift;;
     --frontends-name)  FRONTENDS_NAME="$2"; shift 2;;
-    --drop-frontend-artifacts) DROP_FE_ART=1; shift;;
     --no-frontend)     WITH_FE=0; shift;;
     --name)            NAME="$2"; shift 2;;
     --allow-dirty)     ALLOW_DIRTY=1; shift;;
     --allow-broken-ref) ALLOW_BROKEN=1; shift;;
     --gh-org)          GH_ORG="$2"; shift 2;;
+    --frontends-src)   FRONTENDS_SRC="$2"; shift 2;;
     --selftest)        SELFTEST=1; shift;;
     --push)            PUSH=1; shift;;
     -h|--help)         sed -n '2,52p' "$0"; exit 0;;
@@ -213,71 +198,11 @@ if [ ! -d "$SRC" ]; then
   run git -C "$SRC" checkout -q "$SH2LOOP_REF"
 fi
 
-# ------------------------------- 1b. the frontends' OWN repo (runs FIRST)
-# The frontends must exist as a repo before the -O4 repo can submodule them, so
-# `--frontends-only` stops here, before any assembly.
-# --- the frontends live in their OWN repo ($FRONTENDS_NAME), consumed here as
-# --- a submodule.  FACT: they are NOT in sh2perl (0 commits on any ref) and
-# --- have no remote; sh2loop is their only home, so this split-off can also
-# --- produce their repo.
-FE_DEST="$WORK/$FRONTENDS_NAME"
-if [ "$WITH_FE" -eq 1 ] && [ -z "$FRONTENDS_SRC" ] && [ ! -d "$FE_DEST" ]; then
-  [ -d "$ROOT/frontends" ] || die "$ROOT/frontends not found (and no --frontends-src given)"
-  if [ "$SNAP" -eq 0 ]; then
-    FE_EX="$WORK/fe-extract"
-    if [ ! -d "$FE_EX" ]; then
-      run git clone --quiet "$SRC" "$FE_EX"
-      run git -C "$FE_EX" filter-repo --force --path frontends/
-      if [ "$DROP_FE_ART" -eq 1 ]; then
-        # filter-repo has no --path-exclude: a second, inverted pass removes them
-        run git -C "$FE_EX" filter-repo --force --invert-paths \
-          --path-regex '^frontends/.*(/target/.*|[.](o|rlib|rmeta|wasm|d))$'
-      fi
-    fi
-    run git init -q "$FE_DEST"
-    run git -C "$FE_DEST" remote add extracted "$FE_EX"
-    run git -C "$FE_DEST" fetch --quiet extracted "$(git -C "$FE_EX" rev-parse --abbrev-ref HEAD)"
-    git -C "$FE_DEST" merge --allow-unrelated-histories --no-edit --no-stat \
-      -m "Import frontends/ history from sh2loop ($SH2LOOP_REF)" FETCH_HEAD \
-      || die "frontends graft conflicted; resolve in $FE_DEST"
-  else
-    run git init -q "$FE_DEST"
-    # --strip-components=1 lands frontends/* AT the repo root.  (A `mv dir/*`
-    # would silently skip dotfiles such as frontends/.gitignore.)
-    excl=()
-    [ "$DROP_FE_ART" -eq 1 ] && excl=(--exclude='*/target/*' --exclude='*.d' --exclude='*.o' \
-                                      --exclude='*.rlib' --exclude='*.rmeta' --exclude='*.wasm')
-    git -C "$SRC" archive "$SH2LOOP_REF" frontends \
-      | tar -x -C "$FE_DEST" --strip-components=1 "${excl[@]+"${excl[@]}"}" \
-      || die "frontends snapshot export failed"
-  fi
-  git -C "$FE_DEST" add -A
-  git -C "$FE_DEST" -c user.email=split@local -c user.name=split \
-      commit -q -m "$FRONTENDS_NAME: split out of sh2loop ($SH2LOOP_REF)" 2>/dev/null || true
-  log "frontends repo built: $FE_DEST ($(git -C "$FE_DEST" rev-list --count HEAD) commits at $FE_DEST)"
-fi
-# Default the submodule URL by DERIVING it from two facts you gave: the
-# sh2perl remote's host+owner, and the repo name.  Override with
-# --frontends-remote.
-if [ "$WITH_FE" -eq 1 ] && [ -z "$FRONTENDS_REMOTE" ]; then
-  # bash parameter expansion, not sed: the replacement contains $ and escaped
-  # parens that sed -E mangles ("unterminated s command").
-  case "$SH2PERL_REMOTE" in
-    */?*) FRONTENDS_REMOTE="${SH2PERL_REMOTE%/*}/${FRONTENDS_NAME}.git";;
-    *)    FRONTENDS_REMOTE="";;
-  esac
-  [ "$FRONTENDS_REMOTE" = "$SH2PERL_REMOTE" ] && FRONTENDS_REMOTE=""
-fi
-
-if [ "$FRONTENDS_ONLY" -eq 1 ]; then
-  [ -d "$FE_DEST" ] || die "--frontends-only needs a built frontends repo"
-  log "--frontends-only: stopping.  Push it, then re-run for the -O4 repo:"
-  log "  git -C $FE_DEST remote add origin $FRONTENDS_REMOTE"
-  log "  git -C $FE_DEST push -u origin HEAD"
-  exit 0
-fi
-
-[ "$FRONTENDS_ONLY" -eq 1 ] && exit 0
+# NOTE: the frontends are no longer built or mounted here.  They are their own
+# repository (otranspiler-frontends, generated by harness/gen-frontends-repo.sh)
+# and sh2perl mounts them at sh2perl/frontends/.  This repo therefore has ONE
+# submodule, sh2perl — and the frontends arrive with it.  See
+# docs/O4-SPLIT-OFF-PLAN.md D3.
 
 # --------------------------------------------------- 2. assemble the new repo
 if [ ! -d "$DEST" ]; then
@@ -322,75 +247,7 @@ copy_if_new bash-o4/CHANGELOG.md   CHANGELOG.md
 copy_if_new bash-o4/build.rs       bash-o4/build.rs
 for d in BASH-O4.md BASH_VULKAN.md PYTHON-O4.md O4-SPLIT-OFF-PLAN.md; do copy_if_new "docs/$d" "docs/$d"; done
 for h in c_gate_main.sh gpu_gate.sh; do copy_if_new "harness/$h" "harness/$h"; done
-[ "$WITH_FE" -eq 1 ] && \
-  ! git -C "$DEST" config -f .gitmodules --get submodule.frontends.url >/dev/null 2>&1 && {
-  if [ "$VENDOR_FE" -eq 1 ]; then
-    warn "--vendor-frontend: copying frontends/py-sh-go instead of using a submodule"
-    warn "  this copy goes stale (the upstream is actively developed in sh2loop)"
-    mkdir -p "$DEST/frontends"
-    git -C "$ROOT" archive HEAD frontends/py-sh-go 2>/dev/null | tar -x -C "$DEST" || warn "frontends/py-sh-go export failed"
-    [ -x "$ROOT/frontends/py-sh-go/py-sh-go" ] && cp -a "$ROOT/frontends/py-sh-go/py-sh-go" "$DEST/frontends/py-sh-go/py-sh-go"
-    log "vendored frontends/py-sh-go (--vendor-frontend; will go stale)"
-  else
-    FE_SRC="${FRONTENDS_SRC:-$FE_DEST}"
-    [ -d "$FE_SRC" ] || die "no frontends source ($FE_SRC); pass --frontends-src, build it with --frontends-only, or --vendor-frontend"
-    run git -C "$DEST" -c protocol.file.allow=always submodule add --force "$FE_SRC" frontends
-    [ -n "$FRONTENDS_REMOTE" ] && run git -C "$DEST" config -f .gitmodules "submodule.frontends.url" "$FRONTENDS_REMOTE"
-    run git -C "$DEST/frontends" remote set-url origin "${FRONTENDS_REMOTE:-$FE_SRC}"
-    log "submodule frontends -> $FRONTENDS_NAME @ $(git -C "$DEST/frontends" rev-parse --short HEAD)"
-  fi
-}
-
-# The borrowed README was written from inside `bash-o4/`, but it now sits at
-# the repository root, so say where things are.
-if [ -f "$DEST/README.md" ] && ! grep -q '^## Repository layout' "$DEST/README.md"; then
-  cat >> "$DEST/README.md" <<'LAY'
-
-## Repository layout
-
-This is the `-O4` release repository (see `MOVE.md` for provenance).  Paths
-below the crate root are unchanged, so the quickstart commands above are run
-from **`bash-o4/`**, not from here:
-
-```
-bash-o4/        the driver crate + its benchmark corpus   <- `cd bash-o4` first
-otranspilerl/   the sh2perl CLI front end (a path dependency of bash-o4)
-sh2perl/        GPL-3 core, pinned as a submodule
-frontends/      SUBMODULE otranspiler-frontends (build: make -C frontends/py-sh-go)
-docs/           BASH-O4.md, BASH_VULKAN.md, PYTHON-O4.md, O4-SPLIT-OFF-PLAN.md
-harness/        the two gates (ROOT is derived from $0)
-tests/          release-check.sh — the pre-tag verification
-```
-
-```sh
-git submodule update --init        # once, after cloning
-make -C frontends/py-sh-go         # REQUIRED for python-O4: the frontend binary is
-                                   # gitignored upstream (build-on-test), so the
-                                   # submodule ships source only
-cd bash-o4 && cargo build --offline --bins
-cd ../otranspilerl && cargo build --offline --bin otranspilerl-cli
-cd ../sh2perl && bash runtime/build_uu_ffi.sh     # libcoreutils_ffi.so
-cd .. && bash harness/c_gate_main.sh && bash harness/gpu_gate.sh
-bash tests/release-check.sh        # all of the above, in one gate
-```
-
-### Three artifacts are BUILT, not tracked
-
-Nothing is committed for these, so a fresh clone must build them before the gates
-mean anything. Each one silently changes the gate result, so they are listed:
-
-| step | without it |
-|---|---|
-| `cargo build --bin otranspilerl-cli` (in `otranspilerl/`) | `c_gate_main.sh` **SKIPs all 644 files** (`PASS=0 FAIL=0 SKIP=644`) — it shells out to that binary |
-| `make -C frontends/py-sh-go` | `python-O4` reports "cannot locate the py-sh-go frontend"; its binary is gitignored upstream (build-on-test) |
-| `bash sh2perl/runtime/build_uu_ffi.sh` | the gates link `runtime/lib/libcoreutils_ffi.so`; without it **30 examples fail** (`cpu=1`, all uu-ffi builtins: `test`, `uname`, `sleep`, …) |
-
-`build_uu_ffi.sh` additionally needs an **out-of-tree** crate
-(`/root/src/coreutils/uu-ffi`, overridable via `$UU_FFI_DIR`) with no pin
-recorded in this repo — see `docs/O4-SPLIT-OFF-PLAN.md` §7, self-containment.
-LAY
-  log "README.md: appended a repository-layout section"
-fi
+# (frontends are nested inside the sh2perl submodule — nothing to add here)
 
 # ------------------------------------------------- 4. sh2perl as a submodule
 # Guard on THIS submodule's config entry, not on .gitmodules existing: the
@@ -405,6 +262,40 @@ if ! git -C "$DEST" config -f .gitmodules --get submodule.sh2perl.url >/dev/null
   run git -C "$DEST/sh2perl" remote set-url origin "$SH2PERL_REMOTE"
   run git -C "$DEST/sh2perl" checkout -q "$SH2PERL_REF"
   log "submodule sh2perl pinned at $SH2PERL_REF"
+
+  # sh2perl mounts the frontends as a NESTED submodule, so a plain add leaves
+  # sh2perl/frontends empty.  Recurse — but first point the CLONE's nested URL at
+  # a local source when one exists, because sh2perl's committed .gitmodules URL
+  # is the GitHub one and that repo may not be pushed yet.  The override goes in
+  # the clone's local config only, so what a release consumer reads (the
+  # committed .gitmodules) is untouched.
+  nested_url="$(git -C "$DEST/sh2perl" config -f .gitmodules --get submodule.frontends.url 2>/dev/null || true)"
+  cand="$FRONTENDS_SRC"
+  if [ -z "$cand" ] && [ -n "$nested_url" ]; then
+    cand="$HOME/src/$(basename "${nested_url%.git}")"
+  fi
+  if [ -z "$cand" ] || [ ! -d "$cand" ]; then
+    cand="$ROOT/sh2perl/frontends"
+  fi
+  if [ -d "$cand" ] && [ -e "$cand/py-sh-go" ]; then
+    run git -C "$DEST/sh2perl" config submodule.frontends.url "$cand"
+    log "nested frontends sourced locally from $cand (committed .gitmodules keeps $nested_url)"
+  else
+    warn "no local frontends source; sh2perl/frontends will be EMPTY"
+    warn "  (a later 'git submodule update --init --recursive' needs $nested_url to exist,"
+    warn "   or pass --frontends-src PATH)"
+  fi
+  # NOTE: NOT `submodule update --recursive` from here.  sh2perl tracks 8
+  # URL-less backend worktree gitlinks, so recursing aborts before it ever
+  # reaches the frontends:
+  #   fatal: No url found for submodule path 'sh2perl/backends/c' in .gitmodules
+  # Initialising the ONE nested path, from inside sh2perl, works — its path is
+  # in sh2perl's index, not this repo's.  `protocol.file.allow` is needed when
+  # the nested URL is a local path (git's file-transport default).
+  run git -C "$DEST/sh2perl" -c protocol.file.allow=always \
+      submodule update --init frontends
+  [ -e "$DEST/sh2perl/frontends/py-sh-go" ] && log "nested frontends present: sh2perl/frontends/py-sh-go" \
+    || warn "nested frontends still absent"
 fi
 
 # ------------------------------------------------------------- 5. licence
@@ -441,8 +332,12 @@ for f in "$DEST/LICENSE" "$DEST/bash-o4/LICENSE"; do
 done
 # The Apache-2.0 text is deliberately NOT bundled: the additional permission it
 # belonged to is not part of this repo's grant.
-if ! grep -q '^license-file' "$DEST/bash-o4/Cargo.toml" 2>/dev/null; then
-  perl -0pi -e 's/^(version = "[^"]+"\n)/$1license = "GPL-3.0-only"\nlicense-file = "LICENSE"\n/m' "$DEST/bash-o4/Cargo.toml" \
+if ! grep -q '^license = ' "$DEST/bash-o4/Cargo.toml" 2>/dev/null; then
+  # `license` ONLY: cargo warns "only one of `license` or `license-file` is
+  # necessary" when both are set.  The SPDX id is exact now that the personal
+  # grant (which had no single id) is not carried, and the LICENSE FILE is still
+  # shipped — that is what the GPL requires be conveyed.
+  perl -0pi -e 's/^(version = "[^"]+"\n)/$1license = "GPL-3.0-only"\n/m' "$DEST/bash-o4/Cargo.toml" \
     || die "could not add license-file to bash-o4/Cargo.toml"
   # The source tree deliberately carries no licence key and explains why; in
   # this repo that question is settled, so replace the note rather than leave a
@@ -461,7 +356,7 @@ s = re.sub(
     s, count=1, flags=re.S)
 open(p, "w").write(s)
 PY
-  log "bash-o4/Cargo.toml: license-file = \"LICENSE\" (SPDX has no id for GPL-3 + extra permission)"
+  log "bash-o4/Cargo.toml: license = \"GPL-3.0-only\" (SPDX id; LICENSE still shipped)"
 fi
 
 # ------------------------------------------------------- 6. repath the gates
@@ -602,12 +497,12 @@ CLI="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
 [ -x "$CLI" ] && ok "otranspilerl-cli built" \
   || bad "otranspilerl-cli missing (c_gate_main.sh SKIPs all 644 files without it)"
 
-FE="$ROOT/frontends/py-sh-go/py-sh-go"
-if [ ! -x "$FE" ] && [ -f "$ROOT/frontends/py-sh-go/Makefile" ]; then
-  ( cd "$ROOT/frontends/py-sh-go" && make >/dev/null 2>&1 ) || true
+FE="$ROOT/sh2perl/frontends/py-sh-go/py-sh-go"
+if [ ! -x "$FE" ] && [ -f "$ROOT/sh2perl/frontends/py-sh-go/Makefile" ]; then
+  ( cd "$ROOT/sh2perl/frontends/py-sh-go" && make >/dev/null 2>&1 ) || true
 fi
 [ -x "$FE" ] && ok "py-sh-go frontend built" \
-  || bad "py-sh-go missing (run: make -C frontends/py-sh-go)"
+  || bad "py-sh-go missing (run: make -C sh2perl/frontends/py-sh-go)"
 
 SO="$ROOT/sh2perl/runtime/lib/libcoreutils_ffi.so"
 if [ ! -f "$SO" ] && [ -f "$ROOT/sh2perl/runtime/build_uu_ffi.sh" ]; then
@@ -622,8 +517,17 @@ set -- $t
 [ "${2:-1}" = "0" ] && ok "cargo test (${1} passed)" || bad "cargo test (${1} passed, ${2} failed)"
 
 echo "== warnings (bash-o4's own sources) =="
-w=$( cd "$CRATE" && cargo build --offline --lib --message-format=short 2>&1 | grep -cE '^src/.*warning')
-[ "$w" -le 1 ] && ok "warnings=$w (<=1 tolerated: vkffi dead field)" || bad "warnings=$w"
+# Dedup: the same source warning is emitted once per TARGET that compiles it,
+# so a line count varies with what happened to be rebuilt.  Count uniques.
+w=$( cd "$CRATE" && cargo build --offline --lib --message-format=short 2>&1 \
+      | grep -E '^src/[^:]+:[0-9]+:[0-9]+: warning' | sort -u | wc -l | tr -d ' ')
+if [ "$w" -eq 0 ]; then ok "warnings=0"
+elif [ "$w" -eq 1 ] && cd "$CRATE" && cargo build --offline --lib --message-format=short 2>&1 | grep -q 'vkffi.rs'; then
+  ok "warnings=1 (vkffi dead field — tolerated)"
+else
+  cd "$CRATE" && cargo build --offline --lib --message-format=short 2>&1 | grep -E '^src/[^:]+:[0-9]+:[0-9]+: warning' | sort -u | sed 's/^/    /' >&2
+  bad "warnings=$w (see above)"
+fi
 
 echo "== gate scripts (ROOT repath) =="
 EXPECTED='ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"'
@@ -643,10 +547,20 @@ done
 echo "== gates (from the repo root) =="
 for g in c_gate_main.sh gpu_gate.sh; do
   out=$(cd "$ROOT" && bash "harness/$g" 2>&1 | tail -n 1)
-  case "$out" in
-    *FAIL=0*) ok "$g: $out";;
-    *)        bad "$g: $out";;
-  esac
+  # A gate that SKIPPED everything is NOT a pass: that is exactly how
+  # "c_gate_main.sh: PASS=0 FAIL=0 SKIP=552" slipped through as green when the
+  # CLI could not locate its workspace root (and every file was skipped).
+  p_n=$(printf '%s' "$out" | sed -nE 's/.*PASS=([0-9]+).*/\1/p')
+  f_n=$(printf '%s' "$out" | sed -nE 's/.*FAIL=([0-9]+).*/\1/p')
+  if [ -z "$p_n" ] || [ -z "$f_n" ]; then
+    bad "$g: no PASS=/FAIL= in output: $out"
+  elif [ "$f_n" != "0" ]; then
+    bad "$g: $out"
+  elif [ "$p_n" -eq 0 ]; then
+    bad "$g: $out — 0 passes means the gate did not run its corpus"
+  else
+    ok "$g: $out"
+  fi
 done
 
 echo "== transpiled-GPU contract =="
@@ -662,9 +576,9 @@ if [ -f "$sh" ]; then
 else bad "bench corpus not found ($sh)"; fi
 
 echo "== frontend (python-O4) =="
-FE="$ROOT/frontends/py-sh-go/py-sh-go"
+FE="$ROOT/sh2perl/frontends/py-sh-go/py-sh-go"
 if [ -x "$FE" ]; then
-  ok "frontends/py-sh-go built"
+  ok "sh2perl/frontends/py-sh-go built"
   # It must actually work, and be found WITHOUT env overrides (that is the
   # point of the submodule): run a real probe.
   probe=$( cd "$CRATE" && env -u PY_SH_GO ./target/debug/python-O4 --check \
@@ -698,9 +612,12 @@ done
 # The GPL text lives IN LICENSE; a separate LICENSE.GPL3 is not expected.
 [ -e "$ROOT/LICENSE.GPL3" ] && ok "LICENSE.GPL3 also present (harmless)" \
   || ok "no LICENSE.GPL3 (the text is LICENSE)"
-grep -q 'license = "GPL-3' "$ROOT/bash-o4/Cargo.toml" 2>/dev/null \
+grep -q '^license = "GPL-3' "$ROOT/bash-o4/Cargo.toml" 2>/dev/null \
   && ok "Cargo.toml declares the GPL-3.0-only SPDX id" \
   || bad "Cargo.toml lacks a GPL-3 SPDX id"
+grep -q '^license-file' "$ROOT/bash-o4/Cargo.toml" 2>/dev/null \
+  && bad "Cargo.toml sets both license and license-file (cargo warns)" \
+  || ok "no license-file (avoids cargo's \"only one is necessary\" warning)"
 
 echo "== portability =="
 # Code only: MOVE.md / the plan legitimately name the source path, and this
@@ -711,9 +628,18 @@ s=$(find . \( -name '*.sh' -o -name '*.rs' -o -name '*.toml' -o -name Makefile \
     | xargs -0 grep -l '/home/llm/sh2loop' 2>/dev/null | head -5)
 [ -z "$s" ] && ok "no absolute workspace paths in code" || bad "absolute paths: $s"
 
-echo "== submodule =="
+echo "== submodules =="
 git submodule status sh2perl | grep -q '^-' && bad "sh2perl submodule not initialised" \
   || ok "sh2perl $(git submodule status sh2perl | awk '{print substr($1,1,9)}')"
+# The frontends are NESTED inside it, so --recursive is what matters.
+# The nested one is addressed from INSIDE sh2perl: sh2perl tracks URL-less
+# backend gitlinks, so `--recursive` from here aborts.
+nested=$(git -C "$ROOT/sh2perl" submodule status frontends 2>/dev/null)
+case "$nested" in
+  -*) bad "nested frontends not initialised (git -C sh2perl submodule update --init frontends)";;
+  "") bad "no frontends submodule declared in sh2perl";;
+  *)  ok "sh2perl/frontends $(printf '%s' "$nested" | awk '{print substr($1,1,9)}')";;
+esac
 
 echo
 echo "release-check: $pass passed, $fail failed"
