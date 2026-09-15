@@ -33,14 +33,21 @@ $| = 1;
 
 my $root = dirname(dirname(abs_path($0)));   # workspace root (this script lives in harness/)
 my $sh2perl = "$root/sh2perl";
-my $otranspilerl-cli = "$sh2perl/otranspilerl/target/debug/otranspilerl-cli";
+# the CLI is the WORKSPACE crate (sh2loop/otranspilerl); dump_ast is a
+# bin of the sh2perl core crate.
+my $otranspilerl_cli = "$root/otranspilerl/target/debug/otranspilerl-cli";
 my $dump_ast = "$sh2perl/target/debug/dump_ast";
 
 # ---- build the tools if missing -------------------------------------
-if (!-x $otranspilerl-cli || !-x $dump_ast) {
+if (!-x $otranspilerl_cli) {
+    system("cargo", "build", "--manifest-path", "$root/otranspilerl/Cargo.toml",
+           "--bin", "otranspilerl-cli") == 0
+        or die "cargo build (otranspilerl-cli) failed\n";
+}
+if (!-x $dump_ast) {
     system("cargo", "build", "--manifest-path", "$sh2perl/Cargo.toml",
-           "--bin", "otranspilerl-cli", "--bin", "dump_ast") == 0
-        or die "cargo build failed\n";
+           "--bin", "dump_ast") == 0
+        or die "cargo build (dump_ast) failed\n";
 }
 
 # ---- helpers ---------------------------------------------------------
@@ -62,7 +69,7 @@ sub run_estree {
     open my $fh, '>', $f or die "write $f: $!";
     print $fh "$src\n";
     close $fh;
-    my $json = `$otranspilerl-cli --target estree $f 2>/dev/null`;
+    my $json = `$otranspilerl_cli --target estree $f 2>/dev/null`;
     open my $of, '>', "$dir/out.json" or die "write: $!";
     print $of $json;
     close $of;
