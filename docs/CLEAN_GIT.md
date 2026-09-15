@@ -253,19 +253,33 @@ Result:
 ### 6c. Re-sync the local clone
 
 A full rewrite changes every SHA, and the local working clone still holds
-the old objects plus the 121 `refs/replace/*` from the earlier partial
-attempt. Re-clone (simplest), or:
+the old objects, the 121 `refs/replace/*` from the earlier partial attempt,
+and **remote-tracking refs of the mirrors** that still point at the old
+history (they keep the oversized blobs alive, so `gc` cannot prune them).
+Re-clone (simplest), or, quiesced:
 
 ```sh
 cd /home/llm/sh2loop
 git for-each-ref --format='%(refname)' refs/replace | xargs -r -n1 git update-ref -d
 git fetch gh master            # rewritten root: unrelated history
 git reset --hard gh/master     # <-- discards uncommitted work; do it quiesced
-git reflog expire --expire=now --all && git gc --prune=now
+
+# the ai/origin/hub tracking refs are caches of the OLD mirrors — drop them,
+# or gc keeps the 137/136/114 MiB blobs alive. keep gh/master.
+git for-each-ref --format='%(refname)' \
+  refs/remotes/origin refs/remotes/ai refs/remotes/hub | xargs -r -n1 git update-ref -d
+
+git reflog expire --expire=now --all
+git reflog expire --expire=now --all --all-worktrees
+git gc --prune=now
+rm -rf .git/lost-found          # gc parks unreachable blobs here; ~1.6 GB
 ```
 
+Measured for `sh2loop`: `.git` **4.7 GB → 136 MB**, `master` = `d6a483c2`.
 A hard reset deletes the tracked `frontends/` and target copies; untracked
-build dirs (`target/`) stay and are now `.gitignore`d.
+build dirs (`target/`) stay and are now `.gitignore`d. The linked worktree
+`/home/llm/sh2loop-dogfood` and the `wip/*` branch keep their own (old)
+history — rewrite or re-clone them separately if needed.
 
 ### sh2perl / frontends
 
