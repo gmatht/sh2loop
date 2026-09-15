@@ -1,8 +1,11 @@
 # CLEAN_GIT — removing committed build artifacts and oversized blobs
 
-**Status:** runbook. The workspace (`sh2loop`) cannot be pushed to GitHub
-until its unpushed history stops carrying blobs over GitHub's 100 MB
-limit. Nothing here has been committed to a remote yet.
+**Status:** **done for `sh2loop`.** Full-history filtered and force-pushed
+to `gh`; the repo went 4.7 GB → **19 MB**, the 28 oversized blobs and the
+duplicated `frontends/` tree are gone, and `gh/master` is now `3319bad0`.
+`sh2perl` and `otranspiler-frontends` need no cleaning (§4). The local
+working clone (`/home/llm/sh2loop`) still carries the old objects and the
+121 `refs/replace/*` from a partial attempt — re-sync it (§6c).
 
 Related: `AGENTS.md` (submodule hygiene), `harness/c_gate_main.sh`, the
 `.git/hooks/pre-commit` "pir guard".
@@ -128,7 +131,7 @@ needed in the first.
 
 | tree | repo / remote(s) | branch | status |
 |---|---|---|---|
-| `/home/llm/sh2loop` | `sh2loop` — `gh`=`gmatht/sh2loop`, `ai`, `hub`, `origin`=`/root/src/sh2loop` | `master` (328 commits ahead of `gh/master`=`1589f099`) | **needs cleaning** — 28 blobs >50 MiB, 3 >100 MiB, in `gh/master..master`; `.git` = 4.7 GB |
+| `/home/llm/sh2loop` | `sh2loop` — `gh`=`gmatht/sh2loop`, `ai`, `hub`, `origin`=`/root/src/sh2loop` | `master` | **cleaned & pushed** — full-history filtered; `.git` 4.7 GB → 19 MB; 0 blobs >50 MiB; `frontends/` removed; `gh/master`=`3319bad0` (§6) |
 | `/home/llm/sh2loop/sh2perl` | `sh2perl` submodule — `origin`=`gmatht/sh2perl` (default branch `main`), `ai`, `hub` | `merge-pr8` | **clean** — no blob >50 MB reachable; `.git` = 194 MB |
 | `/home/llm/sh2loop/sh2perl/frontends` | `otranspiler-frontends` submodule — `origin`=`gmatht/otranspiler-frontends` | `master` | **clean, pushed** (`.git` = 4 KB — filtered history) |
 
@@ -200,74 +203,74 @@ rewritten git history.
 
 ## 6. Procedure (workspace)
 
-The oversized blobs live only in the unpushed range and are absent from
-`HEAD`, so only that range needs rewriting. `--refs <range>` implies
-`--partial`, which:
+### 6a. Why the `--partial --refs` range filter is not enough
 
-* rewrites only the range — the already-pushed base `1589f099` and its SHAs
-  are untouched;
-* **keeps the remotes** (`--partial` disables filter-repo's origin-removal
-  and ref remapping).
+`git filter-repo --refs 1589f099..master --invert-paths …` rewrites only
+the unpushed range and keeps the remotes and the pushed base — attractive,
+but it **cannot drop a path that already exists in the base commit**.
+`frontends/` is present in `1589f099`; the range's deletion of it is
+filtered away like any other `frontends/` change, so the path is inherited
+from the base and **reappears in the filtered tip** (1335 files). For
+artifact *blobs* (absent from the base) the range filter is fine; to purge
+a path that is in the published base you need a full rewrite.
+
+### 6b. What was actually run (full history, in a clone)
+
+`git filter-repo` needs a clean tree, and the workspace is shared with
+active workers, so the rewrite was done in a throwaway **hardlinked
+clone** and pushed from there:
+
+```sh
+git clone --local --no-checkout /home/llm/sh2loop /tmp/sh2loop-full
+cd /tmp/sh2loop-full
+
+git filter-repo \
+  --invert-paths \
+  --path-glob 'log-archive/*' \
+  --path-glob 'target/*' \
+  --path-glob 'otranspilerl/target/*' \
+  --path-glob 'bash-o4/target/*' \
+  --path-glob '.shir-verify-target/*' \
+  --path-glob 'frontends/*' \
+  --strip-blobs-bigger-than 50M \
+  --force
+
+# no --refs ⇒ the full history is rewritten; filter-repo drops `origin`
+git remote add gh git@github.com:gmatht/sh2loop.git
+git push --force gh master
+```
+
+Result:
+
+| | before | after |
+|---|---|---|
+| `master` | `1589f099` (published) | `3319bad0` |
+| `.git` | 4.7 GB | **19 MB** |
+| blobs >50 MiB | 28 (3 >100 MiB) | **0** |
+| `frontends/` at tip | 1335 files | **0** |
+| commits | — | 1683 |
+
+### 6c. Re-sync the local clone
+
+A full rewrite changes every SHA, and the local working clone still holds
+the old objects plus the 121 `refs/replace/*` from the earlier partial
+attempt. Re-clone (simplest), or:
 
 ```sh
 cd /home/llm/sh2loop
-
-# 0. safety: a ref OUTSIDE the rewritten range survives --partial
-git branch backup/pre-filter master
-
-# 1. dry run — writes only reports
-git filter-repo --refs 1589f099..master \
-  --path-glob 'log-archive/*' \
-  --path-glob 'otranspilerl/target/*' \
-  --path-glob '.shir-verify-target/*' \
-  --invert-paths --dry-run --force
-
-# 2. real run (drop --dry-run)
-git filter-repo --refs 1589f099..master \
-  --path-glob 'log-archive/*' \
-  --path-glob 'otranspilerl/target/*' \
-  --path-glob '.shir-verify-target/*' \
-  --invert-paths --force
-
-# 2b. alternative, size-based (clears the 50 MB warnings too)
-#     git filter-repo --refs 1589f099..master --strip-blobs-bigger-than 50M --force
-
-# 3. drop the stale local replace refs from the earlier partial run
 git for-each-ref --format='%(refname)' refs/replace | xargs -r -n1 git update-ref -d
-
-# 4. untrack the committed build dirs and commit (they are .gitignore'd now)
-git rm -r --cached target 2>/dev/null || true
-git add .gitignore
-git commit -m "untrack the root target/ build dir; ignore cargo targets"
-
-# 5. verify, then push
-git --no-replace-objects rev-list --objects gh/master..master \
-  | awk '{print $1}' | git cat-file --batch-check='%(objecttype) %(objectname) %(objectsize)' \
-  | awk '$1=="blob" && $3>100000000'        # must print nothing
-git push gh master
+git fetch gh master            # rewritten root: unrelated history
+git reset --hard gh/master     # <-- discards uncommitted work; do it quiesced
+git reflog expire --expire=now --all && git gc --prune=now
 ```
 
-Notes / caveats:
-
-* This rewrites the SHAs of the ~328 unpushed commits. They exist only
-  locally, so that is fine; `backup/pre-filter` keeps the old tip.
-* Commits that *only* added/updated artifacts may become empty and are
-  pruned by filter-repo — expected.
-* The tree is **shared with active workers**. Run the filter when they are
-  quiesced, or accept `backup/pre-filter` as the safety net; a commit made
-  mid-rewrite can race.
-* `--refs <range>` needs the range base to be a commit that exists
-  (`1589f099` = `gh/master`). If `gh` has advanced, re-read it with
-  `git rev-parse gh/master`.
-* The pushed remote history will have the filtered SHAs; that is a normal
-  history rewrite for an unpushed range (no force-push of published
-  commits is involved).
+A hard reset deletes the tracked `frontends/` and target copies; untracked
+build dirs (`target/`) stay and are now `.gitignore`d.
 
 ### sh2perl / frontends
 
 No cleaning needed (no oversized blobs). If the sh2perl `merge-pr8` branch
-is ever pushed, use the same pattern against `origin/main`
-(`git rev-parse origin/main`).
+is ever pushed, filter it the same way against `origin/main`.
 
 ---
 
