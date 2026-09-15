@@ -27,6 +27,18 @@ Remaining gaps (11 files, 2 subsystems + misc):
   flag; global abort would regress shell OOB-empty).
 - t73 dict (fixed), t50/t68/t78 (fixed). Sets (t91 partly BigInt).
 
+## BigInt design (foundation landed, not yet wired)
+- Taint: `collect_bigint_vars` (fixpoint over assigns; huge consts via
+  `eval_arith_bigint` with num-bigint, propagations via `arith_uses`).
+- Tier-0 (planned): string-held decimals, per-op parse/compute/format
+  (correct, slower; covers t87-t91,t93,t101 dynamic huge).
+- Tier-1 (future): native `RefCell<BigInt>` vars (needs Option init +
+  op routing; mirrors C GMP).
+- Linkage: generated code needs `--extern num_bigint=<rlib>` + `-L`
+  (proven manually; future Rust gate must pass them).
+- i128 rejected as blanket (4x slowdown on t86 loops); selective i128
+  needs range proof (future). OOB-abort needs frontend flag (schema).
+
 ## Optimisations (vs C backend)
 Measured t86 (67M-trip factor loop):
 - Python: 6.7s. C: 5.6s user (0.97s wall? re-measure). Rust: 7.3s.
