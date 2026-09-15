@@ -132,6 +132,27 @@ Consequences, all verified:
   exist;
 - `find_frontend()`'s error message names the build command.
 
+**`sh2loop/frontends` is now GONE** (`git rm -r`, 1392 tracked files, 673 MB;
+history untouched — 501 commits still reach it).  Before deleting, every
+*functional* reference was repathed to `sh2perl/frontends/`, including the two
+that matter most: `otranspilerl`'s `SOURCES` dispatch table (6 entries) and
+`otranspiler/main.go`'s (14) — the tables the CLI uses to find frontend
+binaries, without which `--source-lang py` fails outright.  Go *module-path*
+strings (`github.com/gmatht/sh2loop/frontends/go-sh`) were deliberately left
+alone: they are identifiers grepped for by these same scripts, not paths.
+
+The workspace's 18 `frontends/` `.gitignore` rules went with it — they were dead
+there (a parent repo never matches a submodule's contents) — and moved into the
+frontends repo prefix-stripped, together with the fix the split's path-rename
+needed: **it had rewritten paths but not the `.gitignore` rule texts**, so the
+repo ignored nothing and its built binaries were one `git add -A` from being
+committed.
+
+Untracked build output left behind in the deleted directory (`target/`, gate
+scratch, refs corpora, 86 generated `profile_example/out/*` files) was archived
+to `/tmp/frontends-leftovers-*.tar.gz` before removal; all of it is regenerable
+by the scripts that now live in the submodule.
+
 Also surfaced by this change: sh2perl's index tracks **8 backend worktree
 gitlinks** with no `.gitmodules` mapping, so the first `.gitmodules` (ours) made
 `git submodule status` fail outright.  They are now mapped by path only, with a

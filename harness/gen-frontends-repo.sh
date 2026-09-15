@@ -71,7 +71,31 @@ while [ $# -gt 0 ]; do
 done
 
 # ---------------------------------------------------------------- preflight
-[ -d "$ROOT/frontends" ] || die "$ROOT/frontends not found — already moved?"
+# Generation is a ONE-TIME operation and has already happened: the tree moved to
+# its own repository and sh2loop no longer has frontends/ at all (its history is
+# still in git if you need to re-split from an older ref).
+if [ ! -d "$ROOT/frontends" ]; then
+  cat >&2 <<'GONE'
+[fe] nothing to generate: sh2loop/frontends no longer exists.
+
+     otranspiler-frontends is already generated and sh2perl mounts it at
+     sh2perl/frontends/ (see docs/O4-SPLIT-OFF-PLAN.md D3):
+
+       git -C sh2perl submodule status frontends     # the pin in use
+       make -C sh2perl/frontends/py-sh-go            # build a frontend
+
+     To re-split from an OLDER sh2loop ref (e.g. to rebuild the repo from
+     scratch), export that ref's tree first, e.g.:
+
+       git -C <sh2loop> archive <ref> frontends | tar -x -C /tmp/fe-src
+       bash harness/gen-frontends-repo.sh --dest /tmp/fe-src-frontends \
+            --sh2loop-ref <ref>
+
+     or, against a checkout that still has the directory, run this script
+     from there with --dest <path>.
+GONE
+  exit 0
+fi
 [ -d "$ROOT/sh2perl/.git" ] || [ -f "$ROOT/sh2perl/.git" ] \
   || die "$ROOT/sh2perl is not a git checkout (submodule not initialised?)"
 # The licence TEXT, never the personal grant (see D1 in docs/O4-SPLIT-OFF-PLAN.md).
