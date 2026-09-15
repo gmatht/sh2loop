@@ -698,3 +698,44 @@ Survey: t60's `__t0` if-temps (2 sites) + t30's const-collapsed
 Verification: lib 706/0 (+6 net; 1 pre-existing C failure unchanged),
 c_fn_locals/params pass (c_isqrt red = standing handoff), 93/93 estree
 valid (t95/t96 pre-existing), oracle MATCH.
+
+## Round 21 — if-ternary temps, block-assign merge, pure methods (2026-09-12)
+
+Survey: t60's `__t0` if-temps + t30's const-collapsed `let y = "";
+{ y = "yes"; }` fallout. Design first, then built.
+
+52. **If-ternary temp fold** (`let T = I; if (C) T = A; else T = B;
+    use(T)` → `use(C ? A : B)`, decl+if dropped; else-less `if (C) T = A`
+    → `use(C ? A : I)`): single-assign branches only (Block-wrapped or
+    bare), writes==2 (1 else-less) + exactly one program-wide read in a
+    straight-line position (optional chains, `a.v` properties,
+    short-circuited/logical-right spots vetoed — same discipline as
+    inline), INIT pure via `temp_eval_pure` (dropped unread), C/A/B
+    side-effect-free (single evaluation preserved — same throw-ordering
+    standard as inline). Substitution + removal mirror inline's
+    traversal exactly. **DONE**: `fold_if_ternary` (after inline, before
+    drop2 so S2 folds any wrappers). +3 unit tests (fold, else-less,
+    multi-read veto). Note: t60's shared `__t0` (two sites, one decl)
+    correctly vetoes (multi-write/multi-read) — single-site patterns
+    fold; splitting shared-temp lifetimes needs liveness (deferred).
+53. **Block-assign merge** (`let v = Z; { v = K; }` single-statement
+    block → pair-fold reusing `fold_let_init_store` gates verbatim):
+    the block is unconditional straight-line with no scope effects.
+    Plain `=` only (the direct path's compound-operator blindness is a
+    pre-existing hole, separately noted to worker — untouched).
+    **DONE**: t30 → `let y = "yes"` → inline → `write("yes\n")`
+    (chains through drop2's lit-concat). +1 test.
+54. **Pure-method calls** (needed by 52's `("hello world").includes(..)`
+    test): `side_effect_free` gains Member calls with property in the
+    pure-method set (string/array non-mutating, non-throwing subset —
+    repeat/pad excluded as before) and recursive receiver checks
+    (`foo().slice()` still vetoes). **DONE** (shared helper; isNaN rule
+    benefits consistently). +1 test (allow + receiver-call veto).
+55. **Const lit-concat** (`"a" + "b"` in const's Binary arm): drop
+    already ran when const exposes literals (t30's chain needed it).
+    Same exact rule, second home. (No test — covered by t30's gate.)
+
+Verification: lib 708/0 (+5 net; 1 pre-existing C failure unchanged),
+c_fn_locals/params pass (c_isqrt red = standing handoff), 96/98 estree
+valid (t95/t96 pre-existing broken oracles; 3 new worker tests green),
+oracle MATCH.
