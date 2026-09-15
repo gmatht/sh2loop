@@ -6,7 +6,7 @@ Same shir contract as C/JS; only the renderer differs (Rust idioms:
 `thread_local!` + `Cell`/`RefCell` for vars, `Mutex` for shared,
 `Vec<String>` for lists, `BTreeMap` for assocs).
 
-## Status (Sept 2026): 88/98 Python testdata pass
+## Status (Sept 2026): 91/98 Python testdata pass (t87 BigInt, t101 tiers, t99)
 Fixed this round (6 subsystems):
 - i64 widening (literals + infix Bin; vars already `Cell<i64>`)
 - Positional argv reads (filtered from decls; `__sh_arg(i)` helper)
