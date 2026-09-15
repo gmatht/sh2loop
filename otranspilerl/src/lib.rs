@@ -73,8 +73,14 @@ pub fn lang_of(path: &str) -> &'static str {
 }
 
 /// Locate the workspace root: `OTRANSPILER_ROOT` env override, else walk
-/// up from the current directory until a dir containing both `sh2perl`
-/// and `frontends` is found.
+/// up from the current directory until a dir containing `sh2perl` is found.
+///
+/// The frontends MOVED: they are now their own repository
+/// (`otranspiler-frontends`) mounted as `sh2perl/frontends`, so the old
+/// "`sh2perl` AND `frontends` as siblings" test stopped matching anywhere and
+/// the CLI failed with "cannot locate the workspace root".  Both layouts are
+/// accepted: the nested one is authoritative, the sibling one is the legacy
+/// layout a not-yet-migrated workspace still has.
 pub fn workspace_root() -> Option<PathBuf> {
     if let Ok(r) = std::env::var("OTRANSPILER_ROOT") {
         if !r.is_empty() {
@@ -83,7 +89,8 @@ pub fn workspace_root() -> Option<PathBuf> {
     }
     let mut dir = std::env::current_dir().ok()?;
     loop {
-        if dir.join("sh2perl").is_dir() && dir.join("frontends").is_dir() {
+        let sh = dir.join("sh2perl");
+        if sh.is_dir() && (dir.join("frontends").is_dir() || sh.join("frontends").is_dir()) {
             return Some(dir);
         }
         if !dir.pop() {

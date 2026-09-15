@@ -25,7 +25,14 @@ if [ "${1:-}" = "--sanitize=thread" ]; then SANITIZE=thread; shift; fi
 if [ "$SANITIZE" = "1" ]; then SANITIZE=asan; fi
 JOBS=${JOBS:-8}
 if [ "${1:-}" = "jobs" ]; then JOBS=$2; shift 2; fi
-if [ $# -gt 0 ]; then corpus=$(printf '%s\n' "$@"); else corpus=$(ls $SUB/examples/*.sh $ROOT/frontends/*/testdata/*.sh 2>/dev/null); fi
+if [ $# -gt 0 ]; then corpus=$(printf '%s\n' "$@"); else # Frontend testdata: prefer the AUTHORITATIVE nested copy
+# (sh2perl/frontends, the otranspiler-frontends submodule) and fall back to a
+# legacy sibling frontends/ only when the nested one is not initialised —
+# globbing both would double-count every file while a workspace still has its
+# own copy.
+fe_testdata=$(ls $SUB/frontends/*/testdata/*.sh 2>/dev/null)
+[ -z "$fe_testdata" ] && fe_testdata=$(ls $ROOT/frontends/*/testdata/*.sh 2>/dev/null)
+corpus=$(printf '%s\n%s\n' "$(ls $SUB/examples/*.sh 2>/dev/null)" "$fe_testdata" | grep -v '^$'); fi
 
 _c_gate_tmp=$(mktemp -d)
 trap 'rm -rf "$_c_gate_tmp"' EXIT
