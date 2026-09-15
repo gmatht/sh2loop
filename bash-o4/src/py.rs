@@ -24,10 +24,22 @@ pub fn find_frontend() -> Result<std::path::PathBuf, String> {
         }
         return Err(format!("$PY_SH_GO={} is not a file", p.display()));
     }
-    // <root>/sh2perl exists → <root>/frontends/py-sh-go/py-sh-go.
+    // Two layouts, because the frontends MOVED into their own repo and became
+    // sh2perl's submodule:
+    //   <root>/sh2perl/frontends/py-sh-go/py-sh-go   current (submodule of sh2perl)
+    //   <root>/frontends/py-sh-go/py-sh-go           legacy (frontends tree beside sh2perl)
+    // `find_sh2perl()` gives the sh2perl directory; `root` is either it or its
+    // parent.  Checking the nested one first means a repo that has BOTH (a
+    // workspace that has not yet dropped its own frontends/ copy) uses the
+    // authoritative submodule.
+    let fe_rel = ["frontends", "py-sh-go", "py-sh-go"];
     if let Ok(sp) = crate::tcc::find_sh2perl() {
+        let mut cands: Vec<std::path::PathBuf> = vec![sp.join(fe_rel[0])];
         if let Some(root) = sp.parent() {
-            let cand = root.join("frontends").join("py-sh-go").join("py-sh-go");
+            cands.push(root.join(fe_rel[0]));
+        }
+        for base in cands {
+            let cand = base.join(fe_rel[1]).join(fe_rel[2]);
             if cand.is_file() {
                 return Ok(cand);
             }
@@ -38,14 +50,18 @@ pub fn find_frontend() -> Result<std::path::PathBuf, String> {
         let mut dir: Option<std::path::PathBuf> = exe.parent().map(|p| p.to_path_buf());
         for _ in 0..5 {
             let Some(d) = dir else { break };
-            let cand = d.join("frontends").join("py-sh-go").join("py-sh-go");
-            if cand.is_file() {
-                return Ok(cand);
+            for base in [d.join("frontends"), d.join("sh2perl").join("frontends")] {
+                let cand = base.join("py-sh-go").join("py-sh-go");
+                if cand.is_file() {
+                    return Ok(cand);
+                }
             }
             dir = d.parent().map(|p| p.to_path_buf());
         }
     }
-    Err("cannot locate the py-sh-go frontend (set $PY_SH_GO)".to_string())
+    Err("cannot locate the py-sh-go frontend (set $PY_SH_GO, or build it: \
+         make -C sh2perl/frontends/py-sh-go)"
+        .to_string())
 }
 
 /// Run the frontend on `path` and return its A1 shIR JSON.
