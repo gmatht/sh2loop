@@ -36,6 +36,13 @@ Remaining gaps (11 files, 2 subsystems + misc):
   op routing; mirrors C GMP).
 - Linkage: generated code needs `--extern num_bigint=<rlib>` + `-L`
   (proven manually; future Rust gate must pass them).
+- Per-function bigint args (t89/t90 design, not yet implemented):
+  `n` from `$1` with huge call args needs BigInt, but taint only covers
+  Assign targets (params aren't assigned). Fix: precompute
+  `fn_bigint_args` (scan fnCalls for huge/bigint args, mark callee),
+  track `current_fn` during rendering, route digit `$N` reads in marked
+  fns through BigInt string path (parse, not i64). Preserves t86 speed
+  (unmarked fns stay i64).
 - i128 rejected as blanket (4x slowdown on t86 loops); selective i128
   needs range proof (future). OOB-abort needs frontend flag (schema).
 
