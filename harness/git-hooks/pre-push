@@ -1,0 +1,21 @@
+#!/bin/sh
+# pre-push — refuse a push that would send an oversized blob.
+#
+# This is a SHIM, deliberately: the logic lives in the tracked
+# `harness/pre-push-guard.sh` (same directory's parent), so there is one copy
+# and no drift.  It exists because `core.hooksPath` REDIRECTS EVERY HOOK: the
+# moment `harness/git-hooks/install.sh` points git here, a hand-installed
+# `.git/hooks/pre-push` stops being consulted at all.  Keeping the pre-push
+# guard reachable from this directory is what stops the tracked-guard change
+# from silently disabling it.
+#
+# Install: harness/git-hooks/install.sh   (sets core.hooksPath for a clone)
+# Bypass for one push: git push --no-verify
+set -u
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+guard="$here/../pre-push-guard.sh"
+if [ ! -f "$guard" ]; then
+  echo "pre-push: $guard is missing; skipping the oversized-blob check" >&2
+  exit 0
+fi
+exec sh "$guard" "$@"

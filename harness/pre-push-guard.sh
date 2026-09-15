@@ -6,9 +6,12 @@
 # fetch, or `git filter-repo`/`fast-import`. This guard walks the objects
 # actually being PUSHED and blocks GitHub's hard limit before the round trip.
 #
-# Install (client-side, per clone; not tracked):
-#   cp harness/pre-push-guard.sh .git/hooks/pre-push && chmod +x .git/hooks/pre-push
-#   cp harness/pre-push-guard.sh sh2perl/.git/hooks/pre-push   # shared by its worktrees
+# Install:  harness/git-hooks/install.sh [REPO...]   (idempotent, per clone)
+#   That sets core.hooksPath to the TRACKED harness/git-hooks/, whose
+#   pre-push is a shim exec-ing this file — so hand-copying is gone, and the
+#   guard now exists in any clone that runs the installer.  NOTE for anyone
+#   keeping a hand-installed .git/hooks/pre-push: core.hooksPath REDIRECTS
+#   EVERY hook, so that copy becomes dead; use the installer instead.
 #
 # Config: PIR_PUSH_MAX_BYTES (default 100 MiB — GitHub's hard limit)
 #         PIR_PUSH_WARN_BYTES (default 50 MiB — GitHub warns above this)

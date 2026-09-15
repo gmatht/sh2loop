@@ -67,7 +67,20 @@ store, so they are covered by the parent's guard — but commits made in a
 *hook-less* clone are not, and a fetch imports them silently.
 
 **Fix:** add a `pre-push` guard (see §7) that walks the *push set*, not the
-index.
+index — `harness/pre-push-guard.sh`, now reachable as the tracked
+`harness/git-hooks/pre-push`.
+
+> **Update (same session):** the guard is no longer hand-installed and
+> untracked.  `harness/git-hooks/{pre-commit,pre-push,install.sh}` are tracked,
+> `install.sh` sets `core.hooksPath` for a clone, and `pre-push` is a shim over
+> `harness/pre-push-guard.sh` (so redirecting `hooksPath` cannot silently
+> disable it — which is exactly what the first version of this change did).
+> Two additions since this analysis: the pre-commit guard now also refuses
+> **merge-conflict markers in added lines** (the defect that reached `sh2perl`
+> as a committed `>>>>>>>` marker), and `PIR_COMMIT_MAX_BYTES` is actually read
+> — the old header advertised it but the script hardcoded 1 MiB.  Nothing under
+> `frontends/` is checked: those files belong to another repository
+> (`otranspiler-frontends`, mounted as `sh2perl/frontends`).
 
 ---
 
