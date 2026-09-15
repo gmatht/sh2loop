@@ -30,6 +30,10 @@ pub enum Skip {
     NoDevice,
     NoCandidate(String),
     Unbindable(String),
+    /// Device/runtime failure at dispatch (e.g. device OOM on a large
+    /// fused array): a clean skip, never a crash — the CPU path stays
+    /// correct and `--gpu=auto` falls back to it.
+    Runtime(String),
 }
 
 impl std::fmt::Display for Skip {
@@ -38,6 +42,7 @@ impl std::fmt::Display for Skip {
             Skip::NoDevice => write!(f, "no CUDA device"),
             Skip::NoCandidate(r) => write!(f, "no runnable shape ({r})"),
             Skip::Unbindable(r) => write!(f, "{r}"),
+            Skip::Runtime(r) => write!(f, "dispatch: {r}"),
         }
     }
 }
@@ -77,7 +82,7 @@ pub fn run(
     });
     // Sequential-lane reductions (collatz chains): array-free specs with
     // a seq_prelude — the Reduce vehicle dispatches them unchanged.
-    let seq_spec = cu_candidacy::analyze_seq(prog).into_iter().find_map(|v| {
+    let seq_spec = cu_candidacy::analyze_seq(prog_flat).into_iter().find_map(|v| {
         if matches!(v.verdict, cu_candidacy::CuVerdictKind::Candidate) {
             v.spec.clone()
         } else {
@@ -196,7 +201,7 @@ fn run_map(
     let ptx = shir_to_cu_compute(&m_fast);
     let out = runner
         .run(&ptx, "kern", &out_lens, &scalars, groups, m.threads)
-        .expect("map dispatch");
+        .map_err(Skip::Runtime)?;
     const MOD: u64 = 4294967296;
     let mut s: u64 = 0;
     for &x in &out[0] {
@@ -232,7 +237,7 @@ fn run_reduce(
         }
     }
     let ptx = shir_to_cu_reduce(&r_fast);
-    let partials = runner.alloc_array(groups as usize).expect("partials");
+    let partials = runner.alloc_array(groups as usize).map_err(Skip::Runtime)?;
     let mut bufs: Vec<cudaffi::CUdeviceptr> = Vec::new();
     for a in &r.arrays {
         if let Some(shared) = shared {
@@ -249,10 +254,10 @@ fn run_reduce(
     scalars.push(trips as i64);
     runner
         .run_buffers(&ptx, "kern", &bufs, &scalars, groups, r.threads)
-        .expect("reduce dispatch");
+        .map_err(Skip::Runtime)?;
     let parts = runner
         .read_array(partials, groups as usize)
-        .expect("partials readback");
+        .map_err(Skip::Runtime)?;
     runner.free_array(partials);
     Ok(finish_reduce(&r.op, r.acc_init, &parts))
 }
@@ -331,7 +336,7 @@ fn run_fused(
             st.index_b as i128 + 1
         };
         let len = need.clamp(1, i128::from(usize::MAX as u64)) as usize;
-        handles.push((st.array.clone(), runner.alloc_array(len).expect("map array")));
+        handles.push((st.array.clone(), runner.alloc_array(len).map_err(Skip::Runtime)?));
     }
     let mut scalars = evals;
     scalars.push(trips as i64);
@@ -341,7 +346,7 @@ fn run_fused(
         let bufs: Vec<cudaffi::CUdeviceptr> = handles.iter().map(|(_, h)| *h).collect();
         runner
             .run_buffers(&map_ptx, "kern", &bufs, &scalars, groups, m.threads)
-            .expect("map dispatch");
+            .map_err(Skip::Runtime)?;
     }
     let out = run_reduce(runner, r, n, binds, Some(&handles));
     for (_, h) in handles {

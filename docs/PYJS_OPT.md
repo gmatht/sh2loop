@@ -667,3 +667,34 @@ it — so only `fnCall` calls inform verdicts.
 Verification: lib 703/0 (+3 net; 1 pre-existing C failure unchanged),
 c_fn_locals/params pass (c_isqrt red = standing handoff), 93/93 estree
 valid (t95/t96 pre-existing), oracle MATCH.
+
+## Round 21 — if-ternary temps, block-assign merge, pure methods (2026-09-12)
+
+Survey: t60's `__t0` if-temps (2 sites) + t30's const-collapsed
+`let y = ""; { y = "yes"; }` fallout. Design first (below), then built.
+
+52. **If-ternary temp fold** (`let T = I; if (C) T = A; else T = B;
+    use(T)` → `use(C ? A : B)`, decl+if dropped; else-less `if (C) T = A`
+    → `use(C ? A : I)`): single-assign branches only (no other effects
+    to order), writes==2 (1 else-less) + reads==1, INIT pure (dropped
+    unread), C/A/B/I side-effect-free (single evaluation preserved;
+    same throw-ordering standard as inline — pure means no effects).
+    **DONE**: `fold_if_ternary` post-pass (same-list decl/if/use;
+    straight-line use vetting + substitution shared with inline
+    patterns). t60 ×2 fold (S1 conditional-establish already covers any
+    wrappers). +3 unit tests (fold, else-less, multi-read veto).
+53. **Block-assign merge** (`let v = Z; { v = K; }` single-stmt block →
+    pair-fold): the block is unconditional straight-line with no scope
+    effects (no decls inside) — unwrap to adjacent pair and reuse
+    `fold_let_init_store` gates verbatim. **DONE** (normalization inside
+    fold_let; t30 → `let y = "yes"` → inline → `write("yes")`). +1 test.
+54. **Pure-method calls** (needed by 52's `("hello world").includes(..)`
+    test): `side_effect_free` gains Member calls with property in the
+    pure-method set (string/array non-mutating, non-throwing subset —
+    repeat/pad excluded as before) and recursive receiver checks
+    (`foo().slice()` still vetoes). **DONE** (shared helper; isNaN rule
+    benefits consistently). +1 test (method-call purity).
+
+Verification: lib 706/0 (+6 net; 1 pre-existing C failure unchanged),
+c_fn_locals/params pass (c_isqrt red = standing handoff), 93/93 estree
+valid (t95/t96 pre-existing), oracle MATCH.

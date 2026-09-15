@@ -319,6 +319,21 @@ fn ingest(a1: &str, lang: &str) -> Result<(debashl::ir::IrProgram, String), Stri
     {
         debashl::transforms::text_ops::normalize_frontend_constructs(&mut prog.stmts);
     }
+    // Frontend-shape normalisations (shared, backend-neutral, refuse>guess):
+    //   counted-arith-forinit — recover `ForInit` from the structured-Arith
+    //     counted whiles the frontends emit (native counted loop in every
+    //     renderer, and the prerequisite of the fusion below);
+    //   append-to-store — a counted loop's `a = append(a, v)` → `a[i] = v`
+    //     (native store, and the shape the CUDA map candidacy / fusion
+    //     key on);
+    //   fuse-fill-consume — a covering fill + same-space consumer become
+    //     ONE loop with the fill RHS forwarded (no materialisation). This
+    //     is the squares-map shape end to end.
+    // All three are semantics-preserving on already-lowered IR; they only
+    // fire on their exact shapes (see each module's veto list).
+    debashl::transforms::counted_arith_forinit::transform(&mut prog.stmts);
+    debashl::transforms::append_to_store::transform(&mut prog.stmts);
+    debashl::transforms::fuse_fill_consume::transform(&mut prog.stmts);
     // A1 ingress: restructure Label/Goto into structured flow (the shared
     // pass — the CLI's --shir-in-estree/--shir-in-perl run the same
     // restructure_goto_only; without it frontend A1 carrying C `goto`
