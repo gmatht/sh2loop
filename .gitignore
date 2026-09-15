@@ -92,6 +92,10 @@ harness/f
 
 otranspilerl/target/
 bash-o4/target/
+# root cargo target — was committed wholesale (265 MB, 505 files) before
+# the ignore existed; see docs/CLEAN_GIT.md
+/target/
+target-core/
 
 # python bytecode (transpiler bench scratch — never commit)
 __pycache__/
