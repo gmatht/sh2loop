@@ -12,6 +12,16 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v46: **py2cy.js analysis moves into the Rust core.** `shir::analyze_declares`
+>   computes final per-var declare decisions (int kinds, i64 containment,
+>   vetoes incl. the cross-scope union veto, widths, `global`/`nonlocal`
+>   exclusion); `--analyze` facts carry `declare` per var plus per-scope
+>   `globals`/`nonlocals` (py-sh-go now emits `Global`/`Nonlocal` A1 nodes
+>   and parses `nonlocal`; ingress validates and drops them, IrProgram
+>   byte-identical). `harness/py2cy.js` renders decisions verbatim — no
+>   policy, no source scan. 27/27 testdata outputs byte-identical across
+>   the move; parity gate unchanged (25 pass, t102/t103 frontend refusals
+>   pre-date it). Submodule 628b43a3.
 > - v45: **Go stops misdeclaring module globals a function big-assigns.**
 >   v44's known divergence is closed from the Go side: nested `global`
 >   writes are module writes the module proof cannot see (interval env

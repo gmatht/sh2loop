@@ -7,33 +7,22 @@
 //
 // v1 scope (mirrors Go py2cy --py default mode):
 //   * `cython.declare(x=cython.int|longlong, y=cython.double, ...)` lines
-//     from Rust facts (types + ranges + widths + vetoes), per scope;
+//     from Rust facts, per scope; the declare policy lives ENTIRELY in
+//     the core (`shir::analyze_declares`: candidacy, int kinds, i64
+//     containment, vetoes incl. the cross-scope union veto, widths,
+//     `global`/`nonlocal` exclusion from the frontend's Function-node
+//     fields). Each fact var carries `declare: {kind, width} | null`;
+//     this file renders decided lists verbatim and implements NO policy.
 //   * `import cython` iff anything declared; header always;
 //   * otherwise byte-identical source (decline is the safe default).
 // Deliberately NOT in v1 (declined, sound): dual-guard twins, GMP/i128
 // tiers, .pyx cdef rewrites, int-list rewrites, nested-def declares.
-//
-// Declare policy (per scope S, candidacy = assigned(S) - params(S) -
-// global/nonlocal names):
-//   int V  iff type is int-like, range ⊆ i64, !vetoed(S,V),
-//           !vetoed(F,V) for every other scope F (a function may
-//           `global`-write V — invisible in A1, so union vetoes),
-//           !bigint(V).  Width i32 (cython.int) iff widths[V]==i32
-//           else cython.longlong (missing evidence -> longlong).
-//   float V iff type is float (frontend's float domain is authoritative).
-// This intentionally DIVERGES from Go in one known case: Go declares a
-// module var `g=cython.int` even when a function `global`-assigns a huge
-// value to it (globig.py: CPython prints 2**100, Go's output prints 0).
-// The union-veto above refuses that shape (stays an exact object).
 
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-
-const I64MIN = -(2n ** 63n);
-const I64MAX = 2n ** 63n - 1n;
 
 function run(cmd, args, opts = {}) {
   const r = spawnSync(cmd, args, { encoding: "utf8", ...opts });
@@ -115,54 +104,27 @@ function main() {
   process.stdout.write(out);
 }
 
-function inI64(range) {
-  if (!range) return false;
-  try {
-    return BigInt(range[0]) >= I64MIN && BigInt(range[1]) <= I64MAX;
-  } catch {
-    return false;
-  }
-}
-
-const INT_KINDS = new Set(["int", "int32", "int64", "uint32", "uint64"]);
-
+// Render core decisions verbatim. `declare` is final per var
+// ({kind: "int"|"float", width} | null); the i32->cython.int mapping
+// below is pure rendering (total function of kind+width, no judgment).
+const CTYPE = { int32: "cython.int", int64: "cython.longlong" };
 function decide(facts) {
   // scope name -> {ints: [[name, ctype]], floats: [name]}
   const result = new Map();
-  const byName = new Map(facts.scopes.map((s) => [s.name, s]));
-  const top = byName.get("<top>");
-  // union vetoes across scopes by name (global-write invisibility)
-  const vetoUnion = new Set();
   for (const s of facts.scopes) {
-    const vars = s.vars || {};
-    for (const [n, v] of Object.entries(vars)) {
-      if (v.vetoed) vetoUnion.add(n);
-    }
-  }
-  for (const s of facts.scopes) {
-    const isTop = s.name === "<top>";
-    const params = new Set(s.params || []);
-    const vars = s.vars || {};
     const ints = [];
     const floats = [];
-    const assigned = new Set(s.assigned || []);
+    const vars = s.vars || {};
     for (const n of Object.keys(vars).sort()) {
-      if (!assigned.has(n) || params.has(n)) continue;
-      const v = vars[n];
-      if (v.type === "float") {
+      const d = vars[n].declare;
+      if (!d) continue;
+      if (d.kind === "float") {
         floats.push(n);
         continue;
       }
-      if (!INT_KINDS.has(v.type)) continue;
-      if (!inI64(v.range)) continue;
-      if (v.vetoed || v.bigint) continue;
-      // module candidates take the union veto: a function may
-      // `global`-write the name (invisible in A1), so a veto anywhere
-      // vetoes the module declare. (Over-conservative only for
-      // coincidental same-named locals — sound either way.)
-      if (isTop && vetoUnion.has(n)) continue;
-      const w = v.width === "i32" ? "cython.int" : "cython.longlong";
-      ints.push([n, w]);
+      if (d.kind === "int") {
+        ints.push([n, d.width === "i32" ? CTYPE.int32 : CTYPE.int64]);
+      }
     }
     result.set(s.name, { ints, floats });
   }
@@ -275,27 +237,8 @@ function emit(src, facts) {
     const [, , name] = m;
     if (!scopeNames.has(name)) continue;
     const d = decided.get(name);
-    // strip params + global/nonlocal names (facts carry params; source
-    // scan carries global/nonlocal — A1 marks neither use)
-    const fnGlobals = new Set();
-    {
-      // collect global/nonlocal names lexically inside this def block
-      const indent = lines[i].length - lines[i].trimStart().length;
-      for (let j = i + 1; j < lines.length; j++) {
-        const lj = lines[j];
-        const tj = lj.trim();
-        if (tj !== "" && !tj.startsWith("#") && lj.length - lj.trimStart().length <= indent) break;
-        const gm = /^(global|nonlocal)\s+(.+)$/.exec(tj);
-        if (gm) {
-          for (const nm of gm[2].split(",")) {
-            const n = nm.trim().split(/\s|#/)[0];
-            if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(n)) fnGlobals.add(n);
-          }
-        }
-      }
-    }
-    const ints = d.ints.filter(([n]) => !fnGlobals.has(n));
-    const floats = d.floats.filter((n) => !fnGlobals.has(n));
+    const ints = d.ints;
+    const floats = d.floats;
     const decl = declLine(ints, floats);
     if (decl === "") continue;
     const at = bodyInsertLine(lines, i);

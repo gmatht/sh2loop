@@ -374,9 +374,15 @@ pub fn shir_opt(a1: &str, lang: &str) -> Result<String, String> {
 /// quarantine since wrapping is exact there).
 ///
 /// Schema: `{"mode": "python"|"bash", "scopes": [{"name": "<top>"|fn,
-/// "assigned": [...], "params": [...], "vars": {name: {"type": "int"|"float"|"str"|"any"|...,
+/// "assigned": [...], "params": [...], "globals": [...], "nonlocals": [...],
+/// "vars": {name: {"type": "int"|"float"|"str"|"any"|...,
 /// "range": ["lo","hi"]|null, "width": "i32"|"i64"|null,
-/// "bigint": bool, "vetoed": bool}}}]}.
+/// "bigint": bool, "vetoed": bool,
+/// "declare": {"kind": "int", "width": "i32"|null} | {"kind": "float", "width": null} | null}}}]}`.
+/// `declare` is the final per-var decision from `shir::analyze_declares`
+/// (null = refuse); `globals`/`nonlocals` are the scope's `global`/
+/// `nonlocal` names from the frontend (absent = none). Consumers render
+/// `declare` verbatim and never reimplement the policy.
 /// Ranges are decimal strings (i128 can exceed JSON numbers). `vetoed`
 /// is the raw per-scope use-safety+quarantine verdict; consumers union
 /// vetoes across scopes for module-level names (a function may
@@ -450,6 +456,90 @@ pub fn analyze(a1: &str, python: bool) -> Result<String, String> {
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(a1) {
         fn_params_json(&v, &mut json_params);
     }
+    // Per-function `global`/`nonlocal` names, read from the raw A1 like
+    // params (same walk shape, same first-wins shadowing semantics): the
+    // frontend emits them as `Global`/`Nonlocal` statement nodes (absent =
+    // none), and a C local would shadow the outer binding, so declared
+    // names in these sets never declare. Module-level occurrences are
+    // no-ops (already global) and are not recorded.
+    fn fn_scopedecls_json(
+        v: &serde_json::Value,
+        out: &mut std::collections::HashMap<String, (Vec<String>, Vec<String>)>,
+    ) {
+        fn str_list(o: &serde_json::Value) -> Vec<String> {
+            o.get("names")
+                .and_then(|a| a.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|e| e.as_str().map(|x| x.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default()
+        }
+        // Collect Global/Nonlocal names in this subtree, stopping at
+        // nested Function nodes (their own scope collects theirs).
+        fn collect_direct(s: &serde_json::Value, g: &mut Vec<String>, n: &mut Vec<String>) {
+            match s {
+                serde_json::Value::Array(a) => {
+                    for e in a {
+                        collect_direct(e, g, n);
+                    }
+                }
+                serde_json::Value::Object(m) => {
+                    match m.get("type").and_then(|t| t.as_str()) {
+                        Some("Function") => {}
+                        Some("Global") => g.extend(str_list(s)),
+                        Some("Nonlocal") => n.extend(str_list(s)),
+                        _ => {
+                            for v in m.values() {
+                                collect_direct(v, g, n);
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        // Single recursive walk: every Function node sets its own
+        // scope (first wins on shadowing); all other values recurse.
+        fn walk_body(
+            v: &serde_json::Value,
+            out: &mut std::collections::HashMap<String, (Vec<String>, Vec<String>)>,
+        ) {
+            match v {
+                serde_json::Value::Array(a) => {
+                    for e in a {
+                        if e.get("type").and_then(|t| t.as_str()) == Some("Function") {
+                            if let Some(name) = e.get("name").and_then(|nn| nn.as_str()) {
+                                let mut g = Vec::new();
+                                let mut n = Vec::new();
+                                if let Some(body) = e.get("body") {
+                                    collect_direct(body, &mut g, &mut n);
+                                }
+                                out.entry(name.to_string()).or_insert((g, n));
+                            }
+                        }
+                        walk_body(e, out);
+                    }
+                }
+                serde_json::Value::Object(m) => {
+                    for vv in m.values() {
+                        walk_body(vv, out);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let arr = v.get("stmts").and_then(|s| s.as_array()).cloned().unwrap_or_default();
+        let subs = v.get("subs").and_then(|s| s.as_array()).cloned().unwrap_or_default();
+        walk_body(&serde_json::Value::Array(arr), out);
+        walk_body(&serde_json::Value::Array(subs), out);
+    }
+    let mut json_scopedecls: std::collections::HashMap<String, (Vec<String>, Vec<String>)> =
+        std::collections::HashMap::new();
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(a1) {
+        fn_scopedecls_json(&v, &mut json_scopedecls);
+    }
     let mut out_scopes = Vec::new();
     // vetoes only bite on int kinds (Go bans `intTyped`; floats/strings
     // are never C-typed from this verdict — float is its own domain)
@@ -457,6 +547,10 @@ pub fn analyze(a1: &str, python: bool) -> Result<String, String> {
         vt.get(n).map(String::as_str),
         Some("int" | "int32" | "int64" | "uint32" | "uint64")
     );
+    // per-scope params first (decide needs the whole map): json_params,
+    // else subs-carried params, exactly as emitted below.
+    let mut scope_params: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
     for scope in &scopes {
         let params = json_params.get(&scope.name).cloned().unwrap_or_default();
         // subs carry params in-IR; top-level Function nodes via the A1
@@ -469,6 +563,23 @@ pub fn analyze(a1: &str, python: bool) -> Result<String, String> {
         } else {
             params
         };
+        scope_params.insert(scope.name.clone(), params);
+    }
+    // Final declare decisions live in the core (shir::analyze_declares);
+    // consumers render them, never reimplement the policy.
+    let bigint_union: std::collections::HashSet<String> =
+        homed.union(&i53).cloned().collect();
+    let decisions = debashl::shir::analyze_declares(
+        &scopes,
+        &vt,
+        &bigint_union,
+        &scope_params,
+        &json_scopedecls,
+    );
+    let decide_map: std::collections::HashMap<&str, &debashl::shir::ScopeDeclares> =
+        decisions.iter().map(|d| (d.name.as_str(), d)).collect();
+    for scope in &scopes {
+        let params = scope_params.get(&scope.name).cloned().unwrap_or_default();
         let mut vars = serde_json::Map::new();
         let mut names: Vec<&String> = scope.assigned.iter().collect();
         names.sort();
@@ -481,6 +592,16 @@ pub fn analyze(a1: &str, python: bool) -> Result<String, String> {
             let width = scope.widths.get(n).cloned();
             let bigint = homed.contains(n) || i53.contains(n);
             let vetoed = scope.vetoed.contains(n) && is_int_kind(n);
+            let declare = decide_map
+                .get(scope.name.as_str())
+                .and_then(|d| d.declares.iter().find(|v| v.name == *n))
+                .map(|v| {
+                    serde_json::json!({
+                        "kind": v.kind,
+                        "width": v.width,
+                    })
+                })
+                .unwrap_or(serde_json::Value::Null);
             vars.insert(
                 (*n).clone(),
                 serde_json::json!({
@@ -489,15 +610,22 @@ pub fn analyze(a1: &str, python: bool) -> Result<String, String> {
                     "width": width,
                     "bigint": bigint,
                     "vetoed": vetoed,
+                    "declare": declare,
                 }),
             );
         }
         let mut assigned_sorted = scope.assigned.clone();
         assigned_sorted.sort();
+        let (sglobs, snonlocs) = json_scopedecls
+            .get(&scope.name)
+            .cloned()
+            .unwrap_or_default();
         out_scopes.push(serde_json::json!({
             "name": scope.name,
             "assigned": assigned_sorted,
             "params": params,
+            "globals": sglobs,
+            "nonlocals": snonlocs,
             "vars": vars,
         }));
     }
@@ -1412,6 +1540,46 @@ mod tests {
         assert_eq!(vars["x"]["width"], "i32");
         assert_eq!(vars["y"]["type"], "int");
         assert!(!vars["y"]["vetoed"].as_bool().unwrap(), "5+1 is safe");
+    }
+
+    #[test]
+    fn analyze_declare_and_scope_sets() {
+        // Hand-built A1: module `g = 0`, function f with `global g`
+        // writing 1, function o with plain local y. Facts must carry
+        // final declare decisions plus the scope sets (no consumer
+        // reimplements the policy or scans source for globals).
+        let a1 = r#"{"type":"Program","contract_version":1,"imports":[],"requires":[],"var_types":[{"name":"g","type":"Int"},{"name":"y","type":"Int"}],"stmt_lines":[],"var_lengths":[],"var_const":[],"var_lifetimes":[],"var_nospace":[],"var_bash_env":[],"subs":[],"stmts":[{"type":"Assign","targets":[{"var":"g","sigil":null,"indices":[]}],"expr":{"type":"Int","value":0}},{"type":"Function","name":"f","params":[],"body":[{"type":"Global","names":["g"]},{"type":"Assign","targets":[{"var":"g","sigil":null,"indices":[]}],"expr":{"type":"Int","value":1}}]},{"type":"Function","name":"o","params":[],"body":[{"type":"Assign","targets":[{"var":"y","sigil":null,"indices":[]}],"expr":{"type":"Int","value":2}}]}]}"#;
+        let facts = analyze(a1, true).expect("analyze");
+        let v: serde_json::Value = serde_json::from_str(&facts).expect("json");
+        let scopes = v["scopes"].as_array().expect("scopes");
+        let by_name = |n: &str| {
+            scopes
+                .iter()
+                .find(|s| s["name"] == n)
+                .unwrap_or_else(|| panic!("no scope {n}"))
+        };
+        let top = by_name("<top>");
+        assert_eq!(
+            top["vars"]["g"]["declare"],
+            serde_json::json!({"kind": "int", "width": "i32"}),
+            "narrow global write keeps the module declare"
+        );
+        let f = by_name("f");
+        assert_eq!(
+            f["globals"],
+            serde_json::json!(["g"]),
+            "frontend globals survive in facts"
+        );
+        assert!(
+            f["vars"]["g"]["declare"].is_null(),
+            "global-shadowed name never declares in its function"
+        );
+        let o = by_name("o");
+        assert_eq!(
+            o["vars"]["y"]["declare"],
+            serde_json::json!({"kind": "int", "width": "i32"}),
+            "plain local still declares"
+        );
     }
 
     #[test]
