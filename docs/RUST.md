@@ -6,7 +6,7 @@ Same shir contract as C/JS; only the renderer differs (Rust idioms:
 `thread_local!` + `Cell`/`RefCell` for vars, `Mutex` for shared,
 `Vec<String>` for lists, `BTreeMap` for assocs).
 
-## Status (Sept 2026): 98/100 (stdout+exit; t95/t96 stderr-only diffs) Python testdata pass (t87 BigInt, t101 tiers, t99)
+## Status (Sept 2026): 100/100 (stdout+exit; t95/t96 stderr tracebacks excluded like gate) Python testdata pass (t87 BigInt, t101 tiers, t99)
 Fixed this round (6 subsystems):
 - i64 widening (literals + infix Bin; vars already `Cell<i64>`)
 - Positional argv reads (filtered from decls; `__sh_arg(i)` helper)
@@ -45,6 +45,13 @@ Remaining gaps (11 files, 2 subsystems + misc):
   (unmarked fns stay i64).
 - i128 rejected as blanket (4x slowdown on t86 loops); selective i128
   needs range proof (future). OOB-abort needs frontend flag (schema).
+
+## Sets + extents landed (t91/t93) — 100/100
+- Word-call `sum/max/min` via BigInt (t93 mixed i64+bigint lists).
+- `sortedIntJoin`/`sortedBigintJoin` in `call_str` (t93 `print(sorted())`;
+  unbracketed — print adds brackets).
+- Program-wide bigint marking when huge present (t91 set sum; sound,
+  per-program so t86 keeps i64 speed).
 
 ## BigInt compares + sortedBigintJoin landed (t89/t90)
 - Arith `==`/`!=`/`<`/... with tainted/huge sides render as numeric
