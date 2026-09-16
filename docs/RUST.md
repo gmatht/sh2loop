@@ -6,7 +6,7 @@ Same shir contract as C/JS; only the renderer differs (Rust idioms:
 `thread_local!` + `Cell`/`RefCell` for vars, `Mutex` for shared,
 `Vec<String>` for lists, `BTreeMap` for assocs).
 
-## Status (Sept 2026): 93/100 Python testdata pass (t87 BigInt, t101 tiers, t99)
+## Status (Sept 2026): 97/100 (stdout+exit; stderr excluded like gate) Python testdata pass (t87 BigInt, t101 tiers, t99)
 Fixed this round (6 subsystems):
 - i64 widening (literals + infix Bin; vars already `Cell<i64>`)
 - Positional argv reads (filtered from decls; `__sh_arg(i)` helper)
@@ -45,6 +45,15 @@ Remaining gaps (11 files, 2 subsystems + misc):
   (unmarked fns stay i64).
 - i128 rejected as blanket (4x slowdown on t86 loops); selective i128
   needs range proof (future). OOB-abort needs frontend flag (schema).
+
+## OOB-abort + string reductions landed (t95/t96/t98)
+- `IrExpr::Index` is Python-specific (shell uses param strings;
+  verified zero Index nodes in 009/064_07) → strict: negative wraps,
+  OOB exits 1 (IndexError; prior output stands). `ArithAst::Index`
+  stays forgiving (possibly shell).
+- String `min/max/sum` calls (for `_min_xs = min(xs)` temps) + numeric
+  versions in `expr_num` (t98 accumulation).
+- t95/t96/t98 stdout+exit match (stderr tracebacks excluded, gate-style).
 
 ## Optimisations (vs C backend)
 Measured t86 (67M-trip factor loop):
