@@ -6,7 +6,7 @@ Same shir contract as C/JS; only the renderer differs (Rust idioms:
 `thread_local!` + `Cell`/`RefCell` for vars, `Mutex` for shared,
 `Vec<String>` for lists, `BTreeMap` for assocs).
 
-## Status (Sept 2026): 91/98 Python testdata pass (t87 BigInt, t101 tiers, t99)
+## Status (Sept 2026): 93/100 Python testdata pass (t87 BigInt, t101 tiers, t99)
 Fixed this round (6 subsystems):
 - i64 widening (literals + infix Bin; vars already `Cell<i64>`)
 - Positional argv reads (filtered from decls; `__sh_arg(i)` helper)
@@ -58,6 +58,10 @@ Measured t86 (67M-trip factor loop):
   currently O(n) scans; C maintains inline. Future: same.)
 - Narrowing (u16 loop vars? Rust uses i64 throughout; width analysis
   future), Vec growth (amortized, same as C), profiling (none yet).
+- Numeric param caching (entry-bound `__pn_N` i64 locals for Arith-used
+  `$N`; t86 7.3s→2.35s, 3×). `set --` invalidates (documented gap, rare).
+  Main-body caching deferred (functions only; top-level numeric loops
+  with `$N` uncommon).
 
 ## Methodology
 Same as C: fail-list diffing (manual sweeps, no Rust gate yet —
