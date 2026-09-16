@@ -12,6 +12,34 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v44: **py2cy.js on Rust analysis + `otranspilerl --analyze` surface.**
+>   New shared core analyses (all additive in `sh2perl/src/shir.rs`):
+>   `arith_range_exact` (unbounded-int reading — overflow/div-zero/unknown
+>   is unknown, floor `%`/`//`, comparisons `[0,1]`), `%`/`//` desugar
+>   recognition (`((a%b)+b)%b`, `(a-pm)/b` evaluate with floor semantics),
+>   `analyze_use_safety_stmts` (A1 port of Go `unsafeTypedNames`: unprovable
+>   wrap-prone `+ - * **` and always-veto shifts/bitwise veto subtree vars;
+>   comparisons/`%`/`//`/`/` never veto) plus the wrap-poison quarantine
+>   (narrow claimed range over an inexactly-evaluable RHS vetoes —
+>   `2**100` claims `[0,0]` under bash wrap), `analyze_widths` (i32 iff
+>   value range AND every assigned-RHS subexpression fit — `h*31` forces
+>   i64 while `h` stays mod-bounded), and per-scope facts
+>   (`analyze_var_ranges_stmts`/`assigned_names`/`analyze_scopes`: fresh
+>   walks so params stay unknown, module hull unions fn writes for the
+>   invisible `global`, nested-loop-var fill python-gated). Shell-visible
+>   behavior unchanged except the structured-Arith while-cond bound (never
+>   fires on shell-lowered test/let-text conds). `otranspilerl --analyze`
+>   dumps per-scope facts JSON (types, ranges, widths, vetoes, bigint,
+>   assigned, params; A1 Function params re-read from raw JSON since
+>   ingress drops the field). `harness/py2cy.js` annotates Python from
+>   those facts (Go `--py` emission rules; no JS analysis) with
+>   `harness/py2cy-parity.sh` (`cython --embed` oracle). Differential vs
+>   Go: 92/100 byte-identical; 7 sound over-declares (Go text rules can't
+>   see string-`+`/print-arg safety — all runtime-proven); t48 sound
+>   decline (trip-counted accumulation stays with the lattice owner);
+>   t102/t103 unlowerable by the A1 frontend. Known divergence (intended):
+>   Go misdeclares module globals a function big-assigns (globig prints 0
+>   under Cython); union vetoes refuse that shape here. Submodule 6aa24251.
 > - v43: **6 pre-existing estree fails fixed (lib 622/0 green).** Real
 >   miscompiles fixed: echo-split silently dropped folded literals
 >   (`x=42` printed empty — now native field-split); cond_zero said
