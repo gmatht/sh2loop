@@ -366,6 +366,148 @@ pub fn shir_opt(a1: &str, lang: &str) -> Result<String, String> {
     Ok(debashl::shir_json::shir_to_shir_json(&prog))
 }
 
+/// Static-analysis facts for annotation consumers (py2cy.js): per-scope
+/// variable facts from the Rust core analyses, as JSON. Input: A1 JSON
+/// from any frontend. `python` selects the language reading — Python
+/// (`IntervalConfig::python`: floor `%`/`//`, unbounded ints with the
+/// wrap-poison quarantine) vs bash (wrapping i64, truncating `%`, no
+/// quarantine since wrapping is exact there).
+///
+/// Schema: `{"mode": "python"|"bash", "scopes": [{"name": "<top>"|fn,
+/// "assigned": [...], "params": [...], "vars": {name: {"type": "int"|"float"|"str"|"any"|...,
+/// "range": ["lo","hi"]|null, "width": "i32"|"i64"|null,
+/// "bigint": bool, "vetoed": bool}}}]}.
+/// Ranges are decimal strings (i128 can exceed JSON numbers). `vetoed`
+/// is the raw per-scope use-safety+quarantine verdict; consumers union
+/// vetoes across scopes for module-level names (a function may
+/// `global`-write them — invisible in A1).
+pub fn analyze(a1: &str, python: bool) -> Result<String, String> {
+    use debashl::shir::{analyze_big_i53, analyze_bigint_homed, analyze_scopes};
+    let (prog, _) = ingest(a1, "shir")?;
+    // per-scope ranges come from analyze_scopes (fresh walk per scope,
+    // so parameters stay unknown; bash-walk claims are supersets of the
+    // Python truth — sound for typing, occasionally wider than needed).
+    // `python` selects the reading: floor `%`/`//` tolerance plus the
+    // wrap-poison quarantine; bash wrapping is exact (no quarantine).
+    let homed = analyze_bigint_homed(&prog);
+    let i53 = analyze_big_i53(&prog);
+    let scopes = analyze_scopes(&prog, python);
+    let vt: std::collections::HashMap<String, String> = prog
+        .var_types
+        .iter()
+        .map(|(n, t)| {
+            let s = match t {
+                debashl::ir::IrType::Int => "int",
+                debashl::ir::IrType::Str => "str",
+                debashl::ir::IrType::Any => "any",
+                debashl::ir::IrType::Float(_) => "float",
+                debashl::ir::IrType::Int32 => "int32",
+                debashl::ir::IrType::Int64 => "int64",
+                debashl::ir::IrType::UInt32 => "uint32",
+                debashl::ir::IrType::UInt64 => "uint64",
+            };
+            (n.clone(), s.to_string())
+        })
+        .collect();
+    // function params never declare (a parameter may be any object at
+    // the call site). A1 carries them on Function nodes, but ingress
+    // drops the field — read them from the raw JSON here (authoritative;
+    // subs carry theirs in-IR).
+    fn fn_params_json(v: &serde_json::Value, out: &mut std::collections::HashMap<String, Vec<String>>) {
+        let arr = v.get("stmts").and_then(|s| s.as_array()).cloned().unwrap_or_default();
+        let subs = v.get("subs").and_then(|s| s.as_array()).cloned().unwrap_or_default();
+        fn walk(
+            stmts: &[serde_json::Value],
+            out: &mut std::collections::HashMap<String, Vec<String>>,
+        ) {
+            for s in stmts {
+                if s.get("type").and_then(|t| t.as_str()) == Some("Function") {
+                    if let Some(name) = s.get("name").and_then(|n| n.as_str()) {
+                        let params = s
+                            .get("params")
+                            .and_then(|p| p.as_array())
+                            .map(|a| {
+                                a.iter().filter_map(|e| e.as_str().map(|x| x.to_string())).collect()
+                            })
+                            .unwrap_or_default();
+                        out.entry(name.to_string()).or_insert(params);
+                    }
+                }
+                if let Some(body) = s.get("body").and_then(|b| b.as_array()) {
+                    walk(body, out);
+                }
+            }
+        }
+        walk(&arr, out);
+        for s in &subs {
+            if let Some(body) = s.get("body").and_then(|b| b.as_array()) {
+                walk(body, out);
+            }
+        }
+    }
+    let mut json_params: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(a1) {
+        fn_params_json(&v, &mut json_params);
+    }
+    let mut out_scopes = Vec::new();
+    // vetoes only bite on int kinds (Go bans `intTyped`; floats/strings
+    // are never C-typed from this verdict — float is its own domain)
+    let is_int_kind = |n: &String| matches!(
+        vt.get(n).map(String::as_str),
+        Some("int" | "int32" | "int64" | "uint32" | "uint64")
+    );
+    for scope in &scopes {
+        let params = json_params.get(&scope.name).cloned().unwrap_or_default();
+        // subs carry params in-IR; top-level Function nodes via the A1
+        let params = if params.is_empty() {
+            prog.subs
+                .iter()
+                .find(|s| s.name == scope.name)
+                .map(|s| s.params.clone())
+                .unwrap_or_default()
+        } else {
+            params
+        };
+        let mut vars = serde_json::Map::new();
+        let mut names: Vec<&String> = scope.assigned.iter().collect();
+        names.sort();
+        for n in names {
+            let ty = vt.get(n).cloned().unwrap_or_else(|| "any".to_string());
+            let range = scope
+                .ranges
+                .get(n)
+                .map(|(lo, hi)| vec![lo.to_string(), hi.to_string()]);
+            let width = scope.widths.get(n).cloned();
+            let bigint = homed.contains(n) || i53.contains(n);
+            let vetoed = scope.vetoed.contains(n) && is_int_kind(n);
+            vars.insert(
+                (*n).clone(),
+                serde_json::json!({
+                    "type": ty,
+                    "range": range,
+                    "width": width,
+                    "bigint": bigint,
+                    "vetoed": vetoed,
+                }),
+            );
+        }
+        let mut assigned_sorted = scope.assigned.clone();
+        assigned_sorted.sort();
+        out_scopes.push(serde_json::json!({
+            "name": scope.name,
+            "assigned": assigned_sorted,
+            "params": params,
+            "vars": vars,
+        }));
+    }
+    Ok(serde_json::json!({
+        "mode": if python { "python" } else { "bash" },
+        "scopes": out_scopes,
+    })
+    .to_string())
+}
+
 pub fn render(a1: &str, lang: &str) -> Result<String, String> {
     let (prog, kind) = ingest(a1, lang)?;
     let target = match kind.as_str() {
@@ -529,6 +671,9 @@ pub fn cli_at(
     let mut do_library = false;
     let mut embed = false;
     let mut literal = false;
+    // --analyze: dump static-analysis facts as JSON (py2cy.js input).
+    // None = off; Some(true) = Python reading, Some(false) = bash.
+    let mut analyze: Option<bool> = None;
     let mut raw = false;
     let mut embed_opts = EmbedOpts::default();
     let mut positional: Vec<String> = Vec::new();
@@ -566,6 +711,10 @@ pub fn cli_at(
                 force_tgt = "perl".into();
             }
             "--literal" => literal = true,
+            "--analyze" => analyze = Some(true),
+            s if s == "--analyze=bash" || s == "--analyze=python" => {
+                analyze = Some(s == "--analyze=python");
+            }
             "--scope-vars" => {
                 if i + 1 < args.len() {
                     embed_opts.host_scope = args[i + 1]
@@ -773,6 +922,26 @@ pub fn cli_at(
             }
         };
         return write_out(stdout, stderr, &output, a1.as_bytes());
+    }
+
+    if let Some(python) = analyze {
+        // static-analysis facts as JSON: A1 in (frontend contract —
+        // py-sh-go --shir --raw for Python), facts out. Stdout stays
+        // JSON-clean; diagnostics go to stderr.
+        let a1 = match shir_from(root, &input, &src_lang) {
+            Ok(a1) => a1,
+            Err(e) => {
+                let _ = writeln!(stderr, "otranspiler: {e}");
+                return 1;
+            }
+        };
+        return match crate::analyze(&a1, python) {
+            Ok(facts) => write_out(stdout, stderr, &output, facts.as_bytes()),
+            Err(e) => {
+                let _ = writeln!(stderr, "otranspiler: {e}");
+                1
+            }
+        };
     }
 
     // ESTree parity with the OLD CLI's DIRECT path: the corpus baseline
@@ -1225,6 +1394,37 @@ mod tests {
 
     fn embed(args: &[&str]) -> (i32, String, String) {
         cli_captured(&root(), &args.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn analyze_json_shape() {
+        // shell source -> A1 -> facts: scopes, types, ranges, widths
+        let a1 = shell_to_shir("x=5\ny=$((x + 1))\necho $y");
+        let facts = analyze(&a1, false).expect("analyze");
+        let v: serde_json::Value = serde_json::from_str(&facts).expect("json");
+        assert_eq!(v["mode"], "bash");
+        let scopes = v["scopes"].as_array().expect("scopes");
+        assert_eq!(scopes.len(), 1);
+        assert_eq!(scopes[0]["name"], "<top>");
+        let vars = &scopes[0]["vars"];
+        assert_eq!(vars["x"]["type"], "int");
+        assert_eq!(vars["x"]["range"], serde_json::json!(["5", "5"]));
+        assert_eq!(vars["x"]["width"], "i32");
+        assert_eq!(vars["y"]["type"], "int");
+        assert!(!vars["y"]["vetoed"].as_bool().unwrap(), "5+1 is safe");
+    }
+
+    #[test]
+    fn analyze_vetoes_overflow() {
+        // bash wrap is exact, but python mode quarantines narrow claims
+        // over inexactly-evaluable RHS (wrap artifacts)
+        let a1 = shell_to_shir("big=$((2**100))\necho $big");
+        let py = analyze(&a1, true).expect("analyze");
+        let v: serde_json::Value = serde_json::from_str(&py).expect("json");
+        assert!(v["scopes"][0]["vars"]["big"]["vetoed"].as_bool().unwrap());
+        let sh = analyze(&a1, false).expect("analyze");
+        let w: serde_json::Value = serde_json::from_str(&sh).expect("json");
+        assert!(!w["scopes"][0]["vars"]["big"]["vetoed"].as_bool().unwrap());
     }
 
     #[test]
