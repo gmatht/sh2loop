@@ -195,6 +195,27 @@ pub extern "C" fn otranspilerl_shir_opt(
     }
 }
 
+/// `otranspilerl_analyze(a1, a1_len, mode, mode_len)` — static-analysis
+/// facts for annotation consumers (py2cy.js): per-scope variable facts
+/// from the Rust core analyses, as JSON. `mode` is `"python"` for the
+/// Python reading (floor `%`/`//`, unbounded ints with the wrap-poison
+/// quarantine) and anything else (`"bash"`) for the bash reading
+/// (wrapping i64, truncating `%`, no quarantine).
+#[no_mangle]
+pub extern "C" fn otranspilerl_analyze(
+    a1: *const u8,
+    a1_len: usize,
+    mode: *const u8,
+    mode_len: usize,
+) -> *mut u8 {
+    let a1 = take_input(a1, a1_len);
+    let mode = take_input(mode, mode_len);
+    match crate::analyze(&a1, mode.as_str() == "python") {
+        Ok(out) => alloc_string(&ok_json(&out)),
+        Err(e) => alloc_string(&err_json(&e)),
+    }
+}
+
 /// `otranspilerl_transpile(input, input_len, src_lang, src_lang_len,
 /// tgt_lang, tgt_lang_len)` — shell (or A1) source → target source. Only
 /// the in-process languages (`sh`, `shir`) are wired here; the others
