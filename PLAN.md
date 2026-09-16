@@ -12,6 +12,22 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v45: **Go stops misdeclaring module globals a function big-assigns.**
+>   v44's known divergence is closed from the Go side: nested `global`
+>   writes are module writes the module proof cannot see (interval env
+>   and width stop at scope boundaries), so `x = 0` plus
+>   `global x; x = 2**100` printed 0 under Cython. `vetGlobalWrites`
+>   (frontends `autocython_ranges.go`, hooked in `AnnotateCython`)
+>   keeps a module declaration only when every escaping write preserves
+>   it — text RHS re-verified for storage width via `evalText`,
+>   for-targets (missed by every kill-set, at both levels) prove elements
+>   from range bounds and int/float-list literals, unmodellable forms
+>   (`with`/`except`/`del`/`import`/`match`/def names) veto outright.
+>   Narrow escapes keep working (`x = 5`, `for x in range(10)`);
+>   function-level `nonlocal` never misdeclared and is untouched; zero
+>   declare changes across 80 real-world files. Pinned by
+>   `globalveto_test.go` (9 cases) and 8 `semantics-parity.sh` oracles
+>   (3 failed before, 35 pass now). Submodule 99c2c1b4.
 > - v44: **py2cy.js on Rust analysis + `otranspilerl --analyze` surface.**
 >   New shared core analyses (all additive in `sh2perl/src/shir.rs`):
 >   `arith_range_exact` (unbounded-int reading — overflow/div-zero/unknown
