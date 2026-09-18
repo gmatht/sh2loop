@@ -9963,9 +9963,22 @@ function expandBraceNested(items) {
     if (typeof it === 'string') out.push(it);
     else if (it && Array.isArray(it.range)) out.push(...braceRange(it.range));
     else if (it && Array.isArray(it.nested)) out.push(...expandBraceNested(it.nested));
+    else if (it && Array.isArray(it.product)) out.push(...expandBraceProduct(it.product));
     else if (Array.isArray(it)) out.push(...expandBraceNested(it));
   }
   return out;
+}
+// A `{product:[g0,g1,…]}` Compound alternative: the cartesian
+// concatenation of the sub-groups (`x/{p,q}` → `x/p`, `x/q`).
+function expandBraceProduct(subs) {
+  let combos = [''];
+  for (const g of subs ?? []) {
+    const alts = expandBraceGroup(g);
+    const next = [];
+    for (const c of combos) for (const a of alts) next.push(c + a);
+    combos = next;
+  }
+  return combos;
 }
 function expandBraceGroup(g) {
   // bash: a range inside a comma-separated group stays LITERAL
@@ -9980,6 +9993,7 @@ function expandBraceGroup(g) {
       else out.push(it.range.slice(0, 2).join('..'));
     }
     else if (it && Array.isArray(it.nested)) out.push(...expandBraceNested(it.nested));
+    else if (it && Array.isArray(it.product)) out.push(...expandBraceProduct(it.product));
     else if (Array.isArray(it)) out.push(...expandBraceNested(it));
   }
   return out;
