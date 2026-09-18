@@ -364,6 +364,20 @@ fn ingest(a1: &str, lang: &str) -> Result<(debashl::ir::IrProgram, String), Stri
         {
             use debashl::shir_passes::Transform;
             let ctx = debashl::shir_passes::PassContext::default();
+            // -Os size fold: `1 + 2` -> `3` (a no-op at the -Og default).
+            // Run before EchoFold so a folded constant can also fold the
+            // echo (`print(1+2)` -> `print!("3")`).
+            debashl::shir_passes::transform::ConstantFold.run(&mut prog, &ctx);
+            if debashl::shir::size_opt_enabled() {
+                // Propagate single-site const values so `print(x)` with
+                // `x = 1 + 2` folds too. `const_prop` consults
+                // `prog.var_const`, so attach the verdicts first.
+                prog.var_const = debashl::shir::analyze_var_const(&prog)
+                    .into_iter()
+                    .filter(|(_, k)| matches!(k, debashl::ir::VarKind::Const))
+                    .collect();
+                debashl::shir_passes::optimize::const_prop(&mut prog);
+            }
             debashl::shir_passes::echo_fold::EchoFold.run(&mut prog, &ctx);
         }
     }
@@ -799,6 +813,9 @@ const USAGE: &str = "otranspiler <input> [<output>] [flags]
   -O0               no optimization (faithful, verbose: true64 BigInt)
   -Og               human-readable output (DEFAULT): plain JS Number
                     arithmetic, no BigInt wrapping, no dual loops
+  -Os               like -Og but size-oriented: constant-fold literal
+                    arithmetic (`1 + 2` -> `3`); the output no longer
+                    mirrors the input expression-for-expression
   -O3               normal speed optimizations: i53/BigInt dual loops on
                     JS (fast Number arm + exact BigInt arm), i64 hot
                     accumulator chains homed in BigInt64Array slots
@@ -831,6 +848,7 @@ pub fn cli_at(
     enum OptLevel {
         O0,
         Og,
+        Os,
         O3,
         O4,
     }
@@ -900,6 +918,7 @@ pub fn cli_at(
             }
             "-O0" => opt_level = Some(OptLevel::O0),
             "-Og" => opt_level = Some(OptLevel::Og),
+            "-Os" => opt_level = Some(OptLevel::Os),
             "-O3" => opt_level = Some(OptLevel::O3),
             "-O4" => opt_level = Some(OptLevel::O4),
             "--source-lang" => {
@@ -949,6 +968,16 @@ pub fn cli_at(
                 debashl::shir::set_dual_loops(Some(false));
                 debashl::shir::set_slots_enabled(false);
                 debashl::shir::set_split_sets(Some(false));
+                debashl::shir::set_size_opt(false);
+            }
+            OptLevel::Os => {
+                // size: like -Og (readable arithmetic, no BigInt/slots)
+                // but allow the shrinking constant fold (`1 + 2` → `3`).
+                debashl::shir::set_true64(false);
+                debashl::shir::set_dual_loops(Some(false));
+                debashl::shir::set_slots_enabled(false);
+                debashl::shir::set_split_sets(Some(false));
+                debashl::shir::set_size_opt(true);
             }
             OptLevel::O3 | OptLevel::O4 => {
                 // normal speed: i53/BigInt dual loops on JS (fast Number
@@ -960,6 +989,9 @@ pub fn cli_at(
                 debashl::shir::set_dual_loops(Some(true));
                 debashl::shir::set_slots_enabled(true);
                 debashl::shir::set_split_sets(Some(true));
+                // -O3/-O4 are speed levels; they accept the shrinking
+                // literal fold too (a folded constant is never slower).
+                debashl::shir::set_size_opt(true);
             }
         }
         // -O4 adds autoshaderization (JS target only): compute loops are
