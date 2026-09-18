@@ -354,6 +354,18 @@ fn ingest(a1: &str, lang: &str) -> Result<(debashl::ir::IrProgram, String), Stri
         // rich nodes (C-style ForInit) → the shell-flavored A1 the renderers
         // expect; a survivor means this pipeline forgot the strip.
         debashl::shir_passes::strip_cfor(&mut prog);
+        // Constant-echo lowering: `echo <literals>` → native
+        // `IrStmt::Output`, so every backend emits its host language's
+        // print instead of a runtime word-printing helper
+        // (`__sh_print_words` / `sh2.printWords`). Skips the ESTREE
+        // target for the same reason as the passes above: its emitter
+        // handles the exec-call form natively and its direct-path
+        // output must stay unchanged.
+        {
+            use debashl::shir_passes::Transform;
+            let ctx = debashl::shir_passes::PassContext::default();
+            debashl::shir_passes::echo_fold::EchoFold.run(&mut prog, &ctx);
+        }
     }
     Ok((prog, kind))
 }
@@ -585,10 +597,18 @@ pub fn analyze(a1: &str, python: bool) -> Result<String, String> {
         names.sort();
         for n in names {
             let ty = vt.get(n).cloned().unwrap_or_else(|| "any".to_string());
+            // exact decimals prefer the BigInt walk (the i128 walk wraps
+            // past i64 — decimal strings carry any magnitude)
             let range = scope
-                .ranges
+                .bigranges
                 .get(n)
-                .map(|(lo, hi)| vec![lo.to_string(), hi.to_string()]);
+                .map(|(lo, hi)| vec![lo.to_string(), hi.to_string()])
+                .or_else(|| {
+                    scope
+                        .ranges
+                        .get(n)
+                        .map(|(lo, hi)| vec![lo.to_string(), hi.to_string()])
+                });
             let width = scope.widths.get(n).cloned();
             let bigint = homed.contains(n) || i53.contains(n);
             let vetoed = scope.vetoed.contains(n) && is_int_kind(n);
