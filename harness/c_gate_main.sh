@@ -101,9 +101,15 @@ run_one() {
   # renderer, not the harness. (Lowercase $tmp must never be exported:
   # test envs leak into the scripts under test; see BASHC_FIX §2.1.)
   cc $UU_INC "$d/prog.c" $CLIBS $UU_LIBS -o "$d/bin" 2>"$d/ccerr" || { echo "FAIL $f cc" > "$d/v"; return; }
-  (cd "$d/w" && timeout 15 bash -c 'exec -a "$0" '"$d/bin" "$f" > "$d/.out" 2>/dev/null); eq_exit=$?
+  # BASH_ENV: a non-interactive bash sources $BASH_ENV, so a developer
+  # environment that defines shell FUNCTIONS there (e.g. PIR's grep→rg
+  # wrapper) makes the reference run use those functions while the
+  # transpiled program's native pipeline execs the real binary — a
+  # harness artifact, not a shell-semantics difference. Neutralize it for
+  # BOTH sides so the gate measures the translator, not the dev shim.
+  (cd "$d/w" && env -u BASH_ENV timeout 15 bash -c 'exec -a "$0" '"$d/bin" "$f" > "$d/.out" 2>/dev/null); eq_exit=$?
   bash_rc=0
-  (cd "$d/w" && timeout 15 bash "$f" > "$d/.ref" 2>/dev/null) || bash_rc=$?
+  (cd "$d/w" && env -u BASH_ENV timeout 15 bash "$f" > "$d/.ref" 2>/dev/null) || bash_rc=$?
   verdict=FAIL
   # exit codes must AGREE (not merely be zero — t83_exit exits 3 on both
   # sides); a 124 (timeout) on either side fails unconditionally.
@@ -127,9 +133,9 @@ run_one() {
     if $SANITIZE_CC $SAN_FLAGS $UU_INC "$d/prog.c" $CLIBS $UU_LIBS -o "$d/bin_san" 2>"$d/sanccerr"; then
       san_exit=1
       if [ "$SANITIZE" = thread ]; then
-        (cd "$d/w" && TSAN_OPTIONS=halt_on_error=1:exitcode=99 timeout 30 "$d/bin_san" > "$d/.sanout" 2>"$d/.sanerr") && san_exit=0 || san_exit=$?
+        (cd "$d/w" && env -u BASH_ENV TSAN_OPTIONS=halt_on_error=1:exitcode=99 timeout 30 "$d/bin_san" > "$d/.sanout" 2>"$d/.sanerr") && san_exit=0 || san_exit=$?
       else
-        (cd "$d/w" && ASAN_OPTIONS=strict_string_checks=1:detect_stack_use_after_return=1:detect_leaks=1 \
+        (cd "$d/w" && env -u BASH_ENV ASAN_OPTIONS=strict_string_checks=1:detect_stack_use_after_return=1:detect_leaks=1 \
         UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
         timeout 30 "$d/bin_san" > "$d/.sanout" 2>"$d/.sanerr") && san_exit=0 || san_exit=$?
       fi
