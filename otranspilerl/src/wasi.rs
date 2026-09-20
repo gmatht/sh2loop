@@ -233,13 +233,13 @@ pub extern "C" fn otranspilerl_transpile(
     let src_lang = take_input(src_lang, src_lang_len);
     let tgt_lang = take_input(tgt_lang, tgt_lang_len);
     match src_lang.as_str() {
-        "shir" => match crate::render(&input, &tgt_lang) {
+        "shir" => match crate::render_with_source(&input, &tgt_lang, Some(&src_lang)) {
             Ok(out) => alloc_string(&ok_json(&out)),
             Err(e) => alloc_string(&err_json(&e)),
         },
         "sh" | "" => {
             let a1 = crate::shell_to_shir(&input);
-            match crate::render(&a1, &tgt_lang) {
+            match crate::render_with_source(&a1, &tgt_lang, Some(&src_lang)) {
                 Ok(out) => alloc_string(&ok_json(&out)),
                 Err(e) => alloc_string(&err_json(&e)),
             }

@@ -697,6 +697,22 @@ pub fn analyze(a1: &str, python: bool) -> Result<String, String> {
 }
 
 pub fn render(a1: &str, lang: &str) -> Result<String, String> {
+    render_with_source(a1, lang, None)
+}
+
+/// [`render`] with the SOURCE language recorded — the pipeline's answer
+/// to "what was this A1 lowered from?". A backend that carries a shell
+/// exit-status register suppresses it when the source language has no
+/// `$?` (see `debashl::shir::source_has_exit_status`); `None` keeps the
+/// shell default, so every existing caller is unchanged.
+pub fn render_with_source(a1: &str, lang: &str, src_lang: Option<&str>) -> Result<String, String> {
+    debashl::shir::set_source_lang(src_lang);
+    let r = render_ingested(a1, lang);
+    debashl::shir::set_source_lang(None);
+    r
+}
+
+fn render_ingested(a1: &str, lang: &str) -> Result<String, String> {
     let (prog, kind) = ingest(a1, lang)?;
     let target = match kind.as_str() {
         "estree" => {
@@ -794,7 +810,7 @@ pub fn shir_from(root: &Path, src: &str, src_lang: &str) -> Result<String, Strin
 /// Full pipeline: source file → A1 → target source.
 pub fn transpile(root: &Path, src: &str, src_lang: &str, tgt_lang: &str) -> Result<String, String> {
     let a1 = shir_from(root, src, src_lang)?;
-    render(&a1, tgt_lang)
+    render_with_source(&a1, tgt_lang, Some(src_lang))
 }
 
 // ── CLI ───────────────────────────────────────────────────────────────
@@ -1256,7 +1272,7 @@ pub fn cli_at(
     } else {
         false
     };
-    let out = match render(&a1, &tgt_lang) {
+    let out = match render_with_source(&a1, &tgt_lang, Some(&src_lang)) {
         Ok(out) => out,
         Err(e) => {
             let _ = writeln!(stderr, "otranspiler: {e}");
