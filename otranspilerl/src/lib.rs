@@ -219,6 +219,32 @@ pub fn parse_error_estree_fallback() -> String {
     r#"{"type":"Program","sourceType":"module","body":[{"type":"ExpressionStatement","expression":{"type":"CallExpression","callee":{"type":"MemberExpression","object":{"type":"Identifier","name":"process"},"property":{"type":"Identifier","name":"exit"},"computed":false,"optional":false},"arguments":[{"type":"Literal","value":2,"raw":"2"}],"optional":false}}]}"#.to_string()
 }
 
+/// The parse-error Perl fallback: a program that exits 2, matching bash's
+/// syntax-error verdict (the plain empty program exits 0 — the gate's
+/// "exit code (bash=2 perl=0)" failures on parse-double-semicolon.sh,
+/// parse-unexpected-end-of-input.sh, …). The diagnostic goes to stderr
+/// the way bash prints it, so stdout stays empty for both sides.
+pub fn parse_error_perl_fallback(msg: &str) -> String {
+    // The message goes into a double-quoted Perl string: escape the
+    // backslash FIRST, then every character Perl would interpolate
+    // (quotes, `$`, `@`, backticks) — a raw `` ` `` in the parser's
+    // "unterminated `${`" message otherwise swallows the rest of the file.
+    let msg = msg
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('$', "\\$")
+        .replace('@', "\\@")
+        .replace('`', "\\`")
+        .replace('\n', "\\n");
+    format!(
+        "#!/usr/bin/env perl\n\
+         use strict;\n\
+         use warnings;\n\
+         print STDERR \"syntax error: {msg}\\n\";\n\
+         exit 2;\n"
+    )
+}
+
 /// A1 shIR JSON → target source, entirely in-process. `lang` is the bare
 /// target name (`c`, `js`, `pl`, `sh`, `go`, `rs`, `zig`, `java`, `py`,
 /// `shir`, or the backend kind `estree`/`perl`/`python`/`rust`); a leading
@@ -1201,6 +1227,21 @@ pub fn cli_at(
                     stderr,
                     &output,
                     parse_error_estree_fallback().as_bytes(),
+                );
+            }
+        }
+    }
+    // The same parity for the Perl backend: bash exits 2 on a syntax error,
+    // so an unparseable source must not render the silent empty program
+    // (which exits 0 — the gate's "exit code (bash=2 perl=0)" verdicts).
+    if (tgt_lang == "pl" || tgt_lang == "perl") && src_lang == "sh" {
+        if let Ok(content) = read_source(&input) {
+            if let Err(e) = debashl::Parser::new(&content).parse() {
+                return write_out(
+                    stdout,
+                    stderr,
+                    &output,
+                    parse_error_perl_fallback(&e.to_string()).as_bytes(),
                 );
             }
         }
