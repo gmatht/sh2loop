@@ -29,19 +29,28 @@ zig `var x: []const u8` + `x.len == 0`, py `x = ""` + `not x`, js `let x = ""` +
 
 ## Root cause (found, verified)
 
-The py frontend lowers `if not x:` to a `test` Call whose operand spelling lives in
-the **arg TEXT**: `test("-z \"$x\"")`. `analyze_var_borrowable`'s expression walk
-(`shir.rs`) had no arm for `IrExpr::Str`, so the `$x` reference inside that text never
-registered as a read. The verdict therefore withheld (`read` was empty) and `x` stayed
-an owned `thread_local`.
+**Three** gates each have to open, in this order. The first one alone is not enough —
+which is why an earlier attempt at the analysis fix appeared to "do nothing".
 
-Verified with a direct probe: `analyze_var_const` → `[("x", Const)]` but
-`analyze_var_borrowable` → `{}`, with `read={}` in the walk's accumulator.
+1. **`analyze_var_borrowable` never saw the read.** The py frontend lowers `if not x:`
+   to a `test` Call whose operand spelling lives in the **arg TEXT**
+   (`test("-z \"$x\"")`). The expression walk (`shir.rs`) had no arm for `IrExpr::Str`,
+   so the `$x` inside that text never registered as a read; the accumulator showed
+   `read={}` and the verdict withheld.
+   Probe: `analyze_var_const` → `[("x", Const)]` but `analyze_var_borrowable` → `{}`.
 
-## The fix that works for t27 — and why it was NOT landed
+2. **`compute_local_vars` refused `x` as risky.** With the read registered,
+   `use_scopes` returned `risky: true` for it, because `test` is not in
+   `list_profile::scopes::is_inline_call` — the scope walk treats an unknown call as a
+   possible file-scope helper that would *capture* the argument. `local_scope` rejects
+   any name with a risky use, so `locals=[]` and `x` stayed a thread_local even though
+   the borrow verdict now named it.
 
-Adding the missing arm (`IrExpr::Str` → `dollar_vars()` mentions) makes the verdict
-report `x`, and t27 becomes:
+3. **The interpolator wrapped the operand.** `-z "$x"` renders through
+   `dollar_interp`, which emits `format!("{}", <read>)` for the `$x` part; with the
+   whole word being one part that is the identity, leaving `format!("{}", x).is_empty()`.
+
+Opening all three gives the target output:
 
 ```rust
 fn main() {
@@ -53,23 +62,32 @@ fn main() {
 }
 ```
 
-(also needs two renderer-side pieces: a `format!("{}", X)` → `X` identity strip for the
-interpolated `-z` operand, and treating `test`/`not` as inline calls in
-`list_profile::scopes::is_inline_call` so the read is not marked risky.)
+## The fix that works for t27 — and why it was NOT landed
 
-**It regresses the corpus, so it was reverted.** Making these variables locals changes
-which renderer paths run and exposes latent bugs in the pass-2 local machinery:
+All three pieces together make t27 idiomatic. **It regresses the corpus, so it was
+reverted.** Making these variables locals changes which renderer paths run and exposes
+latent bugs in the pass-2 local machinery and its neighbours:
 
-| Regression | Cause |
-|---|---|
-| `bench-increment.sh` | `let __n` emitted without `mut` (E0384: cannot assign twice to an immutable variable) |
-| `055_factorize.sh` | a nested `if` branch re-declares `let mut factors`, shadowing the function-top binding |
-| `parse-glob-question-in-arg.sh` | `mismatched types: expected String, found &str` |
-| `parse-test-with-source.sh` | `main function not found in crate` |
+| Regression | Cause | Status |
+|---|---|---|
+| `bench-increment.sh` | the arith-status path emits `let __n = if __SH_ARITH_ERR…` **unconditionally**; when `__n` is *also* a user variable (this test's loop counter) it shadows it, and the rebind is immutable (E0384) | **diagnosed, fix known**: gensym that binding (`__n` → `__n8`) — verified to fix the test |
+| `055_factorize.sh` | a nested `if` re-declares `let mut factors` instead of assigning, shadowing the function-top binding | open — the function-top `factors=""` never reaches `local_write_stmt` at all (see below) |
+| `parse-glob-question-in-arg.sh` | `mismatched types: expected String, found &str` | open |
+| `parse-test-with-source.sh` | `main function not found in crate` | open |
+| `061_test_local_names_preserved.sh`, `parse-error-export-empty.sh`, `typeset-cmdsub.sh` | further fallout once the extra names become locals | open |
 
-Differential gate: baseline **PASS=500 / FAIL=48**; with the walk fix **496 / 52**.
-So the fix is correct in isolation but must land together with the pass-2 local repair
-(see below), not before it.
+Differential gate: baseline **PASS=500 / FAIL=48**; with all three pieces **494 / 54**.
+
+### The `055` puzzle (worth reading before attempting this)
+
+Seeding the owner set correctly (`owned={"factors","n"}` for the body, confirmed by
+trace) is *not* sufficient, and the reason is instructive: instrumenting
+`local_write_stmt` shows that for `factors` it is called **only** at depth 4 and 5 —
+the nested writes. The function-top `factors=""` never goes through it, even though
+the emitted text contains `let mut factors = "".to_string();` at the right place.
+So the function's leading assignments are rendered by a path other than
+`Assign → write_str → local_write_stmt`, and any owner-seeding scheme that assumes
+otherwise will mark the wrong statement. **That path must be found first.**
 
 ## The prerequisite: pass-2 deferred `let` ownership
 
