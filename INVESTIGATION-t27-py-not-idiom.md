@@ -124,3 +124,24 @@ Saved WIP for that follow-up (not committed):
 * `/tmp/wip_now.rs`      — rust_backend.rs with the identity-strip + seeding sketch
 * `/tmp/wip_shir.rs`     — shir.rs with the `IrExpr::Str` walk arm
 * `/tmp/wip_scopes.rs`   — scopes.rs with `test`/`not` as inline calls
+
+## Acceptance test
+
+`harness/py-idiom-gate.sh` renders selected py-sh-go programs to Rust and asserts
+local-variable shapes (must-absent + must-present regex per case). It exists because
+**the bash corpus never exercises the py frontend** — `./fail` is 100% `.sh`, so t27's
+shape was untested either way.
+
+Current: **3/5**. The two failures are exactly this follow-up:
+
+```
+FAIL t27_not_expr: non-idiomatic (matched /thread_local/):
+    thread_local! { … static __SHV_x: RefCell<String> … }
+FAIL t27_not_expr: non-idiomatic (matched /\.borrow\(\)\.clone\(\)/):
+    if format!("{}", __SHV_x.with(|v| v.borrow().clone())).is_empty() {
+```
+
+The three passing cases pin what is already landed: t26's constant-RHS compare (no
+`__sh_glob_like`/`__sh_fnmatch`, no allocation) and t25/t24 rendering py variables as
+plain locals. **A fix for this investigation must move the gate to 5/5** while keeping
+the differential Rust-vs-bash gate at `PASS >= 500`.
