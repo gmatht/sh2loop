@@ -367,6 +367,12 @@ fn ingest(a1: &str, lang: &str) -> Result<(debashl::ir::IrProgram, String), Stri
     debashl::transforms::counted_arith_forinit::transform(&mut prog.stmts);
     debashl::transforms::append_to_store::transform(&mut prog.stmts);
     debashl::transforms::fuse_fill_consume::transform(&mut prog.stmts);
+    //   else-if-flatten — an `else` whose ONLY statement is an `If` IS an
+    //     `elif`. Frontends differ here (the sh frontend fills `elsifs`;
+    //     the py/c lowering nests the whole chain inside `else`), and every
+    //     renderer emits the chain shape from `elsifs`, so normalise it
+    //     once. Purely structural and semantics-free.
+    debashl::transforms::else_if_flatten::transform(&mut prog.stmts);
     // A1 ingress: restructure Label/Goto into structured flow (the shared
     // pass — the CLI's --shir-in-estree/--shir-in-perl run the same
     // restructure_goto_only; without it frontend A1 carrying C `goto`
