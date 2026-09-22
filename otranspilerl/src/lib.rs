@@ -373,6 +373,15 @@ fn ingest(a1: &str, lang: &str) -> Result<(debashl::ir::IrProgram, String), Stri
     //     renderer emits the chain shape from `elsifs`, so normalise it
     //     once. Purely structural and semantics-free.
     debashl::transforms::else_if_flatten::transform(&mut prog.stmts);
+    // const-capture-fold: a command substitution whose body is exactly one
+    // constant `echo` folds to the string literal (`x = $(echo hi)` →
+    // `x = "hi"`), so the backend emits the value instead of building an
+    // output-buffer capture block. Both spellings fire: the lowered
+    // `Output` form and the frontend's `exec(echo, [literals])` form
+    // (py-sh-go's `subprocess.run([…], capture_output=True).stdout.strip()`,
+    // t33/t34). Refuse-on-doubt: any variable word, flag, redirect or
+    // extra statement vetoes.
+    debashl::transforms::const_capture_fold::transform(&mut prog.stmts);
     // A1 ingress: restructure Label/Goto into structured flow (the shared
     // pass — the CLI's --shir-in-estree/--shir-in-perl run the same
     // restructure_goto_only; without it frontend A1 carrying C `goto`

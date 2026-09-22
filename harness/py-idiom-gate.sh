@@ -82,6 +82,18 @@ check t28_and_or '\.to_string\(\)' ''
 # the Rust keeps the expression form: `let y = if x > 0 { "yes" } else { "no" }`.
 check t30_ternary 'thread_local' 'let y = if x > 0'
 check t30_ternary '\.to_string\(\)' ''
+check t30_ternary '__SHV_' ''
+
+# ── an `elif` chain stays a chain ──
+# The py lowering nests `elif` inside `else`; the shared else-if-flatten
+# transform turns it back into `elsifs`, which every renderer emits as the
+# chain form (Rust: `} else if c {`, not `} else { if c {`).
+# (the absent-pattern needs no brace: `grep -E` treats `{` as a quantifier
+# opener outside a group, so a literal brace would need escaping)
+check t31_case_switch '^        if x == 2' 'else if x == 2'
+check t31_case_switch 'thread_local' ''
+# a NUMERIC ternary takes numeric arms (`a`, not the stringified arith wrap)
+check t28_and_or 'thread_local' ''
 # a status-free source strips every trailing `__SH_RC.store(0, …)`; the
 # emptied line is a REMOVED statement, not a blank separator (the t28 shape
 # used to render `let a = …;\n\nlet b = …;\n\nif …`)
@@ -91,6 +103,19 @@ check t28_and_or '^$' 'fn main'
 # t29's `x += 1`: the Int local is declared `: i64`, so the added literal
 # needs no widening suffix (`x + 1`, not `x + 1i64`).
 check t29_increment '1i64' 'let mut x: i64 = 1;'
+
+# ── a constant capture is the value, not an output-buffer block ──
+# t33/t34: `subprocess.run(["echo", "hi"], capture_output=True).stdout.strip()`
+# is one literal echo, so the capture folds to a string.
+check t34_cmdsub '__SH_OUT|__cap|__sh_puts' 'let x = "hi";'
+check t33_pipe '__SH_OUT|__cap|__sh_puts' 'let out = "hello";'
+
+# ── a name-argument read makes the local borrowable ──
+# t37/t38: the operand of `s[1:3]` / `len(s)` is a NAME string in the
+# call (`param("slice", "s", …)`); recognising it as a read lets `s` bind
+# as a `&str` instead of an owned String with a `.clone()` per use.
+check t37_substring 'to_string\(\)|&s\.clone\(\)' '__sh_substr\(&s,'
+check t38_strlen 'to_string\(\)' '__sh_len\(&s\)'
 
 echo "py-idiom-gate: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
