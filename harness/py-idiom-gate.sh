@@ -132,5 +132,22 @@ check t41_local_var '\{ f\(\); \}' '^    f\(\);$'
 check t52_full_prog '' '__cap'
 check t52_full_prog 'fn main\(\) \{\n\n' 'greet\('
 
+# ── loops read like the source ──
+# t40: nested `for i in [1, 2]: for j in [1, 2]:` — the loop vars keep
+# their source names and an all-integer list is an int list, not a
+# per-element parse of `["1", "2"]`.
+check t40_nested_loop '__sh_lv|\.parse::<i64>\(\)' 'for i in \[1, 2\]'
+check t40_nested_loop '__SHV_i|__SHV_j' 'for j in \[1, 2\]'
+# t71: `range(4)` is a native Rust range over the source name, with no
+# status static and no dead init store
+check t71_range_loop '__sh_lv|__SHV_i' 'for i in 0\.\.=3'
+
+# ── a numeric f-string part needs no to_string ──
+check t69_fstring 'x\.to_string\(\)' 'format!\("value=\{\}", x\)'
+
+# ── a simple glob is a stdlib string test ──
+# t68: `s.startswith("h")` must not pull in the fnmatch helper
+check t68_case_glob '__sh_fnmatch' '\.starts_with\("h"\)'
+
 echo "py-idiom-gate: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
