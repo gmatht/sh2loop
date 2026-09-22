@@ -67,5 +67,18 @@ check t26_str_cmp 'format!\(""|__sh_glob_like|__sh_fnmatch' 'if "a" == "a"'
 check t25_num_cmp 'thread_local' ''
 check t24_str_cat 'thread_local' ''
 
+# ── boolean `and`/`or`: locals, no status wrappers, no allocation ──
+# t28's `a = "a"; b = "b"; if a == "a" and b == "b":` — the RHS literal is a
+# comparison VALUE, so it must not be mistaken for a read of `a` (that would
+# block the local verdict), each `&&` operand's dead `{ let __b = … }`
+# status wrapper must go, and a borrowed read compares to a bare literal.
+check t28_and_or 'thread_local' 'let a = "a"'
+check t28_and_or 'let __b' 'a == "a" && b == "b"'
+check t28_and_or '\.to_string\(\)' ''
+# a status-free source strips every trailing `__SH_RC.store(0, …)`; the
+# emptied line is a REMOVED statement, not a blank separator (the t28 shape
+# used to render `let a = …;\n\nlet b = …;\n\nif …`)
+check t28_and_or '^$' 'fn main'
+
 echo "py-idiom-gate: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
