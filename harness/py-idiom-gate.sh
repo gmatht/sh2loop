@@ -75,10 +75,22 @@ check t24_str_cat 'thread_local' ''
 check t28_and_or 'thread_local' 'let a = "a"'
 check t28_and_or 'let __b' 'a == "a" && b == "b"'
 check t28_and_or '\.to_string\(\)' ''
+
+# ── a ternary binds ONCE: `y = "yes" if x > 0 else "no"` ──
+# The frontends lower it to an `If` whose branches assign the same name. It is
+# one definition, not two writes, so the name is a local (and borrowable), and
+# the Rust keeps the expression form: `let y = if x > 0 { "yes" } else { "no" }`.
+check t30_ternary 'thread_local' 'let y = if x > 0'
+check t30_ternary '\.to_string\(\)' ''
 # a status-free source strips every trailing `__SH_RC.store(0, …)`; the
 # emptied line is a REMOVED statement, not a blank separator (the t28 shape
 # used to render `let a = …;\n\nlet b = …;\n\nif …`)
 check t28_and_or '^$' 'fn main'
+
+# ── arithmetic literals take their type from an i64-homed operand ──
+# t29's `x += 1`: the Int local is declared `: i64`, so the added literal
+# needs no widening suffix (`x + 1`, not `x + 1i64`).
+check t29_increment '1i64' 'let mut x: i64 = 1;'
 
 echo "py-idiom-gate: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
