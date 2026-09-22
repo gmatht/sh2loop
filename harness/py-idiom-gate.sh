@@ -117,5 +117,20 @@ check t33_pipe '__SH_OUT|__cap|__sh_puts' 'let out = "hello";'
 check t37_substring 'to_string\(\)|&s\.clone\(\)' '__sh_substr\(&s,'
 check t38_strlen 'to_string\(\)' '__sh_len\(&s\)'
 
+# ── a statement-position function call is bare, not block-wrapped ──
+# t41: `f()` was rendered `{ f(); }` — the braces exist only so the
+# expression form can carry a temporary or a trailing value.
+check t41_local_var '\{ f\(\); \}' '^    f\(\);$'
+
+# ── a call inside a capture writes to the CAPTURE, not to stdout ──
+# t52: `for n in names: print(greet(n))` — the call sits inside the
+# capture block, so the capture machinery MUST be present (if the sink
+# context were lost the callee would print straight to stdout, the
+# captured value would be empty, and the caller's print would add a
+# stray blank line). Assert the capture is there and the call is inside
+# it, and that the body has no blank line.
+check t52_full_prog '' '__cap'
+check t52_full_prog 'fn main\(\) \{\n\n' 'greet\('
+
 echo "py-idiom-gate: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
