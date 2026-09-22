@@ -156,6 +156,8 @@ sub run_one_test {
     # guarded fork/exec fallback still runs (both-mode parity checked in
     # runtime/tests/).
     local $ENV{SH2_UU_LIB} = "$root/sh2perl/runtime/lib/libcoreutils_ffi.so";
+    local $ENV{SH2_UU_PIPELINE_LIB} = "$root/sh2perl/runtime/lib/libcoreutils_ffi_pipeline.so";
+    local $ENV{UU_FFI_MULTICALL} = "$root/sh2perl/runtime/lib/coreutils-ffi-multicall";
 
     # Gate: reject the bash-wrapper fallback. When the parser cannot parse a
     # script it emits `system('bash', '<file>')` instead of real Perl
