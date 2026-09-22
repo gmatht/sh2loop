@@ -125,6 +125,44 @@ Saved WIP for that follow-up (not committed):
 * `/tmp/wip_shir.rs`     — shir.rs with the `IrExpr::Str` walk arm
 * `/tmp/wip_scopes.rs`   — scopes.rs with `test`/`not` as inline calls
 
+## RESOLVED (sh2perl 7fddb0100, workspace e7b39f65)
+
+All three gates were opened and the three latent bugs they exposed were fixed, so this
+investigation is closed. t27 now renders:
+
+```rust
+fn main() {
+    let x = "";
+
+    if x.is_empty() {
+        print!("empty\n");
+    }
+}
+```
+
+What the last mile required, beyond the analysis fixes:
+
+* **`decl_words` is a second declaration site.** `local x=""` reaches the renderer as
+  `Expr(Call(builtin, ["local", …]))` — **not** an `Assign` — and `decl_words` emitted the
+  `let` directly, bypassing the deferred-`let` bookkeeping. `local factors=""` followed by
+  `if …; then factors=…` therefore re-declared the binding inside the branch. Both sites
+  now consume the owner slot, seeded per scope by a render-order walk
+  (`mark_first_write`); `local_init` was inverted to hold the names whose declaration is
+  still OWED.
+* **The arith-status binding needed a gensym** (`let __n = …` shadowed a user `__n`).
+* **`${var:-}` needed type agreement** once a read became `&str` while the default stayed
+  `String`.
+* **`dynamic_var_names` missed the call form of `.`/`source`/`eval`** — they arrive as
+  `Expr(Call(builtin, …))`, not `Exec`, so a sourced script could write any name while
+  the analysis still reasoned statically. The renderer's own post-render guard caught
+  this (`pass-2 local leaked as static`), which is exactly what it is for.
+
+Verified: `./fail` 461/555, `check_ast` 22/22, `rust_backend::tests` 72, `py-idiom-gate`
+**5/5**, and the Rust-vs-bash differential gate PASS=499 with a failure set identical to
+baseline except `exitScript-after-test.sh` — a harness artifact (the gate's `exec -a
+p.sh` does not reach the label an internal shell prints in a "command not found"
+message; that test DIFFERs at baseline too).
+
 ## Acceptance test
 
 `harness/py-idiom-gate.sh` renders selected py-sh-go programs to Rust and asserts
