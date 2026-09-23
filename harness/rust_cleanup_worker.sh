@@ -57,6 +57,18 @@ find_to_string_candidates() {
     | head -20 || true
 }
 
+# Replace a specific line in a file. Args: $1=file, $2=line_number, $3=new_content
+# Uses Python for robust handling of special characters in replacement text.
+replace_line() {
+  python3 -c "
+import sys
+lines = open(sys.argv[1]).readlines()
+n = int(sys.argv[2]) - 1
+lines[n] = sys.argv[3] + chr(10)
+open(sys.argv[1], 'w').writelines(lines)
+" "$1" "$2" "$3"
+}
+
 # Try removing an i64 annotation. Args: $1=file, $2=line_number
 try_remove_i64() {
   local file="$1" line="$2"
@@ -69,14 +81,14 @@ try_remove_i64() {
     return 1  # nothing changed
   fi
   # Apply the change
-  sed -i "${line}s|.*|${modified}|" "$file"
+  replace_line "$file" "$line" "$modified"
   # Compile-check
   if cargo build --manifest-path "$SUB/Cargo.toml" --lib >> "$LOG" 2>&1; then
     echo "[$(date +%FT%T)] removed i64 from $file:$line" >> "$LOG"
     return 0
   else
     # Revert
-    sed -i "${line}s|.*|${original}|" "$file"
+    replace_line "$file" "$line" "$original"
     return 1
   fi
 }
@@ -92,12 +104,12 @@ try_remove_to_string() {
   if [ "$original" = "$modified" ]; then
     return 1  # nothing changed
   fi
-  sed -i "${line}s|.*|${modified}|" "$file"
+  replace_line "$file" "$line" "$modified"
   if cargo build --manifest-path "$SUB/Cargo.toml" --lib >> "$LOG" 2>&1; then
     echo "[$(date +%FT%T)] removed .to_string() from $file:$line" >> "$LOG"
     return 0
   else
-    sed -i "${line}s|.*|${original}|" "$file"
+    replace_line "$file" "$line" "$original"
     return 1
   fi
 }
