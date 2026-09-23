@@ -58,11 +58,17 @@ invoke_ai() {
     cmd)
       local args=(-p --no-session --yolo --model "$WORKER_MODEL" --output-format json --tools-all)
       [ -n "$WORKER_EFFORT" ] && args+=(--effort "$WORKER_EFFORT")
-      # cmd -p takes the query as an argument; read from file.
-      # For very large prompts, fall back to stdin if ARG_MAX is hit.
+      # Pass prompt via temp file expansion. For large prompts, cmd -p
+      # reads from stdin when no query argument is given.
       local query
       query=$(< "$prompt_file")
-      cmd "${args[@]}" "$query" >> "$log_file" 2>&1
+      # Check if query fits in ARG_MAX (leave 10KB headroom)
+      if [ ${#query} -gt 100000 ]; then
+        # Large prompt: pipe via stdin (cmd -p with no query arg reads stdin)
+        cmd "${args[@]}" < "$prompt_file" >> "$log_file" 2>&1
+      else
+        cmd "${args[@]}" "$query" >> "$log_file" 2>&1
+      fi
       ;;
     *)
       echo "[$(date +%FT%T)] ERROR: Unknown WORKER_CLI=$WORKER_CLI (expected pi|pir|cmd)" >> "$log_file"
@@ -75,10 +81,15 @@ invoke_ai() {
 # Invoke the configured AI CLI with exponential backoff on failure.
 # Args: $1=prompt_file, $2=log_file
 # Returns 0 on success, 1 after exhausting retries.
+# Checks context budget before invoking (truncates if too large).
 invoke_ai_with_backoff() {
   local prompt_file="$1" log_file="$2"
   local attempt=0
   local delay=$BACKOFF_BASE
+
+  # Context budget guard: truncate if prompt is too large for the model.
+  # Laguna has 256K context; cap input at 200K tokens (~800KB).
+  check_context_budget "$prompt_file" "$log_file" 200000 || true
 
   while [ $attempt -lt $BACKOFF_MAX_RETRIES ]; do
     if invoke_ai "$prompt_file" "$log_file"; then
