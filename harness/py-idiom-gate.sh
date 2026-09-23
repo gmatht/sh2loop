@@ -99,10 +99,10 @@ check t28_and_or 'thread_local' ''
 # used to render `let a = …;\n\nlet b = …;\n\nif …`)
 check t28_and_or '^$' 'fn main'
 
-# ── arithmetic literals take their type from an i64-homed operand ──
-# t29's `x += 1`: the Int local is declared `: i64`, so the added literal
-# needs no widening suffix (`x + 1`, not `x + 1i64`).
-check t29_increment '1i64' 'let mut x: i64 = 1;'
+# ── arithmetic literals take their type from the local's inferred type ──
+# t29's `x += 1`: the Int local is inferred (not `: i64`), so the added
+# literal needs no widening suffix (`x + 1`, not `x + 1i64`).
+check t29_increment '1i64' 'let mut x = 1'
 
 # ── a constant capture is the value, not an output-buffer block ──
 # t33/t34: `subprocess.run(["echo", "hi"], capture_output=True).stdout.strip()`
@@ -114,8 +114,10 @@ check t33_pipe '__SH_OUT|__cap|__sh_puts' 'let out = "hello";'
 # t37/t38: the operand of `s[1:3]` / `len(s)` is a NAME string in the
 # call (`param("slice", "s", …)`); recognising it as a read lets `s` bind
 # as a `&str` instead of an owned String with a `.clone()` per use.
-check t37_substring 'to_string\(\)|&s\.clone\(\)' '__sh_substr\(&s,'
-check t38_strlen 'to_string\(\)' '__sh_len\(&s\)'
+# The shell helpers `__sh_substr` / `__sh_len` are inlined as idiomatic
+# `chars().skip(...).take(...)` and `chars().count() as i64`.
+check t37_substring 'to_string\(\)|&s\.clone\(\)|__sh_substr' 'chars\(\).skip\(1\).take\(2\)'
+check t38_strlen 'to_string\(\)' 'chars\(\)\.count\(\) as i64'
 
 # ── a statement-position function call is bare, not block-wrapped ──
 # t41: `f()` was rendered `{ f(); }` — the braces exist only so the
@@ -141,6 +143,7 @@ check t40_nested_loop '__SHV_i|__SHV_j' 'for j in \[1, 2\]'
 # t71: `range(4)` is a native Rust range over the source name, with no
 # status static and no dead init store
 check t71_range_loop '__sh_lv|__SHV_i' 'for i in 0\.\.=3'
+check t71_range_loop 'let mut total: i64' 'let mut total = 0'
 
 # ── a numeric f-string part needs no to_string ──
 check t69_fstring 'x\.to_string\(\)' 'format!\("value=\{\}", x\)'
@@ -148,6 +151,29 @@ check t69_fstring 'x\.to_string\(\)' 'format!\("value=\{\}", x\)'
 # ── a simple glob is a stdlib string test ──
 # t68: `s.startswith("h")` must not pull in the fnmatch helper
 check t68_case_glob '__sh_fnmatch' '\.starts_with\("h"\)'
+
+# ── i64 annotations stripped from pass-2 locals when the range fits i32 ──
+# analyze_i64_omittable: a proven i32-range numeric local reads as a plain
+# `let` (Rust infers i32 from the unsuffixed literal), not `let x: i64`.
+check t29_increment 'let mut x: i64' 'let mut x = 1'
+check t41_local_var 'let y: i64' 'let y = 5'
+check t48_accum 'let mut s: i64' 'let mut s = 0'
+check t59_until 'let mut i: i64' 'let mut i = 0'
+check t69_fstring 'let x: i64' 'let x = 7'
+check t71_range_loop 'let mut total: i64' 'let mut total = 0'
+check t77_pass_stmt 'let x: i64' 'let x = 1'
+check t85_unary_minus 'let x: i64' 'let x = 5'
+check t101_pyx_fstring 'let v: i64' 'let v = 1'
+
+# ── string literals in &str contexts skip the .to_string() allocation ──
+# The strip_str_lit_refs peephole collapses `&"lit".to_string()` to `"lit"`:
+# the `&` feeds a &str parameter, and a bare &str literal coerces there
+# without the String round-trip.
+# __sh_replace with literal patterns inlines to std::str::replace
+check t54_str_subst '&"r"\.to_string\(\)|__sh_replace' '\.replace\("p", "r"\)'
+check t54_str_subst '&"ll"\.to_string\(\)|__sh_replace' '\.replace\("rr", "ll"\)'
+check t60_contains '\.contains\(&"world"\.to_string\(\)\)' '\.contains\("world"\)'
+check t73_dict '\.get\(&"a"\.to_string\(\)\)' '\.get\("a"\)'
 
 echo "py-idiom-gate: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
