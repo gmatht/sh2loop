@@ -225,16 +225,30 @@ PYEOF
   # can NOT tell the two apart — only the presence of a parsed count can.
   # The old `:-9999` sentinel collapsed "timed out / crashed / produced no
   # summary" into the same RED text as "27 real failures", which is why the
-  # report flapped estree=27 / estree=9999 / estree=27. Now: no parsed
-  # count => estree_probe=FAILED (name the cause), with the count untouched.
+  # report flapped estree=27 / estree=9999 / estree=27.
+  #
+  # The dominant cause is `fail-estree` dying at its BUILD step ("Build
+  # failed") because the main tree's sh2perl does not compile — note it
+  # builds $ROOT/otranspilerl (the MAIN checkout), NOT $SH2PERL_DIR, so a
+  # broken main tree takes the core gate down even though the core WORKTREE
+  # (sh2perl/backends/core) builds fine. Name that cause explicitly instead
+  # of logging an opaque "no summary line".
   estree_probe=ok
+  estree_reason=""
   estree_out=$(timeout 3600 env SH2PERL_DIR="$SUB" "$ROOT/fail-estree" 2>/dev/null) || true
   estree_fails=$(printf '%s\n' "$estree_out" | sed -n 's/.*ESTREE: [0-9]* passed, \([0-9]*\) failed.*/\1/p' | tail -1)
   if [ -z "$estree_fails" ]; then
     estree_probe=failed
     estree_fails="?"
-    echo "[$(date +%FT%T)] core: estree probe FAILED (no ESTREE summary line — fail-estree timed out, crashed, or could not build; this is NOT a corpus verdict)" >> "$LOG"
-    printf '%s\n' "$estree_out" | tail -20 >> "$LOG"
+    if printf '%s\n' "$estree_out" | grep -q '^Build failed'; then
+      estree_reason="main tree sh2perl does not compile"
+      echo "[$(date +%FT%T)] core: estree probe FAILED — fail-estree could not build $ROOT/otranspilerl (the MAIN tree; note it ignores SH2PERL_DIR at the build step, so the core worktree's clean build does not help). No corpus verdict is available." >> "$LOG"
+      printf '%s\n' "$estree_out" | grep -E '^error' | head -10 >> "$LOG"
+    else
+      estree_reason="no ESTREE summary (timed out or crashed)"
+      echo "[$(date +%FT%T)] core: estree probe FAILED (no ESTREE summary line — fail-estree timed out or crashed; this is NOT a corpus verdict)" >> "$LOG"
+      printf '%s\n' "$estree_out" | tail -20 >> "$LOG"
+    fi
   fi
   if [ "$(a1_gate)" -eq 0 ] && [ "$estree_probe" = ok ] && [ "$estree_fails" -le 0 ] && \
        "$ROOT/harness/build-lock.sh" --role core -- cargo test --lib \
@@ -260,7 +274,7 @@ PYEOF
   else
     if [ "$estree_probe" != ok ]; then
       echo "[$(date +%FT%T)] core: gate RED (a1=$v estree-probe-FAILED) after acceptance — left for the next iteration (never bless a regression)" >> "$LOG"
-      printf '%s core-worker: RED (A1-native %s, estree probe FAILED — no corpus verdict, %s done, %s rejected)\n' "$(date +%FT%T)" "$v" "$(done_count)" "$(rejected_count)" >> "$ROOT/gate-reports/core-worker.report"
+      printf '%s core-worker: RED (A1-native %s, estree probe FAILED — %s, %s done, %s rejected)\n' "$(date +%FT%T)" "$v" "$estree_reason" "$(done_count)" "$(rejected_count)" >> "$ROOT/gate-reports/core-worker.report"
     else
       echo "[$(date +%FT%T)] core: gate RED (a1=$v estree=$estree_fails) after acceptance — left for the next iteration (never bless a regression)" >> "$LOG"
       printf '%s core-worker: RED (A1-native %s, estree %s fails, %s done, %s rejected)\n' "$(date +%FT%T)" "$v" "$estree_fails" "$(done_count)" "$(rejected_count)" >> "$ROOT/gate-reports/core-worker.report"
