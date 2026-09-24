@@ -1305,9 +1305,16 @@ EOF
                         # nonzero-exit reference. A 124 (timeout) on EITHER side
                         # is a fail, never a pass (both sides empty would
                         # otherwise "match").
+                        # c joined the equality group when its arm gained
+                        # argv0 matching (43a80c87): the renderer was ALREADY
+                        # rc-faithful — verified 55/55 files reproduce bash's
+                        # exit code — but the old rc=0-on-both-sides rule made
+                        # scripts that exit nonzero BY DESIGN unpassable
+                        # (057_case.sh exits 1 for its usage error, and the
+                        # renderer reproduces that exactly).
                         if [ "$sa_fail" = 0 ] && [ "$eq_exit" != 124 ] && [ "$bash_rc" != 124 ] \
-                           && { { { [ "$g_lang" = "perl" ] || [ "$g_lang" = "sh" ] || [ "$g_lang" = "rust" ] || [ "$g_lang" = "zsh" ]; } && [ "$eq_exit" = "$bash_rc" ]; } \
-                                || { { [ "$g_lang" != "perl" ] && [ "$g_lang" != "sh" ] && [ "$g_lang" != "rust" ] && [ "$g_lang" != "zsh" ]; } && [ "$eq_exit" = 0 ] && [ "$bash_rc" = 0 ]; }; } \
+                           && { { { [ "$g_lang" = "perl" ] || [ "$g_lang" = "sh" ] || [ "$g_lang" = "rust" ] || [ "$g_lang" = "zsh" ] || [ "$g_lang" = "c" ]; } && [ "$eq_exit" = "$bash_rc" ]; } \
+                                || { { [ "$g_lang" != "perl" ] && [ "$g_lang" != "sh" ] && [ "$g_lang" != "rust" ] && [ "$g_lang" != "zsh" ] && [ "$g_lang" != "c" ]; } && [ "$eq_exit" = 0 ] && [ "$bash_rc" = 0 ]; }; } \
                            && diff -q /tmp/eq_$$_out /tmp/eq_$$_ref >/dev/null 2>&1; then
                           pass=$((pass+1)); eq_pass=$((eq_pass+1))
                         else
