@@ -77,6 +77,136 @@ fi
 
 echo ""
 
+# ── Fail-count trends (how many failures were actually fixed) ─────────
+# Two independent series, because they measure different corpora:
+#  * Perl corpus: "N passed, M failed" in sh2perl commit subjects. Only
+#    recorded when the worker commits a test result, so the series may be
+#    SHORT — report the real span rather than implying a trend exists.
+#  * Estree corpus: pass/fail rows in .estree_history.log.
+echo "--- Fail-count trend (last ${HOURS}h of recorded results) ---"
+# Perl: collect the dated series from commit subjects and show the real
+# span. A two-point series cannot show a trend, and saying so beats
+# printing a confident slope from nothing.
+perl_series=$(git -C sh2perl log --since='30 days ago' --format='%ad %s' --date=short 2>/dev/null \
+  | grep -E 'passed, [0-9]+ failed' \
+  | awk '{d=$1; f=$0; sub(/.*, /,"",f); sub(/ failed/,"",f); if (d!=pd) {print d"\t"f; pd=d}}')
+if [ -n "$perl_series" ]; then
+  n_days=$(printf '%s\n' "$perl_series" | wc -l)
+  p_first=$(printf '%s\n' "$perl_series" | head -1)
+  p_last=$(printf '%s\n' "$perl_series" | tail -1)
+  ff=$(printf '%s' "$p_first" | cut -f2); fl=$(printf '%s' "$p_last" | cut -f2)
+  echo "  Perl corpus (${n_days} recorded day(s)):"
+  printf '%s\n' "$perl_series" | tail -8 | while IFS=$'\t' read -r d f; do printf "    %s  %s failures\n" "$d" "$f"; done
+  if [ "$n_days" -lt 3 ]; then
+    echo "    NOTE: only $n_days recorded day(s) — too few to show a trend."
+    echo "    The corpus state RIGHT NOW is the number below (failing_tests.txt)."
+  else
+    echo "    change over span: $ff → $fl failures (fixed $((ff - fl)))"
+  fi
+else
+  echo "  Perl corpus: no dated 'passed/failed' subjects in the last 30 days."
+fi
+# Estree: the gate rows recorded per iteration (fields 11/12 = before/after)
+if [ -f .estree_history.log ]; then
+  echo "  Estree corpus (gate rows):"
+  awk -F'\t' '$10=="tolerance" && $11 ~ /^[0-9]+$/ {print $11"\t"$12"\t"$13}' .estree_history.log \
+    | tail -5 | while IFS=$'\t' read -r b a x; do
+      printf "    %s → %s fail" "$b" "$a"
+      [ -n "$x" ] && printf "  (%s)" "$x"
+      printf "\n"
+    done
+fi
+
+echo ""
+
+# ── Actual work achieved (not worker liveness) ───────────────────────
+# The metric that matters: sh2.* call-site count. Every sh2.* call is a
+# spot where the emitted backend calls back into the runtime instead of
+# being natively lowered — driving it to zero is the whole project. The
+# estree worker logs it per iteration as metric-seed/improve/regress/idle
+# rows in .estree_history.log; each row is `before <TAB> after`.
+#
+# Column layout of that log: localtime() expands to 9 fields, so
+#   $10=decision $11=before $12=after $13=extra
+echo "--- sh2.* call-site metric (the real progress signal) ---"
+if [ -f .estree_history.log ]; then
+  # numeric rows only (seed/improve/regress carry numbers; idle carries 'flat')
+  awk -F'\t' '$10 ~ /^metric-/ && $11 ~ /^[0-9]+$/ && $12 ~ /^[0-9]+$/ {print $11"\t"$12"\t"$13}' \
+    .estree_history.log > /tmp/.metric_rows.$$ 2>/dev/null
+  if [ -s /tmp/.metric_rows.$$ ]; then
+    first=$(head -1 /tmp/.metric_rows.$$ | cut -f1)
+    last=$(tail -1 /tmp/.metric_rows.$$ | cut -f2)
+    # net change (negative = fewer call sites = progress)
+    delta=$((first - last))
+    if [ "$delta" -gt 0 ]; then
+      echo "  $first → $last  (-$delta call sites, $((delta * 100 / first))% fewer) [tracked window]"
+    elif [ "$delta" -lt 0 ]; then
+      echo "  $first → $last  (+$((0 - delta)) call sites, REGRESSED) [tracked window]"
+    else
+      echo "  $first → $last  (flat) [tracked window]"
+    fi
+    # a short trend so the direction is visible, not just the endpoints
+    echo "  recent:"
+    tail -6 /tmp/.metric_rows.$$ | while IFS=$'\t' read -r b a x; do
+      d=$((b - a))
+      if   [ "$d" -gt 0 ]; then arrow="↓ -$d"
+      elif [ "$d" -lt 0 ]; then arrow="↑ +$((0 - d))"
+      else arrow="= flat"
+      fi
+      printf "    %5s → %-5s %-10s %s\n" "$b" "$a" "$arrow" "$x"
+    done
+  else
+    echo "  (no numeric metric rows logged yet)"
+  fi
+  rm -f /tmp/.metric_rows.$$
+  # the live count for the current tree (independent of the log)
+  if [ -f .estree_metric.tsv ]; then
+    cur=$(awk -F'\t' '$1=="total"{print $2}' .estree_metric.tsv 2>/dev/null)
+    # Say WHEN it was measured: a stale snapshot read as "current" looks
+    # like a regression against the tracked series and sends people chasing
+    # a phantom. Timestamp it explicitly.
+    m_age=$(( ($(date +%s) - $(stat -c %Y .estree_metric.tsv 2>/dev/null || date +%s)) / 60 ))
+    if [ "$m_age" -lt 60 ]; then when="${m_age}m ago"
+    else when="$((m_age / 60))h$((m_age % 60))m ago"
+    fi
+    echo "  last metric run ($when): ${cur:-?} call sites"
+    # if the last metric run is much newer than the tracked series, the
+    # tree has drifted from the last logged decision — flag the mismatch
+    # rather than silently presenting two numbers that disagree.
+    if [ -n "$cur" ] && [ "$cur" -gt "$last" ] 2>/dev/null; then
+      echo "    note: ${cur} > ${last} (last logged decision) — the tree has grown call"
+      echo "    sites since the last improving commit; check the last metric-run timestamp."
+    fi
+  fi
+else
+  echo "  (no .estree_history.log)"
+fi
+
+echo ""
+
+# ── What the core worker actually did (marketplace + transforms) ──────
+echo "--- Core/marketplace work (from .estree_history.log) ---"
+if [ -f .estree_history.log ]; then
+  for d in core-request core-request-violation transform-compile transform-gate transform-blame metric-improve metric-regress; do
+    n=$(awk -F'\t' -v d="$d" '$10==d' .estree_history.log 2>/dev/null | wc -l)
+    [ "$n" -gt 0 ] && printf "  %-26s %d event(s)\n" "$d" "$n"
+  done
+  # transform submissions: accepted vs rejected (the marketplace outcome)
+  acc=$(ls core-requests/transforms/done/*.rs 2>/dev/null | wc -l)
+  rej=$(ls core-requests/transforms/rejected/*.rs 2>/dev/null | wc -l)
+  pend=$(ls core-requests/transforms/offered/*.rs 2>/dev/null | wc -l)
+  echo "  transforms: $acc accepted, $rej rejected, $pend pending"
+  # core-requests awaiting implementation. NOTE: `grep -c` is shimmed to
+  # `rg` here, where `-v`/`-c` behave unexpectedly (`unrecognized flag`);
+  # count the files with a plain list + wc instead.
+  cr_open=$(ls core-requests/*.md 2>/dev/null | while read -r f; do
+    case "$(basename "$f")" in README*) ;; *) echo "$f" ;; esac
+  done | wc -l)
+  echo "  core-requests open: $cr_open file(s)"
+fi
+
+echo ""
+
 # ── Current gate status ──────────────────────────────────────────────
 echo "--- Current gate status ---"
 # Perl corpus — try multiple sources
@@ -100,7 +230,9 @@ else
 fi
 
 # Rust cleanup
-cleanup_commits=$(git -C sh2perl log --since="$SINCE" --oneline 2>/dev/null | grep -c cleanup || true)
+# Rust cleanup. `grep -c` is shimmed to rg (where it can return empty and
+# leave the line reading "Rust cleanup:  commit(s)") — count with awk.
+cleanup_commits=$(git -C sh2perl log --since="$SINCE" --oneline 2>/dev/null | awk '/cleanup/{n++} END{print n+0}')
 echo "  Rust cleanup: $cleanup_commits commit(s) this window"
 
 echo ""
