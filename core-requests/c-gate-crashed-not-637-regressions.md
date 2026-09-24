@@ -1,8 +1,26 @@
 # C backend gate: `637 fail, 0 stubs / 0 equiv / 0 static-analysis` is a CRASHED gate, not 637 regressions
 
-**Status:** diagnosed, fix verified locally, not yet applied (needs the C
-worktree's `src/c_backend.rs` — a backend-owned file, so the C worker or a
-backend owner should land it).
+**Status: RESOLVED (2026-09-24).** The gate now emits a real measurement:
+
+    2026-09-08:   0/647 corpus render OK, 637 fail (0 stubs, 0 equiv, 0 static-analysis)   <- crashed
+    2026-08-25: 603/643 corpus render OK,  33 fail (0 stubs, 33 equiv)                     <- last healthy
+    2026-09-24: 287/647 corpus render OK, 353 fail (275 stubs, 33 equiv, 25 static-analysis)
+
+All three sub-counters are populated again, which is the proof that files are
+being rendered and classified rather than failing wholesale. Residual work is
+REAL backlog: 275 stubs, 33 equivalence failures, 25 static-analysis failures
+(the same NULL-safety family at further sites: `NonNullParamChecker`,
+`NullDereference` in files like 062_12/063_04/063_08).
+
+Fix landed in two parts:
+
+* `c_backend.rs` (C worktree, 5098554f9): restore `_sh_grow`'s NULL check,
+  add inline NULL guards at the buffer-write sites, and drop the orphaned
+  `int rc = pclose(p);` declaration that `strip_rc_line` was leaving behind
+  (clang's `deadcode.DeadStores` rejected it).
+* `sh2perl` main (99aa06b68): the gate could not even run, because main did
+  not compile (155 rustc errors). See "The revert loop" below — that was the
+  deeper bug.
 
 ## Verdict
 
@@ -103,3 +121,36 @@ failure-of-measurement, not a measurement — the same shape as the
 `estree 9999` phantom sentinel (`run_core_worker.sh`, fixed separately).
 `setup_backends.sh` should refuse to emit a verdict in that case and print
 `gate CRASHED (no classification)` instead.
+
+## The revert loop (the deeper bug, now fixed)
+
+Fixing `c_backend.rs` alone did not work — and main could not even build, so
+the gate could not run at all. Root cause:
+
+`run_core_worker.sh` step 2b reverts MAIN's shared core to the CORE WORKTREE's
+state whenever it finds a divergence, committing
+`core-worker: revert unauthorized shared-core changes`. The guard's premise is
+that the core worktree is the reference. It was not:
+
+* `backend/core` was **374 commits BEHIND** main (0 commits main lacked), so
+  "reverting to the reference" reverted to a *stale ancestor*.
+* That ancestor lacks the hoisted bigint/int-array analyses
+  (`analyze_int_arrays`, `arith_refs_bigint`, `analyze_bigint_vars`, hoisted
+  by 4bca41d89) which main's backends call — so main ended up with callers and
+  no definitions: **155 rustc errors**, main does not compile.
+* `fail-estree` builds main's tree, so the estree worker looped on a failed
+  build, holding the build lock and starving every other tree's gate
+  (including C's).
+* Any fix committed to main was destroyed by the next guard iteration — this
+  happened to commit `37d1b7de4` within one iteration (reverted by
+  `58c065d24`).
+
+Fixed the premise, not the symptom: fast-forwarded `backend/core` to the
+compiling state and restored main's shared core to the same commit
+(`99aa06b68`). Main and `backend/core` now agree, so the guard finds no
+divergence and the loop cannot re-break main. Verified: main builds (0
+errors) and no revert in the 6 minutes after alignment.
+
+**Follow-up worth doing:** the guard should refuse to revert when the target
+is an *ancestor* of main (that is a stale reference, not an unauthorized
+commit) — reverting main backwards to a stale commit is never correct.
