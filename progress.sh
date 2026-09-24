@@ -77,6 +77,91 @@ fi
 
 echo ""
 
+# ── Per-tree board: fail count 24h/4h/now, or sh2.* count if green ───
+# Each backend/frontend tree has a gate report with timestamped history
+# (gate-reports/<tree>.report), each line carrying a fail count:
+#   2026-09-23T18:15:15 [rust] backend gate: 622/648 corpus render OK, 19 fail (...)
+# The ask: a tree that is FAILING shows its fail count at 24h / 4h / now;
+# a tree that is NOT failing shows its sh2.* occurrence count instead
+# (for a green tree the interesting number is no longer failures but how
+# much is still calling back into the runtime).
+echo "--- Per-tree board (fail count @24h/4h/now, or sh2.* if green) ---"
+printf "  %-10s %-9s %-9s %-9s %s\n" "tree" "24h" "4h" "now" "trend"
+for rep in gate-reports/backend-*.report gate-reports/estree.report; do
+  [ -f "$rep" ] || continue
+  tree=$(basename "$rep" .report | sed 's/^backend-//')
+  # pull (epoch, fails) for every line that has a fail count
+  awk -F'\t' '{ }' /dev/null
+  python3 - "$rep" "$tree" <<'PYEOF'
+import re, sys, time, os
+rep, tree = sys.argv[1], sys.argv[2]
+rows = []
+now = time.time()
+# Two report formats in the fleet:
+#   backend: 2026-09-23T18:15:15 [rust] backend gate: ..., 19 fail (...)
+#   estree:  Thu Sep 24 13:06:13 2026 estree: 526/555 pass, 29 fail; ...
+iso  = re.compile(r'^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}).*?(\d+) fail')
+ctime= re.compile(r'^(\w{3} \w{3} +\d+ \d{2}:\d{2}:\d{2} \d{4}).*?(\d+) fail')
+for ln in open(rep, errors='replace'):
+    m = iso.match(ln)
+    if m:
+        try: t = time.mktime(time.strptime(m.group(1), '%Y-%m-%dT%H:%M:%S'))
+        except Exception: continue
+    else:
+        m = ctime.match(ln)
+        if not m: continue
+        try: t = time.mktime(time.strptime(m.group(1)))
+        except Exception: continue
+    rows.append((t, int(m.group(2))))
+if not rows:
+    print("  %-10s %-9s %-9s %-9s %s" % (tree, "?", "?", "?", "no data"))
+    sys.exit()
+
+def val_at(age_h):
+    """fail count from the newest row at least age_h old (else '-')"""
+    cut = now - age_h*3600
+    cand = [r for r in rows if r[0] <= cut]
+    return str(cand[-1][1]) if cand else "-"
+
+v24, v4 = val_at(24), val_at(4)
+t_now, f_now = rows[-1]
+age_m = int((now - t_now)/60)
+age = f"{age_m}m" if age_m < 120 else (f"{age_m//60}h" if age_m < 48*60 else f"{age_m//1440}d")
+
+# A tree not gated in >24h has no meaningful "24h/4h" numbers — showing the
+# same stale value in all three columns implies fresh measurement at each
+# horizon, which is exactly the confident-wrong-answer failure to avoid.
+if age_m > 24*60:
+    print("  %-10s %-9s %-9s %-9s %s" % (
+        tree, "-", "-", f_now,
+        f"STALE — last gated {age} ago, not running (need 24h/4h data)"))
+    sys.exit()
+
+if f_now == 0:
+    # GREEN: report the sh2.* occurrence count instead of failures
+    sh2 = None
+    if os.path.isfile('.estree_metric.tsv'):
+        for ln in open('.estree_metric.tsv', errors='replace'):
+            f = ln.split('\t')
+            if f and f[0].strip() == 'total' and len(f) > 1:
+                sh2 = f[1].strip()
+    note = f"GREEN — sh2.* sites: {sh2}" if sh2 else "GREEN"
+    print("  %-10s %-9s %-9s %-9s %s" % (tree, "0", "0", "0", note))
+else:
+    # FAILING: 24h/4h/now fail counts + direction
+    try:
+        base = int(v4) if v4 != "-" else f_now
+        d = f_now - base
+    except ValueError:
+        d = 0
+    arrow = "↓ improving" if d < 0 else ("↑ worse" if d > 0 else "= flat")
+    print("  %-10s %-9s %-9s %-9s %s (last run {})".format(age) % (
+        tree, v24, v4, f_now, f"{arrow} {d:+d}/4h"))
+PYEOF
+done
+
+echo ""
+
 # ── Fail-count trends (how many failures were actually fixed) ─────────
 # Two independent series, because they measure different corpora:
 #  * Perl corpus: "N passed, M failed" in sh2perl commit subjects. Only
