@@ -116,6 +116,10 @@ my $improvement_idle_count = 0;
 # signature). scoped_stash will not revert these — see its comment.
 our %fix_surface_snapshot = ();
 
+# signature (size:mtime:ctime) of THIS script, captured at startup; the
+# loop re-execs itself when the on-disk file changes (see the loop top).
+my $self_sig;
+
 my $dry_run = 0;
 my $prefix  = '';
 my $seed    = 0;
@@ -1515,6 +1519,31 @@ sub print_mediation_table {
 my $iteration = 0;
 while (1) {
     $iteration++;
+    # ── self re-exec: pick up edits to THIS script ───────────────────
+    # A long-lived Perl loop never re-reads its own file: an operator fix
+    # to main_loop_estree.pl stays dormant until the process is restarted
+    # by hand (this bit the scoped_stash operator-edit guard — landed
+    # 22:15 while the loop had been up since 12:01). Re-exec at the top of
+    # each iteration so the running code tracks the file, AFTER a full
+    # loop (so an iteration is never cut in half).
+    {
+        my @st = stat($0);
+        my $now = @st ? join(":", $st[7], $st[9], $st[10]) : '';
+        if (!defined $self_sig) {
+            # first iteration: adopt the on-disk signature as the baseline
+            $self_sig = $now;
+        } elsif (length $now && $self_sig ne $now) {
+            print STDERR "[self-reexec] $0 changed on disk ($self_sig -> $now) — re-exec'ing with the new code\n";
+            release_lock();
+            # NOT `return`-able: exec replaces the process image. If it
+            # fails we update the signature and carry on with the old code
+            # rather than spin on a dead exec.
+            if (!exec($^X, $0, @ARGV)) {
+                print STDERR "[self-reexec] exec failed: $!\n";
+                $self_sig = $now;
+            }
+        }
+    }
     unless ($ENV{CORE_WORKER_ACTIVE}) {
         collect_core_requests();   # core-request queue owned by run_core_worker.sh now
     }
