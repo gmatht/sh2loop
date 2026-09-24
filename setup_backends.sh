@@ -1115,7 +1115,16 @@ EOF
                     # runtime namespace (enforced by the estree gate's
                     # whitelist, not by this grep).
                     if [ "$g_stubgate" = 1 ]; then
-                      s=$(printf '%s' "$g_out" | grep -cE "TODO\(unsupported\)|sh2[A-Za-z_]" || true)
+                      # STUB vs DIAGNOSTIC: the pattern must require a CALL —
+                      # `sh2[A-Za-z_0-9]+\(` — not merely the prefix `sh2...`.
+                      # The loose `sh2[A-Za-z_]` matched any string starting
+                      # sh2+letter, so an emitted diagnostic such as
+                      # `fprintf(stderr, "sh2c: out of memory")` counted as a
+                      # stub and failed the file for a bogus reason. Real stubs
+                      # are calls (sh2_exec(, sh2GetVar(); a message is not a
+                      # stub. (harness/*.sh carry copies of the loose pattern;
+                      # this is the canonical gate.)
+                      s=$(printf '%s' "$g_out" | grep -cE 'TODO\(unsupported\)|sh2[A-Za-z_0-9]+\(' || true)
                     else
                       s=0
                     fi
