@@ -248,11 +248,16 @@ PYEOF
     if printf '%s\n' "$estree_out" | grep -qE 'error: could not compile|could not compile .* due to'; then
       estree_reason="main tree sh2perl does not compile"
       echo "[$(date +%FT%T)] core: estree probe FAILED — $ROOT/otranspilerl (the MAIN tree; the probe's build step ignores SH2PERL_DIR, so the core worktree's clean build does not help) does not compile. No corpus verdict is available." >> "$LOG"
-      printf '%s\n' "$estree_out" | grep -E '^error' | head -10 >> "$LOG"
+      # NOTE: do NOT pipe this into `head` under `set -o pipefail` — head
+      # exits after N lines, closing the pipe, SIGPIPEs the printf, and the
+      # resulting 141 kills this whole worker mid-iteration (that bug left
+      # the fleet coreless after 5 supervision attempts). awk 'NR<=10'
+      # reads to EOF, so no writer ever sees SIGPIPE.
+      printf '%s\n' "$estree_out" | grep -E '^error' | awk 'NR<=10' >> "$LOG" 2>/dev/null || true
     else
       estree_reason="no ESTREE summary (timed out or crashed)"
       echo "[$(date +%FT%T)] core: estree probe FAILED (no ESTREE summary line — fail-estree timed out or crashed; this is NOT a corpus verdict)" >> "$LOG"
-      printf '%s\n' "$estree_out" | tail -20 >> "$LOG"
+      printf '%s\n' "$estree_out" | tail -20 >> "$LOG" 2>/dev/null || true
     fi
   fi
   if [ "$(a1_gate)" -eq 0 ] && [ "$estree_probe" = ok ] && [ "$estree_fails" -le 0 ] && \

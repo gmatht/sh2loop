@@ -495,8 +495,20 @@ case "${1:-}" in
                   # was launched bare, so ANY exit (its own build-lock preemption
                   # during another worker's long cargo hold, the shared-target
                   # build, an OOM kill) left the fleet with NO core gate until a
-                  # human noticed. It is now wrapped in an attempt/restart loop
-                  # with a pidfile, so a crash self-heals.
+                  # human noticed. It is now wrapped in a restart loop with a
+                  # pidfile, so a crash self-heals.
+                  #
+                  # The cap was 5 attempts, which BURNT OUT: run_core_worker.sh
+                  # exits rc=0 after every single iteration (normal for a
+                  # one-shot gate pass — a supervisor restart IS the loop), so
+                  # five attempts are consumed in ~12 minutes and the fleet is
+                  # left coreless again. Distinguish the two cases:
+                  #   rc=0  -> a completed iteration, not a crash: restart
+                  #            immediately and do NOT count it against a cap
+                  #   rc!=0 -> a genuine crash: count it; after MAX crashes in
+                  #            a row, keep going but log loudly, and never give
+                  #            up permanently — the core gate is fleet-critical
+                  #            and a missing core is worse than a noisy one.
                   if [ -f "$WORKSPACE/loop-core-worker.pid" ] && \
                      kill -0 "$(cat "$WORKSPACE/loop-core-worker.pid")" 2>/dev/null; then
                     echo "core worker already running (pid $(cat "$WORKSPACE/loop-core-worker.pid"))"
@@ -504,13 +516,22 @@ case "${1:-}" in
                   fi
                   nice -n 5 nohup bash -c "
                     set -uo pipefail
-                    attempts=0
-                    while [ \$attempts -lt 5 ]; do
-                      attempts=\$((attempts+1))
-                      echo \"[\$(date +%FT%T)] core: worker attempt \$attempts\" >> '$WORKSPACE/loop-core-worker.log'
-                      bash '$WORKSPACE/run_core_worker.sh'
-                      echo \"[\$(date +%FT%T)] core: worker exited (attempt \$attempts, rc=\$?) — restarting in 5s\" >> '$WORKSPACE/loop-core-worker.log'
-                      sleep 5
+                    crashes=0
+                    while true; do
+                      echo \"[\$(date +%FT%T)] core: worker iteration start (crashes=\$crashes)\" >> '$WORKSPACE/loop-core-worker.log'
+                      rc=0
+                      bash '$WORKSPACE/run_core_worker.sh' || rc=\$?
+                      if [ \$rc -eq 0 ]; then
+                        # completed iteration — a normal one-shot pass, not a crash
+                        sleep 2
+                      else
+                        crashes=\$((crashes+1))
+                        echo \"[\$(date +%FT%T)] core: worker EXITED rc=\$rc after its iteration (consecutive crashes=\$crashes) — restarting in 5s\" >> '$WORKSPACE/loop-core-worker.log'
+                        if [ \$crashes -ge 5 ]; then
+                          echo \"[\$(date +%FT%T)] core: WARNING — \$crashes consecutive non-zero exits; the supervisor NEVER gives up (a missing core gate is worse than a noisy one), but this needs a human look\" >> '$WORKSPACE/loop-core-worker.log'
+                        fi
+                        sleep 5
+                      fi
                     done
                   " >> "$WORKSPACE/loop-core-worker.log" 2>&1 &
                   echo $! > "$WORKSPACE/loop-core-worker.pid"
