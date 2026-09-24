@@ -14,24 +14,31 @@
 
 # ── CLI configuration ────────────────────────────────────────────────
 # Which AI CLI to invoke: pi, pir, or cmd.
-#   pi   — opencode-go provider (existing setup, limited model catalog)
-#   pir  — pi with retry (if your pi variant supports it)
-#   cmd  — Command Code headless (full catalog incl. Laguna, $0/$0)
-WORKER_CLI="${WORKER_CLI:-cmd}"
+#   pi   — opencode-go provider (legacy, limited model catalog)
+#   pir  — featherweight pi-compatible agent (OpenRouter, auto-retry, budget)
+#   cmd  — Command Code headless (full CC catalog, heavier)
+WORKER_CLI="${WORKER_CLI:-pir}"
 
-# Model. For cmd: any Command Code catalog id (poolside/laguna-s-2.1-free,
-#   deepseek-v4-flash, claude-sonnet-5, etc.). For pi/pir: whatever
-#   opencode-go serves. Override: WORKER_MODEL=deepseek-v4-flash
+# Model. For pir: OpenRouter model id (poolside/laguna-s-2.1:free, etc.).
+#   For pi: opencode-go model. For cmd: CC catalog id.
 # TODO: escalate to DeepSeek for complex failures Laguna can't handle.
-WORKER_MODEL="${WORKER_MODEL:-poolside/laguna-s-2.1-free}"
+WORKER_MODEL="${WORKER_MODEL:-poolside/laguna-s-2.1:free}"
 
-# Reasoning effort. For pi/pir: maps to --thinking. For cmd: maps to
-#   --effort. Laguna has no effort levels — leave empty. Set for models
-#   that support it (e.g. WORKER_EFFORT=xhigh for deepseek-v4-flash).
+# Reasoning effort. For pi: --thinking. For cmd: --effort. For pir: unused.
 WORKER_EFFORT="${WORKER_EFFORT:-}"
-
-# Backward compat: accept WORKER_THINKING as alias for WORKER_EFFORT.
 WORKER_EFFORT="${WORKER_EFFORT:-${WORKER_THINKING:-}}"
+
+# Token budget per invocation (pir only). Prevents runaway costs.
+# 500K tokens ≈ $0 for Laguna free, enough for a focused fix.
+WORKER_BUDGET="${WORKER_BUDGET:-500000}"
+
+# ── Surgical task decomposition ──────────────────────────────────────
+# When enabled, the harness decomposes gate failures into individual
+# tasks and invokes the AI once per failure with focused context.
+SURGICAL_MODE="${SURGICAL_MODE:-1}"  # 1=on by default, 0=off
+
+# Max failures to process per iteration (prevents spending all day on fixes)
+SURGICAL_MAX="${SURGICAL_MAX:-5}"
 
 # ── Exponential backoff configuration ────────────────────────────────
 BACKOFF_BASE="${BACKOFF_BASE:-5}"
@@ -50,21 +57,28 @@ DECISIONS_TSV="${DECISIONS_TSV:-${WORKSPACE:-.}/worker_decisions.tsv}"
 invoke_ai() {
   local prompt_file="$1" log_file="$2"
   case "$WORKER_CLI" in
-    pi|pir)
+    pi)
       local args=(--mode json --provider opencode-go --model "$WORKER_MODEL")
       [ -n "$WORKER_EFFORT" ] && args+=(--thinking "$WORKER_EFFORT")
-      "$WORKER_CLI" "${args[@]}" < "$prompt_file" >> "$log_file" 2>&1
+      pi "${args[@]}" < "$prompt_file" >> "$log_file" 2>&1
+      ;;
+    pir)
+      local args=(-y --no-color -m "$WORKER_MODEL")
+      [ -n "$WORKER_BUDGET" ] && args+=(--budget "$WORKER_BUDGET")
+      local query
+      query=$(< "$prompt_file")
+      if [ ${#query} -gt 100000 ]; then
+        pir "${args[@]}" < "$prompt_file" >> "$log_file" 2>&1
+      else
+        pir "${args[@]}" "$query" >> "$log_file" 2>&1
+      fi
       ;;
     cmd)
       local args=(-p --no-session --yolo --model "$WORKER_MODEL" --output-format json --tools-all)
       [ -n "$WORKER_EFFORT" ] && args+=(--effort "$WORKER_EFFORT")
-      # Pass prompt via temp file expansion. For large prompts, cmd -p
-      # reads from stdin when no query argument is given.
       local query
       query=$(< "$prompt_file")
-      # Check if query fits in ARG_MAX (leave 10KB headroom)
       if [ ${#query} -gt 100000 ]; then
-        # Large prompt: pipe via stdin (cmd -p with no query arg reads stdin)
         cmd "${args[@]}" < "$prompt_file" >> "$log_file" 2>&1
       else
         cmd "${args[@]}" "$query" >> "$log_file" 2>&1
@@ -80,7 +94,7 @@ invoke_ai() {
 # ── invoke_ai_with_backoff ───────────────────────────────────────────
 # Invoke the configured AI CLI with exponential backoff on failure.
 # Args: $1=prompt_file, $2=log_file
-# Returns 0 on success, 1 after exhausting retries.
+# Returns 0 on success. NEVER gives up — retries indefinitely at max delay.
 # Checks context budget before invoking (truncates if too large).
 invoke_ai_with_backoff() {
   local prompt_file="$1" log_file="$2"
@@ -91,20 +105,17 @@ invoke_ai_with_backoff() {
   # Laguna has 256K context; cap input at 200K tokens (~800KB).
   check_context_budget "$prompt_file" "$log_file" 200000 || true
 
-  while [ $attempt -lt $BACKOFF_MAX_RETRIES ]; do
+  while true; do
     if invoke_ai "$prompt_file" "$log_file"; then
       return 0
     fi
     local rc=$?
     attempt=$((attempt + 1))
-    echo "[$(date +%FT%T)] $WORKER_CLI failed (rc=$rc, attempt $attempt/$BACKOFF_MAX_RETRIES), retry in ${delay}s" >> "$log_file"
+    echo "[$(date +%FT%T)] $WORKER_CLI failed (rc=$rc, attempt $attempt), retry in ${delay}s" >> "$log_file"
     sleep "$delay"
     delay=$((delay * BACKOFF_MULTIPLIER))
     [ $delay -gt $BACKOFF_MAX ] && delay=$BACKOFF_MAX
   done
-
-  echo "[$(date +%FT%T)] $WORKER_CLI failed after $BACKOFF_MAX_RETRIES attempts — giving up" >> "$log_file"
-  return 1
 }
 
 # ── build_surgical_prompt ────────────────────────────────────────────
@@ -133,6 +144,55 @@ Fix the code in SCOPE so the output matches EXPECTED.
 Keep changes minimal — fix ONE construct at a time.
 If a SHARED-CORE change is required, APPEND a core-request and exit 0.
 EOF
+}
+
+# ── run_surgical_fix ─────────────────────────────────────────────────
+# Decompose gate failures into individual tasks and fix each one.
+# Args: $1=gate_output_file, $2=scope, $3=verify_cmd, $4=log_file, $5=worker_name
+# Parses FAIL lines from gate output, builds focused prompts, invokes AI.
+# Returns number of fixes attempted.
+run_surgical_fix() {
+  local gate_output="$1" scope="$2" verify_cmd="$3" log_file="$4"
+  local worker_name="${5:-unknown}"
+  local fixes=0
+
+  # Parse FAIL lines: "  FAIL: example_name [backend] — reason"
+  while IFS= read -r fail_line; do
+    [ -z "$fail_line" ] && continue
+    [ $fixes -ge $SURGICAL_MAX ] && break
+
+    local example reason
+    example=$(echo "$fail_line" | sed -n 's/.*FAIL: \([^ ]*\).*/\1/p')
+    reason=$(echo "$fail_line" | sed -n 's/.*— \(.*\)/\1/p')
+    [ -z "$example" ] && continue
+
+    echo "[$(date +%FT%T)] surgical: fixing $example ($reason)" >> "$log_file"
+
+    # Build focused prompt for THIS example only
+    local prompt_file="/tmp/surgical_${example}_$$.txt"
+    {
+      printf 'TASK: Fix gate failure in example: %s\n' "$example"
+      printf 'REASON: %s\n' "$reason"
+      printf 'SCOPE: %s\n' "$scope"
+      printf 'VERIFY: %s %s\n\n' "$verify_cmd" "$example"
+      printf 'Run VERIFY to see the failure. Fix the code in SCOPE so it passes.\n'
+      printf 'Keep changes minimal — fix ONE thing at a time.\n'
+      printf 'If a SHARED-CORE change is required, APPEND a core-request and exit 0.\n'
+    } > "$prompt_file"
+
+    # Context budget check
+    check_context_budget "$prompt_file" "$log_file" 50000 || true
+
+    # Invoke AI with backoff
+    invoke_ai_with_backoff "$prompt_file" "$log_file" || true
+    rm -f "$prompt_file"
+
+    fixes=$((fixes + 1))
+    log_decision "$worker_name" "$example" "attempted" "unknown" "$reason"
+  done < <(grep '  FAIL:' "$gate_output" | head -"$SURGICAL_MAX")
+
+  echo "[$(date +%FT%T)] surgical: attempted $fixes fix(es)" >> "$log_file"
+  return $fixes
 }
 
 # ── log_decision ─────────────────────────────────────────────────────
