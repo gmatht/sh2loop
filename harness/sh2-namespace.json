@@ -60,6 +60,12 @@
       "signature": "(name: str, args: [str], env?: {k:v}) -> int",
       "semantics": "Native builtin dispatch: echo, printf, cd, read, export, set, declare, :, test, shift, unset, ... (~30, harness/builtins.json). Sets $?."
     },
+    "lit": {
+      "purity": "PureCpu",
+      "async": false,
+      "signature": "(v: str) -> str",
+      "semantics": "Opaque quoted literal: identity at run time. The emitter wraps a single-quoted string CONTAINING `$` (e.g. 'putb $b') so downstream interpolation passes treat it as opaque (a byte-verbatim payload) instead of rewriting it into a JS template. See upstream-repros/03-single-quoted-payload.sh."
+    },
     "exec": {
       "purity": "Spawn",
       "async": true,
