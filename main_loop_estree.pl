@@ -70,6 +70,34 @@ if ($pool_ok) {
     WorkerPool::init(root => $project_root);
     WorkerPool::enter_worker_cgroup();
 }
+
+# Worker CLI: pi, pir, or cmd. Model + effort configurable via env.
+# Default: pir (featherweight, auto-retry, budget guard, OpenRouter).
+# TODO: escalate to DeepSeek for complex failures Laguna can't handle.
+my $WORKER_CLI = $ENV{WORKER_CLI} // 'pir';
+my $WORKER_MODEL = $ENV{WORKER_MODEL} // 'poolside/laguna-s-2.1:free';
+my $WORKER_EFFORT = $ENV{WORKER_EFFORT} // $ENV{WORKER_THINKING} // '';
+my $WORKER_BUDGET = $ENV{WORKER_BUDGET} // '500000';
+
+sub build_ai_cmd {
+    my @cmd;
+    if ($WORKER_CLI eq 'pi') {
+        @cmd = ('pi', '--mode', 'json', '--provider', 'opencode-go',
+                '--model', $WORKER_MODEL);
+        push @cmd, '--thinking', $WORKER_EFFORT if $WORKER_EFFORT;
+    } elsif ($WORKER_CLI eq 'pir') {
+        @cmd = ('pir', '-y', '--no-color', '-m', $WORKER_MODEL);
+        push @cmd, '--budget', $WORKER_BUDGET if $WORKER_BUDGET;
+    } elsif ($WORKER_CLI eq 'cmd') {
+        @cmd = ('cmd', '-p', '--no-session', '--yolo', '--model', $WORKER_MODEL,
+                '--output-format', 'json', '--tools-all');
+        push @cmd, '--effort', $WORKER_EFFORT if $WORKER_EFFORT;
+    } else {
+        die "Unknown WORKER_CLI=$WORKER_CLI (expected pi|pir|cmd)";
+    }
+    return @cmd;
+}
+
 my $sh2perl      = "$project_root/sh2perl";
 my $fail_estree  = "$project_root/fail-estree";
 my $results_file = "$project_root/.estree_failures.tsv";    # fail-estree writes this
@@ -83,6 +111,10 @@ my $metric_file  = "$project_root/.estree_metric.tsv";       # fail-estree --met
 my $metric_prev  = "$project_root/.estree_metric_prev.tsv";
 my $bench_file    = "$project_root/.estree_bench.tsv";   # persisted benchmark trend (js/bash per bench)  # committed-state metric baseline
 my $improvement_idle_count = 0;
+
+# fix-surface files already dirty when an iteration began (path -> stat
+# signature). scoped_stash will not revert these — see its comment.
+our %fix_surface_snapshot = ();
 
 my $dry_run = 0;
 my $prefix  = '';
@@ -608,6 +640,15 @@ sub wait_for_ram_perl {
     return 1;
 }
 
+# Quota gate: check if the opencode-go quota is blocked.
+# Returns 1 if blocked (should skip pi), 0 if OK to proceed.
+# Checks the bash quota-gate.sh if available, otherwise returns 0.
+sub quota_blocked_estree {
+    # Try the bash quota gate
+    my $result = system('bash', '-c', 'source harness/quota-gate.sh 2>/dev/null && quota_ok estree');
+    return ($result != 0) ? 1 : 0;
+}
+
 sub invoke_pi {
     my ($prompt) = @_;
     # QUOTA GATE (the 85%-in-30min burn): skip the spawn when the opencode-go
@@ -615,7 +656,7 @@ sub invoke_pi {
     # landing fixes (harness/quota-gate.sh; the provider's own
     # quotaBlockedUntil for the active key).
     if (quota_blocked_estree()) {
-        print "\n(pi QUOTA-BLOCKED — skipping this round to preserve the rolling budget)\n";
+        print "\n(AI QUOTA-BLOCKED — skipping this round to preserve the rolling budget)\n";
         return "";
     }
     # RAM gate (fail-open, RELAXED — this is the LEAD worker, not a
@@ -624,10 +665,31 @@ sub invoke_pi {
     # low (<2GB) with very high swap (>80%), and waits at most 120s. It
     # must not be starved by the gates meant to throttle its followers.
     wait_for_ram_perl(1024, 0.8, 120);
-    print "\nInvoking pi to fix ESTree failures...\n";
-    my $pi_pid = open(my $pi_fh, '-|', 'pi', '--mode', 'json', '--provider', 'opencode-go', '--model', 'deepseek-v4-flash', '--thinking', 'xhigh', $prompt);
+    print "\nInvoking $WORKER_CLI ($WORKER_MODEL) to fix ESTree failures...\n";
+    my @cmd = build_ai_cmd();
+    my $pi_fh;
+    my $pi_pid;
+    # For large prompts (>100KB) with cmd, write to temp file and use stdin
+    if ($WORKER_CLI eq 'cmd' && length($prompt) > 100000) {
+        my $tmp = "/tmp/estree_prompt_$$.txt";
+        open my $tfh, '>', $tmp or die "Cannot write $tmp: $!";
+        print $tfh $prompt;
+        close $tfh;
+        $pi_pid = open($pi_fh, '-|', @cmd, '<', $tmp);
+        unless (defined $pi_pid) {
+            $pi_pid = open($pi_fh, '-|');
+            if (defined $pi_pid && $pi_pid == 0) {
+                open STDIN, '<', $tmp or die "Cannot read $tmp: $!";
+                exec @cmd;
+                die "exec failed: $!";
+            }
+        }
+        unlink $tmp;
+    } else {
+        $pi_pid = open($pi_fh, '-|', @cmd, $prompt);
+    }
     unless (defined $pi_pid) {
-        print STDERR "WARNING: could not run pi: $!\n";
+        print STDERR "WARNING: could not run $WORKER_CLI: $!\n";
         return 0;
     }
     my $deadline = time() + 3600;
@@ -855,8 +917,24 @@ sub scoped_stash {
     # pathspec); the stash reverts the modified references, and the
     # orphaned untracked files stop breaking the build once nothing
     # references them.
+    #
+    # PRE-EXISTING-DIRT GUARD (the operator-edit theft).
+    # scoped_stash assumes every dirty fix-surface file is the WORKER's own
+    # bad WIP. That holds unattended, but breaks the moment an operator
+    # edits the same surface: harness/estree_gate.pl and
+    # harness/sh2-namespace.mjs are both the worker's fix surface AND the
+    # shared contract an operator must maintain when registering a new
+    # sh2.* name (e.g. `lit`). The loop then reverted a live operator fix
+    # three times, stashing it as an "estree-loop regression" within
+    # minutes each time.
+    #
+    # Fix: attribute only what changed DURING this iteration. Files already
+    # dirty when the iteration began (see snapshot_fix_surface, called at
+    # iteration start) belong to someone else and are left untouched.
     my @sub = tracked_only($sh2perl, submodule_changed_paths());
     my @root = tracked_only($project_root, root_changed_paths());
+    @sub  = changed_since_snapshot($sh2perl, @sub);
+    @root = changed_since_snapshot($project_root, @root);
     my $stashed = 0;
     if (@sub) {
         system('git', '-C', $sh2perl, 'stash', 'push', '-m', 'estree-loop regression', @sub);
@@ -867,6 +945,40 @@ sub scoped_stash {
         $stashed = 1;
     }
     return $stashed;
+}
+
+# Record the fix-surface files that are ALREADY dirty at iteration start.
+# scoped_stash consults this so it never reverts an operator's edit.
+sub snapshot_fix_surface {
+    %fix_surface_snapshot = ();
+    for my $repo ($sh2perl, $project_root) {
+        my $base = $repo eq $sh2perl ? "$sh2perl" : "$project_root";
+        (my $u = `git -C "$base" diff --name-only 2>/dev/null`) =~ s/\s+$//;
+        for my $p (split /\n/, $u) {
+            next unless defined $p && length $p;
+            my @st = stat("$base/$p");
+            $fix_surface_snapshot{"$base/$p"} = @st ? join(':', @st[7, 9, 10]) : '?';
+        }
+    }
+}
+
+# Keep only paths NOT dirty at snapshot time. A file that was already dirty
+# and is STILL dirty is the operator's (the worker had no reason to touch a
+# file it did not create) — leave it alone. A file the worker edited this
+# iteration is dirty now but was clean at the snapshot.
+sub changed_since_snapshot {
+    my ($base, @paths) = @_;
+    my @out;
+    for my $p (@paths) {
+        my @st = stat("$base/$p");
+        my $now = @st ? join(':', @st[7, 9, 10]) : '?';
+        my $was = $fix_surface_snapshot{"$base/$p"};
+        # clean at snapshot (absent) → the worker made this edit; keep it.
+        # dirty at snapshot and unchanged since → the operator's; drop it.
+        # dirty at snapshot but changed since → the worker touched it; keep.
+        push @out, $p if !defined $was || $was ne $now;
+    }
+    return @out;
 }
 
 # ── main ─────────────────────────────────────────────────────────────
@@ -1409,6 +1521,7 @@ while (1) {
     process_core_transforms();  # compile-in + bisect worker-submitted IR passes
     print "\n" . "=" x 70, "\n";
     print "iteration $iteration — running fail-estree", ($prefix ne '' ? " (prefix $prefix)" : ''), "\n";
+    snapshot_fix_surface();   # so scoped_stash can tell our edits from an operator's
     my ($out, $code) = run_fail_estree();
     my $summary = parse_summary($out);
     unless (defined $summary->{estree_failed}) {
