@@ -182,15 +182,61 @@ PYEOF
   v=$(a1_gate)
   echo "[$(date +%FT%T)] core: A1-native invariant — $v exec-of-builtin violations" >> "$LOG"
 
+  # ── 2b. guard: stash unauthorized shared-core changes ──
+  # Other workers (perl, estree) may have committed directly to the shared
+  # core (src/shir.rs, src/ir.rs, src/estree.rs, src/parser/) without going
+  # through the core worker's gate. Check the main tree and stash any
+  # uncommitted changes to the shared core.
+  shared_core_dirty=$(git -C "$ROOT/sh2perl" status --porcelain -- src/shir.rs src/ir.rs src/estree.rs src/parser/ 2>/dev/null || true)
+  if [ -n "$shared_core_dirty" ]; then
+    echo "[$(date +%FT%T)] core: UNAUTHORIZED shared-core changes detected — stashing:" >> "$LOG"
+    echo "$shared_core_dirty" >> "$LOG"
+    git -C "$ROOT/sh2perl" stash push -m "core-worker: stash unauthorized shared-core changes ($(date +%FT%T))" -- src/shir.rs src/ir.rs src/estree.rs src/parser/ >> "$LOG" 2>&1 || true
+    printf '%s core-worker: STASHED unauthorized shared-core changes\n' "$(date +%FT%T)" >> "$ROOT/gate-reports/core-worker.report"
+  fi
+  # Also check if main tree has commits that the core worktree doesn't have
+  # (i.e., someone committed directly to the shared core bypassing the gate).
+  main_head=$(git -C "$ROOT/sh2perl" rev-parse HEAD 2>/dev/null || true)
+  core_head=$(git -C "$SUB" rev-parse HEAD 2>/dev/null || true)
+  if [ -n "$main_head" ] && [ -n "$core_head" ] && [ "$main_head" != "$core_head" ]; then
+    # Check if the divergence is in shared core files
+    diff_files=$(git -C "$ROOT/sh2perl" diff --name-only "$core_head" "$main_head" -- src/shir.rs src/ir.rs src/estree.rs src/parser/ 2>/dev/null || true)
+    if [ -n "$diff_files" ]; then
+      echo "[$(date +%FT%T)] core: main tree has unauthorized shared-core commits (diverged from core worktree):" >> "$LOG"
+      echo "$diff_files" >> "$LOG"
+      # Revert the main tree's shared core to match the core worktree
+      git -C "$ROOT/sh2perl" checkout "$core_head" -- src/shir.rs src/ir.rs src/estree.rs src/parser/ >> "$LOG" 2>&1 || true
+      git -C "$ROOT/sh2perl" commit -m "core-worker: revert unauthorized shared-core changes" >> "$LOG" 2>&1 || true
+      printf '%s core-worker: REVERTED unauthorized shared-core commits\n' "$(date +%FT%T)" >> "$ROOT/gate-reports/core-worker.report"
+    fi
+  fi
+
   # ── 3. finalize: commit accepted core changes when green (in the WORKTREE) ──
   # The estree corpus is part of the core worker's green: it must never
   # land a marketplace change that regresses the estree path (the
   # array/function regressions that started this — its old gate was only
   # check_qx_shir + lib tests). SH2PERL_DIR points fail-estree at THIS
   # worktree's binary.
-  estree_fails=$(SH2PERL_DIR="$SUB" "$ROOT/fail-estree" 2>/dev/null | sed -n 's/.*ESTREE: [0-9]* passed, \([0-9]*\) failed.*/\1/p' | tail -1)
-  estree_fails=${estree_fails:-9999}
-  if [ "$(a1_gate)" -eq 0 ] && [ "$estree_fails" -le 0 ] && \
+  # Timeout: fail-estree can hang if the build is broken. Cap at 1 hour.
+  #
+  # PROBE-FAILED vs CORPUS-RED: fail-estree always prints its summary line
+  # when it actually ran, and exits 1 for a genuine red corpus (the gate
+  # verdict is the FAILURE COUNT, not the exit status). So an exit status
+  # can NOT tell the two apart — only the presence of a parsed count can.
+  # The old `:-9999` sentinel collapsed "timed out / crashed / produced no
+  # summary" into the same RED text as "27 real failures", which is why the
+  # report flapped estree=27 / estree=9999 / estree=27. Now: no parsed
+  # count => estree_probe=FAILED (name the cause), with the count untouched.
+  estree_probe=ok
+  estree_out=$(timeout 3600 env SH2PERL_DIR="$SUB" "$ROOT/fail-estree" 2>/dev/null) || true
+  estree_fails=$(printf '%s\n' "$estree_out" | sed -n 's/.*ESTREE: [0-9]* passed, \([0-9]*\) failed.*/\1/p' | tail -1)
+  if [ -z "$estree_fails" ]; then
+    estree_probe=failed
+    estree_fails="?"
+    echo "[$(date +%FT%T)] core: estree probe FAILED (no ESTREE summary line — fail-estree timed out, crashed, or could not build; this is NOT a corpus verdict)" >> "$LOG"
+    printf '%s\n' "$estree_out" | tail -20 >> "$LOG"
+  fi
+  if [ "$(a1_gate)" -eq 0 ] && [ "$estree_probe" = ok ] && [ "$estree_fails" -le 0 ] && \
        "$ROOT/harness/build-lock.sh" --role core -- cargo test --lib \
        --manifest-path "$SUB/Cargo.toml" >> "$LOG" 2>&1; then
     echo "[$(date +%FT%T)] core: gate GREEN (A1 native + estree corpus + lib tests)" >> "$LOG"
@@ -212,8 +258,13 @@ PYEOF
     fi
     wake_sleepers
   else
-    echo "[$(date +%FT%T)] core: gate RED (a1=$v estree=$estree_fails) after acceptance — left for the next iteration (never bless a regression)" >> "$LOG"
-    printf '%s core-worker: RED (A1-native %s, estree %s fails, %s done, %s rejected)\n' "$(date +%FT%T)" "$v" "$estree_fails" "$(done_count)" "$(rejected_count)" >> "$ROOT/gate-reports/core-worker.report"
+    if [ "$estree_probe" != ok ]; then
+      echo "[$(date +%FT%T)] core: gate RED (a1=$v estree-probe-FAILED) after acceptance — left for the next iteration (never bless a regression)" >> "$LOG"
+      printf '%s core-worker: RED (A1-native %s, estree probe FAILED — no corpus verdict, %s done, %s rejected)\n' "$(date +%FT%T)" "$v" "$(done_count)" "$(rejected_count)" >> "$ROOT/gate-reports/core-worker.report"
+    else
+      echo "[$(date +%FT%T)] core: gate RED (a1=$v estree=$estree_fails) after acceptance — left for the next iteration (never bless a regression)" >> "$LOG"
+      printf '%s core-worker: RED (A1-native %s, estree %s fails, %s done, %s rejected)\n' "$(date +%FT%T)" "$v" "$estree_fails" "$(done_count)" "$(rejected_count)" >> "$ROOT/gate-reports/core-worker.report"
+    fi
   fi
   sleep "$WATCH"
 done
