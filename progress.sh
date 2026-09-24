@@ -85,7 +85,15 @@ echo ""
 # a tree that is NOT failing shows its sh2.* occurrence count instead
 # (for a green tree the interesting number is no longer failures but how
 # much is still calling back into the runtime).
-echo "--- Per-tree board (fail count @24h/4h/now, or sh2.* if green) ---"
+#
+# UNITS MATTER: the columns carry a fail count for a failing tree and an
+# sh2.* call-site count for a green one, so a bare number in "now" is
+# ambiguous — and a reader cannot tell whether `19` means "19 fails" or
+# "19 sh2.* sites". Tag every number with its unit: `19f` = fails,
+# `1767s` = sh2.* sites (s), `-` = no measurement at that horizon. The
+# header states the convention so the legend never scrolls off.
+echo "--- Per-tree board (per-tree now: fails, or sh2.* when green) ---"
+echo "    units: <n>f = failing tests   <n>s = sh2.* call sites (green)   - = no data"
 printf "  %-10s %-9s %-9s %-9s %s\n" "tree" "24h" "4h" "now" "trend"
 for rep in gate-reports/backend-*.report gate-reports/estree.report; do
   [ -f "$rep" ] || continue
@@ -133,22 +141,29 @@ age = f"{age_m}m" if age_m < 120 else (f"{age_m//60}h" if age_m < 48*60 else f"{
 # horizon, which is exactly the confident-wrong-answer failure to avoid.
 if age_m > 24*60:
     print("  %-10s %-9s %-9s %-9s %s" % (
-        tree, "-", "-", f_now,
-        f"STALE — last gated {age} ago, not running (need 24h/4h data)"))
+        tree, "-", "-", f"{f_now}f",
+        f"STALE — {f_now}f is the last known, {age} old (not running)"))
     sys.exit()
 
 if f_now == 0:
-    # GREEN: report the sh2.* occurrence count instead of failures
+    # GREEN: report the sh2.* occurrence count instead of failures. The
+    # count is fleet-wide (single .estree_metric.tsv), so mark it global
+    # rather than implying it is this tree's own measurement.
     sh2 = None
     if os.path.isfile('.estree_metric.tsv'):
         for ln in open('.estree_metric.tsv', errors='replace'):
             f = ln.split('\t')
             if f and f[0].strip() == 'total' and len(f) > 1:
                 sh2 = f[1].strip()
-    note = f"GREEN — sh2.* sites: {sh2}" if sh2 else "GREEN"
-    print("  %-10s %-9s %-9s %-9s %s" % (tree, "0", "0", "0", note))
+    sh2s = f"{sh2}s" if sh2 else "-"
+    note = (f"GREEN — 0 fails; sh2.* sites {sh2s} (fleet-wide)"
+            if sh2 else "GREEN — 0 fails")
+    print("  %-10s %-9s %-9s %-9s %s" % (tree, "0f", "0f", "0f", note))
 else:
-    # FAILING: 24h/4h/now fail counts + direction
+    # FAILING: 24h/4h/now fail counts + direction. Every number is
+    # unit-tagged so the column cannot be misread as sh2.* sites.
+    def tag(v):
+        return "-" if v == "-" else f"{int(v)}f"
     try:
         base = int(v4) if v4 != "-" else f_now
         d = f_now - base
@@ -156,7 +171,7 @@ else:
         d = 0
     arrow = "↓ improving" if d < 0 else ("↑ worse" if d > 0 else "= flat")
     print("  %-10s %-9s %-9s %-9s %s (last run {})".format(age) % (
-        tree, v24, v4, f_now, f"{arrow} {d:+d}/4h"))
+        tree, tag(v24), tag(v4), f"{f_now}f", f"{arrow} {d:+d}f/4h"))
 PYEOF
 done
 
