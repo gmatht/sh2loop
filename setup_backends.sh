@@ -1221,7 +1221,14 @@ EOF
                           eq_scratch=$(mktemp -d "$WORKSPACE/.eq_scratch_$$.XXXXXX")
                         fi
                         case "$g_lang" in
-                          c)    cc /tmp/eq_$$.c -o /tmp/eq_$$_bin 2>/dev/null && timeout 15 /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
+                          c)    # argv0 = the source path (what `bash "$f"` sees), so
+                                # $0-dependent stdout agrees with bash — the same
+                                # treatment rust/zsh/perl already get. Running the
+                                # raw binary made `$0` the /tmp path, which
+                                # FALSE-FAILED scripts that print $0 in usage text
+                                # (057_case.sh: "Usage: .../057_case.sh {start|stop}"
+                                # vs "Usage: /tmp/eq_$$_bin ...").
+                                cc /tmp/eq_$$.c -o /tmp/eq_$$_bin 2>/dev/null && timeout 15 bash -c 'exec -a "$0" "$1"' "$f" /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
                           go)   timeout 30 "$eq_tool" run /tmp/eq_$$.go > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           python) timeout 15 python3 /tmp/eq_$$.py > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           rust) # argv0 = the source path (what `bash "$f"` sees),
