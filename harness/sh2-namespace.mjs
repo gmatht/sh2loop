@@ -1461,6 +1461,15 @@ export const sh2 = {
     return cond ? a : b;
   },
 
+  // `lit(v)` — the opaque quoted-literal marker (src/shir.rs IrExpr::Str,
+  // SingleQuoted holding `$`): `'putb $b'` must stay byte-verbatim, so the
+  // emitter wraps it here and the interpolation passes skip it. IDENTITY at
+  // run time — the wrapping exists only to keep passes from rewriting the
+  // payload into a JS template. See upstream-repros/03-single-quoted-payload.sh.
+  lit(v) {
+    return v;
+  },
+
   // ── direct native function calls ─────────────────────────────────
   // The emitter lowers provably-positional-free sync-function calls to
   // direct JS calls on module-level `let f` bindings (src/shir.rs
