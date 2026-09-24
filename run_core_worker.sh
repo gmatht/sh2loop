@@ -202,12 +202,35 @@ PYEOF
     # Check if the divergence is in shared core files
     diff_files=$(git -C "$ROOT/sh2perl" diff --name-only "$core_head" "$main_head" -- src/shir.rs src/ir.rs src/estree.rs src/parser/ 2>/dev/null || true)
     if [ -n "$diff_files" ]; then
-      echo "[$(date +%FT%T)] core: main tree has unauthorized shared-core commits (diverged from core worktree):" >> "$LOG"
-      echo "$diff_files" >> "$LOG"
-      # Revert the main tree's shared core to match the core worktree
-      git -C "$ROOT/sh2perl" checkout "$core_head" -- src/shir.rs src/ir.rs src/estree.rs src/parser/ >> "$LOG" 2>&1 || true
-      git -C "$ROOT/sh2perl" commit -m "core-worker: revert unauthorized shared-core changes" >> "$LOG" 2>&1 || true
-      printf '%s core-worker: REVERTED unauthorized shared-core commits\n' "$(date +%FT%T)" >> "$ROOT/gate-reports/core-worker.report"
+      # STALE-REFERENCE GUARD (the 15-day fleet outage).
+      # This branch exists to stop an unauthorized DIRECT commit to the shared
+      # core. But if the core worktree is an ANCESTOR of main, then main is
+      # AHEAD, not rogue — reverting main backwards to a stale commit deletes
+      # legitimate work. That happened: backend/core sat 374 commits behind
+      # main, so this reverted away the hoisted bigint/int-array analyses
+      # main's backends call, leaving 155 rustc errors (main could not build),
+      # which made fail-estree loop on a failed build while holding the build
+      # lock and starved every tree's gate. Never revert backwards: if the
+      # core worktree is behind, fast-forward IT (it is the reference that is
+      # stale), and only revert main when the worktree genuinely has commits
+      # main lacks.
+      if git -C "$ROOT/sh2perl" merge-base --is-ancestor "$core_head" "$main_head" 2>/dev/null; then
+        echo "[$(date +%FT%T)] core: core worktree ($core_head) is BEHIND main ($main_head) — not a rogue commit; fast-forwarding the worktree instead of reverting main" >> "$LOG"
+        if git -C "$SUB" merge --ff-only "$main_head" >> "$LOG" 2>&1; then
+          echo "[$(date +%FT%T)] core: fast-forwarded backend/core -> $main_head" >> "$LOG"
+          printf '%s core-worker: FAST-FORWARDED stale backend/core (was behind main)\n' "$(date +%FT%T)" >> "$ROOT/gate-reports/core-worker.report"
+        else
+          echo "[$(date +%FT%T)] core: backend/core ff FAILED (worktree diverged or dirty) — leaving main untouched" >> "$LOG"
+          printf '%s core-worker: WARNING backend/core stale and not fast-forwardable — main left untouched\n' "$(date +%FT%T)" >> "$ROOT/gate-reports/core-worker.report"
+        fi
+      else
+        echo "[$(date +%FT%T)] core: main tree has unauthorized shared-core commits (diverged from core worktree):" >> "$LOG"
+        echo "$diff_files" >> "$LOG"
+        # Revert the main tree's shared core to match the core worktree
+        git -C "$ROOT/sh2perl" checkout "$core_head" -- src/shir.rs src/ir.rs src/estree.rs src/parser/ >> "$LOG" 2>&1 || true
+        git -C "$ROOT/sh2perl" commit -m "core-worker: revert unauthorized shared-core changes" >> "$LOG" 2>&1 || true
+        printf '%s core-worker: REVERTED unauthorized shared-core commits\n' "$(date +%FT%T)" >> "$ROOT/gate-reports/core-worker.report"
+      fi
     fi
   fi
 
