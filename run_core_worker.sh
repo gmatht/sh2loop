@@ -227,12 +227,17 @@ PYEOF
   # summary" into the same RED text as "27 real failures", which is why the
   # report flapped estree=27 / estree=9999 / estree=27.
   #
-  # The dominant cause is `fail-estree` dying at its BUILD step ("Build
-  # failed") because the main tree's sh2perl does not compile — note it
-  # builds $ROOT/otranspilerl (the MAIN checkout), NOT $SH2PERL_DIR, so a
-  # broken main tree takes the core gate down even though the core WORKTREE
-  # (sh2perl/backends/core) builds fine. Name that cause explicitly instead
-  # of logging an opaque "no summary line".
+  # The dominant cause is `fail-estree` dying at its BUILD step because the
+  # main tree's sh2perl does not compile — note it builds $ROOT/otranspilerl
+  # (the MAIN checkout), NOT $SH2PERL_DIR, so a broken main tree takes the
+  # core gate down even though the core WORKTREE (sh2perl/backends/core)
+  # builds fine. Name that cause explicitly instead of logging an opaque
+  # "no summary line".
+  #
+  # Detecting it: fail-estree's `die "Build failed"` goes to STDERR, which
+  # this capture discards (2>/dev/null) — so the marker is NOT greppable
+  # here. What IS on stdout is the cargo output it printed first, ending in
+  # `error: could not compile ...`. Detect that instead.
   estree_probe=ok
   estree_reason=""
   estree_out=$(timeout 3600 env SH2PERL_DIR="$SUB" "$ROOT/fail-estree" 2>/dev/null) || true
@@ -240,9 +245,9 @@ PYEOF
   if [ -z "$estree_fails" ]; then
     estree_probe=failed
     estree_fails="?"
-    if printf '%s\n' "$estree_out" | grep -q '^Build failed'; then
+    if printf '%s\n' "$estree_out" | grep -qE 'error: could not compile|could not compile .* due to'; then
       estree_reason="main tree sh2perl does not compile"
-      echo "[$(date +%FT%T)] core: estree probe FAILED — fail-estree could not build $ROOT/otranspilerl (the MAIN tree; note it ignores SH2PERL_DIR at the build step, so the core worktree's clean build does not help). No corpus verdict is available." >> "$LOG"
+      echo "[$(date +%FT%T)] core: estree probe FAILED — $ROOT/otranspilerl (the MAIN tree; the probe's build step ignores SH2PERL_DIR, so the core worktree's clean build does not help) does not compile. No corpus verdict is available." >> "$LOG"
       printf '%s\n' "$estree_out" | grep -E '^error' | head -10 >> "$LOG"
     else
       estree_reason="no ESTREE summary (timed out or crashed)"
