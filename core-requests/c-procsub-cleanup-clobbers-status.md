@@ -1,6 +1,6 @@
 # C backend / process substitution: the FIFO cleanup `rm` runs BEFORE `$?` is read, clobbering it
 
-**Status:** diagnosed, not fixed. Affects `cmp`/`diff`-style scripts that use
+**Status:** diagnosed to the exact transform line, not fixed — needs a shared-core mechanism (see Root cause). Affects `cmp`/`diff`-style scripts that use
 process substitution and then read `$?`.
 
 ## Symptom
@@ -45,23 +45,6 @@ a common `cmp`/`diff`/`comm` idiom — will read the wrong status. The bug is
 in how the process-substitution transform sequences its teardown relative to
 the status that bash publishes.
 
-## Fix direction
-
-The cleanup must not become the last status write before an observable `$?`
-read. Options, in increasing invasiveness:
-
-1. Save/restore around the cleanup: keep the user command's status, run the
-   teardown, then restore `_sh_rc` (`{ int _rcs = _sh_rc; rm…; _sh_rc = _rcs; }`).
-2. Order the teardown AFTER the `$?` consumer when the consumer is adjacent
-   (needs a liveness/adjacency analysis — more invasive).
-3. Model the cleanup as not affecting `$?` at all (a property on the emitted
-   site), which is what bash effectively does — the teardown is renderer
-   bookkeeping, not a shell statement the user wrote.
-
-Option 1 is the smallest and safest, and is local to the process-substitution
-lowering. Option 3 is the most principled if the transform layer can carry
-such a flag.
-
 ## Reproduction
 
     ./setup_backends.sh --backend-gate c        # 070_cmp_basic.sh fails
@@ -69,3 +52,48 @@ such a flag.
     # render + compile the same file for C, run with argv0 matched for $0:
     # bash -c 'exec -a "$0" "$1"' <script> <bin> > c.out
     diff b.out c.out      # -> "bc -s exit: 1" vs "0"
+
+## Root cause (located)
+
+`sh2perl/src/transforms/process_subst.rs` sequences the teardown AFTER the
+user's command, and the transform's own comments name the problem — twice:
+
+    // process-out present: the producer-read runs regardless of
+    // the exec's status — plain sequence, rm last (status caveat).
+    seq.push(rm);
+
+and, in the call-form path:
+
+    // process-out present: the producer-read must run regardless of
+    // the exec's status (it CONSUMES the file), so a plain sequence
+    // stays; the trailing rm is the last status (accepted caveat).
+    out.push(rm);
+
+So the rm is deliberately last and its status is knowingly published. The
+process-IN path avoids this by wrapping in `and(Arrow(seq), Arrow([rm]))`, so
+the enclosing status dispatch still sees the exec's code — but the
+process-OUT path cannot use `and()` (the producer-read must run regardless of
+the exec's status), so it takes the plain-sequence branch and leaks the rm's
+status.
+
+`070_cmp_basic.sh` uses `cmp -s <(echo b) <(echo c)`: two process-IN specs,
+but the transform takes its `has_post` branch, hence the leak.
+
+## Why it needs an IR mechanism, not a local patch
+
+The obvious fix is to save/restore the status around the teardown:
+
+    { int _rcs = _sh_rc; rm -f ...; _sh_rc = _rcs; }
+
+but a RENDERER cannot do this safely: it cannot distinguish a
+transform-generated cleanup `rm` from a user-written `rm -f`, and suppressing
+a user's own status would be a regression. `Subshell` does not help either —
+`(rm ...)` still propagates the subshell's status as the last one.
+
+So the transform must be able to declare "this statement is bookkeeping; its
+status is not observable". The cleanest form is a status-neutral marker on the
+exec (or a NoStatus wrapper) that every renderer honors by saving and
+restoring `_sh_rc` around it — which matches bash, where the teardown is
+renderer bookkeeping rather than a statement the user wrote. That is a
+shared-core change (ir.rs + the renderers that must honor it), so it belongs
+in the core worker's queue.
