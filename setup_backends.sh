@@ -31,6 +31,12 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 # pi quota gate (the 85%-in-30min burn): skip pi when the opencode-go quota is
 # blocked — retry storms spend the rolling budget without landing fixes
 [ -f "$ROOT/harness/quota-gate.sh" ] && . "$ROOT/harness/quota-gate.sh"
+# Shared worker library (model, CLI, backoff, reporting). All env vars
+# are overridable: WORKER_CLI=pi WORKER_MODEL=deepseek-v4-flash ...
+[ -f "$ROOT/harness/worker_common.sh" ] && . "$ROOT/harness/worker_common.sh"
+# Override defaults for setup_backends if not already set by worker_common.
+# The WORKER_CLI/WORKER_MODEL/WORKER_EFFORT env vars from worker_common.sh
+# are used by invoke_ai_with_backoff below.
 SUB="$ROOT/sh2perl"
 BT="$SUB/backends"   # worktrees live INSIDE the sh2perl submodule
                      # (they share the submodule's core); $ROOT/backends
@@ -38,7 +44,7 @@ BT="$SUB/backends"   # worktrees live INSIDE the sh2perl submodule
 FT="$ROOT/frontends"
 WORKSPACE="$ROOT"
 
-DEFAULT_BACKEND_LANGS="perl js c python zig go rust sh java"
+DEFAULT_BACKEND_LANGS="perl js c python zig go rust sh java fish"
 DEFAULT_FRONTEND_LANGS="py-sh-go go-sh posix-sh-go perl-sh-go fish-sh-go zsh-sh-go c-sh-go cpp-sh-go rust-frontend zig-sh-go powershell-sh-go"
 
 # Active backends whose workers already run from the main checkout
@@ -124,12 +130,10 @@ gated() {
   fi
 }
 
-# Invoke `pi` for a scoped fix (opencode-go + deepseek-v4-flash, with
-# automatic API-key rotation handled by the opencode-go provider — same
-# invocation the main_loop_estree.pl / main_loop_rust.pl workers use).
-# Args: $1=log_file, $2=scope_label (shown in the prompt), $3=scope_dir,
-# $4=prompt_body. The prompt is written to a temp file (avoids quoting
-# nightmares with multi-line bodies) and piped to `pi` on stdin.
+# Invoke the configured AI CLI for a scoped fix (with exponential backoff).
+# Uses WORKER_CLI (default cmd) + WORKER_MODEL (default Laguna) from
+# harness/worker_common.sh. Args: $1=log_file, $2=scope_label,
+# $3=scope_dir, $4=prompt_body.
 pi_fix() {
   local log="$1" scope_label="$2" scope_dir="$3" body="$4"
   local prompt_file; prompt_file=$(mktemp --suffix=.pi-prompt)
@@ -142,18 +146,17 @@ pi_fix() {
       "$WORKSPACE" "$WORKSPACE" "$WORKSPACE" "$WORKSPACE"
   } > "$prompt_file"
   if ! quota_ok "$scope_label"; then
-    echo "    [$scope_label] QUOTA-BLOCKED — skipping pi (rolling budget preserved)" >> "$log"
+    echo "    [$scope_label] QUOTA-BLOCKED — skipping AI (rolling budget preserved)" >> "$log"
     rm -f "$prompt_file"
     return 0
   fi
-  echo "    [$scope_label] invoking pi (opencode-go + deepseek-v4-flash, key rotation automatic)..." >> "$log"
-  # RAM gate (fail-open, up to 10 min): don't start pi while RAM is tight
+  echo "    [$scope_label] invoking $WORKER_CLI ($WORKER_MODEL)..." >> "$log"
+  # RAM gate (fail-open, up to 10 min): don't start while RAM is tight
   wait_for_ram 2048 0.5 30 600 || true
-  if pi --mode json --provider opencode-go --model deepseek-v4-flash \
-        --thinking xhigh < "$prompt_file" >> "$log" 2>&1; then
-    echo "    [$scope_label] pi fix complete" >> "$log"
+  if invoke_ai_with_backoff "$prompt_file" "$log"; then
+    echo "    [$scope_label] AI fix complete" >> "$log"
   else
-    echo "    [$scope_label] pi fix FAILED (rc=$?)" >> "$log"
+    echo "    [$scope_label] AI fix FAILED" >> "$log"
     mark_pi_outcome 1 "$scope_label" "$log"
   fi
   rm -f "$prompt_file"
@@ -165,8 +168,8 @@ build_cmd() {
   local kind="$1" lang="$2"
   case "$kind:$lang" in
     backend:perl|backend:js)         echo "cargo build --manifest-path $SUB/Cargo.toml" ;;
-    backend:c|backend:python|backend:rust|backend:zig|backend:sh|backend:java)
-                                    echo "cargo build --manifest-path $SUB/Cargo.toml" ;;
+    backend:c|backend:python|backend:rust|backend:zig|backend:sh|backend:java|backend:fish)
+                                echo "cargo build --manifest-path $SUB/Cargo.toml" ;;
     backend:go)                     echo "true" ;;  # no Go renderer yet; build = noop
     frontend:py-sh)                 echo "python3 -c 'import ast; ast.parse(open(\"$FT/py-sh/pysh.py\").read())'" ;;
     frontend:go-sh)                 echo "go build -o /tmp/go-sh-build $FT/go-sh/" ;;
@@ -343,9 +346,9 @@ do_build () {
   wait_for_load || true
   local -a langs=()
   case "$scope" in
-    backends)  langs=(perl js c python zig go rust sh java) ;;
+    backends)  langs=(perl js c python zig go rust sh java fish) ;;
     frontends) langs=(py-sh-go go-sh c-sh-go cpp-sh-go) ;;
-    all|*)     langs=(perl js c python zig go rust sh java py-sh go-sh c-sh-go cpp-sh-go) ;;
+    all|*)     langs=(perl js c python zig go rust sh java fish py-sh go-sh c-sh-go cpp-sh-go) ;;
   esac
   echo "=== build: scope=$scope langs=${langs[*]} ==="
   # parallel: run each build in background, wait for all. Bound the
@@ -487,9 +490,31 @@ case "${1:-}" in
                   # (check_qx_shir.py). Highest priority — every backend/frontend
                   # queues to it. Scope: sh2perl/src/ + core-requests/ + harness A1
                   # checks; the estree worker defers requests (CORE_WORKER_ACTIVE=1).
-                  nohup nice -n 5 bash "$ROOT/run_core_worker.sh" \
-                    >> "$WORKSPACE/loop-core-worker.log" 2>&1 &
-                  echo "core worker started (pid $!) — log: $WORKSPACE/loop-core-worker.log"
+                  #
+                  # SUPERVISED (the backend workers' pattern): run_core_worker.sh
+                  # was launched bare, so ANY exit (its own build-lock preemption
+                  # during another worker's long cargo hold, the shared-target
+                  # build, an OOM kill) left the fleet with NO core gate until a
+                  # human noticed. It is now wrapped in an attempt/restart loop
+                  # with a pidfile, so a crash self-heals.
+                  if [ -f "$WORKSPACE/loop-core-worker.pid" ] && \
+                     kill -0 "$(cat "$WORKSPACE/loop-core-worker.pid")" 2>/dev/null; then
+                    echo "core worker already running (pid $(cat "$WORKSPACE/loop-core-worker.pid"))"
+                    exit 0
+                  fi
+                  nice -n 5 nohup bash -c "
+                    set -uo pipefail
+                    attempts=0
+                    while [ \$attempts -lt 5 ]; do
+                      attempts=\$((attempts+1))
+                      echo \"[\$(date +%FT%T)] core: worker attempt \$attempts\" >> '$WORKSPACE/loop-core-worker.log'
+                      bash '$WORKSPACE/run_core_worker.sh'
+                      echo \"[\$(date +%FT%T)] core: worker exited (attempt \$attempts, rc=\$?) — restarting in 5s\" >> '$WORKSPACE/loop-core-worker.log'
+                      sleep 5
+                    done
+                  " >> "$WORKSPACE/loop-core-worker.log" 2>&1 &
+                  echo $! > "$WORKSPACE/loop-core-worker.pid"
+                  echo "core worker started (pid $(cat "$WORKSPACE/loop-core-worker.pid")) — log: $WORKSPACE/loop-core-worker.log"
                   exit 0 ;;
   --start-go-idiom-worker) # the Go idiom-triage worker (TRANSLATE_ONE_APPLICATION
                   # mining loop): on demand, mines NEW Go idioms from our own
@@ -621,7 +646,7 @@ case "${1:-}" in
                         continue
                       fi
                       fail_count=$((fail_count+1))
-                      echo "[$(date +%FT%T)] $rw_lang: gate FAILED ($fail_count/3) — invoking pi (deepseek-v4-flash, scoped)" >> "$LOG"
+                      echo "[$(date +%FT%T)] $rw_lang: gate FAILED ($fail_count/3) — invoking AI ($WORKER_CLI/$WORKER_MODEL, scoped)" >> "$LOG"
                       bash "$WORKSPACE/setup_backends.sh" --pi-fix-backend "$rw_lang" 2>> "$LOG" || true
                       if [ "$fail_count" -ge 3 ]; then
                         echo "[$(date +%FT%T)] $rw_lang: TRAPPED — escalating and backing off 30 min" >> "$LOG"
@@ -645,9 +670,8 @@ case "${1:-}" in
                   wait_for_ram "${4:-2048}" "${5:-0.5}" "${6:-30}" "${7:-1800}" || true
                   exit 0 ;;
   --pi-fix-backend) # internal: invoked by the per-worktree backend worker
-                  # when its build FAILS. Calls pi (opencode-go +
-                  # deepseek-v4-flash, automatic key rotation) with a
-                  # prompt scoped to backends/<lang>/ + harness/*.
+                  # when its build FAILS. Uses WORKER_CLI/WORKER_MODEL
+                  # with exponential backoff. Scoped to backends/<lang>/ + harness/*.
                   # Usage: setup_backends.sh --pi-fix-backend <lang>
                   shift; fix_lang="$1"
                   fix_dir="$BT/$fix_lang"; fix_log="$WORKSPACE/loop-backend-$fix_lang.log"
@@ -678,20 +702,18 @@ case "${1:-}" in
                     printf 'You may create or edit files inside backends/%s/ and harness/.\n' "$fix_lang"
                     printf 'If a SHARED-CORE change is required (shIR node, deserializer, contract field, parser fix) to fix this, APPEND a structured request to core-requests/%s-<timestamp>.md per core-requests/README.md (NEED / WHY / MINIMAL-CORE-CHANGE / FAILING-CASE) and exit 0. Do NOT touch the core — the estree worker implements core requests.\n' "$fix_lang"
                   } > /tmp/pi-fix-prompt-$$
-                  # RAM gate (fail-open, up to 10 min): don't start pi while RAM is tight
+                  # RAM gate (fail-open, up to 10 min): don't start while RAM is tight
                   wait_for_ram 2048 0.5 30 600 || true
                   if ! quota_ok "worker"; then
-                    echo "[quota-gate] QUOTA-BLOCKED — skipping pi" >> "$fix_log" 2>/dev/null || true
+                    echo "[quota-gate] QUOTA-BLOCKED — skipping AI" >> "$fix_log" 2>/dev/null || true
                     exit 0
                   fi
-                  pi --mode json --provider opencode-go --model deepseek-v4-flash \
-                     --thinking xhigh < /tmp/pi-fix-prompt-$$ >> "$fix_log" 2>&1 || true
+                  invoke_ai_with_backoff /tmp/pi-fix-prompt-$$ "$fix_log" || true
                   rm -f /tmp/pi-fix-prompt-$$
                   exit 0 ;;
   --pi-fix-frontend) # internal: invoked by the per-frontend worker
-                  # when its build FAILS. Calls pi (opencode-go +
-                  # deepseek-v4-flash, automatic key rotation) with a
-                  # prompt scoped to frontends/<name>/ + harness/*.
+                  # when its build FAILS. Uses WORKER_CLI/WORKER_MODEL
+                  # with exponential backoff.
                   # Usage: setup_backends.sh --pi-fix-frontend <name>
                   shift; fix_name="$1"
                   fix_dir="$FT/$fix_name"; fix_log="$WORKSPACE/loop-frontend-$fix_name.log"
@@ -709,14 +731,13 @@ case "${1:-}" in
                     fi
                     printf 'If a SHARED-CORE change is required (shIR node, deserializer, contract field, parser fix) to fix this, APPEND a structured request to core-requests/%s-<timestamp>.md per core-requests/README.md (NEED / WHY / MINIMAL-CORE-CHANGE / FAILING-CASE) and exit 0. Do NOT touch the core — the estree worker implements core requests.\n' "$fix_name"
                   } > /tmp/pi-fix-prompt-$$
-                  # RAM gate (fail-open, up to 10 min): don't start pi while RAM is tight
+                  # RAM gate (fail-open, up to 10 min): don't start while RAM is tight
                   wait_for_ram 2048 0.5 30 600 || true
                   if ! quota_ok "worker"; then
-                    echo "[quota-gate] QUOTA-BLOCKED — skipping pi" >> "$fix_log" 2>/dev/null || true
+                    echo "[quota-gate] QUOTA-BLOCKED — skipping AI" >> "$fix_log" 2>/dev/null || true
                     exit 0
                   fi
-                  pi --mode json --provider opencode-go --model deepseek-v4-flash \
-                     --thinking xhigh < /tmp/pi-fix-prompt-$$ >> "$fix_log" 2>&1 || true
+                  invoke_ai_with_backoff /tmp/pi-fix-prompt-$$ "$fix_log" || true
                   rm -f /tmp/pi-fix-prompt-$$
                   exit 0 ;;
   --pi-coverage-example) # internal: invoked by a frontend worker after a
@@ -783,11 +804,10 @@ EOF
                   } > /tmp/pi-coverage-prompt-$$
                   wait_for_ram 2048 0.5 30 600 || true
                   if ! quota_ok "worker"; then
-                    echo "[quota-gate] QUOTA-BLOCKED — skipping pi" >> "$fix_log" 2>/dev/null || true
+                    echo "[quota-gate] QUOTA-BLOCKED — skipping AI" >> "$fix_log" 2>/dev/null || true
                     exit 0
                   fi
-                  pi --mode json --provider opencode-go --model deepseek-v4-flash \
-                     --thinking xhigh < /tmp/pi-coverage-prompt-$$ >> "$cov_log" 2>&1 || true
+                  invoke_ai_with_backoff /tmp/pi-coverage-prompt-$$ "$cov_log" || true
                   rm -f /tmp/pi-coverage-prompt-$$
                   exit 0 ;;
   --pi-fix-c-requests) # internal: the c-sh-go worker implements pending
@@ -816,11 +836,10 @@ EOF
                   } > /tmp/pi-fix-c-requests-$$
                   wait_for_ram 2048 0.5 30 600 || true
                   if ! quota_ok "worker"; then
-                    echo "[quota-gate] QUOTA-BLOCKED — skipping pi" >> "$fix_log" 2>/dev/null || true
+                    echo "[quota-gate] QUOTA-BLOCKED — skipping AI" >> "$fix_log" 2>/dev/null || true
                     exit 0
                   fi
-                  pi --mode json --provider opencode-go --model deepseek-v4-flash \
-                     --thinking xhigh < /tmp/pi-fix-c-requests-$$ >> "$c_log" 2>&1 || true
+                  invoke_ai_with_backoff /tmp/pi-fix-c-requests-$$ "$c_log" || true
                   rm -f /tmp/pi-fix-c-requests-$$
                   exit 0 ;;
   --backend-gate) # internal: the backend worker's progress signal. Render the
@@ -883,7 +902,7 @@ EOF
                           echo "  [$g_lang] backend gate: worktree build FAILED"; exit 1
                         fi
                         g_bin="$g_wt/target/debug/shir_render"
-                        g_flag="--target $g_lang"
+                        g_flag="--target=$g_lang"
                         # probe: feed an invalid shIR JSON — the deserializer's
                         # "ShIR JSON ingress" marker proves the render path is
                         # wired. The probe is EXPECTED to exit 1 (ingress
@@ -938,7 +957,7 @@ EOF
                         echo "  [$g_lang] backend gate: worktree build FAILED"; exit 1
                       fi
                       g_bin="$g_wt/target/debug/shir_render"
-                      g_flag="--target $g_lang"
+                      g_flag="--target=$g_lang"
                       # probe: feed an invalid shIR JSON — the deserializer's
                       # "ShIR JSON ingress" marker proves the render path is
                       # wired into the worktree. The probe exits 1 by design
@@ -997,6 +1016,8 @@ EOF
                     rust)   eq_tool="rustc";      eq_ext="rs";;
                     zig)    eq_tool="zig";        eq_ext="zig";;
                     sh)     eq_tool="sh";         eq_ext="sh";;
+                    fish)   eq_tool="fish";       eq_ext="fish";;
+                    zsh)    eq_tool="zsh";        eq_ext="zsh";;
                     java)   eq_tool="javac";      eq_ext="java";;
                     perl)   eq_tool="perl";       eq_ext="pl";;
                     js)     eq_tool="node";       eq_ext="json";;
@@ -1189,8 +1210,14 @@ EOF
                                 # first). A 124 (timeout) is caught below.
                                 rustc /tmp/eq_$$.rs -o /tmp/eq_$$_bin 2>/dev/null && timeout 15 bash -c 'exec -a "$0" "$1"' "$f" /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
                           zig)  timeout 30 "$eq_tool" run /tmp/eq_$$.zig > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
+                          zsh)  # argv0 = the source path (what `bash "$f"` sees),
+                               # mirroring the perl/sh arms. The REAL exit
+                               # code is captured (not collapsed to 0/1): the
+                               # verdict compares it to bash's exit code
+                               # (zsh joined the equality group like sh/rust).
+                                timeout 15 zsh -c 'eval "$(< /dev/fd/3)"' "$f" 3< /tmp/eq_$$.zsh > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
                           sh)   # argv0 = the source path (what `bash "$f"` sees),
-                                # mirroring the perl arm below. The REAL exit
+                               # mirroring the perl arm below. The REAL exit
                                 # code is captured (not collapsed to 0/1): the
                                 # verdict compares it to bash's, so scripts
                                 # that exit nonzero BY DESIGN (exit 1/3,
@@ -1202,7 +1229,14 @@ EOF
                                 # whole corpus — verified per-file). A 124
                                 # (timeout) is caught by the guard below.
                                 timeout 15 sh -c '. /dev/fd/3' "$f" 3< /tmp/eq_$$.sh > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
-                          java) javac -d /tmp /tmp/Sh2Program.java 2>/dev/null && timeout 15 java -cp /tmp Sh2Program > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
+                           fish) # fish runs scripts directly. argv0 is not
+                                # meaningful (fish has no $0) — the corpus
+                                # files that reference $0 are handled below via
+                                # the perl/sh scratch convention; for fish the
+                                # reference runs from the same CWD. Loose
+                                # exit-code contract (eq_exit=0 && bash_rc=0).
+                                timeout 15 fish /tmp/eq_$$.fish > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
+                           java) javac -d /tmp /tmp/Sh2Program.java 2>/dev/null && timeout 15 java -cp /tmp Sh2Program > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           perl) # argv0 = the source path (what `bash "$f"` sees) so
                                 # $0-dependent stdout agrees with bash — the exact
                                 # mirror of fail-estree's perl runner. The REAL exit
@@ -1235,8 +1269,8 @@ EOF
                         # is a fail, never a pass (both sides empty would
                         # otherwise "match").
                         if [ "$sa_fail" = 0 ] && [ "$eq_exit" != 124 ] && [ "$bash_rc" != 124 ] \
-                           && { { { [ "$g_lang" = "perl" ] || [ "$g_lang" = "sh" ] || [ "$g_lang" = "rust" ]; } && [ "$eq_exit" = "$bash_rc" ]; } \
-                                || { { [ "$g_lang" != "perl" ] && [ "$g_lang" != "sh" ] && [ "$g_lang" != "rust" ]; } && [ "$eq_exit" = 0 ] && [ "$bash_rc" = 0 ]; }; } \
+                           && { { { [ "$g_lang" = "perl" ] || [ "$g_lang" = "sh" ] || [ "$g_lang" = "rust" ] || [ "$g_lang" = "zsh" ]; } && [ "$eq_exit" = "$bash_rc" ]; } \
+                                || { { [ "$g_lang" != "perl" ] && [ "$g_lang" != "sh" ] && [ "$g_lang" != "rust" ] && [ "$g_lang" != "zsh" ]; } && [ "$eq_exit" = 0 ] && [ "$bash_rc" = 0 ]; }; } \
                            && diff -q /tmp/eq_$$_out /tmp/eq_$$_ref >/dev/null 2>&1; then
                           pass=$((pass+1)); eq_pass=$((eq_pass+1))
                         else

@@ -40,6 +40,10 @@ workers=(
   # ── the frontends / idiom-triage ─────────────────────────────────────
   "go-sh frontend|$REP/frontend-go-sh.report|frontends/go-sh/run_frontend_worker|$ROOT/loop-frontend-go-sh.log|fail-go: [0-9]+/[0-9]+ js pass|go-sh: gate (GREEN|FAILED)|frontend-stdout \\[go\\]: [0-9]+/[0-9]+ match"
   "cpp-sh-go frontend|$REP/frontend-cpp-sh-go.report|frontends/cpp-sh-go/run_frontend_worker|$ROOT/loop-frontend-cpp-sh-go.log|frontend-stdout \\[cpp\\]: [0-9]+/[0-9]+ match|C-invariant: c-sh-go corpus stays green"
+  "fish-sh-go fe|$REP/frontend-fish-sh-go.report|frontends/fish-sh-go/run_frontend_worker|$ROOT/loop-frontend-fish-sh-go.log|fish-sh-go: gate (GREEN|FAILED)|frontend-stdout \\[fish\\]"
+  "zsh-sh-go fe|$REP/frontend-zsh-sh-go.report|frontends/zsh-sh-go/run_frontend_worker|$ROOT/loop-frontend-zsh-sh-go.log|zsh-sh-go: gate (GREEN|FAILED)|frontend-stdout \\[zsh\\]"
+  "zig-sh-go fe|$REP/frontend-zig-sh-go.report|frontends/zig-sh-go/run_frontend_worker|$ROOT/loop-frontend-zig-sh-go.log|zig-sh-go: gate (GREEN|FAILED)|frontend-stdout \\[zig\\]"
+  "rust-frontend|$REP/frontend-rust-frontend.report|frontends/rust-frontend/run_frontend_worker|$ROOT/loop-frontend-rust-frontend.log|rust-frontend: gate (GREEN|FAILED)|frontend-stdout \\[rust\\]"
   "idiom-triage|$REP/idiom-triage.report|run_go_idiom_worker|$ROOT/loop-go-idiom-worker.log|idiom-triage: (pass GREEN|app [a-z.-]+ TRANSPILES|ladder covers the app's dialect[^\"\\n]{0,30}|uncovered constructs)"
   # ── the backends ─────────────────────────────────────────────────────
   "rust backend|$REP/backend-rust.report|run-backend-worker rust|$ROOT/loop-backend-rust.log|\\[rust\\] backend gate: [^\"\\n]{0,80}|equivalence [0-9]+"
@@ -49,6 +53,11 @@ workers=(
   "go→js/rust|$REP/go-js.report|fail-go|$ROOT/loop-frontend-go-sh.log|fail-go: [0-9]+/[0-9]+ js pass, [0-9]+/[0-9]+ rust pass"
   # ── cross-product ────────────────────────────────────────────────────
   "triage|$REP/triage.report|run_triage_worker|$ROOT/loop-triage-worker.log|triage: cycle [a-z-]+ done|PASS[a-z-]* [^\"\\n]{0,60}"
+  # ── new workers (Laguna/cmd configurable) ─────────────────────────────
+  "perl worker|$REP/perl-worker.report|main_loop_rust|$ROOT/loop-perl-worker.log|perl: gate (GREEN|FAILED)|improved to [0-9]+|perl: TRAPPED"
+  "perl generator|$REP/perl-generator.report|run_perl_generator|$ROOT/loop-perl-generator.log|perl-generator: gate (GREEN|improved)|perl-generator: TRAPPED"
+  "janitor|$REP/janitor.report|run_janitor|$ROOT/loop-janitor-worker.log|janitor: iteration done|janitor: [0-9]+ request"
+  "rust-cleanup|$REP/rust-cleanup.report|rust_cleanup_worker|$ROOT/loop-rust-cleanup.log|rust-cleanup: committed [0-9]+|rust-cleanup: clean"
 )
 
 ALL="${1:-}"
@@ -65,8 +74,25 @@ for w in "${workers[@]}"; do
   else
     line="no log/report"
   fi
+  # NOTE: `pgrep -f` is a SUBSTRING match on the full command line — it
+  # also matches the wrapper `bash -c '... summarize-progress.sh ...'`
+  # when this script's own text contains the pattern (it is printed by
+  # `bash -x` into that command line), so a worker that matches nothing
+  # self-reports "yes". Same class of bug as progress.sh's `core ✗`
+  # flapping: a liveness probe that can match itself. Exclude this
+  # script's pid, its parent shell, and any bare `bash -c` wrapper that
+  # merely quotes the pattern.
   alive="-"
-  [ -n "$pgrep" ] && pgrep -f "$pgrep" >/dev/null 2>&1 && alive="yes"
+  if [ -n "$pgrep" ]; then
+    while read -r p; do
+      [ -n "$p" ] || continue
+      [ "$p" = "$$" ] && continue
+      [ "$p" = "$PPID" ] && continue
+      cmd=$(ps -o args= -p "$p" 2>/dev/null) || continue
+      case "$cmd" in *-c*"$pgrep"*) continue ;; esac
+      alive="yes"; break
+    done < <(pgrep -f "$pgrep" 2>/dev/null)
+  fi
   src="$rep"
   [ -f "$rep" ] || src="$log"
   printf '%-16s %-7s %-72s %s\n' "$name" "$alive" "${line:0:72}" "$(age "$src")"
