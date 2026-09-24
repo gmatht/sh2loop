@@ -12,6 +12,43 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v47: **Ext-node coverage for the workerless backends + a node-side
+>   manifest gate (§11.12's "or lower to supported nodes" half).**
+>   Measured first: isolating every Ext node `text-ops` emits and rendering
+>   it per target showed python/java/sh render **zero** natively (python:
+>   `mark_todo` on all 9; java/sh: a hard `Err`), c 2/9, zig 0/9 — while
+>   perl/js/go were already 9/9. Landed (worktree `sh2perl/.ext-nodes`,
+>   branch `ext-nodes`):
+>   (a) **the shared registry now takes a per-backend child renderer**
+>   (`ExprRenderCtx::with_child` + the `ChildExprRenderer` trait), so ONE
+>   handler in `render_ext_expr/handlers/all_nodes.rs` builds a
+>   target-language expression tree without re-implementing the backend;
+>   (b) **python/java/sh gained `IrExpr::Ext` arms** that consult the
+>   registry (`render_with`), plus python `need_re` detection from the
+>   emitted text and 6 Java runtime helpers (shWcWords, shCutField,
+>   shRegSub/shRegSubAll, shRegCount, shTakeLines/Bytes family, shTr*);
+>   python went 0/9 → 21/22 nodes native, java 0/9 (all hard errors) →
+>   21/22 + the helper preamble;
+>   (c) **the core-side gate**: `transforms::transform_applies("text-ops")`
+>   now consults `planner::node_manifest(target)`, so a backend that cannot
+>   render the rich nodes keeps the ORIGINAL COMMAND (verified: `--target sh`
+>   emits `cut`/`tr`/`wc` unchanged, byte-exact vs bash, while perl/js still
+>   get the rich nodes). `planner::node_manifest` + `emits_renderable_nodes`
+>   are the authoritative per-target node table, with unit tests asserting
+>   every declared node HAS a handler and IS a real node type.
+>   (d) **five latent bugs fixed in shared code** (all pre-existing, all now
+>   caught by a cross-target bash verifier): perl `tr SET1 SET2` emitted
+>   only three slashes (`tr/a/b;` — a perl SYNTAX error); perl `tr -d`/`-s`
+>   interpolated a VARIABLE into `tr` (perl does not interpolate tr sets);
+>   java `shBasename("/")` → `""` (bash: `/`); java `shDirname("a/b/")` →
+>   `a/b` (bash: `a`); and the `substr_extract` handler file never matched
+>   `snake(SubStrExtract)` = `sub_str_extract`, so that handler had NEVER
+>   been dispatched (renamed; build.rs's warning was the only signal).
+>   Verified: 42/48 byte-exact vs bash across perl/python/java/js in a new
+>   targeted verifier (was 15/48); the 6 remaining failures reproduce
+>   IDENTICALLY on the pristine main-tree binary (pre-existing `text-ops`
+>   semantics gaps in `wc -c`/`wc -w` trailing-newline handling and one
+>   python capture case), so zero regressions.
 > - v46: **py2cy.js analysis moves into the Rust core.** `shir::analyze_declares`
 >   computes final per-var declare decisions (int kinds, i64 containment,
 >   vetoes incl. the cross-scope union veto, widths, `global`/`nonlocal`
@@ -145,6 +182,13 @@ Covers three related work items:
 >   `transforms::apply()` for every backend). Also this round: c_backend
 >   clang-analyzer fixes (sorted-join helpers) + `setArray` empty-literal
 >   length reset (t86_factor output now matches python3).
+>   **v47 UPDATE:** the NODE-side half is now wired (see v47 and §11.12):
+>   `planner::node_manifest(target)` + `emits_renderable_nodes(target)`, and
+>   `transform_applies("text-ops")` consults them, so the core keeps the
+>   original command for a backend that cannot render the rich nodes. The
+>   per-backend transform selection this entry was blocked on exists
+>   (`transforms::target()`/`transform_applies`) — it is what the gate now
+>   uses.
 > - v37: **py-sh-go bigint regime — t86_factor + t87_bignum (Python ints are
 >   unbounded, so every integer whose value cannot be PROVEN within ±2^53
 >   lowers to exact JS BigInt arithmetic; proven ones stay on the Number
@@ -2015,14 +2059,20 @@ planner instead of a single hard-coded lowering).
 **Status.** Design doc + first-slice implementation landed
 (`sh2perl/src/transforms/planner.rs`: `Capabilities` manifest loader,
 `candidates()` catalogue, `plan()` solver, unit-tested against the
-three-manifest JS/Perl/C scenario). NOT yet wired into `text_ops` or the
-pipeline. The missing prerequisite is the same one the §11 gating note
-flags: there is NO live per-backend transform selection in the shared
-crate — `transforms::apply()` runs the whole `all()` for every backend
-(shir.rs:3082). Until per-backend selection exists, a lowering transform
-would run for every backend, defeating the purpose. The candidate table
-and reductions are the MECHANISM, not final semantics — each candidate
-must be corpus-proven byte-exact per backend before it is offered (the
-doc's extended guardrail; e.g. `wc -l → Split+ArrayLen` is off-by-one on
-the trailing newline, so it is only offered to backends that accept it).
+three-manifest JS/Perl/C scenario). **v47 wired the other half of the
+mechanism — the NODE-side manifest** — into the pipeline:
+`planner::node_manifest(target)` is the authoritative per-target table of
+which rich Ext nodes a backend renders natively, and
+`transforms::transform_applies("text-ops")` consults
+`planner::emits_renderable_nodes(target)`, so the core DECLINES to emit a
+node the target cannot render and keeps the ORIGINAL COMMAND instead (the
+command form is exact on every backend). Verified: `--target sh` keeps
+`cut`/`tr`/`wc` byte-exact while perl/js still receive the rich nodes.
+`build_wc_l`/`plan()` remain reachable only through the opt-in
+`text-ops-planner` transform. Unit tests assert every declared node has a
+real handler file AND is a declared node type (so the table cannot drift
+into naming a node nothing renders). Each candidate must still be
+corpus-proven byte-exact per backend before it is offered (the doc's
+extended guardrail; e.g. `wc -l → Split+ArrayLen` is off-by-one on the
+trailing newline, so it is only offered to backends that accept it).
 
