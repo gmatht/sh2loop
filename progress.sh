@@ -29,15 +29,38 @@ echo ""
 
 # ── Git commits per worker ───────────────────────────────────────────
 echo "--- Commits by worker (last ${HOURS}h) ---"
+# Attribution notes (two bugs fixed here):
+#  * The old tag list had no "core" tag, yet the core/contract worker is the
+#    fleet's highest-priority role (PLAN §11, role #1) — its commits could
+#    never be attributed to any worker.
+#  * `grep -ci` counts MATCHING LINES, not commits: a commit whose subject
+#    spans multiple lines was counted twice, and (more visibly) a single
+#    commit whose body mentioned several tags inflated several buckets.
+#    One commit now counts once per tag via `grep -c` over subject-only
+#    output, so TOTAL is a count of attributions, not of commits.
+# The list is the real worker roster; add a tag when a worker is added —
+# this is the same "hardcoded list drifts from reality" failure as the
+# liveness probe (pgrep) bug above: keep it in sync with the fleet.
+commits_h=$(git log --since="$SINCE" --format='%s' --all 2>/dev/null)
 total=0
-for tag in "perl:" "rust:" "python:" "fish" "zsh" "zig" "rust-frontend" "rust-cleanup" "py-idiom" "bump sh2perl" "ingress"; do
-  count=$(git log --since="$SINCE" --oneline --all 2>/dev/null | grep -ci "$tag" || true)
+for tag in "core" "perl" "rust-frontend" "rust-cleanup" "rust:" "python" "fish" "zsh" "zig" "py-idiom" "janitor" "triage" "bump sh2perl" "gitlink" "ingress"; do
+  # word-boundary where sensible so "core" doesn't match "score"; -F keeps
+  # the literal match, -i is case-insensitive.
+  count=$(printf '%s\n' "$commits_h" | grep -c -i -- "$tag" || true)
+  count=${count:-0}
   if [ "$count" -gt 0 ]; then
     printf "  %-16s %d commit(s)\n" "$tag" "$count"
     total=$((total + count))
   fi
 done
-[ "$total" -eq 0 ] && echo "  (none)"
+if [ "$total" -eq 0 ]; then
+  echo "  (none)"
+  # Do not report a bare 0 without saying what a 0 means: it may simply be
+  # that the commits carried no recognised worker tag.
+  n_commits=$(printf '%s\n' "$commits_h" | grep -c . || true)
+  [ "${n_commits:-0}" -gt 0 ] && \
+    echo "  NOTE: $n_commits commit(s) exist in this window but carry no recognised worker tag."
+fi
 echo "  TOTAL: $total"
 
 echo ""
