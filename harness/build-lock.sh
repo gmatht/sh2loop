@@ -166,7 +166,37 @@ export BUILD_LOCK_HELD=1
 # build (the holder's cargo child is killed, the lock released, and the
 # preempting core build can proceed instead of blocking on cargo's own
 # per-dir lock behind an orphaned build).
-"$@" &
+#
+# WATCHDOG (added 2026-09-26): a hung TEST is not a hung build. libtest runs
+# each test on its own thread inside ONE test binary; if a test spins forever
+# (we hit exactly this — rust_backend::inline_print_words looping in
+# str::find), the binary never exits, `wait` below never returns, and this
+# wrapper holds the single build lock for the whole fleet. Worse, when the
+# spawning cargo is killed the test binary is ORPHANED to init and keeps
+# spinning — so killing the parent does not free the lock, only killing the
+# process GROUP does.
+#
+# So: put the command in its own process group, bound it by MAX_BUILD_SECS
+# (default 45 min — well above the real full-suite runtime, well below an
+# overnight wedge), and on overrun kill the GROUP, not just the child. The
+# lock is then released by the EXIT trap and the next waiter proceeds. The
+# timeout is reported loudly: a build that needs longer is a real signal
+# too, not something to mask.
+MAX_BUILD_SECS="${MAX_BUILD_SECS:-2700}"
+setsid "$@" &
 cmd_pid=$!
-trap 'kill -TERM "$cmd_pid" 2>/dev/null || true; sleep 1; kill -KILL "$cmd_pid" 2>/dev/null || true; exit 143' TERM
+trap 'kill -TERM -"$cmd_pid" 2>/dev/null || true; sleep 1; kill -KILL -"$cmd_pid" 2>/dev/null || true; exit 143' TERM
+( sleep "$MAX_BUILD_SECS"
+  if kill -0 "$cmd_pid" 2>/dev/null; then
+    echo "build-lock.sh: [$role] WATCHDOG — command still running after ${MAX_BUILD_SECS}s (pid $cmd_pid); killing process group. A hung TEST looks like this." >&2
+    kill -TERM -"$cmd_pid" 2>/dev/null || true
+    sleep 5
+    kill -KILL -"$cmd_pid" 2>/dev/null || true
+  fi ) &
+watchdog_pid=$!
 wait "$cmd_pid"
+rc=$?
+kill "$watchdog_pid" 2>/dev/null || true
+# A watchdog kill means the lock must NOT be recorded as a clean release:
+# the caller needs to see a failure, not a silent success.
+exit "$rc"

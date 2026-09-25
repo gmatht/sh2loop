@@ -133,6 +133,27 @@ Because `run_core_worker.sh` runs `cargo test --lib` under
 otherwise idle 16-core box. This is why the fleet looked "up but idle"
 after the reboot.
 
+CONFIRMED A SECOND TIME (2026-09-26 ~06:47), on the **rust backend gate's**
+own path rather than the core worker's: `./fail-go --rust --gate` builds and
+runs `cargo test --lib`, and its test binary again spun at 99% CPU for
+15+ minutes inside `inline_print_words` (`rust_backend.rs:1287`), holding
+the gate lock the whole time. Same signature:
+
+```
+Thread 2 "rust_backend::t":
+#0 core::str::pattern::TwoWaySearcher::{byteset_contains,next}<MatchOnly> (long_period=true)
+#2 core::str::pattern::{impl#33}::next_match
+#3 core::str::{impl#0}::find
+#4 debashl::rust_backend::inline_print_words at src/rust_backend.rs:1287
+#6 debashl::rust_backend::shir_to_rust at src/rust_backend.rs:2209
+#8 debashl::rust_backend::tests::echo_esc_kept_with_dash_e at src/rust_backend.rs:19099
+Thread 1: std::thread::Thread::park   <-- libtest waiting on the hung test
+```
+
+This makes it a HARD blocker for the whole backend fleet, not just the core:
+every gate that builds the corpus runs this test, so the first gate to reach
+it wedges the queue. It needs fixing before the fleet can make progress.
+
 ## VALIDATION
 
 ```
