@@ -151,7 +151,7 @@ measure_once() { # f -> run oracle+JS(+Rust) ONCE; store MO MORC MJ MJRC MJv MR 
   if [ $jrc -ne 0 ]; then J="EMIT-FAIL"; reason="frontend cannot parse/lower";
   elif [ -z "$a1" ]; then J="REFUSE";
   else
-    e=$(printf '%s' "$a1" | "$OTRANS" - --target estree 2>/dev/null); jrc=$?
+    e=$(printf '%s' "$a1" | timeout "$TIMEOUT" "$OTRANS" - --target estree 2>/dev/null); jrc=$?
     if [ $jrc -ne 0 ]; then J="TARGET-ERR"; reason="A1->estree failed";
     else
       # capture node's rc directly (a pipeline's rc is the LAST command's
@@ -165,7 +165,14 @@ measure_once() { # f -> run oracle+JS(+Rust) ONCE; store MO MORC MJ MJRC MJv MR 
   # ── Rust target ──
   if [ "$RUST" = 1 ]; then
     if [ $jrc -eq 0 ] && [ -n "$a1" ]; then
-      rs=$(printf '%s' "$a1" | "$RUSTBIN" - - --target rust 2>/dev/null); rsrc=$?
+      # BOUND THE RENDER (2026-09-26): an unbounded renderer is a fleet-wide
+      # stall. A lowering bug can make the CLI spin forever (rust_backend::
+      # inline_print_words looping in str::find is the live case), and the
+      # orphaned renderer then holds the gate lock while every other backend
+      # worker waits on flock. 19 such orphans accumulated before this was
+      # found. A timeout turns a wedge into an ordinary TARGET-ERR verdict
+      # (rc 124 >= 128 is false, so it reports a clean failure, not a CRASH).
+      rs=$(printf '%s' "$a1" | timeout "$TIMEOUT" "$RUSTBIN" - - --target rust 2>/dev/null); rsrc=$?
       if [ $rsrc -ne 0 ]; then R="TARGET-ERR";
       else
         printf '%s\n' "$rs" > "$tmp/main.rs"

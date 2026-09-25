@@ -150,9 +150,52 @@ Thread 2 "rust_backend::t":
 Thread 1: std::thread::Thread::park   <-- libtest waiting on the hung test
 ```
 
-This makes it a HARD blocker for the whole backend fleet, not just the core:
-every gate that builds the corpus runs this test, so the first gate to reach
-it wedges the queue. It needs fixing before the fleet can make progress.
+CONFIRMED A THIRD TIME (2026-09-26 07:19) — **and this is the worst form**,
+because it is the RENDERER CLI, not a test. `fail-go --rust --gate` runs the
+Go corpus through `otranspilerl-cli - - --target rust` once per example
+(16 in parallel). Nineteen of those renderer processes were found wedged,
+all orphaned to init, all 15-30 min old, all in the same loop:
+
+```
+#0 core::str::pattern::TwoWaySearcher::next<MatchOnly> (long_period=true)
+#3 core::str::{impl#0}::find at library/core/src/str/mod.rs:1455
+#4 debashl::rust_backend::inline_print_words at src/rust_backend.rs:1287
+#5 debashl::rust_backend::inline_simple_helpers at src/rust_backend.rs:1200
+#6 debashl::rust_backend::shir_to_rust at src/rust_backend.rs:2209
+#7 otranspilerl::render_ingested at src/lib.rs:756
+#9 otranspilerl::cli_at at src/lib.rs:1304
+#11 otranspilerl_cli::main at src/main.rs:3
+```
+
+This makes it a HARD blocker for the whole backend fleet, three separate
+ways:
+
+1. `cargo test --lib` — hangs the core worker and the gate that runs it.
+2. `shir_render --target rust` / any rust render of an affected example.
+3. `fail-go --rust --gate` — 19 orphaned renderers accumulated, holding the
+   gate lock and starving every other backend worker.
+
+Only one example needs to hit the bad shape for a rust-target gate to wedge
+forever, and because the rendering happens once per corpus file, a single
+affected example is enough to stall the whole queue.
+
+**A per-callsite `timeout` is only a mitigation, not a fix** — the render
+call should be bounded so a wedged lowering cannot orphan a process, but the
+loop itself must be fixed (`inline_print_words` is wrong for ANY caller).
+
+### Operational note (what was done live to unwedge the fleet)
+
+The wedged processes are orphaned (their `cargo`/`xargs` parents exit or are
+killed, the renderer reparents to init and keeps spinning), so killing the
+parent does NOT free the gate lock. They must be killed by process group or
+by matching the renderer cmdline:
+
+```
+ps -ef | grep -- '--target rust' | awk '{print $2}' | xargs -r kill -KILL
+```
+
+Fifteen-plus minutes of fleet throughput were lost to this before the loop
+was identified.
 
 ## VALIDATION
 
