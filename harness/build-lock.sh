@@ -104,10 +104,34 @@ acquire() {
       echo "$my_pid $role $(date +%s)" > "$STATUS_FILE"
       return 0
     fi
-    # stale lock? the holder died without releasing (SIGKILL, crash)
+    # stale lock? the holder died without releasing (SIGKILL, crash, or a
+    # reboot that wiped the whole process table).
+    #
+    # TWO ways a lock is stale, and the old check only caught the first:
+    #   1. the status record names a process that is no longer alive
+    #   2. there is NO usable status record at all (empty or missing file)
+    # (2) is the reboot case and it was a REAL deadlock, not a theoretical
+    # one: the lock dir survived the reboot, the status file came back empty
+    # (it is truncated/absent), so `holder` was the empty string, the
+    # `-n "$holder"` guard short-circuited, and the lock was never released.
+    # Every worker then polled here forever — the core build and eight
+    # backend gates sat blocked for 20+ minutes with an idle box.
+    # A lock dir with no holder record cannot belong to a live holder: the
+    # holder writes that record immediately after mkdir succeeds, so if it
+    # is absent the owner is gone and the lock is free to take.
     local holder
     holder=$(awk '{print $1}' "$STATUS_FILE" 2>/dev/null || true)
-    if [[ -n "$holder" && "$holder" != "$my_pid" ]] && ! kill -0 "$holder" 2>/dev/null; then
+    if [[ -z "$holder" ]]; then
+      if [[ -n "$(ls -A "$LOCK_FILE" 2>/dev/null)" ]]; then
+        # a directory with contents but no record: not our layout, do not
+        # touch it (fail loudly rather than delete someone else's state)
+        echo "build-lock.sh: [$role] lock dir $LOCK_FILE is non-empty but has no holder record — leaving it alone" >&2
+      else
+        echo "build-lock.sh: removing stale lock (no holder record — holder died or the box rebooted)" >&2
+        release; rm -f "$STATUS_FILE"
+        continue
+      fi
+    elif [[ "$holder" != "$my_pid" ]] && ! kill -0 "$holder" 2>/dev/null; then
       echo "build-lock.sh: removing stale lock (holder $holder dead)" >&2
       release; rm -f "$STATUS_FILE"
       continue
