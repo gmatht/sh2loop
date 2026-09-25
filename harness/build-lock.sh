@@ -177,12 +177,13 @@ export BUILD_LOCK_HELD=1
 # process GROUP does.
 #
 # So: put the command in its own process group, bound it by MAX_BUILD_SECS
-# (default 45 min — well above the real full-suite runtime, well below an
-# overnight wedge), and on overrun kill the GROUP, not just the child. The
-# lock is then released by the EXIT trap and the next waiter proceeds. The
-# timeout is reported loudly: a build that needs longer is a real signal
-# too, not something to mask.
-MAX_BUILD_SECS="${MAX_BUILD_SECS:-2700}"
+# (default 15 min — a normal full build+test is ~10-60s, and even a COLD
+# full-corpus rebuild is a few minutes, so 15 min is far above any legitimate
+# run and far below an overnight wedge), and on overrun kill the GROUP, not
+# just the child. The lock is then released by the EXIT trap and the next
+# waiter proceeds. The timeout is reported loudly: a build that needs longer
+# is a real signal too, not something to mask.
+MAX_BUILD_SECS="${MAX_BUILD_SECS:-900}"
 setsid "$@" &
 cmd_pid=$!
 trap 'kill -TERM -"$cmd_pid" 2>/dev/null || true; sleep 1; kill -KILL -"$cmd_pid" 2>/dev/null || true; exit 143' TERM
