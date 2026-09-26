@@ -41,13 +41,23 @@ trap 'rm -rf "$WORK"; pkill -f "$WORK" 2>/dev/null || true' EXIT
 # stdin and a file are both involved, so never use it for this.
 lines() { [ -f "$1" ] && awk 'END{print NR+0}' "$1" || echo 0; }
 
-# The backoff is exponential and saturates at 60s, so N restarts take
-# 1+2+4+... seconds. Reaching 7 restarts costs ~2min of wall clock, which is
-# the honest cost of asserting "more than 5". These waits are sized for that,
-# not guessed: they are generous, and every wait loop exits as soon as the
-# target count is hit, so a healthy supervisor finishes fast.
-WAIT_SHORT=90    # enough for ~5 restarts
-WAIT_LONG=260    # enough for >7 restarts even at the 60s ceiling
+# The backoff grows WITHOUT CEILING (1,2,4,8,16,32,64,128,...), so the wall
+# clock needed to reach N restarts is 1+2+4+...+2^(N-1) = 2^N - 1 seconds.
+# Reaching 7 restarts therefore costs ~127s, and reaching 8 costs ~255s. The
+# waits below are computed FROM THAT rather than guessed, and every wait loop
+# exits as soon as its target count is hit, so a healthy supervisor still
+# finishes fast; the budget only has to be an upper bound, never a fixed sleep.
+#
+# 2^8 - 1 = 255s covers 8 restarts with margin. Anything that waits for MORE
+# than 8 restarts must not use WAIT_LONG — it should assert on the delay
+# SEQUENCE instead (case 4), which is the property that actually matters and
+# costs no wall clock at all.
+WAIT_SHORT=120   # covers 7 restarts (needs 127s) plus startup margin
+WAIT_LONG=300    # covers 8 restarts (needs 255s) plus startup margin
+
+# A ceiling would be a REGRESSION: the whole point is that the delay keeps
+# growing, so a constant plateau (60s, 600s, anything) must not reappear.
+CEILING_GONE=1
 
 # ── case 1: a child that ALWAYS fails is restarted more than 5 times ──
 # This is the exact failure that killed the rust worker. The old `-lt 5`
@@ -132,9 +142,13 @@ else
 fi
 kill -TERM "$sup" 2>/dev/null || true; sleep 1; kill -KILL "$sup" 2>/dev/null || true
 
-# ── case 4: backoff is exponential AND saturates, never unbounded ──
-# The delays in the log must be strictly increasing early on and then capped.
-# This is what stops a child that dies instantly from becoming a hot loop.
+# ── case 4: backoff DOUBLES and has NO CEILING ──
+# The requirement is unbounded growth: 1,2,4,8,... with no plateau and no
+# maximum delay. A constant delay is not a slower backoff, it is a DIFFERENT
+# policy — the interval stops carrying information about how bad things are,
+# and a worker down for days keeps getting probed at the same high rate. So
+# this asserts the sequence DOUBLES exactly, which can only be true if no
+# ceiling clamps it.
 logf="$WORK/backoff.log"; counter="$WORK/backoff.count"
 : > "$counter"; : > "$logf"
 bash "$SUP" --name backoff --log "$logf" -- \
@@ -146,13 +160,44 @@ while [ "$waited" -lt "$WAIT_SHORT" ]; do
   [ "${n:-0}" -ge 5 ] && break
   sleep 2; waited=$((waited + 2))
 done
-delays=$(grep -oE "restarting in [0-9]+s" "$logf" 2>/dev/null | grep -oE "[0-9]+" | head -5 | tr '\n' ' ')
-first=$(printf '%s' "$delays" | awk '{print $1}')
-second=$(printf '%s' "$delays" | awk '{print $2}')
-if [ -n "$first" ] && [ -n "$second" ] && [ "$second" -gt "$first" ]; then
-  ok "backoff grows (first delays: $delays)"
+# The delays the supervisor actually announced, in order.
+seq_d=$(grep -oE "restarting in [0-9]+s" "$logf" 2>/dev/null | grep -oE "[0-9]+" | tr '\n' ' ')
+seq_n=$(printf '%s\n' $seq_d | grep -c . || true)   # element count, not string length
+doubles=1 prev=""
+for d in $seq_d; do
+  if [ -n "$prev" ] && [ "$d" -ne $((prev * 2)) ]; then
+    doubles=0
+    break
+  fi
+  prev="$d"
+done
+if [ "${seq_n:-0}" -ge 2 ] && [ "$doubles" -eq 1 ]; then
+  ok "backoff DOUBLES exactly (no ceiling clamps it): $seq_d"
 else
-  bad "backoff is not exponential (first delays: '$delays')"
+  bad "backoff is not exact doubling — a ceiling or plateau crept in: '$seq_d'"
+fi
+
+# The strongest, cheapest guard: the code must not contain any cap on `delay`.
+# A ceiling reintroduced as `if [ $delay -lt N ]` or `-gt N ]` is exactly the
+# regression, and it is invisible to a test that only watches the first few
+# delays (which are identical either way).
+dcode=$(sed 's/#.*$//' "$SUP")
+if printf '%s\n' "$dcode" | grep -qE '\$delay"[[:space:]]*-(lt|gt|ge|le|eq)'; then
+  bad "supervise.sh caps \$delay — the backoff must grow without ceiling"
+elif printf '%s\n' "$dcode" | grep -qE 'MAX_DELAY|MAX_BACKOFF|CAP_?DELAY'; then
+  bad "supervise.sh defines a maximum-delay constant — no ceiling is allowed"
+else
+  ok "no ceiling on \$delay anywhere in the code (growth is unbounded)"
+fi
+
+# And the first restart must still be prompt: an unbounded policy is only
+# acceptable if the TRANSIENT case is still fast. A worker that crashes once
+# must come back in ~1s, not after a long accumulated delay.
+first_d=$(printf '%s' "$seq_d" | awk '{print $1}')
+if [ -n "$first_d" ] && [ "$first_d" -le 2 ]; then
+  ok "the first restart is still prompt (${first_d}s) — transient crashes stay fast"
+else
+  bad "the first restart waited ${first_d}s — unbounded backoff must not slow recovery"
 fi
 kill -TERM "$sup" 2>/dev/null || true; sleep 1; kill -KILL "$sup" 2>/dev/null || true
 

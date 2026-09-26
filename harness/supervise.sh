@@ -24,10 +24,11 @@
 # anything. A worker that exits cleanly, one that crashes, and one that is
 # killed by a timeout all just get restarted.
 #
-# The backoff is real exponential with a SATURATING cap — there is no plateau
-# and no maximum-delay ceiling that could mask a genuine wedge, so a permanently
-# broken child cannot spin at 100% CPU. The cap is an OPERATIONAL guard, not a
-# retry limit: the loop still never gives up.
+# The backoff is real exponential and GROWS WITHOUT CEILING (1,2,4,8,...) —
+# no plateau, no maximum delay, no attempt limit of any kind. The loop still
+# never gives up; growth is bounded only by integer range, so a worker that has
+# been down for hours is retried ever more rarely while a transient crash still
+# recovers in seconds.
 #
 # Usage:
 #   supervise.sh --name NAME --log FILE [--pidfile FILE] [--max-secs N] \
@@ -161,12 +162,25 @@ while true; do
     fi
   fi
 
-  # Saturating exponential backoff: 1,2,4,...,60s and then held. There is no
-  # attempt cap and no plateau that would mask a wedge, so a child that dies
-  # instantly every time cannot become a hot spin loop.
-  if [ "$delay" -lt 60 ]; then
-    delay=$((delay * 2))
-    [ "$delay" -gt 60 ] && delay=60
-  fi
+  # Exponential backoff that GROWS WITHOUT CEILING: 1,2,4,8,... with no cap
+  # and no plateau. The delay is never allowed to become a constant, because
+  # a constant delay is indistinguishable from a wedged worker — it looks
+  # like "the supervisor is backing off on purpose" when in fact the backoff
+  # has stopped adapting. Growth continues for as long as the child keeps
+  # failing, so a worker that is permanently broken is retried ever more
+  # rarely and a transient one is retried quickly, with no threshold at which
+  # the policy silently changes.
+  #
+  # This is deliberately NOT capped at 60s (or at pir's 600s). A cap would
+  # mean a worker that has been down for hours keeps being probed at a fixed
+  # high rate forever, and — worse — the retry interval stops carrying
+  # information about how bad the situation is. Growth is bounded only by
+  # integer range; in practice the supervisor's own lifetime is the limit.
+  #
+  # The one thing that keeps this from being a hot spin loop is that growth
+  # starts at 1s and doubles, so the FIRST few restarts are prompt (a
+  # transient crash recovers in seconds) and a permanently broken child is
+  # already at minutes, then hours, then days.
+  delay=$((delay * 2))
   sleep "$delay"
 done
