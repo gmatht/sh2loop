@@ -217,7 +217,7 @@ if grep -q 'gate conditions changed under the run' "$WORKER"; then
 else
   bad "an unexplained RED can still be logged with an empty reason"
 fi
-for sig in 'A1 not clean' 'estree .*vs baseline' 'lib .*reason'; do
+for sig in 'A1 not clean' 'estree .*vs baseline' 'lib .*vs baseline' 'no lib-test summary'; do
   if grep -q "$sig" "$WORKER"; then
     ok "RED reason covers: $sig"
   else

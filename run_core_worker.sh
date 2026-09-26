@@ -476,7 +476,7 @@ EOF
     reason=""
     [ "$a1_ok" -ne 1 ] && reason="A1 not clean (violations=$v, probe-failures=$failed)"
     [ "$estree_ok" -ne 1 ] && reason="${reason:+$reason; }estree $estree_fails vs baseline ${kg_estree:-none} ($estree_reason)"
-    [ "$lib_ok" -ne 1 ] && reason="${reason:+$reason; }lib $lib_reason"
+    [ "$lib_ok" -ne 1 ] && reason="${reason:+$reason; }$lib_reason"
     [ -z "$reason" ] && reason="gate conditions changed under the run (no single check explains RED)"
     echo "[$(date +%FT%T)] core: gate RED ($reason) — rolling back the candidate" >> "$LOG"
     if [ "$estree_probe" != ok ]; then
