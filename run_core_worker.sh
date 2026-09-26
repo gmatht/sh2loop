@@ -418,7 +418,16 @@ PYEOF
     kg_commit=$(git -C "$SUB" rev-parse HEAD 2>/dev/null || true)
     if [ -n "$kg_commit" ]; then
       git -C "$SUB" update-ref "$KNOWN_GOOD_REF" "$kg_commit" 2>>"$LOG" || true
-      cat > "$KNOWN_GOOD_FILE" <<EOF
+      # Write the metrics file ATOMICALLY and re-create its directory first.
+      # A plain `cat >` here killed the whole worker when the directory was
+      # momentarily absent (something in the fleet prunes .core-verify), and
+      # that took down the ONE branch that advances the anchor — the gate had
+      # just gone GREEN and the run still died rc=1 with the green result lost.
+      # A half-written metrics file is equally bad: the next iteration would
+      # read a truncated baseline. Write a temp file, then rename.
+      mkdir -p "$(dirname "$KNOWN_GOOD_FILE")" 2>/dev/null || true
+      kg_tmp="$KNOWN_GOOD_FILE.tmp.$$"
+      if cat > "$kg_tmp" 2>/dev/null <<EOF
 commit=$kg_commit
 a1_violations=0
 estree_fails=$estree_fails
@@ -426,6 +435,10 @@ estree_total=$estree_total
 lib_fails=$lib_fails
 verified_at=$(date +%s)
 EOF
+      then
+        mv -f "$kg_tmp" "$KNOWN_GOOD_FILE" 2>>"$LOG" \
+          || rm -f "$kg_tmp" 2>/dev/null || true
+      fi
       printf '%s core-worker: KNOWN-GOOD advanced to %s (A1 0, estree %s, lib %s)\n' \
         "$(date +%FT%T)" "$(git -C "$SUB" rev-parse --short "$kg_commit")" "$estree_fails" "$lib_fails" >> "$REPORTS/core-worker.report"
     fi
