@@ -192,27 +192,42 @@ MAX_BUILD_SECS="${MAX_BUILD_SECS:-900}"
 # a leftover watchdog `sleep 900` whose parent build-lock had already exited
 # held .gate.lock and stalled the c backend gate for ~50 min. The watchdog
 # and the build itself need NO inherited fds, so close them.
-close_extra_fds() {
-  local fd
-  for fd in $(seq 3 32); do
-    eval "exec ${fd}>&-" 2>/dev/null || true
-  done
-}
+#
+# STDOUT IS THE OTHER HALF OF THAT BUG (2026-09-26, same incident). Closing
+# fds >= 3 is NOT enough, because the survivor also held the caller's PIPE:
+# build-lock runs inside the perl/estree loops' `open(my $fh, '-|', ...)`
+# backtick, so the watchdog inherited the pipe's WRITE end. When build-lock
+# exited, `kill "$watchdog_pid"` killed the watchdog subshell but not the
+# `sleep` it was blocked in — and that sleep kept the pipe open for the full
+# MAX_BUILD_SECS, so the reader blocked in sysread long after the build was
+# done. The estree loop's `fail-estree --metric` sat frozen (I/O counters
+# flat, wchan anon_pipe_read) for half of every iteration.
+#
+# So the watchdog runs under `setsid` (its own process group, so killing the
+# group reaches the `sleep`) and redirects stdout to /dev/null: it must never
+# be able to hold a caller's pipe open, whatever the caller's fd 1 is. Its
+# diagnostics stay on stderr, which callers read with 2>&1. The build child
+# is deliberately NOT changed — it legitimately owns the caller's stdout,
+# which is what a backtick is reading.
 setsid bash -c 'for f in $(seq 3 32); do eval "exec ${f}>&-" 2>/dev/null || true; done; exec "$@"' _ "$@" &
 cmd_pid=$!
 trap 'kill -TERM -"$cmd_pid" 2>/dev/null || true; sleep 1; kill -KILL -"$cmd_pid" 2>/dev/null || true; exit 143' TERM
-( for f in $(seq 3 32); do eval "exec ${f}>&-" 2>/dev/null || true; done
-  sleep "$MAX_BUILD_SECS"
-  if kill -0 "$cmd_pid" 2>/dev/null; then
-    echo "build-lock.sh: [$role] WATCHDOG — command still running after ${MAX_BUILD_SECS}s (pid $cmd_pid); killing process group. A hung TEST looks like this." >&2
-    kill -TERM -"$cmd_pid" 2>/dev/null || true
+setsid bash -c '
+  for f in $(seq 3 32); do eval "exec ${f}>&-" 2>/dev/null || true; done
+  exec >/dev/null
+  sleep "$1"
+  if kill -0 "$2" 2>/dev/null; then
+    echo "build-lock.sh: [$3] WATCHDOG — command still running after $1s (pid $2); killing process group. A hung TEST looks like this." >&2
+    kill -TERM -"$2" 2>/dev/null || true
     sleep 5
-    kill -KILL -"$cmd_pid" 2>/dev/null || true
-  fi ) &
+    kill -KILL -"$2" 2>/dev/null || true
+  fi
+' _ "$MAX_BUILD_SECS" "$cmd_pid" "$role" &
 watchdog_pid=$!
 wait "$cmd_pid"
 rc=$?
-kill "$watchdog_pid" 2>/dev/null || true
+kill -TERM -"$watchdog_pid" 2>/dev/null || true
+wait "$watchdog_pid" 2>/dev/null || true
 # A watchdog kill means the lock must NOT be recorded as a clean release:
 # the caller needs to see a failure, not a silent success.
 exit "$rc"
