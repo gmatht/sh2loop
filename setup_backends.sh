@@ -563,6 +563,15 @@ case "${1:-}" in
                   shift; rw_lang="$1"; rw_dir="$BT/$rw_lang"
                   export WORKSPACE LOG
                   LOG="$WORKSPACE/loop-backend-$rw_lang.log"
+                  # Model rotation: the two sh2-native backends (rust, c) are
+                  # group A of the four-hour rotation. Setting the key routes
+                  # every AI fix through harness/ai_invoke.py, which selects the
+                  # phase's model, applies the Laguna daily-quota fallback, and
+                  # records exact token usage. Other backends keep the direct
+                  # WORKER_CLI path, so their behavior is unchanged.
+                  case "$rw_lang" in
+                    rust|c) export WORKER_ROTATE_WORKER="$rw_lang" ;;
+                  esac
                   # Worker cgroup enrollment (harness/WorkerPool.pm): this
                   # backend worker's whole tree (builds, gates) runs inside
                   # sh2workers. Best-effort: unprivileged WSL → cooperative.
@@ -696,6 +705,16 @@ case "${1:-}" in
                   # Usage: setup_backends.sh --pi-fix-backend <lang>
                   shift; fix_lang="$1"
                   fix_dir="$BT/$fix_lang"; fix_log="$WORKSPACE/loop-backend-$fix_lang.log"
+                  # Model rotation: THIS process is the one that actually runs
+                  # the AI (the worker loop shells out to --pi-fix-backend, so
+                  # an export made in --run-backend-worker is not inherited
+                  # here). Group A of the four-hour rotation is the two
+                  # sh2-native backends; routing here sends the fix through
+                  # harness/ai_invoke.py, which picks the phase's model, applies
+                  # the Laguna daily-quota fallback, and records token usage.
+                  case "$fix_lang" in
+                    rust|c) export WORKER_ROTATE_WORKER="$fix_lang" ;;
+                  esac
                   {
                     printf 'The %s backend in %s is failing to build.\n\n' "$fix_lang" "$fix_dir"
                     printf 'Tail of the build log (%s):\n' "$fix_log"
