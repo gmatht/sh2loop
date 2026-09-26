@@ -184,10 +184,25 @@ export BUILD_LOCK_HELD=1
 # waiter proceeds. The timeout is reported loudly: a build that needs longer
 # is a real signal too, not something to mask.
 MAX_BUILD_SECS="${MAX_BUILD_SECS:-900}"
-setsid "$@" &
+# FD HYGIENE (2026-09-26): close every inherited fd >= 3 for the children
+# below. This wrapper is invoked from inside `( flock 9 ... ) 9>"$WORKSPACE/
+# .gate.lock"`, so fd 9 — THE GATE LOCK — is inherited by anything we spawn.
+# An orphaned survivor then holds the gate lock with no work to do, and every
+# backend worker blocks on flock with an idle box. That happened for real:
+# a leftover watchdog `sleep 900` whose parent build-lock had already exited
+# held .gate.lock and stalled the c backend gate for ~50 min. The watchdog
+# and the build itself need NO inherited fds, so close them.
+close_extra_fds() {
+  local fd
+  for fd in $(seq 3 32); do
+    eval "exec ${fd}>&-" 2>/dev/null || true
+  done
+}
+setsid bash -c 'for f in $(seq 3 32); do eval "exec ${f}>&-" 2>/dev/null || true; done; exec "$@"' _ "$@" &
 cmd_pid=$!
 trap 'kill -TERM -"$cmd_pid" 2>/dev/null || true; sleep 1; kill -KILL -"$cmd_pid" 2>/dev/null || true; exit 143' TERM
-( sleep "$MAX_BUILD_SECS"
+( for f in $(seq 3 32); do eval "exec ${f}>&-" 2>/dev/null || true; done
+  sleep "$MAX_BUILD_SECS"
   if kill -0 "$cmd_pid" 2>/dev/null; then
     echo "build-lock.sh: [$role] WATCHDOG — command still running after ${MAX_BUILD_SECS}s (pid $cmd_pid); killing process group. A hung TEST looks like this." >&2
     kill -TERM -"$cmd_pid" 2>/dev/null || true
