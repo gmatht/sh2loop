@@ -45,9 +45,15 @@ WATCH="${WATCH:-600}"
 # 374 commits backwards. Everything below is transactional inside the CORE
 # worktree; the main checkout is read-only to this worker.
 KNOWN_GOOD_REF="refs/sh2loop/core-known-good"
-KNOWN_GOOD_FILE="$ROOT/.core-verify/known-good.env"   # metrics for that commit
+# The metrics for that commit. NOT under .core-verify/: that path is a
+# TEMPORARY crate directory that harness/core_verify.sh creates and then
+# `rm -rf`s on EXIT (its cleanup trap), so every core iteration wiped the
+# anchor file. The gate went GREEN, then died rc=1 on `cat >` to a directory
+# that had just been removed, losing the green result AND the baseline. Store
+# it in the worker's own durable state dir instead.
+KNOWN_GOOD_FILE="$ROOT/gate-reports/core-known-good.env"
 REPORTS="$ROOT/gate-reports"
-mkdir -p "$ROOT/.core-verify"
+mkdir -p "$REPORTS"
 
 # Worker cgroup enrollment (harness/WorkerPool.pm): runs inside sh2workers.
 perl "$ROOT/harness/WorkerPool.pm" --enter-worker $$ >> "$LOG" 2>&1 || true

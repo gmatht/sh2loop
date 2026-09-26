@@ -225,6 +225,36 @@ for sig in 'A1 not clean' 'estree .*vs baseline' 'lib .*reason'; do
   fi
 done
 
+echo "== case 9: the anchor metrics live OUTSIDE any self-deleting temp dir =="
+# The bug: known-good.env was written to .core-verify/, which
+# harness/core_verify.sh `rm -rf`s on EXIT (its cleanup trap runs every core
+# iteration). The gate went GREEN and then died rc=1 writing to a directory
+# that had just been deleted — losing the green result AND the baseline, so
+# the anchor could never be re-established.
+kg_line=$(grep -m1 '^KNOWN_GOOD_FILE=' "$WORKER" | cut -d= -f2-)
+if [ -n "$kg_line" ]; then
+  ok "KNOWN_GOOD_FILE is set ($kg_line)"
+else
+  bad "KNOWN_GOOD_FILE is not set"
+fi
+case "$kg_line" in
+  *core-verify*)
+    bad "the anchor metrics live in .core-verify/, which core_verify.sh rm -rf's on EXIT" ;;
+  *)
+    ok "the anchor metrics do NOT live in the self-deleting .core-verify/ dir" ;;
+esac
+# And the write must survive a vanished directory anyway (defence in depth).
+if grep -q 'kg_tmp=' "$WORKER" && grep -q 'mv -f "$kg_tmp"' "$WORKER"; then
+  ok "the anchor write is atomic (temp file + rename)"
+else
+  bad "the anchor write is not atomic — a reader could see a truncated baseline"
+fi
+if grep -q 'mkdir -p "$(dirname "$KNOWN_GOOD_FILE")"' "$WORKER"; then
+  ok "the anchor write re-creates its directory if it vanished"
+else
+  bad "the anchor write does not re-create its directory"
+fi
+
 echo
 echo "core rollback tests: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
