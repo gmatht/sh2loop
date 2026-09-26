@@ -116,21 +116,31 @@ acquire() {
     # `-n "$holder"` guard short-circuited, and the lock was never released.
     # Every worker then polled here forever — the core build and eight
     # backend gates sat blocked for 20+ minutes with an idle box.
-    # A lock dir with no holder record cannot belong to a live holder: the
-    # holder writes that record immediately after mkdir succeeds, so if it
-    # is absent the owner is gone and the lock is free to take.
+    # A lock dir with no holder record cannot belong to a live holder of THIS
+    # lock: the holder writes its record immediately after mkdir succeeds, so if
+    # the record is absent the owner is gone and the lock is free to take.
     local holder
     holder=$(awk '{print $1}' "$STATUS_FILE" 2>/dev/null || true)
     if [[ -z "$holder" ]]; then
-      if [[ -n "$(ls -A "$LOCK_FILE" 2>/dev/null)" ]]; then
-        # a directory with contents but no record: not our layout, do not
-        # touch it (fail loudly rather than delete someone else's state)
-        echo "build-lock.sh: [$role] lock dir $LOCK_FILE is non-empty but has no holder record — leaving it alone" >&2
-      else
-        echo "build-lock.sh: removing stale lock (no holder record — holder died or the box rebooted)" >&2
-        release; rm -f "$STATUS_FILE"
-        continue
-      fi
+      # No holder record. This lock dir is created ONLY by `mkdir` below, and
+      # this script never writes anything INSIDE it (the holder record lives in
+      # the sibling $STATUS_FILE). So "lock dir present, no record" cannot be a
+      # live holder of ours — it is a dead holder, a reboot, or debris from a
+      # foreign flock-style user of the same path. Reclaim it.
+      #
+      # The old code refused to touch a NON-EMPTY dir with no record, reasoning
+      # it might be "someone else's layout". That made every waiter spin to its
+      # timeout: a `flock 9 9>...lock` user (how the backend gates serialise)
+      # leaves a non-empty file there and never writes $STATUS_FILE, so the
+      # record is permanently absent and the "leave it alone" branch is taken
+      # on every single poll. Observed as the core gate's `cargo test --lib`
+      # returning EMPTY output with no `test result:` line, which the gate then
+      # reported as "no lib-test summary (hung or crashed)" — a lock problem
+      # misreported as a test hang. Reproduced by holding the path with a plain
+      # flock: the command never ran at all.
+      echo "build-lock.sh: removing stale lock at $LOCK_FILE (no holder record — dead holder, reboot, or a foreign flock holder; this path is ours alone)" >&2
+      release; rm -f "$STATUS_FILE"
+      continue
     elif [[ "$holder" != "$my_pid" ]] && ! kill -0 "$holder" 2>/dev/null; then
       echo "build-lock.sh: removing stale lock (holder $holder dead)" >&2
       release; rm -f "$STATUS_FILE"
@@ -138,9 +148,22 @@ acquire() {
     fi
     # core escalation: waited past the timeout → SIGTERM the holder once,
     # then keep trying through the grace window before failing.
+    #
+    # The core role previously had NO timeout exit: once it escalated, it
+    # looped forever. That is why the gate's `cargo test --lib` came back with
+    # EMPTY output and no `test result:` line — not a hung test at all, a
+    # build-lock that was still spinning on the lock. The gate read that
+    # correctly ("no lib-test summary (hung or crashed)") but the diagnosis
+    # was wrong, and nothing in the log named the lock. Core now gives up after
+    # timeout + grace, and says so, so a lock problem is never again reported
+    # as a test-suite hang.
     if [[ "$my_prio" -eq 0 && $(( $(date +%s) )) -ge "$deadline" && "$escalated" -eq 0 ]]; then
       preempt_holder
       escalated=1
+    fi
+    if [[ "$my_prio" -eq 0 && $escalated -eq 1 && $(( $(date +%s) )) -ge "$((deadline + grace))" ]]; then
+      echo "build-lock.sh: [$role] timed out after ${timeout}s (+${grace}s grace) waiting for the build lock; a foreign flock-style holder is not preemptible — giving up so the caller sees a lock error, not a silent empty run" >&2
+      exit 1
     fi
     if [[ "$my_prio" -ne 0 && $(( $(date +%s) )) -ge "$deadline" ]]; then
       echo "build-lock.sh: [$role] timed out after ${timeout}s waiting for the build lock" >&2
