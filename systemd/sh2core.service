@@ -1,0 +1,27 @@
+[Unit]
+Description=sh2loop — CORE/CONTRACT gate worker (LLM-free marketplace gate)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/llm/sh2loop
+# supervise.sh is the never-retire wrapper: unbounded restarts, warn-only crash
+# counter, saturating exponential backoff. The previous hand-typed
+# `while [ $attempts -lt 5 ]` supervisors RETIRED after five child exits, which
+# is how the rust and perl workers disappeared with nothing to restart them.
+ExecStart=/home/llm/sh2loop/harness/supervise.sh \
+  --name core \
+  --log /home/llm/sh2loop/loop-core-worker.log \
+  --pidfile /home/llm/sh2loop/loop-core-worker.pid \
+  -- \
+  /home/llm/sh2loop/run_core_worker.sh
+Restart=always
+RestartSec=10
+# The gate's own bookkeeping (A1 + estree + lib) is appended by supervise.sh;
+# the worker's test output goes to the same log via the worker itself.
+StandardOutput=append:/home/llm/sh2loop/loop-core-worker.log
+StandardError=append:/home/llm/sh2loop/loop-core-worker.log
+
+[Install]
+WantedBy=default.target

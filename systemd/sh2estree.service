@@ -1,0 +1,21 @@
+[Unit]
+Description=sh2loop — ESTree backend repair loop
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/llm/sh2loop
+ExecStart=/home/llm/sh2loop/harness/supervise.sh \
+  --name estree \
+  --log /home/llm/sh2loop/loop-estree.log \
+  --pidfile /home/llm/sh2loop/loop-estree-worker.pid \
+  -- \
+  /usr/bin/perl /home/llm/sh2loop/main_loop_estree.pl
+Restart=always
+RestartSec=10
+StandardOutput=append:/home/llm/sh2loop/loop-estree.log
+StandardError=append:/home/llm/sh2loop/loop-estree.log
+
+[Install]
+WantedBy=default.target

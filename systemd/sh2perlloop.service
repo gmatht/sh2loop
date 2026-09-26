@@ -1,0 +1,21 @@
+[Unit]
+Description=sh2loop — PERL corpus repair loop
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/llm/sh2loop
+ExecStart=/home/llm/sh2loop/harness/supervise.sh \
+  --name perl-loop \
+  --log /home/llm/sh2loop/loop-perl-worker.log \
+  --pidfile /home/llm/sh2loop/loop-perl-worker.pid \
+  -- \
+  /usr/bin/perl /home/llm/sh2loop/main_loop_rust.pl
+Restart=always
+RestartSec=10
+StandardOutput=append:/home/llm/sh2loop/loop-perl-worker.log
+StandardError=append:/home/llm/sh2loop/loop-perl-worker.log
+
+[Install]
+WantedBy=default.target

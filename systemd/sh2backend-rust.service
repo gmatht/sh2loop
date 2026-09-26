@@ -1,0 +1,21 @@
+[Unit]
+Description=sh2loop — RUST backend repair worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/llm/sh2loop
+ExecStart=/home/llm/sh2loop/harness/supervise.sh \
+  --name backend-rust \
+  --log /home/llm/sh2loop/loop-backend-rust.log \
+  --pidfile /home/llm/sh2loop/loop-backend-rust.pid \
+  -- \
+  /home/llm/sh2loop/setup_backends.sh --run-backend-worker rust
+Restart=always
+RestartSec=10
+StandardOutput=append:/home/llm/sh2loop/loop-backend-rust.log
+StandardError=append:/home/llm/sh2loop/loop-backend-rust.log
+
+[Install]
+WantedBy=default.target

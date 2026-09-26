@@ -1,0 +1,21 @@
+[Unit]
+Description=sh2loop — C backend repair worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/llm/sh2loop
+ExecStart=/home/llm/sh2loop/harness/supervise.sh \
+  --name backend-c \
+  --log /home/llm/sh2loop/loop-backend-c.log \
+  --pidfile /home/llm/sh2loop/loop-backend-c.pid \
+  -- \
+  /home/llm/sh2loop/setup_backends.sh --run-backend-worker c
+Restart=always
+RestartSec=10
+StandardOutput=append:/home/llm/sh2loop/loop-backend-c.log
+StandardError=append:/home/llm/sh2loop/loop-backend-c.log
+
+[Install]
+WantedBy=default.target

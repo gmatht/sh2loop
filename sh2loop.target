@@ -1,0 +1,25 @@
+[Unit]
+Description=sh2loop — the sh2perl transpiler worker fleet (all workers)
+Documentation=file:///home/llm/sh2loop/AGENTS.md
+After=network-online.target
+Wants=network-online.target
+# Every member is supervised by harness/supervise.sh, which restarts it on an
+# unbounded loop. The point of this target is that a worker must never need a
+# human to bring it back: the earlier hand-typed `while [ $attempts -lt 5 ]`
+# supervisors retired after five child exits and left the fleet dead with
+# nothing to restart them.
+#
+# This file used to be a SERVICE describing only main_loop_rust.pl, with
+# User=ai and WorkingDirectory=/nvme/ai/sh2loop — neither path exists on this
+# box, so the unit was inactive everywhere while the real workers ran from
+# hand-typed zellij panes with no restart safety net at all. It is a TARGET now
+# that it actually covers the fleet, and the per-worker units live in systemd/.
+Requires=sh2core.service sh2estree.service sh2perlloop.service
+Wants=sh2backend-c.service sh2backend-perl.service sh2backend-rust.service
+After=sh2core.service sh2estree.service sh2perlloop.service \
+      sh2backend-c.service sh2backend-perl.service sh2backend-rust.service
+
+[Target]
+
+[Install]
+WantedBy=default.target
