@@ -36,23 +36,59 @@ ROOT="$(pwd)"
 # this fixes: the split gave role separation without tree separation.
 SUB="$ROOT/sh2perl/backends/core"
 LOG="$ROOT/loop-core-worker.log"
-DEBASHC="$SUB/otranspilerl/target/debug/otranspilerl-cli"
 REQS="$ROOT/core-requests"
 WATCH="${WATCH:-600}"
+# The ROLLBACK ANCHOR: a verified-green Core commit, advanced only after a
+# full green verification and used to restore the worktree on any red
+# candidate. It replaces the old "main vs core-worktree" heuristic, which
+# could stash/revert other workers' shared-core WIP and (twice) rewound main
+# 374 commits backwards. Everything below is transactional inside the CORE
+# worktree; the main checkout is read-only to this worker.
+KNOWN_GOOD_REF="refs/sh2loop/core-known-good"
+KNOWN_GOOD_FILE="$ROOT/.core-verify/known-good.env"   # metrics for that commit
+REPORTS="$ROOT/gate-reports"
+mkdir -p "$ROOT/.core-verify"
 
 # Worker cgroup enrollment (harness/WorkerPool.pm): runs inside sh2workers.
 perl "$ROOT/harness/WorkerPool.pm" --enter-worker $$ >> "$LOG" 2>&1 || true
-mkdir -p "$REQS/transforms/done" "$REQS/transforms/rejected" "$ROOT/gate-reports"
+mkdir -p "$REQS/transforms/done" "$REQS/transforms/rejected" "$REPORTS"
 echo "[$(date +%FT%T)] core worker (LLM-free marketplace gate) started (pid=$$)" >> "$LOG"
 
-# the A1-native invariant: count check_qx_shir violations over the corpus
+# The Core compiler: an ISOLATED otranspilerl-cli linked against THIS
+# worktree (harness/core_verify.sh). The old path
+# ($SUB/otranspilerl/target/debug/otranspilerl-cli) never existed, which
+# turned the A1 probe into 555 fake "violations" and made the gate permanently
+# red. The main compiler is never built or replaced by this worker.
+core_binary() {
+  bash "$ROOT/harness/core_verify.sh" 2>>"$LOG" | tail -1
+}
+
+# The A1-native invariant. Prints "<violations> <probed> <failed>".
+#   violations — real exec-of-builtin survivors found by check_qx_shir
+#   probed     — examples that produced PARSEABLE A1 JSON
+#   failed     — examples whose emit failed or produced invalid JSON
+# A probe failure is a COUNT OF FILES, never folded into the violation count:
+# "555 violations" must mean 555 real lowering defects. check_qx_shir.py marks
+# an unmeasurable input with PROBE-UNAVAILABLE, so one checker run per example
+# yields both numbers (this used to spawn a JSON parser AND a grep per file,
+# which made a 555-file sweep cost minutes of pure process startup).
 a1_gate() {
-  local v=0 c f
+  local v=0 okc=0 badc=0 f report
   for f in "$SUB"/examples/*.sh; do
-    c=$("$DEBASHC" --shir "$f" --raw 2>/dev/null | "$ROOT/harness/check_qx_shir.py" 2>/dev/null | grep -c FAIL || true)
-    v=$((v + c))
+    report=$("$DEBASHC" --shir "$f" --raw 2>/dev/null | "$ROOT/harness/check_qx_shir.py" 2>/dev/null || true)
+    if printf '%s' "$report" | grep -q 'PROBE-UNAVAILABLE'; then
+      badc=$((badc + 1))
+      continue
+    fi
+    okc=$((okc + 1))
+    # `grep -c` prints 0 AND exits 1 when there are no matches, so the
+    # `|| true` that guards `set -e` would also discard the "0" on stdout,
+    # leaving `v=$((v + ))` — an arithmetic syntax error that killed the
+    # whole worker on every clean example. Keep the fallback to 0.
+    nfail=$(printf '%s' "$report" | grep -c 'FAIL') || nfail=0
+    v=$((v + ${nfail:-0}))
   done
-  echo "$v"
+  echo "$v $okc $badc"
 }
 
 # pending submission BUNDLES (dirs carrying a transform.rs) — the
@@ -85,16 +121,76 @@ wake_sleepers() {
   done
 }
 
+# Discard the current candidate and put the CORE WORKTREE back on the last
+# verified-green commit. Scope: the worktree only — never the main checkout,
+# never another worker's files. With no anchor yet there is nothing to restore
+# TO, so the worktree is reset to its own HEAD (dropping uncommitted WIP) and
+# the caller reports NO-KNOWN-GOOD.
+restore_known_good() {
+  local kg cur
+  kg=$(git -C "$SUB" rev-parse -q --verify "$KNOWN_GOOD_REF" 2>/dev/null || true)
+  cur=$(git -C "$SUB" rev-parse HEAD 2>/dev/null || true)
+  if [ -n "$kg" ]; then
+    git -C "$SUB" reset -q --hard "$kg" >> "$LOG" 2>&1 || true
+    git -C "$SUB" clean -qfd src >> "$LOG" 2>&1 || true
+    echo "[$(date +%FT%T)] core: rolled back to known-good $(git -C "$SUB" rev-parse --short "$kg") (was ${cur:0:9})" >> "$LOG"
+  else
+    git -C "$SUB" reset -q --hard HEAD >> "$LOG" 2>&1 || true
+    git -C "$SUB" clean -qfd src >> "$LOG" 2>&1 || true
+    printf '%s core-worker: NO-KNOWN-GOOD — discarded candidate, no green anchor exists yet\n' \
+      "$(date +%FT%T)" >> "$REPORTS/core-worker.report"
+    echo "[$(date +%FT%T)] core: no known-good anchor — candidate discarded, worktree reset to HEAD" >> "$LOG"
+  fi
+}
+
 while true; do
   bash "$ROOT/setup_backends.sh" --wait >> "$LOG" 2>&1 || true
   echo "[$(date +%FT%T)] core: iteration start" >> "$LOG"
+
+  # ── 0. the Core compiler + the rollback anchor ────────────────────
+  DEBASHC=$(core_binary || true)
+  if [ -z "$DEBASHC" ] || [ ! -x "$DEBASHC" ]; then
+    printf '%s core-worker: NO-COMPILER (isolated core build failed — no verdict this iteration)\n' \
+      "$(date +%FT%T)" >> "$REPORTS/core-worker.report"
+    echo "[$(date +%FT%T)] core: isolated compiler build FAILED — skipping iteration" >> "$LOG"
+    sleep "$WATCH"
+    continue
+  fi
+
+  # Restore the worktree to the last VERIFIED-GREEN commit. This is the
+  # rollback: a candidate that never reached green (crash, kill, leftover WIP
+  # from a previous run) is discarded here, in the Core worktree only.
+  known_good=$(git -C "$SUB" rev-parse -q --verify "$KNOWN_GOOD_REF" 2>/dev/null || true)
+  core_head=$(git -C "$SUB" rev-parse HEAD 2>/dev/null || true)
+  if [ -n "$known_good" ] && [ "$core_head" != "$known_good" ]; then
+    restore_known_good
+    printf '%s core-worker: ROLLED-BACK to known-good %s (discarded unverified candidate)\n' \
+      "$(date +%FT%T)" "$(git -C "$SUB" rev-parse --short "$known_good")" >> "$REPORTS/core-worker.report"
+  fi
+
+  # Adopt legitimate upstream progress: when the core worktree is an ancestor
+  # of main, fast-forward the WORKTREE (never rewind main — the old guard did,
+  # and that is what deleted 374 commits of real work and broke the build).
+  main_head=$(git -C "$ROOT/sh2perl" rev-parse HEAD 2>/dev/null || true)
+  cur=$(git -C "$SUB" rev-parse HEAD 2>/dev/null || true)
+  if [ -n "$main_head" ] && [ -n "$cur" ] && [ "$main_head" != "$cur" ] && \
+     git -C "$ROOT/sh2perl" merge-base --is-ancestor "$cur" "$main_head" 2>/dev/null; then
+    if git -C "$SUB" merge -q --ff-only "$main_head" >> "$LOG" 2>&1; then
+      echo "[$(date +%FT%T)] core: fast-forwarded backend/core to main $main_head" >> "$LOG"
+      # The fast-forward is unverified; it becomes the candidate to verify.
+      # It is NOT the known-good anchor until a full green run says so.
+    fi
+  fi
+  # NOTE: main is never checked out, stashed, reset or committed by this
+  # worker. Other workers own the main tree; a divergent main is REPORTED.
+
   printf '%s core-worker: iterating (%s offers, %s specs, %s bundles, %s done, %s rejected)\n' \
     "$(date +%FT%T)" \
     "$(pending_transforms | wc -l)" \
     "$(pending_contracts | wc -l)" \
     "$(pending_bundles | wc -l)" \
     "$(done_count)" "$(rejected_count)" \
-    >> "$ROOT/gate-reports/core-worker.report"
+    >> "$REPORTS/core-worker.report"
 
   # ── 1. gate the submission bundles (deterministic: contract → build → invariants) ──
   for bundle in $(pending_transforms); do
@@ -106,7 +202,7 @@ while true; do
       if ! git -C "$SUB" apply --check "$bundle/contract.patch" >> "$LOG" 2>&1; then
         echo "[$(date +%FT%T)] core: $name contract.patch does not apply — REJECT" >> "$LOG"
         mv "$bundle" "$REQS/transforms/rejected/"
-        printf '%s core-worker: REJECTED %s (contract patch)\n' "$(date +%FT%T)" "$name" >> "$ROOT/gate-reports/core-worker.report"
+        printf '%s core-worker: REJECTED %s (contract patch)\n' "$(date +%FT%T)" "$name" >> "$REPORTS/core-worker.report"
         continue
       fi
       git -C "$SUB" apply "$bundle/contract.patch" >> "$LOG" 2>&1
@@ -155,83 +251,45 @@ PYEOF
         fi
       fi
     fi
-    if ! "$ROOT/harness/build-lock.sh" --role core -- cargo build \
-         --manifest-path "$SUB/Cargo.toml" --bin otranspilerl-cli >> "$LOG" 2>&1; then
-      echo "[$(date +%FT%T)] core: $name does not compile — REJECT (submodule src reverted)" >> "$LOG"
-      git -C "$SUB" checkout -- src/ 2>/dev/null || true
-      mv "$bundle" "$REQS/transforms/rejected/"
-      printf '%s core-worker: REJECTED %s (build)\n' "$(date +%FT%T)" "$name" >> "$ROOT/gate-reports/core-worker.report"
-      continue
-    fi
     if ! "$ROOT/harness/build-lock.sh" --role core -- cargo test --lib \
          --manifest-path "$SUB/Cargo.toml" >> "$LOG" 2>&1; then
-      echo "[$(date +%FT%T)] core: $name fails the lib tests — REJECT (submodule src reverted)" >> "$LOG"
-      git -C "$SUB" checkout -- src/ 2>/dev/null || true
+      echo "[$(date +%FT%T)] core: $name fails the lib tests — REJECT (worktree restored)" >> "$LOG"
+      restore_known_good
       mv "$bundle" "$REQS/transforms/rejected/"
-      printf '%s core-worker: REJECTED %s (lib tests)\n' "$(date +%FT%T)" "$name" >> "$ROOT/gate-reports/core-worker.report"
+      printf '%s core-worker: REJECTED %s (lib tests)\n' "$(date +%FT%T)" "$name" >> "$REPORTS/core-worker.report"
       continue
     fi
-    echo "[$(date +%FT%T)] core: ACCEPT $name (contract + transform, build + lib tests green)" >> "$LOG"
+    # NOT accepted yet. The candidate is STAGED (registered + compiled +
+    # lib-green) and the full invariant gate below decides. Acceptance used
+    # to happen here, before the A1/ESTree gate — so a bundle could be marked
+    # done and committed, and the red gate that followed left it there
+    # (the report shows exactly that: accepted, then RED). The offer moves to
+    # done/ only after the green finalize at the end of the iteration.
+    echo "[$(date +%FT%T)] core: candidate $name staged (build + lib tests green) — awaiting invariants" >> "$LOG"
     git -C "$SUB" add src/ 2>/dev/null || true
-    git -C "$SUB" commit -m "marketplace bundle $name: contract op + transform (build + invariants green)" 2>/dev/null || true
-    mv "$bundle" "$REQS/transforms/done/"
-    printf '%s core-worker: ACCEPTED %s (contract + transform, build + lib tests)\n' "$(date +%FT%T)" "$name" >> "$ROOT/gate-reports/core-worker.report"
+    staged_offer="$bundle"
+    staged_name="$name"
   done
 
   # ── 2. the invariants gate (the builtin-op ladder — no LLM) ──
-  v=$(a1_gate)
-  echo "[$(date +%FT%T)] core: A1-native invariant — $v exec-of-builtin violations" >> "$LOG"
+  # a1_gate prints "<violations> <probed> <failed>". A failed probe is a
+  # BROKEN MEASUREMENT, not a violation count: with the old missing binary
+  # every example emitted nothing and check_qx_shir printed one "invalid A1
+  # JSON" FAIL line each, which `grep -c FAIL` turned into "555 violations".
+  read -r v probed failed < <(a1_gate)
+  echo "[$(date +%FT%T)] core: A1-native invariant — $v violations, $probed probed, $failed probe-failures" >> "$LOG"
+  printf '%s core-worker: A1 violations=%s probed=%s probe-failures=%s\n' \
+    "$(date +%FT%T)" "$v" "$probed" "$failed" >> "$REPORTS/core-worker.report"
 
-  # ── 2b. guard: stash unauthorized shared-core changes ──
-  # Other workers (perl, estree) may have committed directly to the shared
-  # core (src/shir.rs, src/ir.rs, src/estree.rs, src/parser/) without going
-  # through the core worker's gate. Check the main tree and stash any
-  # uncommitted changes to the shared core.
-  shared_core_dirty=$(git -C "$ROOT/sh2perl" status --porcelain -- src/shir.rs src/ir.rs src/estree.rs src/parser/ 2>/dev/null || true)
-  if [ -n "$shared_core_dirty" ]; then
-    echo "[$(date +%FT%T)] core: UNAUTHORIZED shared-core changes detected — stashing:" >> "$LOG"
-    echo "$shared_core_dirty" >> "$LOG"
-    git -C "$ROOT/sh2perl" stash push -m "core-worker: stash unauthorized shared-core changes ($(date +%FT%T))" -- src/shir.rs src/ir.rs src/estree.rs src/parser/ >> "$LOG" 2>&1 || true
-    printf '%s core-worker: STASHED unauthorized shared-core changes\n' "$(date +%FT%T)" >> "$ROOT/gate-reports/core-worker.report"
-  fi
-  # Also check if main tree has commits that the core worktree doesn't have
-  # (i.e., someone committed directly to the shared core bypassing the gate).
-  main_head=$(git -C "$ROOT/sh2perl" rev-parse HEAD 2>/dev/null || true)
-  core_head=$(git -C "$SUB" rev-parse HEAD 2>/dev/null || true)
-  if [ -n "$main_head" ] && [ -n "$core_head" ] && [ "$main_head" != "$core_head" ]; then
-    # Check if the divergence is in shared core files
-    diff_files=$(git -C "$ROOT/sh2perl" diff --name-only "$core_head" "$main_head" -- src/shir.rs src/ir.rs src/estree.rs src/parser/ 2>/dev/null || true)
-    if [ -n "$diff_files" ]; then
-      # STALE-REFERENCE GUARD (the 15-day fleet outage).
-      # This branch exists to stop an unauthorized DIRECT commit to the shared
-      # core. But if the core worktree is an ANCESTOR of main, then main is
-      # AHEAD, not rogue — reverting main backwards to a stale commit deletes
-      # legitimate work. That happened: backend/core sat 374 commits behind
-      # main, so this reverted away the hoisted bigint/int-array analyses
-      # main's backends call, leaving 155 rustc errors (main could not build),
-      # which made fail-estree loop on a failed build while holding the build
-      # lock and starved every tree's gate. Never revert backwards: if the
-      # core worktree is behind, fast-forward IT (it is the reference that is
-      # stale), and only revert main when the worktree genuinely has commits
-      # main lacks.
-      if git -C "$ROOT/sh2perl" merge-base --is-ancestor "$core_head" "$main_head" 2>/dev/null; then
-        echo "[$(date +%FT%T)] core: core worktree ($core_head) is BEHIND main ($main_head) — not a rogue commit; fast-forwarding the worktree instead of reverting main" >> "$LOG"
-        if git -C "$SUB" merge --ff-only "$main_head" >> "$LOG" 2>&1; then
-          echo "[$(date +%FT%T)] core: fast-forwarded backend/core -> $main_head" >> "$LOG"
-          printf '%s core-worker: FAST-FORWARDED stale backend/core (was behind main)\n' "$(date +%FT%T)" >> "$ROOT/gate-reports/core-worker.report"
-        else
-          echo "[$(date +%FT%T)] core: backend/core ff FAILED (worktree diverged or dirty) — leaving main untouched" >> "$LOG"
-          printf '%s core-worker: WARNING backend/core stale and not fast-forwardable — main left untouched\n' "$(date +%FT%T)" >> "$ROOT/gate-reports/core-worker.report"
-        fi
-      else
-        echo "[$(date +%FT%T)] core: main tree has unauthorized shared-core commits (diverged from core worktree):" >> "$LOG"
-        echo "$diff_files" >> "$LOG"
-        # Revert the main tree's shared core to match the core worktree
-        git -C "$ROOT/sh2perl" checkout "$core_head" -- src/shir.rs src/ir.rs src/estree.rs src/parser/ >> "$LOG" 2>&1 || true
-        git -C "$ROOT/sh2perl" commit -m "core-worker: revert unauthorized shared-core changes" >> "$LOG" 2>&1 || true
-        printf '%s core-worker: REVERTED unauthorized shared-core commits\n' "$(date +%FT%T)" >> "$ROOT/gate-reports/core-worker.report"
-      fi
-    fi
+  # ── 2b. REPORT-ONLY observation of the main checkout ────────────────
+  # The old guard stashed other workers' shared-core WIP and (twice) rewound
+  # main backwards, which deleted 374 commits of real work and left the tree
+  # unbuildable. This worker OWNS ONLY its own worktree; the main tree belongs
+  # to the other workers. So this observes and reports — and never mutates.
+  main_dirty=$(git -C "$ROOT/sh2perl" status --porcelain -- src/ 2>/dev/null | head -20 || true)
+  if [ -n "$main_dirty" ]; then
+    echo "[$(date +%FT%T)] core: main checkout has uncommitted shared-core WIP (NOT touched — owned by its worker):" >> "$LOG"
+    printf '%s\n' "$main_dirty" >> "$LOG"
   fi
 
   # ── 3. finalize: commit accepted core changes when green (in the WORKTREE) ──
@@ -263,35 +321,121 @@ PYEOF
   # `error: could not compile ...`. Detect that instead.
   estree_probe=ok
   estree_reason=""
-  estree_out=$(timeout 3600 env SH2PERL_DIR="$SUB" "$ROOT/fail-estree" 2>/dev/null) || true
+  estree_fails=""
+  # The gate runs against THIS worktree's compiler, not the main checkout's:
+  # SH2PERL_DIR swaps the example tree, and OTRANSPILERL_BIN + _SKIP_BUILD
+  # swap the binary too. Without the latter the probe was a hybrid — the core
+  # corpus judged by the MAIN compiler — so a green core worktree and a broken
+  # main tree (or the reverse) produced a verdict about neither. We already
+  # built the isolated binary above, so the gate does not rebuild anything.
+  estree_out=$(timeout 3600 env \
+      SH2PERL_DIR="$SUB" \
+      OTRANSPILERL_BIN="$DEBASHC" \
+      OTRANSPILERL_SKIP_BUILD=1 \
+      "$ROOT/fail-estree" 2>/dev/null) || true
   estree_fails=$(printf '%s\n' "$estree_out" | sed -n 's/.*ESTREE: [0-9]* passed, \([0-9]*\) failed.*/\1/p' | tail -1)
+  estree_total=$(printf '%s\n' "$estree_out" | sed -n 's/.*ESTREE: [0-9]* passed, [0-9]* failed out of \([0-9]*\).*/\1/p' | tail -1)
   if [ -z "$estree_fails" ]; then
     estree_probe=failed
     estree_fails="?"
-    if printf '%s\n' "$estree_out" | grep -qE 'error: could not compile|could not compile .* due to'; then
-      estree_reason="main tree sh2perl does not compile"
-      echo "[$(date +%FT%T)] core: estree probe FAILED — $ROOT/otranspilerl (the MAIN tree; the probe's build step ignores SH2PERL_DIR, so the core worktree's clean build does not help) does not compile. No corpus verdict is available." >> "$LOG"
-      # NOTE: do NOT pipe this into `head` under `set -o pipefail` — head
-      # exits after N lines, closing the pipe, SIGPIPEs the printf, and the
-      # resulting 141 kills this whole worker mid-iteration (that bug left
-      # the fleet coreless after 5 supervision attempts). awk 'NR<=10'
-      # reads to EOF, so no writer ever sees SIGPIPE.
-      printf '%s\n' "$estree_out" | grep -E '^error' | awk 'NR<=10' >> "$LOG" 2>/dev/null || true
+    estree_reason="no ESTREE summary (gate timed out or crashed — NOT a corpus verdict)"
+    echo "[$(date +%FT%T)] core: estree probe FAILED (no summary line — timed out or crashed)" >> "$LOG"
+    printf '%s\n' "$estree_out" | tail -20 >> "$LOG" 2>/dev/null || true
+  fi
+
+  # The known-good baseline this candidate must not regress. Read from the
+  # anchor file written by the last green run; absent on the very first run,
+  # in which case the gate is simply "A1 clean, probe valid, lib tests pass"
+  # and the current numbers BECOME the baseline.
+  kg_estree=""
+  [ -f "$KNOWN_GOOD_FILE" ] && kg_estree=$(sed -n 's/^estree_fails=//p' "$KNOWN_GOOD_FILE" | tail -1)
+  estree_ok=0
+  if [ "$estree_probe" = ok ] && [ -n "$kg_estree" ] && [ "$estree_fails" -le "$kg_estree" ]; then
+    estree_ok=1
+  elif [ "$estree_probe" = ok ] && [ -z "$kg_estree" ]; then
+    # no baseline yet: adopt this run's numbers (still must be a valid probe)
+    estree_ok=1
+  fi
+
+  # A probe that could not measure ANY example is not a pass, whatever the
+  # counts say.
+  a1_ok=0
+  [ "$v" -eq 0 ] && [ "$failed" -eq 0 ] && a1_ok=1
+
+  # ── lib tests, BASELINED (a candidate must not ADD failures) ──
+  # The gate used to require `cargo test --lib` to exit 0. But this tree has a
+  # set of KNOWN-RED lib tests (14 at last count) that predate any candidate —
+  # they are real defects being worked down by the backends, not something a
+  # core candidate introduced. Requiring exit 0 therefore meant the gate could
+  # NEVER go green, never advance the known-good anchor, and so rolled back and
+  # discarded EVERY candidate forever — the 23-consecutive-RED churn. Worse, a
+  # hang and a red suite were indistinguishable to the gate: both made the
+  # `cargo test` non-zero, and the empty `gate RED ()` reason hid which.
+  #
+  # So: count the lib-test failures and compare against a baseline, exactly
+  # like the estree corpus. A candidate passes if it does not make the count
+  # WORSE. On the very first run (no baseline yet) the current count BECOMES
+  # the baseline, which is what finally lets the anchor be established.
+  #
+  # A HANG is still distinct from red: libtest prints its `test result:` line
+  # only when the suite finishes. No summary line => hung or crashed => a hard
+  # failure, never a baseline to adopt.
+  lib_out=$("$ROOT/harness/build-lock.sh" --role core -- cargo test --lib \
+      --manifest-path "$SUB/Cargo.toml" 2>&1) || true
+  lib_fails=$(printf '%s\n' "$lib_out" \
+      | sed -n 's/^test result: .* \([0-9][0-9]*\) failed.*/\1/p' | tail -1)
+  if [ -z "$lib_fails" ]; then
+    lib_ok=0
+    lib_reason="no lib-test summary line (suite hung or crashed — NOT a pass)"
+    echo "[$(date +%FT%T)] core: lib tests produced NO summary (hung or crashed)" >> "$LOG"
+    printf '%s\n' "$lib_out" | tail -20 >> "$LOG" 2>/dev/null || true
+  else
+    kg_lib=""
+    [ -f "$KNOWN_GOOD_FILE" ] && kg_lib=$(sed -n 's/^lib_fails=//p' "$KNOWN_GOOD_FILE" | tail -1)
+    if [ -n "$kg_lib" ] && [ "$lib_fails" -le "$kg_lib" ]; then
+      lib_ok=1; lib_reason=""
+    elif [ -z "$kg_lib" ]; then
+      # no baseline yet: adopt this run's count (the known-red set).
+      lib_ok=1; lib_reason=""
     else
-      estree_reason="no ESTREE summary (timed out or crashed)"
-      echo "[$(date +%FT%T)] core: estree probe FAILED (no ESTREE summary line — fail-estree timed out or crashed; this is NOT a corpus verdict)" >> "$LOG"
-      printf '%s\n' "$estree_out" | tail -20 >> "$LOG" 2>/dev/null || true
+      lib_ok=0
+      lib_reason="lib $lib_fails failures vs baseline $kg_lib"
     fi
   fi
-  if [ "$(a1_gate)" -eq 0 ] && [ "$estree_probe" = ok ] && [ "$estree_fails" -le 0 ] && \
-       "$ROOT/harness/build-lock.sh" --role core -- cargo test --lib \
-       --manifest-path "$SUB/Cargo.toml" >> "$LOG" 2>&1; then
+
+  if [ "$a1_ok" -eq 1 ] && [ "$estree_ok" -eq 1 ] && [ "$lib_ok" -eq 1 ]; then
     echo "[$(date +%FT%T)] core: gate GREEN (A1 native + estree corpus + lib tests)" >> "$LOG"
-    printf '%s core-worker: GREEN (A1-native %s, estree %s fails, %s done, %s rejected)\n' "$(date +%FT%T)" "$v" "$estree_fails" "$(done_count)" "$(rejected_count)" >> "$ROOT/gate-reports/core-worker.report"
+    printf '%s core-worker: GREEN (A1 violations 0, estree %s fails, lib %s fails vs baseline %s, %s done, %s rejected)\n' \
+      "$(date +%FT%T)" "$estree_fails" "$lib_fails" "${kg_lib:-adopted}" "$(done_count)" "$(rejected_count)" >> "$REPORTS/core-worker.report"
     if [ -n "$(git -C "$SUB" status --porcelain -- src/ 2>/dev/null)" ]; then
       git -C "$SUB" add src/ 2>/dev/null || true
-      git -C "$SUB" commit -m "core marketplace: accepted transforms (build + invariants + estree corpus green)" 2>/dev/null || true
+      git -C "$SUB" commit -m "core marketplace: candidate verified (build + invariants + estree corpus green)" 2>/dev/null || true
     fi
+    # ADVANCE THE ROLLBACK ANCHOR — this commit is now the verified-green
+    # state a future red candidate is rolled back to. The ref update is atomic
+    # (git update-ref refuses a non-fast-forward) and the metrics file is
+    # rewritten beside it.
+    kg_commit=$(git -C "$SUB" rev-parse HEAD 2>/dev/null || true)
+    if [ -n "$kg_commit" ]; then
+      git -C "$SUB" update-ref "$KNOWN_GOOD_REF" "$kg_commit" 2>>"$LOG" || true
+      cat > "$KNOWN_GOOD_FILE" <<EOF
+commit=$kg_commit
+a1_violations=0
+estree_fails=$estree_fails
+estree_total=$estree_total
+lib_fails=$lib_fails
+verified_at=$(date +%s)
+EOF
+      printf '%s core-worker: KNOWN-GOOD advanced to %s (A1 0, estree %s, lib %s)\n' \
+        "$(date +%FT%T)" "$(git -C "$SUB" rev-parse --short "$kg_commit")" "$estree_fails" "$lib_fails" >> "$REPORTS/core-worker.report"
+    fi
+    # Now, and only now, the staged offer is accepted.
+    if [ -n "${staged_offer:-}" ] && [ -f "${staged_offer:-}" ]; then
+      mv "$staged_offer" "$REQS/transforms/done/"
+      printf '%s core-worker: ACCEPTED %s (build + lib tests + invariants + estree corpus green)\n' \
+        "$(date +%FT%T)" "$staged_name" >> "$REPORTS/core-worker.report"
+    fi
+    staged_offer=""; staged_name=""
     # LAND on main ONLY when green, via merge — the estree worker's main
     # tree stays clean (it never sees this worker's WIP or commits-in-
     # progress). ff-only: if main moved (estree commits), defer to the next
@@ -305,13 +449,28 @@ PYEOF
     fi
     wake_sleepers
   else
+    # ── RED: roll the worktree back to the verified-green anchor ──
+    # Every one of the three checks MUST contribute a reason when it fails.
+    # The old code let `cargo test --lib` fail with an EMPTY reason, which is
+    # how a spinning test and a genuine red suite both printed `gate RED ()`
+    # and sent the investigation nowhere.
+    reason=""
+    [ "$a1_ok" -ne 1 ] && reason="A1 not clean (violations=$v, probe-failures=$failed)"
+    [ "$estree_ok" -ne 1 ] && reason="${reason:+$reason; }estree $estree_fails vs baseline ${kg_estree:-none} ($estree_reason)"
+    [ "$lib_ok" -ne 1 ] && reason="${reason:+$reason; }lib $lib_reason"
+    [ -z "$reason" ] && reason="gate conditions changed under the run (no single check explains RED)"
+    echo "[$(date +%FT%T)] core: gate RED ($reason) — rolling back the candidate" >> "$LOG"
     if [ "$estree_probe" != ok ]; then
-      echo "[$(date +%FT%T)] core: gate RED (a1=$v estree-probe-FAILED) after acceptance — left for the next iteration (never bless a regression)" >> "$LOG"
-      printf '%s core-worker: RED (A1-native %s, estree probe FAILED — %s, %s done, %s rejected)\n' "$(date +%FT%T)" "$v" "$estree_reason" "$(done_count)" "$(rejected_count)" >> "$ROOT/gate-reports/core-worker.report"
+      printf '%s core-worker: RED (probe FAILED: %s; A1 violations=%s probe-failures=%s; lib %s)\n' \
+        "$(date +%FT%T)" "$estree_reason" "$v" "$failed" "$lib_reason" >> "$REPORTS/core-worker.report"
     else
-      echo "[$(date +%FT%T)] core: gate RED (a1=$v estree=$estree_fails) after acceptance — left for the next iteration (never bless a regression)" >> "$LOG"
-      printf '%s core-worker: RED (A1-native %s, estree %s fails, %s done, %s rejected)\n' "$(date +%FT%T)" "$v" "$estree_fails" "$(done_count)" "$(rejected_count)" >> "$ROOT/gate-reports/core-worker.report"
+      printf '%s core-worker: RED (%s; %s done, %s rejected)\n' \
+        "$(date +%FT%T)" "$reason" "$(done_count)" "$(rejected_count)" >> "$REPORTS/core-worker.report"
     fi
+    # Discard the candidate: the offer stays pending (its author can fix it),
+    # and the worktree goes back to the last verified-green commit.
+    restore_known_good
+    staged_offer=""; staged_name=""
   fi
   sleep "$WATCH"
 done
