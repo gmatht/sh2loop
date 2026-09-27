@@ -337,64 +337,124 @@ echo "  Rust cleanup: $cleanup_commits commit(s) this window"
 
 echo ""
 
+# ── Model rotation + progress-per-token ──────────────────────────────
+# Which model each rotating worker is on, and what it actually bought:
+# normalized gate progress per wall-clock hour and per token. The ranking is
+# withheld until every worker has a measured interval under BOTH models —
+# a confident winner from one worker on one model is worse than no answer.
+echo "--- Model rotation: progress per hour and per token ---"
+if [ -f harness/model_report.py ]; then
+  if [ -d .worker-model ]; then
+    python3 harness/model_report.py report 2>&1 | sed 's/^/  /'
+  else
+    echo "  (rotation not initialized — run: python3 harness/model_report.py init-rotation)"
+  fi
+else
+  echo "  (harness/model_report.py missing)"
+fi
+
+echo ""
+
 # ── Worker alive status ──────────────────────────────────────────────
+# TWO SOURCES OF TRUTH, and that is the point.
+#
+# The hardcoded `pgrep` roster below is a DUPLICATE of the fleet definition
+# that lives in systemd/. It drifted, and the drift is silent: the backend
+# workers (setup_backends.sh --run-backend-worker <lang>) had no entry at
+# all, so `core`/`perl`/`estree` reported ALIVE while `backend-c` and
+# `backend-rust` — actually running — reported a bare "✗" with no
+# explanation. A monitoring panel that silently omits half the fleet is worse
+# than no panel: it says "✗" for something that is fine, and "✓" for
+# something whose pattern it merely happens to match.
+#
+# So: systemd is authoritative for "should this be running", and the
+# process scan is only a cross-check. A unit that is installed and active is
+# reported as alive even if the process pattern does not match, because the
+# process name is an implementation detail that can change without the
+# worker going away.
 echo "--- Workers alive ---"
-for name in core triage perl estree fish zsh zig rust-frontend rust-cleanup; do
+# The unit list is read from systemd, not hardcoded: a worker added to the
+# fleet shows up here automatically, which is what stops this drifting again.
+units=$(systemctl --user list-unit-files 'sh2*.service' --no-legend --no-pager 2>/dev/null \
+        | awk '{print $1}' | sed 's/\.service$//' | sort)
+if [ -z "$units" ]; then
+  echo "  (no sh2* user units installed — run: harness/install_units.sh --user)"
+fi
+
+printf "  %-20s %-9s %-8s %s\n" "unit" "unit-state" "process" "note"
+for u in $units; do
+  st=$(systemctl --user is-active "$u.service" 2>/dev/null)
+  [ -z "$st" ] && st=$(systemctl is-active "$u.service" 2>/dev/null)
+  pid=$(systemctl --user show -p MainPID --value "$u.service" 2>/dev/null)
+
+  # The worker child is the supervisor's child; systemd's MainPID IS the
+  # supervisor. Report "running" when either the supervisor or its child
+  # exists — checking only MainPID is enough for liveness, but the child's
+  # cmdline is the honest description of WHAT is running.
+  what=""
+  if [ -n "$pid" ] && [ "$pid" != "0" ] && [ -r "/proc/$pid/cmdline" ]; then
+    # What the supervisor actually supervises: everything after the `--`
+    # separator in supervise.sh's argv. That is the real worker, and it is
+    # what distinguishes backend-c from backend-rust at a glance.
+    what=$(tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null \
+           | sed 's#^.*/##' | awk 'seen{print} /^--$/{seen=1}' | paste -sd' ' -)
+  fi
+  [ -z "$what" ] && what="(no command info)"
+
+  if [ "$st" = "active" ]; then
+    printf "  %-20s %-9s %-8s %s\n" "$u" "✓ active" "✓" "$what"
+  else
+    printf "  %-20s %-9s %-8s %s\n" "$u" "✗ $st" "✗" "not running"
+  fi
+done
+
+echo ""
+echo "  Non-unit workers (roster entries with no systemd unit):"
+# The frontend/triage workers are still hand-launched scripts, so they can
+# only be probed by process scan. They are listed explicitly rather than
+# derived, and each is labelled so a "✗" reads as "not started" rather
+# than "broken".
+for name in triage fish zsh zig rust-frontend rust-cleanup; do
   case $name in
-    core) pat="run_core_worker" ;;
     triage) pat="run_triage_worker" ;;
-    perl) pat="main_loop_rust.pl" ;;
-    estree) pat="main_loop_estree.pl" ;;
     fish) pat="fish-sh-go/run_frontend" ;;
     zsh) pat="zsh-sh-go/run_frontend" ;;
     zig) pat="zig-sh-go/run_frontend" ;;
     rust-frontend) pat="rust-frontend/run_frontend" ;;
     rust-cleanup) pat="rust_cleanup_worker" ;;
   esac
-  # NOTE: `pgrep -f "$pat"` is a SUBSTRING match — it also matches this
-  # script's own `/bin/sh -c` line (progress.sh *contains* the pattern),
-  # so it always self-reports "alive". Use pgrep -x (exact command name)
-  # for name-only patterns, and for path patterns exclude our own pid,
-  # our parent shell, and any other bash -c wrapper that merely quotes
-  # the pattern (that is exactly the false positive we are fixing).
-  pids=""
-  while read -r p; do
-    [ -n "$p" ] || continue
-    [ "$p" = "$$" ] && continue            # this script
-    [ "$p" = "$PPID" ] && continue         # the invoking shell (bash -c '...progress.sh')
-    cmd=$(ps -o args= -p "$p" 2>/dev/null) || continue
-    case "$cmd" in
-      *-c*"$pat"*) continue ;;             # a wrapper bash -c merely quoting the pattern
-    esac
-    pids="$pids $p"
-  done < <(pgrep -f "$pat" 2>/dev/null)
-
-  # A worker sleeping between iterations writes nothing to its log; a
-  # dead one is silently gone. Report the last log line's age so "✓ but
-  # idle for 3h" is distinguishable from "✓ and working".
-  idle=""
   case $name in
-    core) wlog="loop-core-worker.log" ;;
     triage) wlog="loop-triage-worker.log" ;;
-    perl) wlog="loop-perl-worker.log" ;;
-    estree) wlog="loop-estree.log" ;;
     fish) wlog="loop-frontend-fish-sh-go.log" ;;
     zsh) wlog="loop-frontend-zsh-sh-go.log" ;;
     zig) wlog="loop-frontend-zig-sh-go.log" ;;
     rust-frontend) wlog="loop-frontend-rust-frontend.log" ;;
     rust-cleanup) wlog="loop-rust-cleanup.log" ;;
   esac
-  if [ -n "$pids" ] && [ -n "${wlog:-}" ] && [ -f "$wlog" ]; then
-    age=$(( $(date +%s) - $(stat -c %Y "$wlog" 2>/dev/null || echo "$(date +%s)") ))
-    if   [ "$age" -lt 900 ];  then idle=" (log ${age}s ago)"
-    elif [ "$age" -lt 3600 ]; then idle=" (log $((age/60))m ago)"
-    else idle=" (log stale: $((age/3600))h$(( (age%3600)/60 ))m — idle between iterations?)"
-    fi
-  fi
+  # Scan /proc directly. `pgrep -f` matches this very script (its command
+  # line and its source both contain the pattern), which makes a dead
+  # worker report as alive — the false positive the old code half-fixed by
+  # excluding $$ and $PPID, then re-broke for every `bash -c` wrapper.
+  found=""
+  for p in /proc/[0-9]*; do
+    [ -r "$p/cmdline" ] || continue
+    pid=${p#/proc/}
+    [ "$pid" = "$$" ] && continue
+    [ "$pid" = "$PPID" ] && continue
+    a0=$(tr '\0' '\n' < "$p/cmdline" 2>/dev/null | sed -n 1p)
+    case "$a0" in bash|*/bash|sh|*/sh|perl|*/perl) ;; *) continue ;; esac
+    c=$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null)
+    case "$c" in *"$pat"*) found=1; break ;; esac
+  done
 
-  if [ -n "$pids" ]; then
-    printf "  %-16s ✓%s\n" "$name" "$idle"
+  age=""
+  if [ -f "$wlog" ]; then
+    a=$(( $(date +%s) - $(stat -c %Y "$wlog") ))
+    age=" (log ${a}s ago)"
+  fi
+  if [ -n "$found" ]; then
+    printf "  %-20s %-9s %-8s %s\n" "$name" "✓ running" "✓" "no unit${age}"
   else
-    printf "  %-16s ✗\n" "$name"
+    printf "  %-20s %-9s %-8s %s\n" "$name" "✗ not started" "✗" "no unit — start manually${age}"
   fi
 done
