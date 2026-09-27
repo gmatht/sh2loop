@@ -177,7 +177,17 @@ while true; do
   # Adopt legitimate upstream progress: when the core worktree is an ancestor
   # of main, fast-forward the WORKTREE (never rewind main — the old guard did,
   # and that is what deleted 374 commits of real work and broke the build).
-  main_head=$(git -C "$ROOT/sh2perl" rev-parse HEAD 2>/dev/null || true)
+  #
+  # Read the `main` REF, not the main checkout's HEAD (2026-09-28). The main
+  # sh2perl tree is on a detached HEAD (the perl worker commits there and
+  # never attaches a branch), so `rev-parse HEAD` returned the detached
+  # checkout's commit — the perl worker's line — rather than main's tip. This
+  # block therefore compared the worktree against the wrong history and its
+  # "is the worktree behind?" test was answering a question about a ref
+  # nobody intended to track. `rev-parse main` names the branch explicitly;
+  # fall back to HEAD only if main is somehow absent.
+  main_head=$(git -C "$ROOT/sh2perl" rev-parse main 2>/dev/null \
+              || git -C "$ROOT/sh2perl" rev-parse HEAD 2>/dev/null || true)
   cur=$(git -C "$SUB" rev-parse HEAD 2>/dev/null || true)
   if [ -n "$main_head" ] && [ -n "$cur" ] && [ "$main_head" != "$cur" ] && \
      git -C "$ROOT/sh2perl" merge-base --is-ancestor "$cur" "$main_head" 2>/dev/null; then
@@ -455,15 +465,51 @@ EOF
         "$(date +%FT%T)" "$staged_name" >> "$REPORTS/core-worker.report"
     fi
     staged_offer=""; staged_name=""
-    # LAND on main ONLY when green, via merge — the estree worker's main
-    # tree stays clean (it never sees this worker's WIP or commits-in-
-    # progress). ff-only: if main moved (estree commits), defer to the next
-    # iteration rather than risk a cross-worker merge conflict.
+    # LAND on main ONLY when green. ff-only: if main moved (other workers
+    # committed), defer to the next iteration rather than risk a
+    # cross-worker merge conflict.
+    #
+    # WHY THIS IS A REF UPDATE AND NOT A MERGE (2026-09-28).
+    # The old code was `git -C "$ROOT/sh2perl" merge --ff-only backend/core`,
+    # which silently depended on the main checkout having `main` CHECKED OUT.
+    # It does not: sh2perl's main tree sits on a DETACHED HEAD, because the
+    # perl worker (main_loop_rust.pl) commits into that same checkout ~14
+    # times per iteration and never attaches HEAD to a branch. So `git merge`
+    # updated the detached HEAD — not the `main` ref — and HEAD had diverged
+    # from `main`, so --ff-only refused. Every iteration, forever:
+    #
+    #   [00:48:08] core: gate GREEN (A1 native + estree corpus + lib tests)
+    #   [00:48:08] core: ff-merge deferred (main moved) — will retry next iteration
+    #
+    # The log line blamed "main moved", which sent every diagnosis looking at
+    # the perl worker rather than at this line. 87 verified-green commits
+    # were stranded on backend/core while the gate went green twice.
+    #
+    # `git fetch . <src>:<dst>` updates the DESTINATION REF ONLY. It does not
+    # touch HEAD, the index, or the working tree, so it keeps the invariant
+    # this file is built around ("the main checkout is read-only to this
+    # worker") literally true — a merge did not, it wrote to HEAD.
+    #
+    # ON ff-only SAFETY: a refspec WITHOUT a leading '+' is refused by git
+    # when the update is not a fast-forward, so the ff-only semantics of the
+    # old `git merge --ff-only` are preserved. (Verified on a genuinely
+    # diverged target: the fetch is refused and the ref does not move. There
+    # is no `git fetch --ff-only`; that is a `git pull` option.)
+    #
+    # The explicit merge-base test below is still worth its two lines: it
+    # makes "diverged" a REPORTED condition with a precise message, rather
+    # than something the reader has to infer from git's stderr.
     if [ -n "$(git -C "$SUB" log --oneline main..backend/core 2>/dev/null)" ]; then
-      if git -C "$ROOT/sh2perl" merge --ff-only backend/core >> "$LOG" 2>&1; then
-        echo "[$(date +%FT%T)] core: landed backend/core -> main (ff)" >> "$LOG"
+      land_from=$(git -C "$SUB" rev-parse HEAD 2>/dev/null || true)
+      main_tip=$(git -C "$ROOT/sh2perl" rev-parse main 2>/dev/null || true)
+      if [ -z "$land_from" ] || [ -z "$main_tip" ] || \
+         ! git -C "$ROOT/sh2perl" merge-base --is-ancestor "$main_tip" "$land_from" 2>/dev/null; then
+        echo "[$(date +%FT%T)] core: ff-merge deferred (main diverged from backend/core — needs a real merge, NOT a rebase or force of main)" >> "$LOG"
+      elif git -C "$ROOT/sh2perl" fetch --quiet . \
+              "$land_from:refs/heads/main" >> "$LOG" 2>&1; then
+        echo "[$(date +%FT%T)] core: landed backend/core -> main (ff, ref-only; main tree untouched) at $(git -C "$ROOT/sh2perl" rev-parse --short main)" >> "$LOG"
       else
-        echo "[$(date +%FT%T)] core: ff-merge deferred (main moved) — will retry next iteration" >> "$LOG"
+        echo "[$(date +%FT%T)] core: ff-merge FAILED (git refused a non-ff ref update; main left at $(git -C "$ROOT/sh2perl" rev-parse --short main 2>/dev/null)) — not forced" >> "$LOG"
       fi
     fi
     wake_sleepers
