@@ -775,25 +775,41 @@ sub invoke_pi {
     my @cmd = build_ai_cmd();
     my $pi_fh;
     my $pi_pid;
-    # For large prompts (>100KB) with cmd, write to temp file and use stdin
-    if ($WORKER_CLI eq 'cmd' && length($prompt) > 100000) {
-        my $tmp = "/tmp/estree_prompt_$$.txt";
-        open my $tfh, '>', $tmp or die "Cannot write $tmp: $!";
-        print $tfh $prompt;
-        close $tfh;
-        $pi_pid = open($pi_fh, '-|', @cmd, '<', $tmp);
-        unless (defined $pi_pid) {
-            $pi_pid = open($pi_fh, '-|');
-            if (defined $pi_pid && $pi_pid == 0) {
-                open STDIN, '<', $tmp or die "Cannot read $tmp: $!";
-                exec @cmd;
-                die "exec failed: $!";
-            }
-        }
-        unlink $tmp;
-    } else {
+    # The prompt ALWAYS goes in through a temp file, never as an argv element.
+    #
+    # WHY (2026-09-28). The old code only used the stdin path for
+    # `WORKER_CLI eq 'cmd'` with a prompt over 100KB; every other combination
+    # fell through to `open($pi_fh, '-|', @cmd, $prompt)`, passing the entire
+    # prompt as a single argv string. This loop's prompt embeds every
+    # core-request (211 folded + 196 pending + 15 stalled as of today), so it
+    # blew past MAX_ARG_STRLEN and every single AI invocation died with
+    #
+    #   Can't exec "pir": Argument list too long
+    #   WARNING: could not run pir: Argument list too long
+    #
+    # The loop kept measuring, kept logging decisions, and never once got an
+    # edit out of the model — which is why the corpus sat at 9/555 for days
+    # while the log looked busy. The 100KB threshold was also the wrong knob:
+    # the limit is per-argv-string, not "is this a big prompt", and the
+    # default worker here is `pir`, which never took the stdin path at all.
+    #
+    # A temp file is what the shell workers already do (worker_common.sh
+    # passes --prompt-file to ai_invoke.py), so this matches the rest of the
+    # fleet and has no size ceiling worth worrying about.
+    my $tmp = "/tmp/estree_prompt_$$.txt";
+    open my $tfh, '>', $tmp or die "Cannot write $tmp: $!";
+    print $tfh $prompt;
+    close $tfh;
+    $pi_pid = open($pi_fh, '-|', @cmd, '<', $tmp);
+    unless (defined $pi_pid) {
+        # Only fall back to argv if the redirection itself failed, and say so
+        # loudly: silently degrading to a path that is known to break on a
+        # large prompt is how this went unnoticed for days.
+        warn "WARNING: could not open $tmp for stdin ($!); falling back to argv "
+           . "(will fail if the prompt exceeds MAX_ARG_STRLEN)\n";
         $pi_pid = open($pi_fh, '-|', @cmd, $prompt);
     }
+    unlink $tmp;
     unless (defined $pi_pid) {
         print STDERR "WARNING: could not run $WORKER_CLI: $!\n";
         return 0;

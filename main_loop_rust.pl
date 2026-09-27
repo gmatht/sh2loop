@@ -109,27 +109,35 @@ sub invoke_ai_with_backoff {
         push @cmd, @extra_args;
         my $pi_fh;
         my $pi_pid;
-        # For large prompts (>100KB) with cmd, write to temp file and use stdin
-        if ($WORKER_CLI eq 'cmd' && length($prompt) > 100000) {
-            my $tmp = "/tmp/worker_prompt_$$.txt";
-            open my $tfh, '>', $tmp or die "Cannot write $tmp: $!";
-            print $tfh $prompt;
-            close $tfh;
-            $pi_pid = open($pi_fh, '-|', @cmd, '<', $tmp);
-            # If that doesn't work, try stdin pipe
-            unless (defined $pi_pid) {
-                $pi_pid = open($pi_fh, '-|');
-                if (defined $pi_pid && $pi_pid == 0) {
-                    # Child: redirect stdin from file and exec
-                    open STDIN, '<', $tmp or die "Cannot read $tmp: $!";
-                    exec @cmd;
-                    die "exec failed: $!";
-                }
-            }
-            unlink $tmp;
-        } else {
+        # The prompt ALWAYS goes in through a temp file, never as an argv
+        # element (2026-09-28).
+        #
+        # The old code only used the stdin path for `WORKER_CLI eq 'cmd'` with
+        # a prompt over 100KB; every other combination passed the whole prompt
+        # as a single argv string via `open($pi_fh, '-|', @cmd, $prompt)`.
+        # That is the same latent bug the estree loop had, and the default
+        # worker here is `pir`, which never took the stdin path at all. Once
+        # this loop's prompt grows past MAX_ARG_STRLEN the exec fails with
+        # "Argument list too long" and the worker silently produces nothing.
+        # The size threshold was the wrong knob: the limit is per-argv-string,
+        # not "is this a big prompt".
+        #
+        # A temp file matches what harness/worker_common.sh already does
+        # (--prompt-file to ai_invoke.py) and has no size ceiling.
+        my $tmp = "/tmp/worker_prompt_$$.txt";
+        open my $tfh, '>', $tmp or die "Cannot write $tmp: $!";
+        print $tfh $prompt;
+        close $tfh;
+        $pi_pid = open($pi_fh, '-|', @cmd, '<', $tmp);
+        unless (defined $pi_pid) {
+            # Only degrade to argv if the redirection itself failed, and say
+            # so: silently falling back to a path that is known to break on a
+            # large prompt hides the failure rather than surfacing it.
+            warn "WARNING: could not open $tmp for stdin ($!); falling back to argv "
+               . "(will fail if the prompt exceeds MAX_ARG_STRLEN)\n";
             $pi_pid = open($pi_fh, '-|', @cmd, $prompt);
         }
+        unlink $tmp;
         if (defined $pi_pid) {
             my ($output, $timed_out) = read_pipe_with_timeout(3600, $pi_fh, $pi_pid);
             close $pi_fh;
