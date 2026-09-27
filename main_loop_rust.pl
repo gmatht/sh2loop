@@ -27,6 +27,129 @@ if ($pool_ok) {
     WorkerPool::init(root => $project_root);
     WorkerPool::enter_worker_cgroup();
 }
+
+# Worker model: Laguna S 2.1 (free) by default. Override with env:
+#   WORKER_CLI=pi WORKER_MODEL=deepseek-v4-flash perl main_loop_rust.pl
+# Supported WORKER_CLI: pi, pir, cmd (default: pir)
+# TODO: escalate to DeepSeek for complex failures Laguna can't handle.
+my $WORKER_CLI = $ENV{WORKER_CLI} // 'pir';
+my $WORKER_MODEL = $ENV{WORKER_MODEL} // 'poolside/laguna-s-2.1:free';
+my $WORKER_EFFORT = $ENV{WORKER_EFFORT} // $ENV{WORKER_THINKING} // '';
+my $WORKER_BUDGET = $ENV{WORKER_BUDGET} // '500000';
+
+# Model rotation: when set to this worker's key, AI calls go through
+# harness/ai_invoke.py, which picks the model for the current four-hour phase,
+# applies the Laguna daily-quota fallback, and records exact token usage for
+# the progress-vs-model comparison. Unset -> the direct invocation below.
+my $ROTATE_WORKER = $ENV{WORKER_ROTATE_WORKER} // '';
+my $AI_INVOKE     = "$project_root/harness/ai_invoke.py";
+
+# Laguna daily-quota fallback. OpenRouter's exact daily-free error is
+# `free-models-per-day`; when the active model is Laguna and that marker
+# shows up in the output, the SAME prompt is retried on this model, one-way and
+# at most once. Empty disables. Ollama Cloud may be metered — the one
+# intentional cost.
+my $FALLBACK_MODEL = exists $ENV{WORKER_FALLBACK_MODEL}
+    ? $ENV{WORKER_FALLBACK_MODEL}
+    : 'ollama-cloud/deepseek-v4.1-flash';
+
+# Build the base AI invocation command (without prompt).
+sub build_ai_cmd {
+    my @cmd;
+    if ($WORKER_CLI eq 'pi') {
+        @cmd = ('pi', '--mode', 'json', '--provider', 'opencode-go',
+                '--model', $WORKER_MODEL);
+        push @cmd, '--thinking', $WORKER_EFFORT if $WORKER_EFFORT;
+    } elsif ($WORKER_CLI eq 'pir') {
+        @cmd = ('pir', '-y', '--no-color', '-m', $WORKER_MODEL);
+        push @cmd, '--budget', $WORKER_BUDGET if $WORKER_BUDGET;
+    } elsif ($WORKER_CLI eq 'cmd') {
+        @cmd = ('cmd', '-p', '--no-session', '--yolo', '--model', $WORKER_MODEL,
+                '--output-format', 'json', '--tools-all');
+        push @cmd, '--effort', $WORKER_EFFORT if $WORKER_EFFORT;
+    } else {
+        die "Unknown WORKER_CLI=$WORKER_CLI (expected pi|pir|cmd)";
+    }
+    return @cmd;
+}
+
+# Exponential backoff: invoke AI with retries.
+# Args: prompt string, optional extra args.
+# Returns: (output, timed_out). NEVER gives up — retries indefinitely.
+# Handles large prompts by writing to temp file and using stdin for cmd.
+sub invoke_ai_with_backoff {
+    my ($prompt, @extra_args) = @_;
+    my $base_delay = 5;
+    my $max_delay = 300;
+    my $attempt = 0;
+    while (1) {
+        # Rotating worker: delegate to ai_invoke.py, which selects the model
+        # for the current phase, applies the Laguna quota fallback, records
+        # token usage, and streams to STDERR (already captured by our logs).
+        # It streams NDJSON frames, which is what the existing callers parse.
+        if ($ROTATE_WORKER ne '' && -f $AI_INVOKE) {
+            my $tmp = "/tmp/rotate_prompt_$$.txt";
+            open my $tfh, '>', $tmp or die "Cannot write $tmp: $!";
+            print $tfh $prompt;
+            close $tfh;
+            my @rcmd = ('python3', $AI_INVOKE, '--worker', $ROTATE_WORKER,
+                        '--prompt-file', $tmp);
+            push @rcmd, '--effort', $WORKER_EFFORT if $WORKER_EFFORT;
+            my $rpid = open(my $rfh, '-|', @rcmd);
+            if (defined $rpid) {
+                my ($rout, $rtimed_out) = read_pipe_with_timeout(3600, $rfh, $rpid);
+                close $rfh;
+                unlink $tmp;
+                return ($rout, $rtimed_out) if !$rtimed_out && $?;
+            }
+            unlink $tmp;
+            print STDERR "WARNING: ai_invoke.py failed to start: $!\n";
+        }
+        my @cmd = build_ai_cmd();
+        push @cmd, @extra_args;
+        my $pi_fh;
+        my $pi_pid;
+        # For large prompts (>100KB) with cmd, write to temp file and use stdin
+        if ($WORKER_CLI eq 'cmd' && length($prompt) > 100000) {
+            my $tmp = "/tmp/worker_prompt_$$.txt";
+            open my $tfh, '>', $tmp or die "Cannot write $tmp: $!";
+            print $tfh $prompt;
+            close $tfh;
+            $pi_pid = open($pi_fh, '-|', @cmd, '<', $tmp);
+            # If that doesn't work, try stdin pipe
+            unless (defined $pi_pid) {
+                $pi_pid = open($pi_fh, '-|');
+                if (defined $pi_pid && $pi_pid == 0) {
+                    # Child: redirect stdin from file and exec
+                    open STDIN, '<', $tmp or die "Cannot read $tmp: $!";
+                    exec @cmd;
+                    die "exec failed: $!";
+                }
+            }
+            unlink $tmp;
+        } else {
+            $pi_pid = open($pi_fh, '-|', @cmd, $prompt);
+        }
+        if (defined $pi_pid) {
+            my ($output, $timed_out) = read_pipe_with_timeout(3600, $pi_fh, $pi_pid);
+            close $pi_fh;
+            return ($output, $timed_out) if !$timed_out && $?;
+            if ($timed_out) {
+                print STDERR "WARNING: $WORKER_CLI timed out (attempt $attempt)\n";
+            } else {
+                print STDERR "WARNING: $WORKER_CLI failed rc=$? (attempt $attempt)\n";
+            }
+        } else {
+            print STDERR "WARNING: could not run $WORKER_CLI: $! (attempt $attempt)\n";
+        }
+        my $delay = $base_delay * (2 ** $attempt);
+        $delay = $max_delay if $delay > $max_delay;
+        print STDERR "Retrying in ${delay}s...\n";
+        sleep $delay;
+        $attempt++;
+    }
+}
+
 my $results_file = "$project_root/sh2perl/failing_tests.txt";
 my $history_log = "$project_root/sh2perl/fix_history.log";
 my $trusted_count_file = "$project_root/sh2perl/.last_trusted_count";
@@ -47,6 +170,75 @@ sub log_decision {
     open my $fh, '>>', $history_log or warn "Cannot append to $history_log: $!";
     print $fh join("\t", $decision, $on_disk, $before, $after), "\n";
     close $fh;
+}
+
+# Attach the shared sh2perl checkout to a branch before committing to it.
+#
+# WHY THIS EXISTS (2026-09-28). This loop commits into the SHARED
+# $project_root/sh2perl checkout — not into a worktree of its own, unlike
+# every other worker in the fleet. It never attached HEAD to a branch, so
+# every commit landed on a DETACHED HEAD. Two things then broke:
+#
+#   1. The commits were on no ref at all. They were reachable only through
+#      the reflog, so a `git gc` would have pruned them outright. Twice now
+#      this has stranded 10-16 commits that had to be rescued by hand.
+#   2. It broke the core worker. Core lands its verified work with
+#      `git fetch . <sha>:refs/heads/main`, which assumes `main` is the
+#      thing being advanced; a detached HEAD in the main checkout also made
+#      the old `git merge --ff-only` path fail forever, so core went green
+#      repeatedly and landed nothing while 87 verified commits piled up on
+#      backend/core.
+#
+# `git checkout -b` at the CURRENT commit is the repair: it creates a ref
+# pointing exactly where HEAD already is, so it moves no file and rewrites
+# no history. It is idempotent (a no-op when already on a branch) and never
+# resets or discards work.
+#
+# Called before every commit into the shared checkout. Failure is
+# non-fatal-but-loud: a detached HEAD is a real problem, but refusing to
+# record test results because of it would lose more than it protects.
+sub ensure_shared_checkout_on_branch {
+    my $sub = "$project_root/sh2perl";
+    return 0 unless -d "$sub/.git" || -f "$sub/.git";
+
+    my $head = qx{git -C "$sub" rev-parse --abbrev-ref HEAD 2>/dev/null};
+    chomp $head;
+    return 1 if $head && $head ne 'HEAD';    # already on a branch
+
+    my $sha = qx{git -C "$sub" rev-parse HEAD 2>/dev/null};
+    chomp $sha;
+    return 0 unless $sha;                      # unborn HEAD; nothing to pin
+
+    my $short = substr($sha, 0, 9);
+    my $base  = "main-worktree";
+    my $branch = $base;
+
+    # `git checkout -b` REFUSES if the name exists, so pick a name that
+    # does not. (An earlier version of this sub tried to reuse an existing
+    # branch of a different commit by appending the sha; that still failed,
+    # because a *stale* branch of that same name was present. Deriving a
+    # name that is guaranteed absent is the only reliable form.)
+    my $n = 0;
+    while (qx{git -C "$sub" rev-parse -q --verify "refs/heads/$branch" 2>/dev/null}) {
+        $n++;
+        $branch = "$base-$short" . ($n > 1 ? "-$n" : "");
+        last if $n > 20;                        # give up rather than spin
+    }
+
+    # `checkout -B` would create-or-reset, but resetting a branch another
+    # worker may hold is exactly the kind of surprise this fix exists to
+    # stop. -b on a name we have PROVEN absent cannot reset anything.
+    my $out = qx{git -C "$sub" checkout -b "$branch" 2>&1};
+    if ($? == 0) {
+        print "pinned shared sh2perl checkout to branch '$branch' at $short (was detached)\n";
+        return 1;
+    }
+    print STDERR "WARNING: shared sh2perl checkout is DETACHED at $short and could not be "
+                . "pinned to a branch: $out\n"
+                . "         Commits made now are reachable only via the reflog and a\n"
+                . "         'git gc' can delete them. Fix by hand:\n"
+                . "           git -C $sub checkout -b rescue/manual\n";
+    return 0;
 }
 
 sub read_pipe_with_timeout {
@@ -172,7 +364,8 @@ sub read_results_file {
 sub write_results_file {
     my ($file, $failed) = @_;
     open my $fh, '>', $file or warn "Cannot write $file: $!";
-    for my $f (@$failed) {
+    # Sort by name to avoid spurious diffs from reordering
+    for my $f (sort { $a->{name} cmp $b->{name} } @$failed) {
         print $fh $f->{name}, "\t", $f->{reason}, "\n";
     }
     close $fh;
@@ -302,6 +495,7 @@ while (1) {
             close $tcfh;
         }
         system('git', '-C', "$project_root/sh2perl", 'add', '-A');
+        ensure_shared_checkout_on_branch();
         system('git', '-C', "$project_root/sh2perl", 'commit', '-m', "All tests passing");
 
         # Run check_sh_files.pl
@@ -314,6 +508,7 @@ while (1) {
             print "\nAll check_sh_files.pl tests also pass!\n";
             write_results_file($csf_results_file, []);
             system('git', '-C', $project_root, 'add', 'check_sh_files.pl');
+            ensure_shared_checkout_on_branch();
             system('git', '-C', "$project_root/sh2perl", 'commit', '-m', "All tests passing (including sh/ checks)", '--allow-empty');
 
             # All tests pass — move to idiom-fixing mode
@@ -357,36 +552,30 @@ while (1) {
                     $review_content,
                 );
 
-                # Run pi with the IR-fix prompt
-                my $pi_pid = open(my $pi_fh, '-|', 'pi', '--mode', 'json',
-                    '--provider', 'opencode-go', '--model', 'deepseek-v4-flash',
-                    '--thinking', 'xhigh', $ir_fix_prompt);
-                if (defined $pi_pid) {
-                    my $buffer = '';
-                    while (<$pi_fh>) {
-                        $buffer .= $_;
-                        while ($buffer =~ s/^(.*)\n//) {
-                            my $line = $1;
-                            next if $line eq '';
-                            my $event = eval { JSON::PP::decode_json($line) };
-                            if ($@) { print STDERR "."; next; }
-                            next unless ref $event eq 'HASH';
-                            my $type = $event->{type} // '';
-                            if ($type eq 'message_update') {
-                                my $msg = $event->{assistantMessageEvent};
-                                next unless ref $msg eq 'HASH';
-                                my $dt = $msg->{delta} // '';
-                                my $et = $msg->{type} // '';
-                                if ($et eq 'text_delta' && length $dt) { print $dt; }
-                            }
+                # Run pi with the IR-fix prompt (exponential backoff)
+                my ($pi_output, $pi_timed_out) = invoke_ai_with_backoff($ir_fix_prompt);
+                if (defined $pi_output && length $pi_output) {
+                    # Parse streaming JSON events from the collected output
+                    for my $line (split /\n/, $pi_output) {
+                        next if $line eq '';
+                        my $event = eval { JSON::PP::decode_json($line) };
+                        if ($@) { next; }
+                        next unless ref $event eq 'HASH';
+                        my $type = $event->{type} // '';
+                        if ($type eq 'message_update') {
+                            my $msg = $event->{assistantMessageEvent};
+                            next unless ref $msg eq 'HASH';
+                            my $dt = $msg->{delta} // '';
+                            my $et = $msg->{type} // '';
+                            if ($et eq 'text_delta' && length $dt) { print $dt; }
                         }
                     }
-                    close $pi_fh;
                     print "\n";
                 }
 
                 # Commit the IR migration changes
                 system('git', '-C', "$project_root/sh2perl", 'add', '-A');
+                ensure_shared_checkout_on_branch();
                 system('git', '-C', "$project_root/sh2perl", 'commit', '-m',
                     "IR: migrate patterns from idiom review", '--allow-empty');
             } else {
@@ -492,7 +681,8 @@ while (1) {
             close $pfh;
 
             my $full_output = q{};
-            my $pi_pid = open(my $pi_fh, '-|', 'pi', '--mode', 'json', '--provider', 'opencode-go', '--model', 'deepseek-v4-flash', '--thinking', 'xhigh', '@' . $prompt_file);
+            my @pi_cmd = build_ai_cmd();
+            my $pi_pid = open(my $pi_fh, '-|', @pi_cmd, '@' . $prompt_file);
             if (defined $pi_pid) {
                 my $pi_timeout = 3600;
                 my $pi_deadline = time() + $pi_timeout;
@@ -690,9 +880,10 @@ while (1) {
     # Restrict pi to sh2perl/ directory so it can't modify parent files
     chdir "$project_root/sh2perl";
 
-    # Run pi with streaming JSON output
+    # Run AI with streaming JSON output
     my $full_output = q{};
-    my $pi_pid = open(my $pi_fh, '-|', 'pi', '--mode', 'json', '--provider', 'opencode-go', '--model', 'deepseek-v4-flash', '--thinking', 'xhigh', $prompt);
+    my @pi_cmd = build_ai_cmd();
+    my $pi_pid = open(my $pi_fh, '-|', @pi_cmd, $prompt);
     if (defined $pi_pid) {
         my $pi_timeout = 3600;
         my $pi_deadline = time() + $pi_timeout;
@@ -779,6 +970,7 @@ while (1) {
         close $tcfh;
         system('git', '-C', "$project_root/sh2perl", 'add', '-A');
         my $msg = "Baseline test results: $summary->{passed} passed, $summary->{failed} failed";
+        ensure_shared_checkout_on_branch();
         system('git', '-C', "$project_root/sh2perl", 'commit', '-m', $msg);
         log_decision('first', $on_disk_count, $before_count, $new_diff->{new_count});
     } elsif ($new_diff->{new_count} < $new_diff->{old_count}) {
@@ -807,6 +999,7 @@ while (1) {
         system('git', '-C', "$project_root/sh2perl", 'add', '-A');
         my $msg = "Test results: $summary->{passed} passed, $summary->{failed} failed";
         $msg .= " (fixed " . scalar(@{$new_diff->{fixed}}) . ")" if @{$new_diff->{fixed}};
+        ensure_shared_checkout_on_branch();
         system('git', '-C', "$project_root/sh2perl", 'commit', '-m', $msg);
         log_decision('keep', $on_disk_count, $before_count, $new_diff->{new_count});
     } elsif ($new_diff->{new_count} > $new_diff->{old_count}) {
@@ -831,7 +1024,8 @@ while (1) {
             "SUMMARY: <one-line summary>",
         );
         my $oc_out = '';
-        my $pid = open(my $oc, '-|', 'pi', '-p', '--provider', 'opencode-go', '--model', 'deepseek-v4-flash', '--thinking', 'high', $decision_prompt);
+        my @oc_cmd = build_ai_cmd();
+        my $pid = open(my $oc, '-|', @oc_cmd, $decision_prompt);
         if (defined $pid) {
             ($oc_out, my $timed_out2) = read_pipe_with_timeout(600, $oc, $pid);
             close $oc;
@@ -860,6 +1054,7 @@ while (1) {
         } else {
             write_results_file($results_file, $failed_tests);
             system('git', '-C', "$project_root/sh2perl", 'add', '-A');
+            ensure_shared_checkout_on_branch();
             system('git', '-C', "$project_root/sh2perl", 'commit', '-m', "Test results: $summary->{passed} passed, $summary->{failed} failed (kept despite regression)");
             log_decision('keep', $on_disk_count, $before_count, $new_diff->{new_count});
         }
@@ -872,6 +1067,7 @@ while (1) {
         }
         system('git', '-C', "$project_root/sh2perl", 'add', '-A');
         my $msg = "Test results: $summary->{passed} passed, $summary->{failed} failed";
+        ensure_shared_checkout_on_branch();
         system('git', '-C', "$project_root/sh2perl", 'commit', '-m', $msg);
         log_decision('same', $on_disk_count, $before_count, $new_diff->{new_count});
     }
