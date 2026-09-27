@@ -14,6 +14,11 @@ EnvironmentFile=/home/llm/sh2loop/systemd/sh2fleet.env
 # supervise.sh ALSO self-joins the slice (so the zellij-pane launch path is
 # covered too); this line is the declarative, boot-surviving half. Keep both.
 Slice=sh2-io.slice
+# Route the AI call through harness/ai_invoke.py: phase-selected model,
+# Laguna daily-quota fallback, and token telemetry. Without this the loop
+# calls `pir` directly, which ignores a stdin prompt and has no fallback
+# -- see the MODEL ROTATION block in systemd/sh2fleet.env.
+Environment=WORKER_ROTATE_WORKER=perl
 ExecStart=/home/llm/sh2loop/harness/supervise.sh \
   --name perl-loop \
   --log /home/llm/sh2loop/loop-perl-worker.log \

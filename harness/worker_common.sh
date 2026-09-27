@@ -32,6 +32,22 @@ WORKER_EFFORT="${WORKER_EFFORT:-${WORKER_THINKING:-}}"
 # 500K tokens ≈ $0 for Laguna free, enough for a focused fix.
 WORKER_BUDGET="${WORKER_BUDGET:-500000}"
 
+# ── Model rotation ───────────────────────────────────────────────────
+# When WORKER_ROTATE_WORKER is set (rust|c|perl|estree), AI calls go through
+# harness/ai_invoke.py, which picks the model from the four-hour rotation
+# phase and records exact token usage. `cmd --model <id>` stays the actual
+# selector; this only chooses WHICH id and accounts for it.
+# Unset -> the direct WORKER_CLI invocation below (legacy behavior).
+WORKER_ROTATE_WORKER="${WORKER_ROTATE_WORKER:-}"
+AI_INVOKE="${AI_INVOKE:-${WORKSPACE:-.}/harness/ai_invoke.py}"
+
+# Laguna daily-quota fallback. OpenRouter's exact daily-free error is
+# `free-models-per-day`; when the active model is Laguna and that marker
+# appears, the SAME prompt is retried on this model (one-way, once). Empty
+# disables. Ollama Cloud may be metered — the one intentional cost.
+WORKER_FALLBACK_MODEL="${WORKER_FALLBACK_MODEL:-ollama-cloud/deepseek-v4.1-flash}"
+export WORKER_FALLBACK_MODEL
+
 # ── Surgical task decomposition ──────────────────────────────────────
 # When enabled, the harness decomposes gate failures into individual
 # tasks and invokes the AI once per failure with focused context.
@@ -56,6 +72,18 @@ DECISIONS_TSV="${DECISIONS_TSV:-${WORKSPACE:-.}/worker_decisions.tsv}"
 # Returns the CLI's exit code.
 invoke_ai() {
   local prompt_file="$1" log_file="$2"
+
+  # Rotating workers go through the shared wrapper: it picks the model for the
+  # current four-hour phase, applies the Laguna quota fallback, and records
+  # token usage. `cmd --model <id>` remains the actual selector.
+  if [ -n "$WORKER_ROTATE_WORKER" ] && [ -x "$AI_INVOKE" -o -f "$AI_INVOKE" ]; then
+    python3 "$AI_INVOKE" \
+      --worker "$WORKER_ROTATE_WORKER" \
+      --prompt-file "$prompt_file" \
+      --log "$log_file"
+    return $?
+  fi
+
   case "$WORKER_CLI" in
     pi)
       local args=(--mode json --provider opencode-go --model "$WORKER_MODEL")
@@ -65,12 +93,25 @@ invoke_ai() {
     pir)
       local args=(-y --no-color -m "$WORKER_MODEL")
       [ -n "$WORKER_BUDGET" ] && args+=(--budget "$WORKER_BUDGET")
-      local query
-      query=$(< "$prompt_file")
-      if [ ${#query} -gt 100000 ]; then
-        pir "${args[@]}" < "$prompt_file" >> "$log_file" 2>&1
+      # `pir` takes its prompt as a POSITIONAL argument and IGNORES stdin, so
+      # the >100KB stdin branch below could never have worked: it produced a
+      # pir that started with no prompt, saw no terminal, and exited having
+      # done nothing. Verified live on 2026-09-28 — a piped prompt returns no
+      # reply, while a positional prompt does.
+      #
+      # argv cannot carry a large prompt (MAX_ARG_STRLEN; a 600KB prompt
+      # fails with "Argument list too long"), so for a big one pass a SHORT
+      # positional prompt that tells the agent to read the file itself. That
+      # keeps the whole prompt in the file — no truncation — and still gives
+      # pir something to act on.
+      local size
+      size=$(wc -c < "$prompt_file")
+      if [ "$size" -gt 100000 ]; then
+        pir "${args[@]}" \
+          "Read the full task instructions from $prompt_file and carry them out." \
+          >> "$log_file" 2>&1
       else
-        pir "${args[@]}" "$query" >> "$log_file" 2>&1
+        pir "${args[@]}" "$(< "$prompt_file")" >> "$log_file" 2>&1
       fi
       ;;
     cmd)
@@ -245,4 +286,20 @@ check_context_budget() {
     return 1
   fi
   return 0
+}
+
+# ── record_gate ──────────────────────────────────────────────────────
+# Append a complete gate result for the model-rotation report.
+# Args: $1=worker, $2=corpus, $3=pass, $4=fail, $5=skip, [extra k=v ...]
+record_gate() {
+  local worker="$1" corpus="$2" n_pass="$3" n_fail="$4" n_skip="${5:-0}"
+  shift 5 2>/dev/null || shift $#
+  local args=(record-gate --worker "$worker" --corpus "$corpus"
+              --pass "$n_pass" --fail "$n_fail" --skip "$n_skip")
+  local kv k v
+  for kv in "$@"; do
+    k="${kv%%=*}"; v="${kv#*=}"
+    args+=("--$k" "$v")
+  done
+  python3 "${WORKSPACE:-.}/harness/model_report.py" "${args[@]}" || true
 }

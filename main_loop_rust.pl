@@ -109,27 +109,35 @@ sub invoke_ai_with_backoff {
         push @cmd, @extra_args;
         my $pi_fh;
         my $pi_pid;
-        # The prompt ALWAYS goes in through a temp file, never as an argv
-        # element (2026-09-28).
-        #
-        # The old code only used the stdin path for `WORKER_CLI eq 'cmd'` with
-        # a prompt over 100KB; every other combination passed the whole prompt
-        # as a single argv string via `open($pi_fh, '-|', @cmd, $prompt)`.
-        # That is the same latent bug the estree loop had, and the default
-        # worker here is `pir`, which never took the stdin path at all. Once
-        # this loop's prompt grows past MAX_ARG_STRLEN the exec fails with
-        # "Argument list too long" and the worker silently produces nothing.
-        # The size threshold was the wrong knob: the limit is per-argv-string,
-        # not "is this a big prompt".
-        #
-        # A temp file matches what harness/worker_common.sh already does
-        # (--prompt-file to ai_invoke.py) and has no size ceiling.
-        my $tmp = "/tmp/worker_prompt_$$.txt";
-        open my $tfh, '>', $tmp or die "Cannot write $tmp: $!";
-        print $tfh $prompt;
-        close $tfh;
-        $pi_pid = open($pi_fh, '-|', @cmd, '<', $tmp);
-        unless (defined $pi_pid) {
+        # The prompt is handed to `pir` as a SHORT positional instruction that
+    # names the file, never as one giant argv string and never on stdin.
+    #
+    # WHY (2026-09-28). Two independent facts, both verified live on this box:
+    #   * `pir` takes its prompt as a POSITIONAL argument and IGNORES stdin.
+    #     A piped prompt returns nothing and exits having done nothing.
+    #   * argv cannot carry a large prompt: a 600KB string fails with
+    #     "Argument list too long" (MAX_ARG_STRLEN).
+    # The old code did exactly the wrong thing on both counts — it passed the
+    # whole prompt as a single argv element on the default (pir) path, which
+    # is why the log shows hundreds of invocations that produced no edit.
+    # Passing a short instruction that names the file keeps the entire prompt
+    # on disk (no truncation) and still gives the agent something to act on.
+    my $tmp = "/tmp/worker_prompt_$$.txt";
+    open my $tfh, '>', $tmp or die "Cannot write $tmp: $!";
+    print $tfh $prompt;
+    close $tfh;
+    my $psize = -s $tmp;          # bytes in the prompt file
+    my $argv = ($psize > 100_000)
+        ? "Read the full task instructions from $tmp and carry them out."
+        : $prompt;
+    $pi_pid = open($pi_fh, '-|', @cmd, $argv);
+    unless (defined $pi_pid) {
+        print STDERR "WARNING: could not run $WORKER_CLI: $!\n";
+        unlink $tmp;
+        return 0;
+    }
+    unlink $tmp;
+    unless (defined $pi_pid) {
             # Only degrade to argv if the redirection itself failed, and say
             # so: silently falling back to a path that is known to break on a
             # large prompt hides the failure rather than surfacing it.
