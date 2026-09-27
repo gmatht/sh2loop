@@ -28,6 +28,10 @@
 #                cpu.weight SH2_GATE_CPU_WEIGHT (v2, default 50) — half
 #                the default weight, so under contention the worker loops
 #                (sh2workers) win CPU automatically;
+#       io (v2): SH2_GATE_WBPS / SH2_GATE_WIOPS — the write cap that was
+#                MISSING here entirely. Without it the gates can saturate
+#                the single WSL virtio queue and wedge the whole VM (PSI io
+#                93-99%, loadavg 109 with 3 runnable, everything in D).
 #   - sh2workers — the long-running worker loops (estree / perl / backend /
 #                frontend / triage + their pi sessions and builds): the
 #                loop self-enrolls at startup (enter_worker_cgroup).
@@ -37,6 +41,29 @@
 #                spawn more than a gate run);
 #       cpu:     DEFAULT weight (1024/100) — the workers stay the priority
 #                class; the gates yield to them under contention.
+#       io (v2): SH2_WORKER_WBPS / SH2_WORKER_WIOPS.
+#
+# WHY io.max MATTERS HERE, and what it does NOT do
+# -------------------------------------------------
+# io.max bounds write bandwidth and IOPS for the cgroup. It is enforced on
+# the bios the cgroup submits. It does NOT bound DISCARD traffic, which is
+# why the separate nodiscard mount change (wsl-nodiscard.service) is not
+# optional: the two cover different halves of the incident.
+#
+# Resolving the device: the maj:min of the WSL root disk is not stable
+# across reboots, so it is discovered from the mount table at run time.
+# Do NOT use `stat -c %t:%T` — on WSL virtio block devices it reports a
+# wrong minor (returned 8:30 for a disk whose real maj:min is 8:48), and
+# io.max rejects a device that does not exist, so the cap would silently
+# never apply.
+#
+# FAIL-OPEN vs FAIL-CLOSED
+# -----------------------
+# The historical behaviour is fail-open: if no cgroup is available the
+# harness prints a warning and runs completely unbounded. That is precisely
+# what allowed the box to be wedged with nobody noticing. Set
+# SH2_STRICT_CGROUPS=1 to make that a hard error instead, so a run that
+# cannot be throttled refuses to start rather than saturating the disk.
 #
 # CLI (so bash gates use the same logic as the perl gates):
 #   perl WorkerPool.pm --status          print caps + cgroup status
@@ -47,12 +74,15 @@
 #   perl WorkerPool.pm --release         drop this process's worker slots
 #
 # Env: SH2_NO_CGROUPS=1 disables cgroup enforcement (cooperative only);
+# SH2_STRICT_CGROUPS=1 makes an unavailable cgroup a fatal error;
 # SH2_WORKER_RAM_MB (128) est. RSS per test worker;
 # SH2_WORKER_CAP (global pool cap override); SH2_TARGET_LOAD (0.9);
 # SH2_GATE_MEM_FRAC (0.5); SH2_GATE_PIDS_MAX (1024);
 # SH2_GATE_CPU_SHARES (512, v1); SH2_GATE_CPU_WEIGHT (50, v2);
+# SH2_GATE_WBPS (33554432); SH2_GATE_WIOPS (2000);
 # SH2_WORKER_MEM_FRAC (0.5); SH2_WORKER_PIDS_MAX (2048);
-# SH2_WORKER_CPU_SHARES (1024, v1); SH2_WORKER_CPU_WEIGHT (100, v2).
+# SH2_WORKER_CPU_SHARES (1024, v1); SH2_WORKER_CPU_WEIGHT (100, v2);
+# SH2_WORKER_WBPS (33554432); SH2_WORKER_WIOPS (2000).
 package WorkerPool;
 use strict;
 use warnings;
@@ -61,6 +91,22 @@ use Cwd qw(abs_path);
 use File::Basename qw(dirname);
 
 my $STATE;
+
+# Default write cap for BOTH sh2gates and sh2workers, in bytes/s.
+#
+# 32 MB/s, chosen from measurement on this box rather than as a round number.
+# The single virtio queue backing / sustains 71.7 MB/s over 1024 MiB, 68.0
+# MB/s over 256 MiB and 90.0 MB/s over 64 MiB, so ~70-90 MB/s is the real
+# ceiling; 32 MB/s is below it and therefore actually binds (~2.2x the
+# 15 MB/s observed under a wbps=16 MB/s cap, so it is real enforcement and
+# not a limit so tight the harness stalls). A cap ABOVE the ceiling -- which
+# is what the old 200 MB/s default was -- cannot ever engage, whatever it
+# says in the status line.
+#
+# Keep in step with wbps in /usr/lib/sh2-io-max.sh (sh2-io.slice) and with
+# the volume's SH2_GATE_WBPS / SH2_WORKER_WBPS overrides.
+use constant SH2_IO_WBPS_DEFAULT => 33554432;   # 32 MB/s
+use constant SH2_IO_WIOPS_DEFAULT => 2000;
 
 sub init {
     my (%o) = @_;
@@ -133,7 +179,6 @@ sub _cgroup_setup {
         _write("$workers{pids}/pids.max", $wm_pids)                   if $workers{pids};
         return { type => 'v1', gates => \%gates, workers => \%workers };
     }
-
     # v2 fallback: unified tree at /sys/fs/cgroup (pure v2) or
     # /sys/fs/cgroup/unified (hybrid WSL). Only usable if the controllers
     # are ALREADY enabled on the parent's subtree_control (we never try to
@@ -158,10 +203,69 @@ sub _cgroup_setup {
         _write("$w/memory.max", $wm_mem_limit) if $w_ok;
         _write("$w/cpu.weight", $wm_weight)    if $w_ok;
         _write("$w/pids.max", $wm_pids)        if $w_ok;
+        # The write cap that was missing entirely. Without it memory and pids
+        # are bounded but the disk is not, and an unbounded writer on a
+        # single WSL virtio queue is what wedged the VM.
+        #
+        # 32 MB/s (SH2_IO_WBPS_DEFAULT), NOT the old 200 MB/s. The 200 MB/s
+        # sat ABOVE this device's measured 70-90 MB/s single-stream ceiling,
+        # so it could never engage -- a cap above the achievable rate is
+        # decoration, and status() happily reported "io.max=ON" for a
+        # throttle that never bound anything.
+        #
+        # WHY IT IS REPEATED HERE AND NOT INHERITED: io.max is a WHITELIST,
+        # not an inherited limit. A cgroup with its own io.max line is not
+        # covered by its parent's -- sh2-io.slice's 32 MB/s does NOT apply to
+        # anything that enrolls into sh2workers, which is exactly what every
+        # long-running worker does at startup. So this number is the one that
+        # actually governs the workers, and it has to be kept in step with
+        # wbps in sh2-io-max.sh.
+        _write_io_max($g, $ENV{SH2_GATE_WBPS} // SH2_IO_WBPS_DEFAULT(),
+                            $ENV{SH2_GATE_WIOPS} // SH2_IO_WIOPS_DEFAULT()) if $g_ok;
+        _write_io_max($w, $ENV{SH2_WORKER_WBPS} // SH2_IO_WBPS_DEFAULT(),
+                            $ENV{SH2_WORKER_WIOPS} // SH2_IO_WIOPS_DEFAULT()) if $w_ok;
+        # Record whether the caps actually took, so status() can report the
+        # truth rather than implying a throttle that was never applied.
+        my $g_io = $g_ok ? (_read("$g/io.max") // '') : '';
+        my $w_io = $w_ok ? (_read("$w/io.max") // '') : '';
         return { type => 'v2', root => $root, gates => ($g_ok ? $g : undef),
-                 workers => ($w_ok ? $w : undef) };
+                 workers => ($w_ok ? $w : undef),
+                 io => { gates => ($g_io =~ /wbps=(\d+)/ ? $1 : 0),
+                         workers => ($w_io =~ /wbps=(\d+)/ ? $1 : 0) } };
     }
     return;
+}
+
+# Write an io.max cap into a v2 cgroup. Returns 1 on success.
+#
+# The device is resolved from the mount table, never from `stat -c %t:%T`:
+# on WSL virtio block devices stat reports a stale minor (8:30 for a disk
+# whose real maj:min is 8:48), and io.max rejects a nonexistent device, so
+# the cap would silently never be applied. A rejected cap is worse than no
+# cap, because the status line would then claim throttling that was never
+# enforced.
+sub _write_io_max {
+    my ($dir, $wbps, $wiops) = @_;
+    return 0 unless defined $wbps && $wbps =~ /^\d+$/ && $wbps > 0;
+    my $majmin = _root_majmin();
+    return 0 unless defined $majmin && $majmin !~ /^0:0$/;
+    # io.max is a whitelist: only listed devices are throttled. List the
+    # root device, which is where the harness's writes land.
+    return _write("$dir/io.max", "$majmin rbps=max wbps=$wbps riops=max wiops=$wiops");
+}
+
+# Major:minor of the filesystem backing /, from the mount table.
+sub _root_majmin {
+    # /proc/self/mountinfo: field 3 is major:minor, field 5 the mount point.
+    if (open my $fh, '<', '/proc/self/mountinfo') {
+        while (<$fh>) {
+            my @f = split ' ';
+            next unless @f >= 10;
+            return $f[2] if $f[4] eq '/';
+        }
+        close $fh;
+    }
+    return undef;
 }
 
 sub enter_cgroup {
@@ -271,7 +375,19 @@ sub status {
               . ' workers=' . join(',', sort keys %{ $S->{cgroup}{workers} // {} }) . ')'
             : 'v2')
         : 'none (cooperative fallback)';
-    return "cap=$S->{cap} (cpu $S->{cpu_cap}, ram50%-cap $S->{ram_cap}) cgroup=$cg";
+    my $out = "cap=$S->{cap} (cpu $S->{cpu_cap}, ram50%-cap $S->{ram_cap}) cgroup=$cg";
+    # Report the write cap honestly. An earlier version implied every v2 cgroup
+    # was throttled; io.max can be absent or rejected (wrong device), and a
+    # status line that claims throttling which was never enforced is worse
+    # than no status line at all.
+    if ($S->{cgroup} && $S->{cgroup}{type} eq 'v2') {
+        my $io = $S->{cgroup}{io} || {};
+        my $g = $io->{gates}   || 0;
+        my $w = $io->{workers} || 0;
+        $out .= $g && $w ? " io.max=ON(gates=$g workers=$w B/s)"
+                         : " io.max=OFF(NOT THROTTLED ON DISK)";
+    }
+    return $out;
 }
 
 # ── slot accounting helpers ─────────────────────────────────────────
@@ -366,13 +482,13 @@ unless (caller) {
         init(root => $root);
         my $pid = defined $ARGV[0] ? $ARGV[0] + 0 : $$;
         my $ok = WorkerPool::enter_cgroup($pid);
-        warn "WorkerPool: cgroup unavailable (cooperative mode)\n" unless $ok;
+        _require_cgroups($ok, 'sh2gates');
         print WorkerPool::status(), "\n";
     } elsif ($cmd eq '--enter-worker') {
         init(root => $root);
         my $pid = defined $ARGV[0] ? $ARGV[0] + 0 : $$;
         my $ok = WorkerPool::enter_worker_cgroup($pid);
-        warn "WorkerPool: cgroup unavailable (cooperative mode)\n" unless $ok;
+        _require_cgroups($ok, 'sh2workers');
         print WorkerPool::status(), "\n";
     } elsif ($cmd eq '--release') {
         init(root => $root);
@@ -380,4 +496,21 @@ unless (caller) {
     } else {
         die "usage: $0 {--status|--max-jobs [want]|--enter [pid]|--enter-worker [pid]|--release}\n";
     }
+}
+
+# The historical behaviour here is fail-OPEN: no cgroup -> print a warning and
+# run completely unbounded. On a box whose failure mode is an IO wedge, an
+# unbounded writer is the thing we are trying to prevent, and the warning is
+# easy to miss in a loop's log. SH2_STRICT_CGROUPS=1 turns that into a hard
+# failure so a run that cannot be throttled refuses to start.
+sub _require_cgroups {
+    my ($ok, $which) = @_;
+    return if $ok;
+    my $msg = "WorkerPool: could not enroll into the $which cgroup — "
+            . "this run is NOT throttled on CPU/memory/pids"
+            . ($ENV{SH2_NO_CGROUPS} ? '' : ' or disk IO');
+    if ($ENV{SH2_STRICT_CGROUPS}) {
+        die "$msg (SH2_STRICT_CGROUPS=1 refuses to run unthrottled)\n";
+    }
+    warn "$msg (cooperative mode)\n";
 }
