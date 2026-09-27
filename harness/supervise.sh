@@ -43,6 +43,51 @@
 # Exit: never, by design. It is a supervisor; it restarts the child forever.
 set -uo pipefail
 
+# ── join the throttled IO slice ──────────────────────────────────────────
+#
+# WHY THIS IS HERE AND NOT ONLY IN THE UNITS. The io.max caps on the single
+# virtio queue only bind processes that are actually IN sh2-io.slice. A
+# systemd unit can ask for that with Slice=, but the fleet is not always
+# started by systemd: the workers also run from hand-typed zellij panes, which
+# are all in /init.scope. With every worker in init.scope the slice sat at
+# procs=0 and the 200 MB/s cap guarded nothing at all.
+#
+# So the supervisor puts ITSELF in the slice, and the child inherits it. That
+# covers every launch path at once: systemd units, zellij panes, cron, or a
+# bare `supervise.sh` on a terminal. (Verified that a process may migrate
+# itself from /init.scope into /sys/fs/cgroup/sh2.slice/sh2-io.slice by writing
+# its own pid to that cgroup's cgroup.procs.)
+#
+# It is best-effort on purpose. If the slice is missing, or this box has no
+# cgroup v2 io controller, or we lack permission, the supervisor must still
+# run the worker -- refusing to start a worker because a THROTTLE is
+# unavailable inverts the priority. The worst case of not finding the slice is
+# exactly the status quo: no throttle, no crash.
+
+SH2_IO_SLICE="${SH2_IO_SLICE:-sh2-io.slice}"
+
+join_io_slice() {
+  # systemd nests X.slice under a parent slice named after the leading
+  # component, so sh2-io.slice lives under /sys/fs/cgroup/sh2.slice/. Search
+  # rather than guess, and search at most two levels deep.
+  local cg=""
+  for cand in "/sys/fs/cgroup/system.slice/$SH2_IO_SLICE" \
+              "/sys/fs/cgroup/$SH2_IO_SLICE" \
+              "/sys/fs/cgroup/sh2.slice/$SH2_IO_SLICE"; do
+    [ -d "$cand" ] && { cg="$cand"; break; }
+  done
+  [ -n "$cg" ] || cg=$(find /sys/fs/cgroup -maxdepth 2 -type d -name "$SH2_IO_SLICE" 2>/dev/null | head -1)
+  if [ -z "$cg" ]; then
+    note "IO slice $SH2_IO_SLICE not found — running unthrottled (same as before this existed)"
+    return 0
+  fi
+  if echo $$ > "$cg/cgroup.procs" 2>/dev/null; then
+    note "joined IO slice: $cg -> $(cat "$cg/io.max" 2>/dev/null | tr '\n' ' ')"
+  else
+    note "could not join IO slice $cg (permission denied?) — running unthrottled"
+  fi
+}
+
 name=""; log=""; pidfile=""; max_secs=0; grace=5
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -105,6 +150,10 @@ if [ -n "$pidfile" ]; then
 fi
 
 note "supervisor started (pid $$, command: $*)"
+
+# Join the throttled IO slice now that the lock is held and note() works, so
+# the slice membership and this line land in the same log region.
+join_io_slice
 
 crashes=0        # consecutive non-zero exits — DIAGNOSTIC ONLY
 restarts=0       # total restarts ever — DIAGNOSTIC ONLY

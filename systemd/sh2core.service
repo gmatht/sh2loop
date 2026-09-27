@@ -9,6 +9,11 @@ WorkingDirectory=/home/llm/sh2loop
 # cargo is NOT on systemd's default PATH; without this every build fails
 # instantly with "cargo: command not found" and an empty log. See sh2fleet.env.
 EnvironmentFile=/home/llm/sh2loop/systemd/sh2fleet.env
+# Put the worker in the throttled IO slice. Without this every worker sat in
+# /init.scope, the slice held procs=0, and the io.max caps guarded nothing.
+# supervise.sh ALSO self-joins the slice (so the zellij-pane launch path is
+# covered too); this line is the declarative, boot-surviving half. Keep both.
+Slice=sh2-io.slice
 # supervise.sh is the never-retire wrapper: unbounded restarts, warn-only crash
 # counter, saturating exponential backoff. The previous hand-typed
 # `while [ $attempts -lt 5 ]` supervisors RETIRED after five child exits, which
