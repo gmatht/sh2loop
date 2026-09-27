@@ -106,6 +106,158 @@ log="${log:-/dev/null}"
 
 note() { printf '[%s] %s: %s\n' "$(date +%FT%T)" "$name" "$*" >> "$log" 2>/dev/null || true; }
 
+# Stop the child when the supervisor is told to stop.
+#
+# WHY (2026-09-28). This used to be
+#   trap 'note "... (child will be orphaned)"; exit 143' TERM INT
+# i.e. it announced the orphaning and then did it. `systemctl stop` on a
+# worker unit therefore left the WORKER RUNNING: the supervisor exited, the
+# unit went to `failed`, and the child — a main_loop_*.pl, a
+# setup_backends.sh gate, a whole fail-estree run — kept writing to the
+# shared repo with nothing supervising it. Stopping six units left six
+# orphaned writers alive, which is what made "stop the workers" silently
+# fail; I only found them because the shared checkout's HEAD kept moving
+# after every unit reported stopped.
+#
+# A never-retire supervisor must still be able to STOP. The backoff loop
+# below restarts the child unconditionally, so on TERM we kill the child's
+# whole process group and exit without giving the loop another turn —
+# otherwise the supervisor would dutifully restart what it just killed.
+on_term() {
+  note "supervisor received TERM — stopping child and exiting"
+  stop_child
+  exit 143
+}
+
+# Wait for the child, but stay interruptible.
+#
+# WHY NOT `wait "$child"` (2026-09-28). A bare `wait` in a shell script BLOCKS
+# signal handling: bash does not run the TERM trap until the wait returns, and
+# the wait does not return until the child exits. So a supervisor told to stop
+# sat in do_wait for as long as its child lived — with a child that ignores
+# TERM, forever. The trap body never got to run, so the TERM handler I added
+# (which is what stops the child) could never fire: a deadlock between "wait
+# for the child" and "stop the child".
+#
+# Polling with `kill -0` breaks that cycle. It is a tiny busy-ish loop, but
+# the sleep interval is 0.2s, so the cost is a handful of `kill -0` calls per
+# second of a worker's runtime — nothing next to a cargo build — and in
+# exchange the supervisor is always responsive to TERM/INT, which is the
+# whole point of supervising something.
+# Sets the global CHILD_RC rather than echoing it: `$(wait_child ...)` would
+# run this in a command-substitution SUBSHELL, and that subshell inherits the
+# TERM/INT traps. A `systemctl stop` signals the process group, so the
+# subshell receives the TERM, runs the stop handler itself, and dies still
+# holding the parent's wait — leaving the real supervisor hung in do_wait
+# with its child untouched. (Reproduced: TERM to one supervisor left all
+# three processes alive, and the log showed the "stopping" line never
+# printed from the parent.) Assigning to a global keeps the loop in the
+# parent shell, where the trap belongs.
+CHILD_RC=0
+wait_child() {
+  local pid="$1"
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 0.2
+  done
+  # The child has exited; reap it so it does not linger as a zombie. `wait`
+  # is safe here precisely because the child is already gone, so it returns
+  # immediately.
+  wait "$pid" 2>/dev/null
+  CHILD_RC=$?
+}
+
+# Kill the child's process group, escalating TERM -> KILL. The child is
+# started under `setsid` when --max-secs is set (so it has its own group);
+# otherwise it shares ours and we must NOT group-kill, or the signal would
+# reach the supervisor too. getpgid is unavailable in POSIX sh, so compare
+# the child's pgid with our own.
+stop_child() {
+  [ -n "${child:-}" ] || return 0
+  local cpgid opgid
+  cpgid=$(ps -o pgid= -p "$child" 2>/dev/null | tr -d ' ')
+  opgid=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')
+  if [ -n "$cpgid" ] && [ -n "$opgid" ] && [ "$cpgid" != "$opgid" ]; then
+    # The child owns its process group (the --max-secs setsid path), so one
+    # group signal reaches its whole tree.
+    kill -TERM -"$cpgid" 2>/dev/null || true
+  else
+    kill -TERM "$child" 2>/dev/null || true
+  fi
+
+  # Give it a moment to die cleanly, then make sure. An orphaned gate that
+  # ignores TERM is exactly the case that must not survive us.
+  local i=0
+  while [ $i -lt 20 ]; do
+    kill -0 "$child" 2>/dev/null || break
+    sleep 0.25
+    i=$((i+1))
+  done
+
+  # KILL the whole subtree, not just the child.
+  #
+  # In the shared-pgid case a group kill is not available — the supervisor is
+  # in that group, so `kill -KILL -$pgid` would kill us before the children.
+  # Signalling each descendant individually is the only way to take the tree
+  # down without taking ourselves with it, and it is necessary: a stuck gate
+  # routinely leaves grandchildren (a `while true` writer, a cargo child, a
+  # node runner) that outlive their parent and keep writing to disk. Killing
+  # the child alone is what left those running in the first place.
+  local sig=KILL
+  if kill -0 "$child" 2>/dev/null; then
+    note "child $child did not exit on TERM — killing its process tree"
+  else
+    sig=TERM
+  fi
+  if [ -n "$cpgid" ] && [ -n "$opgid" ] && [ "$cpgid" != "$opgid" ]; then
+    kill -"$sig" -"$cpgid" 2>/dev/null || true
+  fi
+  # Walk the subtree depth-first, deepest first, so a parent cannot spawn
+  # fresh children while we are signalling it. Snapshot the pid list once:
+  # re-globbing /proc during the walk races with processes exiting.
+  local kids k
+  kids=$(subtree_of "$child")
+  for k in $(echo "$kids" | tac); do
+    kill -"$sig" "$k" 2>/dev/null || true
+  done
+  kill -"$sig" "$child" 2>/dev/null || true
+
+  # Confirm the tree is actually gone rather than assuming the signal landed.
+  local j left=""
+  for j in $(seq 1 20); do
+    left=$(subtree_of "$child")
+    [ -z "$left" ] && break
+    for k in $left; do kill -KILL "$k" 2>/dev/null || true; done
+    sleep 0.25
+  done
+  left=$(subtree_of "$child")
+  [ -n "$left" ] && note "WARNING: descendants of $child survived stop: $(echo $left)"
+  return 0
+}
+
+# All living descendants of a pid, one per line (depth-first, parents before
+# children). Reads /proc directly: `pgrep -P` is a fork per level and `ps
+# --ppid` is not portable, and this runs in a recovery path where the system
+# is already under stress. The child's own pid is NOT included.
+subtree_of() {
+  local root="$1" p pid out=""
+  for p in /proc/[0-9]*; do
+    pid=${p#/proc/}
+    [ -r "$p/stat" ] || continue
+    # ppid is field 4, but comm (field 2) may contain spaces and parens, so
+    # split on the LAST ')' rather than assuming a clean field layout.
+    local ppid
+    ppid=$(sed 's/.*) //' "$p/stat" 2>/dev/null | awk '{print $2}')
+    [ -n "$ppid" ] || continue
+    if [ "$ppid" = "$root" ]; then
+      out="$out $pid"
+      local sub
+      sub=$(subtree_of "$pid")
+      [ -n "$sub" ] && out="$out $sub"
+    fi
+  done
+  echo $out
+}
+
 # ── re-entrancy guard: one supervisor per name ─────────────────────────
 # Two supervisors racing on one worker double every build and fight over the
 # same pid file and log. The lock is held for the supervisor's lifetime.
@@ -139,7 +291,7 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
-trap 'note "supervisor received TERM — stopping (child will be orphaned)"; exit 143' TERM INT
+trap 'on_term' TERM INT
 
 # Publish our pid atomically so `kill $(cat file)` never reads a half-written
 # file. The old hand-typed loops wrote nothing at all, which is why a dead
@@ -176,7 +328,7 @@ while true; do
         kill -KILL -"$child" 2>/dev/null || true
       fi ) &
     wd=$!
-    wait "$child"; rc=$?
+    wait_child "$child"; rc=$CHILD_RC
     kill -TERM -"$wd" 2>/dev/null || true
     kill "$wd" 2>/dev/null || true
     wait "$wd" 2>/dev/null || true
@@ -190,7 +342,7 @@ while true; do
   else
     "$@" &
     child=$!
-    wait "$child"; rc=$?
+    wait_child "$child"; rc=$CHILD_RC
   fi
 
   restarts=$((restarts + 1))
