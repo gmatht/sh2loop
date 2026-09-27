@@ -79,6 +79,18 @@ my $WORKER_MODEL = $ENV{WORKER_MODEL} // 'poolside/laguna-s-2.1:free';
 my $WORKER_EFFORT = $ENV{WORKER_EFFORT} // $ENV{WORKER_THINKING} // '';
 my $WORKER_BUDGET = $ENV{WORKER_BUDGET} // '500000';
 
+# Model rotation: when set, AI calls go through harness/ai_invoke.py, which
+# picks the model for the current four-hour phase, applies the Laguna
+# daily-quota fallback, and records exact token usage for the progress-vs-model
+# comparison. Unset -> the direct invocation below.
+my $ROTATE_WORKER = $ENV{WORKER_ROTATE_WORKER} // '';
+my $AI_INVOKE     = "$project_root/harness/ai_invoke.py";
+
+# Shared Laguna quota-fallback detection (harness/ai_fallback.pm). Used by the
+# direct path below; the rotating path delegates to ai_invoke.py, which applies
+# the same rule. Loaded once so the two loops cannot drift apart.
+my $ai_fallback_ok = eval { require "$project_root/harness/ai_fallback.pm"; 1 };
+
 sub build_ai_cmd {
     my @cmd;
     if ($WORKER_CLI eq 'pi') {
@@ -99,6 +111,36 @@ sub build_ai_cmd {
 }
 
 my $sh2perl      = "$project_root/sh2perl";
+
+# The estree loop's OWN sh2perl worktree (2026-09-28).
+#
+# WHY A WORKTREE AND NOT THE SHARED TREE. This loop and the perl worker both
+# write $project_root/sh2perl. The perl worker is the only fleet member that
+# commits straight into the shared checkout, and the two were interleaving
+# on it: this loop's scoped_stash() reverts tracked files to undo its own bad
+# iteration, which in the shared tree is indistinguishable from reverting the
+# perl worker's in-flight edits. That is the failure recorded in
+# core-requests/triage-20260909-reset-wipe-recovery.md, and it lost two
+# rounds of real work before that document was written.
+#
+# Every one of the 28 $sh2perl uses below is a build / edit / commit / revert
+# against one tree, so retargeting the variable moves the whole loop with no
+# other change. The worktree is a branch (backend/estree) off the same repo,
+# so the gitlink is unchanged and the perl worker is untouched.
+#
+# The loop still EDITS src/transforms.rs and src/transforms/*.rs here, and
+# those are exactly the files it must not share. If the worktree is missing
+# (fresh clone, submodule not initialised) we fall back to the shared tree
+# and say so loudly rather than silently editing it again.
+my $SH2PERL_ESTREE = "$project_root/sh2perl/backends/estree";
+if (-d "$SH2PERL_ESTREE/.git" || -f "$SH2PERL_ESTREE/.git") {
+    $sh2perl = $SH2PERL_ESTREE;
+} else {
+    warn "estree: worktree $SH2PERL_ESTREE not found — falling back to the SHARED "
+       . "sh2perl tree. This reintroduces the perl-worker conflict; create it with:\n"
+       . "  git -C $project_root/sh2perl worktree add -b backend/estree "
+       . "$project_root/sh2perl/backends/estree main\n";
+}
 my $fail_estree  = "$project_root/fail-estree";
 my $results_file = "$project_root/.estree_failures.tsv";    # fail-estree writes this
 my $prev_file    = "$project_root/.estree_prev_failures.tsv"; # committed-state baseline
@@ -160,6 +202,23 @@ sub log_decision {
 # ── run fail-estree ──────────────────────────────────────────────────
 sub run_fail_estree {
     my $cmd = "$fail_estree --metric" . ($prefix ne '' ? " $prefix" : '');
+    # Point the gate at THIS loop's worktree (2026-09-28).
+    #
+    # fail-estree reads SH2PERL_DIR and defaults it to the main checkout.
+    # Retargeting $sh2perl at sh2perl/backends/estree moved the loop's own
+    # edits, builds, stashes and commits, but NOT the gate it measures itself
+    # with: without this the worker would build and measure the SHARED tree
+    # while editing the worktree, so every verdict described code it had not
+    # touched. The core worker has passed SH2PERL_DIR to this same script all
+    # along, which is why its gate is genuinely its own.
+    #
+    # Only SH2PERL_DIR, and deliberately not OTRANSPILERL_BIN/_SKIP_BUILD:
+    # otranspilerl is a SEPARATE crate (workspace otranspilerl/, not inside
+    # sh2perl), so it has no per-worktree copy to point at. fail-estree will
+    # build that one binary, which is correct here — the sh2perl sources it
+    # compiles from are the worktree's, because the manifest's path
+    # dependency resolves to $SH2PERL_DIR/src.
+    local $ENV{SH2PERL_DIR} = $sh2perl;
     my $pid = open(my $fh, '-|', $cmd);
     return ('', 1, -1) unless defined $pid;
     my ($output, $timed_out) = ('', 0);
@@ -648,8 +707,13 @@ sub wait_for_ram_perl {
 # Returns 1 if blocked (should skip pi), 0 if OK to proceed.
 # Checks the bash quota-gate.sh if available, otherwise returns 0.
 sub quota_blocked_estree {
-    # Try the bash quota gate
-    my $result = system('bash', '-c', 'source harness/quota-gate.sh 2>/dev/null && quota_ok estree');
+    # Only the `pi`/opencode-go path has a quota gate. For pir/cmd the
+    # provider signal is its own (and the rotating path has the Laguna
+    # fallback), so gate it explicitly rather than relying on the sourced
+    # shell's inherited WORKER_CLI, which may not be exported.
+    return 0 unless $WORKER_CLI eq 'pi';
+    my $result = system('bash', '-c',
+        'WORKER_CLI=pi; source harness/quota-gate.sh 2>/dev/null && quota_ok estree');
     return ($result != 0) ? 1 : 0;
 }
 
@@ -658,7 +722,8 @@ sub invoke_pi {
     # QUOTA GATE (the 85%-in-30min burn): skip the spawn when the opencode-go
     # quota is blocked — retry storms spend the rolling budget without
     # landing fixes (harness/quota-gate.sh; the provider's own
-    # quotaBlockedUntil for the active key).
+    # quotaBlockedUntil for the active key). The gate is a no-op unless
+    # WORKER_CLI=pi, so it cannot suppress the rotating workers.
     if (quota_blocked_estree()) {
         print "\n(AI QUOTA-BLOCKED — skipping this round to preserve the rolling budget)\n";
         return "";
@@ -669,6 +734,43 @@ sub invoke_pi {
     # low (<2GB) with very high swap (>80%), and waits at most 120s. It
     # must not be starved by the gates meant to throttle its followers.
     wait_for_ram_perl(1024, 0.8, 120);
+
+    # Rotating worker: ai_invoke.py owns model selection, the Laguna quota
+    # fallback, and token accounting. It streams the same NDJSON frames, so
+    # the delta/reply handling below is unchanged.
+    if ($ROTATE_WORKER ne '' && -f $AI_INVOKE) {
+        print "\nInvoking rotating worker $ROTATE_WORKER (phase-selected model) to fix ESTree failures...\n";
+        my $tmp = "/tmp/estree_rotate_prompt_$$.txt";
+        open my $tfh, '>', $tmp or die "Cannot write $tmp: $!";
+        print $tfh $prompt;
+        close $tfh;
+        my @rcmd = ('python3', $AI_INVOKE, '--worker', $ROTATE_WORKER,
+                    '--prompt-file', $tmp);
+        push @rcmd, '--effort', $WORKER_EFFORT if $WORKER_EFFORT;
+        my $rfh;
+        my $rpid = open($rfh, '-|', @rcmd);
+        unlink $tmp;
+        unless (defined $rpid) {
+            print STDERR "WARNING: could not run ai_invoke.py: $!\n";
+            return 0;
+        }
+        my ($rout) = estree_read_stream(3600, $rfh, $rpid);
+        close $rfh;
+        my @rlines = split /\n/, ($rout // '');
+        if (@rlines > 80) {
+            print "--- rotating final reply (first 20 / last 60 of " . scalar(@rlines) . " lines) ---\n";
+            print "  $_\n" for @rlines[0 .. 19];
+            print "  ... elided " . (scalar(@rlines) - 80) . " lines ...\n";
+            print "  $_\n" for @rlines[-60 .. -1];
+            print "--- end rotating final reply ---\n";
+        } elsif (@rlines) {
+            print "--- rotating final reply ---\n";
+            print "  $_\n" for @rlines;
+            print "--- end rotating final reply ---\n";
+        }
+        return $rout;
+    }
+
     print "\nInvoking $WORKER_CLI ($WORKER_MODEL) to fix ESTree failures...\n";
     my @cmd = build_ai_cmd();
     my $pi_fh;
@@ -696,67 +798,7 @@ sub invoke_pi {
         print STDERR "WARNING: could not run $WORKER_CLI: $!\n";
         return 0;
     }
-    my $deadline = time() + 3600;
-    my $buffer = '';
-    my $full = '';
-    while (1) {
-        my $remaining = $deadline - time();
-        last if $remaining <= 0;
-        my $rin = '';
-        vec($rin, fileno($pi_fh), 1) = 1;
-        my $nfound = select($rin, undef, undef, 1);
-        if ($nfound > 0) {
-            my $buf;
-            my $read = sysread($pi_fh, $buf, 8192);
-            last unless defined $read && $read > 0;
-            $buffer .= $buf;
-            while ($buffer =~ s/^(.*)\n//) {
-                my $line = $1;
-                next if $line eq '';
-                my $event = eval { JSON::PP::decode_json($line) };
-                next unless ref $event eq 'HASH';
-                my $type = $event->{type} // '';
-                if ($type eq 'message_update') {
-                    my $msg = $event->{assistantMessageEvent};
-                    next unless ref $msg eq 'HASH';
-                    my $et = $msg->{type} // '';
-                    my $delta = $msg->{delta} // '';
-                    if (($et eq 'thinking_delta' || $et eq 'text_delta') && length $delta) {
-                        print $delta;
-                        $full .= $delta;
-                    } elsif ($et eq 'tool_use_start') {
-                        my $name = $msg->{name} // '?';
-                        print "\n\e[33m>>> tool: $name\e[0m\n";
-                    }
-                } elsif ($type eq 'message_end') {
-                # SURFACE FAILURES (2026-08-15: the opencode-go provider
-                # hit its monthly quota — every pi call died with a 429
-                # GoUsageLimitError and the worker logged NOTHING between
-                # 'Invoking pi' and '(pi finished)'. The stalled queue was
-                # silently untouched for 187 rounds. Print the stopReason
-                # + errorMessage so a dead provider is visible in one line
-                # instead of looking like 'pi said nothing'.)
-                my $msg = $event->{message} // {};
-                my $err = $msg->{errorMessage} // '';
-                if (($msg->{stopReason} // '') eq 'error') {
-                    print STDERR "\n*** pi ERROR (stopReason=error): " . $err . "\n";
-                    $full .= "[pi error] $err\n";
-                }
-            }
-        }
-    }
-    }
-    # the select loop exits on EOF (pi finished) or the 3600s budget.
-    # On a BUDGET hit, kill the pi process TREE before `close` — Perl's
-    # close on the pipe waits for the child, so a wedged pi (or its own
-    # unbounded child probe — the 2026-08-14 incident: a
-    # SIZE=100000000000000000 loop froze the whole estree loop 4.5h,
-    # log stale from 19:17 until a manual kill) would block the worker
-    # in do_wait forever.
-    if (time() >= $deadline) {
-        print "\n\e[33m(pi exceeded its 3600s budget — reaping the pi process tree)\e[0m\n";
-        kill_tree($pi_pid);
-    }
+    my $full = estree_read_stream(3600, $pi_fh, $pi_pid);
     close $pi_fh;
     print "\n(pi finished)\n";
     # Bounded final-reply echo: the deltas above streamed live, but a clean
@@ -779,6 +821,81 @@ sub invoke_pi {
     # Return the accumulated full text so callers (the dedicated
     # core-request round) can parse per-request DECISION lines. Truthy
     # for the existing boolean callers (non-empty on success).
+    return $full;
+}
+
+# estree_read_stream($timeout, $fh, $pid) — stream NDJSON frames from an AI
+# child, echo deltas live, and return the accumulated text.
+#
+# Shared by the direct path and the rotating path so the two can never diverge
+# in how they surface a provider failure. On a BUDGET hit it kills the process
+# TREE: Perl's `close` on the pipe waits for the child, so a wedged agent (or
+# its own runaway grandchild — the 2026-08-14 incident that froze the estree
+# loop 4.5h) would block the worker in do_wait forever.
+sub estree_read_stream {
+    my ($timeout, $fh, $pid) = @_;
+    my $deadline = time() + $timeout;
+    my $buffer = '';
+    my $full = '';
+    while (1) {
+        my $remaining = $deadline - time();
+        last if $remaining <= 0;
+        my $rin = '';
+        vec($rin, fileno($fh), 1) = 1;
+        my $nfound = select($rin, undef, undef, 1);
+        if ($nfound > 0) {
+            my $buf;
+            my $read = sysread($fh, $buf, 8192);
+            last unless defined $read && $read > 0;
+            $buffer .= $buf;
+            while ($buffer =~ s/^(.*)\n//) {
+                my $line = $1;
+                next if $line eq '';
+                my $event = eval { JSON::PP::decode_json($line) };
+                next unless ref $event eq 'HASH';
+                my $type = $event->{type} // '';
+                if ($type eq 'message_update') {
+                    my $msg = $event->{assistantMessageEvent};
+                    next unless ref $msg eq 'HASH';
+                    my $et = $msg->{type} // '';
+                    my $delta = $msg->{delta} // '';
+                    if (($et eq 'thinking_delta' || $et eq 'text_delta') && length $delta) {
+                        print $delta;
+                        $full .= $delta;
+                    } elsif ($et eq 'tool_use_start') {
+                        my $name = $msg->{name} // '?';
+                        print "\n\e[33m>>> tool: $name\e[0m\n";
+                    }
+                } elsif ($type eq 'message_end') {
+                    # SURFACE FAILURES (2026-08-15: the opencode-go provider
+                    # hit its monthly quota — every pi call died with a 429
+                    # GoUsageLimitError and the worker logged NOTHING between
+                    # 'Invoking pi' and '(pi finished)'. The stalled queue was
+                    # silently untouched for 187 rounds. Print the stopReason
+                    # + errorMessage so a dead provider is visible in one line
+                    # instead of looking like 'pi said nothing'.)
+                    my $msg = $event->{message} // {};
+                    my $err = $msg->{errorMessage} // '';
+                    if (($msg->{stopReason} // '') eq 'error') {
+                        print STDERR "\n*** AI ERROR (stopReason=error): " . $err . "\n";
+                        $full .= "[AI error] $err\n";
+                    }
+                } elsif ($type eq 'result') {
+                    # The rotating wrapper's own result frame (token usage).
+                    my $usage = $event->{usage} // {};
+                    $full .= sprintf("\n[tokens in=%s out=%s cache_r=%s cache_w=%s dur=%sms]\n",
+                        $usage->{inputTokens} // '?', $usage->{outputTokens} // '?',
+                        $usage->{cacheReadTokens} // '?', $usage->{cacheWriteTokens} // '?',
+                        $event->{durationMs} // '?') if ref $usage eq 'HASH';
+                }
+            }
+        }
+    }
+    # EOF (agent finished) or the budget expired.
+    if (time() >= $deadline) {
+        print "\n\e[33m(AI exceeded its ${timeout}s budget — reaping the process tree)\e[0m\n";
+        kill_tree($pid);
+    }
     return $full;
 }
 
@@ -1620,6 +1737,48 @@ while (1) {
         $perl_trusted = ($f // '') + 0 if defined $f && $f ne '';
         close $pf;
     }
+    # ── rebase a stale perl baseline onto the CURRENT corpus state ──
+    #
+    # WHY (2026-09-28). This gate asks "did MY edit make the perl corpus
+    # worse?", but it answered it by comparing an absolute failure count to a
+    # number frozen in .estree_perl_trusted_count. That file is written ONLY
+    # by the improvement path below, i.e. only when this loop has ALREADY
+    # improved — which, see below, it never reached. So the baseline was
+    # stuck at 56 (written 2026-09-25) while the perl worker's own corpus
+    # climbed to 87. The `> $perl_trusted + 3` tolerance is 59 wide, so every
+    # single iteration tripped it:
+    #
+    #   REGRESSION: perl failures 87 > trusted 56. Stashing scoped changes.
+    #   stash-perl  56 -> 84  (nothing to stash)
+    #
+    # ...forever, 340 consecutive times. The loop could never reach its own
+    # commit branch, so it never updated the baseline, so it could never
+    # improve. A deadlock with itself, triggered by a peer worker's progress
+    # being misread as this loop's regression.
+    #
+    # The fix is to make the baseline SELF-CORRECTING: if the corpus is worse
+    # than the baseline by more than the tolerance, the likeliest cause is
+    # that the baseline is old, not that this iteration regressed. Adopting
+    # the current count is safe because it is exactly the state this loop is
+    # being asked to defend from here on. The next iteration then measures
+    # this loop's OWN edits against where the corpus actually is.
+    #
+    # This does not weaken the guard: a genuine regression (this loop's edit
+    # pushes perl UP) still trips it immediately, because the baseline was
+    # just refreshed to the pre-edit count.
+    my $perl_baseline_stale = 0;
+    if (!$report_only && defined $summary->{perl_failed}
+        && $summary->{perl_failed} > $perl_trusted + 3) {
+        print "\nPerl corpus is at $summary->{perl_failed} but the baseline is $perl_trusted"
+            . " (stale by " . ($summary->{perl_failed} - $perl_trusted) . ")."
+            . " Rebaselining to the current count -- otherwise every iteration would"
+            . " trip the regression guard and the loop could never commit an improvement.\n";
+        open my $pf2, '>', $perl_trusted_file or warn "write: $!";
+        print $pf2 $summary->{perl_failed}, "\t", ($summary->{total} // 0), "\n";
+        close $pf2;
+        $perl_trusted = $summary->{perl_failed};
+        $perl_baseline_stale = 1;
+    }
     if ($summary->{total} && $estree_total && $estree_total != $summary->{total}) {
         print "\nCorpus size changed ($estree_total -> $summary->{total}). Reseeding baseline + trusted counts.\n";
         open my $tf2, '>', $estree_trusted_file or warn "write: $!"; print $tf2 $summary->{estree_failed}, "\t", $summary->{total}, "\n"; close $tf2;
@@ -1650,6 +1809,12 @@ while (1) {
         sleep 5;
         next;
     }
+    # The baseline was just rebased to the current count (see the staleness
+    # check above), so reaching here means the corpus is NOT worse than where
+    # it was before this iteration. Record that we rebaselined so the history
+    # log shows why this cycle did not commit, instead of leaving the operator
+    # to infer it from a silent 'nothing to stash'.
+    $perl_baseline_stale and log_decision('rebase-perl', $summary->{perl_failed}, $summary->{perl_failed}, 'baseline refreshed to current corpus');
 
     # ── improvement → commit + update trusted ──
     if (!$report_only && $diff->{new_count} < $diff->{old_count}) {
