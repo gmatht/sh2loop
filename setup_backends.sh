@@ -1247,7 +1247,7 @@ EOF
                                 # FALSE-FAILED scripts that print $0 in usage text
                                 # (057_case.sh: "Usage: .../057_case.sh {start|stop}"
                                 # vs "Usage: /tmp/eq_$$_bin ...").
-                                cc /tmp/eq_$$.c -o /tmp/eq_$$_bin 2>/dev/null && timeout 15 bash -c 'exec -a "$0" "$1"' "$f" /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
+                                cc /tmp/eq_$$.c -o /tmp/eq_$$_bin 2>/dev/null && setsid timeout -k 2 15 bash -c 'exec -a "$0" "$1"' "$f" /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
                           go)   timeout 30 "$eq_tool" run /tmp/eq_$$.go > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           python) timeout 15 python3 /tmp/eq_$$.py > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           rust) # argv0 = the source path (what `bash "$f"` sees),
@@ -1264,14 +1264,14 @@ EOF
                                 # (the old rc=0-on-both-sides rule made them
                                 # unpassable; the sh/perl arms adopted equality
                                 # first). A 124 (timeout) is caught below.
-                                rustc /tmp/eq_$$.rs -o /tmp/eq_$$_bin 2>/dev/null && timeout 15 bash -c 'exec -a "$0" "$1"' "$f" /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
+                                rustc /tmp/eq_$$.rs -o /tmp/eq_$$_bin 2>/dev/null && setsid timeout -k 2 15 bash -c 'exec -a "$0" "$1"' "$f" /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
                           zig)  timeout 30 "$eq_tool" run /tmp/eq_$$.zig > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           zsh)  # argv0 = the source path (what `bash "$f"` sees),
                                # mirroring the perl/sh arms. The REAL exit
                                # code is captured (not collapsed to 0/1): the
                                # verdict compares it to bash's exit code
                                # (zsh joined the equality group like sh/rust).
-                                timeout 15 zsh -c 'eval "$(< /dev/fd/3)"' "$f" 3< /tmp/eq_$$.zsh > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
+                                setsid timeout -k 2 15 zsh -c 'eval "$(< /dev/fd/3)"' "$f" 3< /tmp/eq_$$.zsh > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
                           sh)   # argv0 = the source path (what `bash "$f"` sees),
                                # mirroring the perl arm below. The REAL exit
                                 # code is captured (not collapsed to 0/1): the
@@ -1284,14 +1284,28 @@ EOF
                                 # stdout- AND rc-identical to bash on the
                                 # whole corpus — verified per-file). A 124
                                 # (timeout) is caught by the guard below.
-                                timeout 15 sh -c '. /dev/fd/3' "$f" 3< /tmp/eq_$$.sh > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
+                                # PROCESS GROUP, not just the shell. Several
+                                # corpus examples spawn an INFINITE producer via
+                                # process substitution — 096_head_procsub.sh is
+                                # literally `head <(while true; do echo .; sleep 1; done)`.
+                                # `timeout` signals only its direct child, so the
+                                # `sh` died and the substitution SURVIVED, reparented
+                                # to init, spinning forever. Those survivors
+                                # accumulated (205 at last count) and one held
+                                # .gate.lock for 3h+, which blocked the c and perl
+                                # backend gates indefinitely — the log simply went
+                                # quiet, with no error anywhere.
+                                # `setsid` puts the whole subtree in its own group
+                                # so the timeout's kill reaches the producer too.
+                                # Keep the 15s bound; only the blast radius changes.
+                                setsid timeout -k 2 15 sh -c '. /dev/fd/3' "$f" 3< /tmp/eq_$$.sh > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
                            fish) # fish runs scripts directly. argv0 is not
                                 # meaningful (fish has no $0) — the corpus
                                 # files that reference $0 are handled below via
                                 # the perl/sh scratch convention; for fish the
                                 # reference runs from the same CWD. Loose
                                 # exit-code contract (eq_exit=0 && bash_rc=0).
-                                timeout 15 fish /tmp/eq_$$.fish > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
+                                setsid timeout -k 2 15 fish /tmp/eq_$$.fish > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
                            java) javac -d /tmp /tmp/Sh2Program.java 2>/dev/null && timeout 15 java -cp /tmp Sh2Program > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           perl) # argv0 = the source path (what `bash "$f"` sees) so
                                 # $0-dependent stdout agrees with bash — the exact
@@ -1309,7 +1323,7 @@ EOF
                         if [ -n "$eq_scratch" ]; then
                           (cd "$eq_scratch" && timeout 15 bash "$f") > /tmp/eq_$$_ref 2>/dev/null || bash_rc=$?
                         else
-                          timeout 15 bash "$f" > /tmp/eq_$$_ref 2>/dev/null || bash_rc=$?
+                          setsid timeout -k 2 15 bash "$f" > /tmp/eq_$$_ref 2>/dev/null || bash_rc=$?
                         fi
                         # stdout diff + exit-code verdict. perl/sh/rust: the codes
                         # must MATCH (bash's final status is the last command's —
