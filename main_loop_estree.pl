@@ -975,7 +975,34 @@ sub perl_worker_running {
     return 0;
 }
 
-sub fix_surface_wide { return !perl_worker_running(); }
+# May this loop touch anything under src/ in its fix surface?
+#
+# WAS: `return !perl_worker_running();` — while the perl worker was up, the
+# estree loop was confined to src/estree.rs alone, on the theory that it
+# shared one tree with the perl worker and must not disturb it.
+#
+# That is obsolete as of 2026-09-28, and it was silently discarding work.
+# This loop now owns sh2perl/backends/estree (branch backend/estree), a
+# worktree the perl worker never touches: the perl worker commits into the
+# main checkout, this loop builds, edits, stashes and commits entirely
+# inside its own. Two workers in two trees cannot interfere by editing, so
+# there is nothing left to be careful about.
+#
+# The cost of leaving the guard was concrete: the AI made a correct fix to
+# src/shir_json_in.rs (the AsciiStr ingress gap), the gate verified it, and
+# then submodule_changed_paths() filtered the file out of BOTH the commit
+# and the stash, so `if (@sub || @root)` was false and the "Same failure
+# count; committing file changes" branch logged a commit it never made. The
+# edit sat in the worktree for 20+ minutes, gate-verified and invisible,
+# while the history log claimed the loop was committing.
+#
+# The wide surface is safe on its own terms now: the corpus gate runs
+# against this worktree (SH2PERL_DIR), and a regression is still caught by
+# the estree/ perl regression guards above, which revert on red regardless
+# of which files were touched.
+sub fix_surface_wide {
+    return 1;
+}
 
 sub submodule_changed_paths {
     my @out = `git -C "$sh2perl" status --porcelain`;
@@ -1857,9 +1884,31 @@ while (1) {
     if (!$report_only && $diff->{new_count} == $diff->{old_count} && $summary->{estree_failed} > 0) {
         my @sub = submodule_changed_paths();
         my @root = root_changed_paths();
+        # A gate-verified edit must LAND. The count being unchanged is not a
+        # reason to drop a fix on the floor: the corpus is a sample, and a
+        # correct change can fix one example while the total holds steady
+        # because another example regressed by the same amount.
+        #
+        # The "no file changes" case is reported distinctly and says WHAT was
+        # seen. It used to print "Improved count but no file changes (flaky
+        # variance?)" and log a plain 'keep', so an iteration that silently
+        # threw away a model's work looked exactly like a successful one.
+        # Naming the uncommitted paths makes that failure mode loud: if this
+        # line ever lists a src/ file again, the fix surface has regressed to
+        # something narrower than the tree the loop is allowed to edit.
         if (@sub || @root) {
             print "\nSame failure count; committing file changes.\n";
             scoped_commit("estree loop: same count ($diff->{new_count} failures), code changes", $summary);
+        } else {
+            my @dirty = `git -C "$sh2perl" status --porcelain`;
+            @dirty = grep { /\S/ } @dirty;
+            print "\nSame failure count but NOTHING was committable";
+            print " (worktree has uncommitted changes outside the fix surface:\n    "
+                . join("\n    ", @dirty) . "\n  -- the fix surface is too narrow and is silently discarding the model's work)"
+                if @dirty;
+            print " (no file changes at all)\n" unless @dirty;
+            log_decision('same-no-commit', $diff->{old_count}, $diff->{new_count},
+                         @dirty ? 'uncommittable: ' . join(' ', @dirty) : 'no file changes');
         }
         write_list($prev_file, $fails);
         log_decision('same', $diff->{old_count}, $diff->{new_count}, '');
