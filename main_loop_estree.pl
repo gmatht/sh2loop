@@ -749,13 +749,27 @@ sub invoke_pi {
         push @rcmd, '--effort', $WORKER_EFFORT if $WORKER_EFFORT;
         my $rfh;
         my $rpid = open($rfh, '-|', @rcmd);
-        unlink $tmp;
+        # Clean the temp file only AFTER the child is done with it.
+        #
+        # `open(... '-|')` returns as soon as the fork succeeds — the child
+        # has not necessarily opened --prompt-file yet. Unlinking here deleted
+        # the file out from under it:
+        #
+        #   FileNotFoundError: [Errno 2] No such file or directory:
+        #     '/tmp/estree_rotate_prompt_3645109.txt'
+        #
+        # So every rotating invocation (both loops, since they share
+        # ai_invoke.py) could die before the model was ever called, depending
+        # purely on scheduling. The removal happens after the stream is
+        # drained, further down.
         unless (defined $rpid) {
             print STDERR "WARNING: could not run ai_invoke.py: $!\n";
+            unlink $tmp;
             return 0;
         }
         my ($rout) = estree_read_stream(3600, $rfh, $rpid);
         close $rfh;
+        unlink $tmp;   # the child has exited; the prompt file is safe to remove
         my @rlines = split /\n/, ($rout // '');
         if (@rlines > 80) {
             print "--- rotating final reply (first 20 / last 60 of " . scalar(@rlines) . " lines) ---\n";
@@ -1060,7 +1074,16 @@ sub scoped_commit {
         # The build goes through harness/build-lock.sh (PLAN §11.8): the
         # core role preempts backend gate builds after its timeout, so the
         # estree worker's commit gate never queues behind a backend build.
-        my $build_out = `'$project_root/harness/build-lock.sh' --role core --timeout 180 -- bash -c 'cd "$1" && cargo build --manifest-path Cargo.toml' _ '$sh2perl' 2>&1`;
+        # NOTE the escaped \$1. In a Perl backtick string, \$1 is PERL's
+        # capture variable, not the shell's positional parameter — and there
+        # is no enclosing regex, so it interpolated to empty. build-lock.sh
+        # then got no target directory, the build "failed" for a reason that
+        # had nothing to do with the code, and the commit was refused. The
+        # symptom was a green corpus, a "Same failure count; committing file
+        # changes" line, and no commit — the same silent-discard shape as the
+        # fix-surface bug, one layer deeper. The `_` placeholder below is the
+        # shell's \$0, and the worktree path is passed as its \$1.
+        my $build_out = `'$project_root/harness/build-lock.sh' --role core --timeout 180 -- bash -c 'cd "\$1" && cargo build --manifest-path Cargo.toml' _ '$sh2perl' 2>&1`;
         if ($? != 0) {
             print "\nFULL-WORKSPACE BUILD FAILED — NOT committing (fail-estree only builds otranspilerl-cli; the backend gates need the whole workspace). WIP left in the tree:\n";
             print substr($build_out, -500);
