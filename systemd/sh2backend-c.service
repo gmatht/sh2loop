@@ -6,6 +6,9 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/home/llm/sh2loop
+# cargo is NOT on systemd's default PATH; without this every build fails
+# instantly with "cargo: command not found" and an empty log. See sh2fleet.env.
+EnvironmentFile=/home/llm/sh2loop/systemd/sh2fleet.env
 ExecStart=/home/llm/sh2loop/harness/supervise.sh \
   --name backend-c \
   --log /home/llm/sh2loop/loop-backend-c.log \
