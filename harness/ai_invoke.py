@@ -61,7 +61,7 @@ QUOTA_MARKER = "free-models-per-day"
 # provider-agnostic so it is matched on the message, not the model.
 CAPACITY_MARKER = "currently at capacity"
 
-WORKERS = ("rust", "c", "perl", "estree")
+WORKERS = ("rust", "c", "perl", "estree", "perl-generator")
 
 # group -> {0: model_on_even_phase, 1: model_on_odd_phase}
 # Group A holds the two sh2-native backends; group B the two ESTree-side ones.
@@ -69,6 +69,11 @@ GROUPS = {
     "rust": {"group": "A", "even": SPACE_BUNNY, "odd": LAGUNA},
     "c": {"group": "A", "even": SPACE_BUNNY, "odd": LAGUNA},
     "perl": {"group": "B", "even": LAGUNA, "odd": SPACE_BUNNY},
+      # The perl GENERATOR worker (run_perl_generator_worker.sh; gate ./fail,
+      # scope src/perl_generator_fixed.rs). Group B with perl/estree. It was
+      # missing from the roster: an unrecognised --worker is rejected, so the
+      # worker would have run its gate and then failed every AI call.
+      "perl-generator": {"group": "B", "even": LAGUNA, "odd": SPACE_BUNNY},
     "estree": {"group": "B", "even": LAGUNA, "odd": SPACE_BUNNY},
 }
 

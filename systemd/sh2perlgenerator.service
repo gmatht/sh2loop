@@ -1,0 +1,29 @@
+[Unit]
+Description=sh2loop — perl GENERATOR repair worker (the finished renderer)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/llm/sh2loop
+# cargo is NOT on systemd's default PATH; without this every build fails
+# instantly with "cargo: command not found" and an empty log. See sh2fleet.env.
+EnvironmentFile=/home/llm/sh2loop/systemd/sh2fleet.env
+# Throttled IO slice — the gate builds otranspilerl-cli and runs 555 examples.
+Slice=sh2-io.slice
+# Model rotation: phase-selected model, Laguna daily-quota fallback, token
+# telemetry. Without this the worker calls pir directly, which has no fallback.
+Environment=WORKER_ROTATE_WORKER=perl-generator
+ExecStart=/home/llm/sh2loop/harness/supervise.sh \
+  --name perl-generator \
+  --log /home/llm/sh2loop/loop-perl-generator.log \
+  --pidfile /home/llm/sh2loop/loop-perl-generator.pid \
+  -- \
+  /home/llm/sh2loop/run_perl_generator_worker.sh
+Restart=always
+RestartSec=10
+StandardOutput=append:/home/llm/sh2loop/loop-perl-generator.log
+StandardError=append:/home/llm/sh2loop/loop-perl-generator.log
+
+[Install]
+WantedBy=default.target
