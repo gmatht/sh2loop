@@ -15,12 +15,20 @@ cannot implement a swap by itself.
 | `rust` | A | `stealth/space-bunny-alpha` | `poolside/laguna-s-2.1-free` |
 | `c` | A | `stealth/space-bunny-alpha` | `poolside/laguna-s-2.1-free` |
 | `estree` | B | `poolside/laguna-s-2.1-free` | `stealth/space-bunny-alpha` |
+| `perl-generator` | B | `poolside/laguna-s-2.1-free` | `stealth/space-bunny-alpha` |
 | `core` | — | none (deterministic) | none |
 
 The `perl` row was removed 2026-09-29 with `main_loop_rust.pl`. That
 loop tracked the duplicate perl renderer; the corpus is now tracked by
 `estree` through `fail-estree`. `perl` the *backend* still exists and
 still has its own worker — it just has no separate group-B loop.
+
+`perl-generator` (2026-09-29) is the finished renderer's own worker:
+`run_perl_generator_worker.sh`, gate `./fail`, scope
+`src/perl_generator_fixed.rs`. It is a different thing from the retired
+`main_loop_rust.pl` — that loop measured the perl corpus; this one
+drives the gate and asks the model to fix the emitted Perl. It is group B
+with estree, not a replacement for it.
 
 **Model ids are verified, not assumed.** `cmd` rejects the OpenRouter-style
 colon form (`poolside/laguna-s-2.1:free`) as an unknown model — the catalog id
@@ -57,7 +65,7 @@ no observation for that time.
   loops, so they cannot drift apart.
 - `harness/MODEL_ROTATION.md` — this file.
 
-A worker opts in with `WORKER_ROTATE_WORKER=<rust|c|estree>`. Unset means
+A worker opts in with `WORKER_ROTATE_WORKER=<rust|c|estree|perl-generator>`. Unset means
 the direct `WORKER_CLI` path, which is unchanged.
 
 ## Laguna daily-quota fallback
