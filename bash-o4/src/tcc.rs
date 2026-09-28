@@ -13,6 +13,21 @@
 //! referenced. The sh2perl tree is located via `$BASH_O4_SH2PERL`, else
 //! by walking up from the current executable (`bash-o4/target/<prof>/`
 //! → workspace root → `sh2perl/`).
+//!
+//! THE FB0 DEVICES ARE VENDORED, not borrowed. `fbdev.c` (drawing) and
+//! `fbinput.c` (keyboard) live in `src/devices/`, byte-identical to
+//! `sh2perl/runtime/`, and a render that names either is linked against
+//! those. A fb0 game therefore builds with no sh2perl tree present at
+//! all — which is the difference between "run this" and "run this on a
+//! machine with a compiler on it".
+//!
+//! The sh2perl tree is NOT consulted for the devices, on purpose (see
+//! `find_fbdev_src`). It is still required for the uu-ffi runtime,
+//! because that is a prebuilt shared library with a build step, not a
+//! source file: it cannot be vendored without also vendoring a `.so`
+//! per architecture, which is a different trade. Set
+//! `BASH_O4_FBDEV_DIR` to a `runtime/` to build against your own
+//! device while editing it.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -161,6 +176,17 @@ pub struct LinkNeeds {
     pub math: bool,
     pub gmp: bool,
     pub uu: bool,
+    /// The fb0 framebuffer device (`runtime/fbdev.c`). The C backend
+    /// emits `#include <fbdev.h>` and direct `fb_*` calls when a script
+    /// names one of the primitives, so the link must carry the
+    /// implementation — otherwise the render compiles and then fails
+    /// at link time on an undefined `fb_open`.
+    pub fb: bool,
+    /// The keyboard half of the native device (`runtime/fbinput.c`).
+    /// Its own header, so a draw-only program does NOT link the
+    /// terminal/evdev code: the two devices are pulled in
+    /// independently, by which header the render names.
+    pub fbi: bool,
 }
 
 /// Scan the render for optional-dependency references.
@@ -169,7 +195,59 @@ pub fn link_needs(c_src: &str) -> LinkNeeds {
         math: true, // libm is cheap and universally referenced (sqrt/time paths)
         gmp: c_src.contains("gmp.h"),
         uu: c_src.contains("uu_run.h"),
+        fb: c_src.contains("fbdev.h"),
+        fbi: c_src.contains("fbinput.h"),
     }
+}
+
+/// Locate a device runtime source next to the sh2perl tree.
+/// `find_sh2perl` locates that tree; this looks inside its `runtime/`.
+/// Locate a device runtime source.
+///
+/// THE VENDORED COPY WINS. `src/devices/` carries `fbdev.c` and
+/// `fbinput.c` verbatim, so a render that draws needs no sh2perl tree
+/// at all: the driver can build a fb0 game on a machine that has never
+/// heard of sh2perl, which is the whole point of shipping the device
+/// with the compiler rather than beside it.
+///
+/// A sh2perl tree, when there is one, is used ONLY as an override — set
+/// `BASH_O4_FBDEV_DIR` to a `runtime/` you are actively editing and the
+/// build picks that up instead of the vendored file. It is NOT consulted
+/// implicitly: discovery by walking up from the exe would silently pick
+/// up whatever tree happens to be checked out beside the build, which is
+/// fine right up to the day it is not the one you meant — and then the
+/// "same" device renders differently depending on where the binary was
+/// built.
+fn find_fbdev_src(name: &str) -> Result<PathBuf, String> {
+    if let Ok(dir) = std::env::var("BASH_O4_FBDEV_DIR") {
+        let p = PathBuf::from(&dir).join(name);
+        if p.is_file() {
+            return Ok(p);
+        }
+        return Err(format!(
+            "$BASH_O4_FBDEV_DIR={dir} has no {name} (unset it to use the \
+             vendored device)"
+        ));
+    }
+    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("src/devices")
+        .join(name);
+    if p.is_file() {
+        return Ok(p);
+    }
+    Err(format!(
+        "render references the device but {} is missing (this build of \
+         bash-O4 is incomplete)",
+        p.display()
+    ))
+}
+
+fn find_fbdev() -> Result<PathBuf, String> {
+    find_fbdev_src("fbdev.c")
+}
+
+fn find_fbinput() -> Result<PathBuf, String> {
+    find_fbdev_src("fbinput.c")
 }
 
 /// Compile `c_file` to `out_exe`. Extra args: `-lm` as needed, uu/GMP
@@ -207,6 +285,24 @@ fn compile_exe(
         cmd.arg(format!("-Wl,-rpath,{}", rt.join("lib").display()));
         cmd.arg(format!("-I{}", rt.display()));
         cmd.arg(format!("-I{}", rt.join("lib").display()));
+    }
+    if needs.fb {
+        // fbdev.c includes <linux/fb.h> and <sys/mman.h> and calls
+        // open/ioctl/mmap — the same tcc a hello-world links against,
+        // so no extra library is needed. -I is for <fbdev.h>.
+        let fb = find_fbdev()?;
+        let dir = fb.parent().unwrap_or(Path::new(".")).to_path_buf();
+        cmd.arg(&fb);
+        cmd.arg(format!("-I{}", dir.display()));
+    }
+    if needs.fbi {
+        // The keyboard device: poll/termios, and on Linux an ioctl on
+        // the evdev node. Same tcc, no extra library; -I for
+        // <fbinput.h> (the same runtime/ dir fbdev.c lives in).
+        let fbi = find_fbinput()?;
+        let dir = fbi.parent().unwrap_or(Path::new(".")).to_path_buf();
+        cmd.arg(&fbi);
+        cmd.arg(format!("-I{}", dir.display()));
     }
     let out = cmd.output().map_err(|e| format!("{}: cannot run: {e}", tc.name()))?;
     if !out.status.success() {
@@ -324,8 +420,74 @@ mod tests {
     }
 
     #[test]
+    fn needs_detects_fbdev() {
+        // The fb0 device is opt-in BY NAMING a primitive: the C
+        // backend emits this include only when a script calls one.
+        let n = link_needs("#include <fbdev.h>\nint main(){ fb_open(1,1); return 0; }");
+        assert!(n.fb && n.math && !n.uu && !n.gmp);
+        // A render with no fb_* call must NOT pull the device in, so
+        // adding it can never change an unrelated program's link line.
+        let n = link_needs("int main(){return 0;}");
+        assert!(!n.fb && !n.fbi);
+    }
+
+    #[test]
+    fn needs_separates_draw_from_input() {
+        // The keyboard is a SEPARATE device with a SEPARATE header, so a
+        // draw-only program must not link the terminal/evdev code. A
+        // game that reads keys pulls both (it draws AND reads).
+        let draw = link_needs("#include <fbdev.h>\nint main(){fb_open(1,1);return 0;}");
+        assert!(draw.fb && !draw.fbi);
+        let keys = link_needs(
+            "#include <fbdev.h>\n#include <fbinput.h>\n\
+             int main(){fb_open(1,1);return fb_input_line()[0];}",
+        );
+        assert!(keys.fb && keys.fbi);
+        // The input header alone (a headless key reader) is enough on
+        // its own — the two devices never drag each other in.
+        let input_only = link_needs("#include <fbinput.h>\nint main(){return 0;}");
+        assert!(input_only.fbi && !input_only.fb);
+    }
+
+    #[test]
     fn toolchain_found() {
         // The dev box has tcc; elsewhere any cc satisfies the fallback.
         assert!(find_toolchain().is_ok());
+    }
+
+    #[test]
+    fn devices_are_vendored() {
+        // A render that names a device must find its implementation
+        // WITHOUT a sh2perl tree. This is the property the vendoring
+        // exists for, and it is the thing that regresses quietly: point
+        // the discovery back at a tree and the test still passes on this
+        // machine, because this machine has one.
+        let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/devices");
+        for f in ["fbdev.c", "fbdev.h", "fbinput.c", "fbinput.h"] {
+            assert!(
+                dev.join(f).is_file(),
+                "src/devices/{f} must ship with the driver; a render that \
+                 names the device cannot link without it"
+            );
+        }
+        // The lookup must not consult a tree, so it must not fail when
+        // the variable points nowhere.
+        unsafe {
+            std::env::set_var("BASH_O4_FBDEV_DIR", "/nonexistent/for/test");
+        }
+        // A bad override is a loud error naming the variable, not a
+        // silent fall-through to the vendored copy: a build that quietly
+        // used a different device than the one you named is worse than
+        // one that refuses.
+        let e = find_fbdev_src("fbdev.c").unwrap_err();
+        assert!(
+            e.contains("BASH_O4_FBDEV_DIR"),
+            "a bad override must name the variable, got: {e}"
+        );
+        unsafe {
+            std::env::remove_var("BASH_O4_FBDEV_DIR");
+        }
+        assert!(find_fbdev().is_ok(), "the vendored device must resolve");
+        assert!(find_fbinput().is_ok(), "the vendored keyboard must resolve");
     }
 }

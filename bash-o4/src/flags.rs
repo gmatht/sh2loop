@@ -170,6 +170,11 @@ pub fn common_usage() -> &'static str {
      \x20 --true64|--no-true64  true 64-bit arithmetic (default true: safe;\n\
      \x20                      $SH2_TRUE64=0 opts out)\n\
      \x20 --verbose            diagnostics (cache hit/miss, toolchain, GPU note)\n\
+     \n\
+     The fb0 devices (drawing, keyboard) are vendored in src/devices/, so a\n\
+     render that draws builds with no sh2perl tree present. Set\n\
+     $BASH_O4_FBDEV_DIR to a sh2perl runtime/ to build against your own\n\
+     copy of the device while editing it.\n\
      \x20 -h, --help           this help, exit 0\n\
      \x20 -V, --version        version, exit 0\n"
 }
