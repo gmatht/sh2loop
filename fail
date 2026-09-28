@@ -135,6 +135,14 @@ sub run_one_test {
     my $tmp_paths = extract_tmp_paths($test_file);
     my $before_snapshot = @$tmp_paths ? snapshot_paths($tmp_paths) : undef;
 
+    # The generated programs' external-command seam (UU-FFI.md): point the
+    # transpiler at the built libcoreutils_ffi.so so it emits __sh_uu_run
+    # calls (with a fork/exec fallback at runtime if the lib is absent),
+    # so the gate exercises the in-process coreutils arm.
+    local $ENV{SH2_UU_LIB} = "$root/sh2perl/runtime/lib/libcoreutils_ffi.so";
+    local $ENV{SH2_UU_PIPELINE_LIB} = "$root/sh2perl/runtime/lib/libcoreutils_ffi_pipeline.so";
+    local $ENV{UU_FFI_MULTICALL} = "$root/sh2perl/runtime/lib/coreutils-ffi-multicall";
+
     # Step 1: Run otranspilerl to generate Perl code (the whole stdout IS
     # the Perl — no banner to strip)
     my $gen_out = `timeout $timeout_per_test sh -c '"$otranspilerl" --target pl "$test_file" 2>/dev/null'`;
@@ -149,15 +157,6 @@ sub run_one_test {
 
     # Extract Perl code: the whole stdout (otranspilerl has no banner)
     my $perl_code = $gen_out;
-
-    # The generated programs' external-command seam (UU-FFI.md): point the
-    # BEGIN probe at the built libcoreutils_ffi.so when present, so the
-    # gate exercises the in-process coreutils arm; absent/invalid → the
-    # guarded fork/exec fallback still runs (both-mode parity checked in
-    # runtime/tests/).
-    local $ENV{SH2_UU_LIB} = "$root/sh2perl/runtime/lib/libcoreutils_ffi.so";
-    local $ENV{SH2_UU_PIPELINE_LIB} = "$root/sh2perl/runtime/lib/libcoreutils_ffi_pipeline.so";
-    local $ENV{UU_FFI_MULTICALL} = "$root/sh2perl/runtime/lib/coreutils-ffi-multicall";
 
     # Gate: reject the bash-wrapper fallback. When the parser cannot parse a
     # script it emits `system('bash', '<file>')` instead of real Perl
@@ -206,7 +205,14 @@ sub run_one_test {
     # Step 3: Run bash on the original script with timeout
     my $bash_out;
     my $bash_exit;
-    $bash_out = `timeout $timeout_per_test bash '$test_file' 2>"$tmp_dir/bash_stderr.txt"`;
+    # setsid + -k: see fail-estree for the full account. `timeout N bash
+    # example.sh` signals only its direct child, so an example that forks a
+    # writer which outlives it (096_head_procsub.sh) leaks that writer. Under
+    # this fleet SIGPIPE is ignored, so the writer gets EPIPE rather than a
+    # signal and loops forever. 479 such orphans filled sh2gates to its
+    # pids.max and every later gate reported ~551/555 failures. The run gets
+    # its own process group and -k escalates TERM to KILL.
+    $bash_out = `setsid timeout -k 2 $timeout_per_test bash '$test_file' 2>"$tmp_dir/bash_stderr.txt"`;
     $bash_exit = $? >> 8;
     my $bash_stdout = $bash_out // q{};
     my $bash_stderr = '';

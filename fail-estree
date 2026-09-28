@@ -124,7 +124,29 @@ sub run_one_test {
             # $0-dependent stdout agrees with bash ($0 is argv0 pass-through).
             my $perl_out = `timeout $timeout_per_test perl -M5.010 -e '\$0 = shift \@ARGV; my \$__f = shift \@ARGV; do \$__f' '$test_file' '$perl_file' 2>"$tmp_dir/pserr.txt"`;
             my $perl_exit = $? >> 8;
-            my $bash_out = `timeout $timeout_per_test bash '$test_file' 2>"$tmp_dir/bserr.txt"`;
+            # setsid + -k: the reference run must die as a PROCESS GROUP.
+            #
+            # `timeout N bash example.sh` signals only its DIRECT child. An
+            # example that forks a writer which outlives it — 096_head_procsub.sh
+            # is `head <(while true; do echo .; sleep 1; done)` — leaves that
+            # writer running with the pipe's read end gone. Under this fleet
+            # SIGPIPE is IGNORED (systemd sets IgnoreSIGPIPE=yes and every
+            # worker inherits it), so the writer gets EPIPE instead of a
+            # signal and keeps looping: `timeout` returns, the gate moves on,
+            # and the process is never reaped.
+            #
+            # The cost was not slow, it was fatal: 479 such orphans filled
+            # sh2gates to its pids.max (1024), pids.events recorded 5808
+            # refused forks, and every subsequent gate reported ~551/555
+            # failures with "Can't fork, trying again" — a measurement that
+            # looked like a catastrophic code regression and was really an
+            # exhausted process table. `fail` (the sibling gate) has the same
+            # two call sites and the same exposure.
+            #
+            # setsid gives the run its own process group, and -k escalates
+            # TERM to KILL, so a stuck writer is cleaned up with the run
+            # instead of outliving it.
+            my $bash_out = `setsid timeout -k 2 $timeout_per_test bash '$test_file' 2>"$tmp_dir/bserr.txt"`;
             my $bash_exit = $? >> 8;
             if ($bash_exit == 124) {
                 # the bash reference itself timed out — inconclusive, not a
@@ -177,7 +199,7 @@ sub run_one_test {
                 my $first = (split /\n/, $err)[0];
                 $est_reason = "runtime error: $first";
             } else {
-                my $bash_out = `timeout $timeout_per_test bash '$test_file' 2>"$tmp_dir/bserr2.txt"`;
+                my $bash_out = `setsid timeout -k 2 $timeout_per_test bash '$test_file' 2>"$tmp_dir/bserr2.txt"`;
                 my $bash_exit2 = $? >> 8;
                 # The bash REFERENCE timed out (the harness's per-test cap,
                 # not a bash exit code): e.g. sqrt1337.sh's 10k-iteration
