@@ -58,51 +58,68 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
     [ -n "$sid" ] && break
     sleep 0.05
 done
+# A short-lived example is reaped before the probe's `ps` runs (048_subprocess
+# exits in ~5ms), leaving $sid empty and the whole sweep skipped. `setsid` in a
+# non-interactive shell is not a process-group leader, so it does NOT fork: it
+# calls setsid(2) in place and the child IS the new session leader, i.e.
+# SID == the child's pid. The orphan keeps that session after the leader is
+# reaped, so the child's pid still names the session the sweep must close.
+[ -n "$sid" ] || sid="$child"
 
 wait "$child"
 rc=$?
 
-# The sweep below must not itself become a load source. The first version
-# ran `ps -o sid= -p <pid>` for EVERY live pid, twice — on this box that is
+# The member list must be read in ONE pass. The first version ran
+# `ps -o sid= -p <pid>` for EVERY live pid, twice — on this box that is
 # 2 x N forks per example (N=647 at the time of writing, i.e. ~1300 `ps`
-# processes per invocation). A 555-example gate is 2 sides x 555 x 1300 =
-# ~1.4M short-lived processes, which is precisely the fork/fork-storm load
-# this wrapper exists to keep off the box. One `awk` over /proc/N/stat reads
-# every pid's session in a single pass with no forks; `kill` is a builtin.
+# processes per invocation): precisely the fork/fork-storm load this wrapper
+# exists to keep off the box. One `ps -e` covers every pid, and the `awk`
+# only compares the session column.
 #
-# /proc/N/stat layout: pid (comm) state ppid pgrp session ... — `comm` may
-# contain spaces AND parentheses, so the fields are taken AFTER the LAST ')'
-# rather than by splitting the whole line.
+# `ps -e -o sid=,pid=,stat=` (sid, pid, state) rather than the old
+# single-pass awk over /proc/[0-9]*/stat: that awk was FLAKY — it reported an
+# empty session ~1 scan in 5 even while the members were alive — so the
+# sweep below broke out early and skipped the kill on one side but not the
+# other. Measured: 6/6 runs with ps, 32/40 with the /proc awk. A verdict
+# oracle cannot be built on a scan that misses live processes at random.
+#
+# Zombies are excluded: they are already dead, killing them is a no-op, and
+# counting one as a live member makes the settle loop below spin.
 session_members() {
-    awk -v want="$sid" '
-        { i = 0
-          for (p = 1; p <= length($0); p++) if (substr($0, p, 1) == ")") i = p
-          if (!i) next
-          n = split(substr($0, i + 2), f, " ")
-          if (n < 4) next
-          if (f[4] == want) print f[1] }        # f[4] = session
-    ' /proc/[0-9]*/stat 2>/dev/null
+    ps -e -o sid=,pid=,stat= 2>/dev/null | awk -v want="$sid" '$1 == want && $3 != "Z" { print $2 }'
 }
 
 if [ -n "$sid" ]; then
     self=$$
-    # TERM first so a well-behaved child can clean up, then KILL on the
-    # next pass. `kill` here is deliberately not a group kill: the point
-    # is to catch members that are no longer in a live group.
-    for p in $(session_members); do
-        [ "$p" = "$self" ] && continue
-        [ "$p" = "$child" ] && continue
-        kill -TERM "$p" 2>/dev/null
-    done
-    # Give the TERM a moment, then make sure. A `while true; do sleep 1; done`
-    # writer does not act on TERM while blocked in sleep, so KILL is the
-    # reliable finish.
-    sleep 0.2
-    for p in $(session_members); do
-        [ "$p" = "$self" ] && continue
-        [ "$p" = "$child" ] && continue
-        kill -KILL "$p" 2>/dev/null
-    done
+    members=$(session_members)
+    if [ -n "$members" ]; then
+        # Terminate the whole session in ONE pass, with no dwell between TERM
+        # and KILL. The dwell was an ASYMMETRY an equivalence gate can SEE:
+        # bash defers SIGTERM while it is blocked in a child — an orphan like
+        # `(sleep 1; echo a)&` keeps running through the dwell, writes `a` to
+        # the capture file, and only then dies — while the C side, whose
+        # orphan is a plain fork, dies on TERM at once and writes nothing.
+        # want.txt then ended in `a` and got.txt did not, and
+        # 048_subprocess.sh flaked on exactly that. `kill` here is
+        # deliberately not a group kill: the point is to catch members that
+        # are no longer in a live group.
+        for p in $members; do
+            [ "$p" = "$self" ] && continue
+            [ "$p" = "$child" ] && continue
+            kill -TERM "$p" 2>/dev/null
+            kill -KILL "$p" 2>/dev/null
+        done
+        # Nothing from the session may outlive the sweep: a straggler would
+        # still be writing to the capture file while the caller reads and
+        # diffs it, which is the same race one level down. Bounded and
+        # fail-open — a missing sweep must never hang the gate.
+        _i=0
+        while [ "$_i" -lt 10 ]; do
+            [ -z "$(session_members)" ] && break
+            sleep 0.05
+            _i=$((_i + 1))
+        done
+    fi
 fi
 
 exit "$rc"
