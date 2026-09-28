@@ -1063,6 +1063,25 @@ EOF
                   # the gate as a whole; per-file runs are one-at-a-time. Set
                   # EQUIV_PARALLEL=N to enable xargs -P N if gate time ever
                   # becomes the bottleneck.
+                  #
+                  # YIELD (2026-09-28). The --wait load gate runs BEFORE the
+                  # worker takes .gate.lock, so it is stale the moment the
+                  # 1-2h corpus pass begins — and a pass holds the lock the
+                  # whole time, so nothing else can even try to measure the
+                  # box. Measured: load1 115 on 16 cores with a single c gate
+                  # running (its per-file `clang --analyze` keeps ~10 procs
+                  # resident) while fail-estree sat at 0% CPU for 15 min
+                  # without finishing. The gate meant to PROTECT the box was
+                  # the thing saturating it.
+                  #
+                  # So the pass cooperatively yields: every YIELD_EVERY files
+                  # it pauses and waits for load to fall back under the same
+                  # threshold --wait uses. It keeps the lock (releasing it
+                  # would let another worker start a competing pass), and the
+                  # wait is bounded and fail-open, so a busy box costs this
+                  # gate time but never correctness and never a deadlock.
+                  # GATE_YIELD_EVERY=0 disables; GATE_YIELD_MAX_WAIT bounds
+                  # each pause (default 120s).
                   eq_tool=""; eq_ext=""
                   case "$g_lang" in
                     c)      eq_tool="cc";        eq_ext="c";;
@@ -1100,7 +1119,22 @@ EOF
                     esac
                     return 0
                   }
+                  GATE_YIELD_EVERY="${GATE_YIELD_EVERY:-25}"
+                  GATE_YIELD_MAX_WAIT="${GATE_YIELD_MAX_WAIT:-120}"
+                  gate_seen=0
                   for f in $corpus; do
+                    # Cooperative yield (see the YIELD note above): let the box
+                    # breathe every GATE_YIELD_EVERY files. The load gate the
+                    # worker ran before taking the lock is stale by now, and
+                    # this pass is the thing that pushed load over the line.
+                    # Bounded and fail-open — it can cost wall-clock, never a
+                    # verdict, and never a stall if the box stays busy.
+                    if [ "$GATE_YIELD_EVERY" -gt 0 ]; then
+                      gate_seen=$((gate_seen+1))
+                      if [ $((gate_seen % GATE_YIELD_EVERY)) -eq 0 ]; then
+                        wait_for_load 1.5 5 "$GATE_YIELD_MAX_WAIT" || true
+                      fi
+                    fi
                     # shIR emit from the CORE (the A1 contract source of truth):
                     # if the core emits nothing (rc!=0 or empty JSON — the 4
                     # parse-error examples), SKIP (not a backend gap). The emit
