@@ -122,7 +122,7 @@ sub run_one_test {
         if ($perl_verdict eq 'PASS') {
             # argv0 = the source path (what `bash '$test_file'` sees) so
             # $0-dependent stdout agrees with bash ($0 is argv0 pass-through).
-            my $perl_out = `timeout $timeout_per_test perl -M5.010 -e '\$0 = shift \@ARGV; my \$__f = shift \@ARGV; do \$__f' '$test_file' '$perl_file' 2>"$tmp_dir/pserr.txt"`;
+            my $perl_out = `'$root/harness/kill-session.sh' timeout $timeout_per_test perl -M5.010 -e '\$0 = shift \@ARGV; my \$__f = shift \@ARGV; do \$__f' '$test_file' '$perl_file' 2>"$tmp_dir/pserr.txt"`;
             my $perl_exit = $? >> 8;
             # setsid + -k: the reference run must die as a PROCESS GROUP.
             #
@@ -146,7 +146,7 @@ sub run_one_test {
             # setsid gives the run its own process group, and -k escalates
             # TERM to KILL, so a stuck writer is cleaned up with the run
             # instead of outliving it.
-            my $bash_out = `setsid timeout -k 2 $timeout_per_test bash '$test_file' 2>"$tmp_dir/bserr.txt"`;
+            my $bash_out = `'$root/harness/kill-session.sh' timeout $timeout_per_test bash '$test_file' 2>"$tmp_dir/bserr.txt"`;
             my $bash_exit = $? >> 8;
             if ($bash_exit == 124) {
                 # the bash reference itself timed out — inconclusive, not a
@@ -199,7 +199,7 @@ sub run_one_test {
                 my $first = (split /\n/, $err)[0];
                 $est_reason = "runtime error: $first";
             } else {
-                my $bash_out = `setsid timeout -k 2 $timeout_per_test bash '$test_file' 2>"$tmp_dir/bserr2.txt"`;
+                my $bash_out = `'$root/harness/kill-session.sh' timeout $timeout_per_test bash '$test_file' 2>"$tmp_dir/bserr2.txt"`;
                 my $bash_exit2 = $? >> 8;
                 # The bash REFERENCE timed out (the harness's per-test cap,
                 # not a bash exit code): e.g. sqrt1337.sh's 10k-iteration
