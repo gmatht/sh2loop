@@ -142,14 +142,19 @@ if (-d "$SH2PERL_ESTREE/.git" || -f "$SH2PERL_ESTREE/.git") {
        . "$project_root/sh2perl/backends/estree main\n";
 }
 my $fail_estree  = "$project_root/fail-estree";
-my $results_file = "$project_root/.estree_failures.tsv";    # fail-estree writes this
+# fail-estree writes its per-test ledger and metric into the tree it
+# MEASURED (2026-09-28), i.e. $sh2perl — this loop's own worktree — so
+# the core worker's run (SH2PERL_DIR=sh2perl/backends/core) can no longer
+# overwrite this loop's verdicts. Read from the same place the gate writes,
+# or the loop would diff against a file nothing updates.
+my $results_file = "$sh2perl/.estree_failures.tsv";    # fail-estree writes this
 my $prev_file    = "$project_root/.estree_prev_failures.tsv"; # committed-state baseline
 my $estree_trusted_file = "$project_root/.estree_trusted_count";
 my $perl_trusted_file   = "$project_root/.estree_perl_trusted_count";
 my $history_log  = "$project_root/.estree_history.log";
 my $lock_file    = "$project_root/.estree_loop.lock";
 # improvement-mode (M8 / PLAN.md §9) state
-my $metric_file  = "$project_root/.estree_metric.tsv";       # fail-estree --metric writes (current run)
+my $metric_file  = "$sh2perl/.estree_metric.tsv";       # fail-estree --metric writes (current run)
 my $metric_prev  = "$project_root/.estree_metric_prev.tsv";
 my $bench_file    = "$project_root/.estree_bench.tsv";   # persisted benchmark trend (js/bash per bench)  # committed-state metric baseline
 my $improvement_idle_count = 0;

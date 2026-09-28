@@ -3,6 +3,15 @@
 # Usage: ./progress.sh [hours] (default: 4)
 set -u
 cd "$(dirname "$0")"
+# fail-estree writes its ledger/metric into the tree it MEASURED (2026-09-28),
+# so the estree loop's state lives in sh2perl/, not the workspace root. Fall
+# back to the old workspace location so a pre-move file still reads rather
+# than reporting "(no data)".
+ESTREE_METRIC="sh2perl/.estree_metric.tsv"
+[ -f "$ESTREE_METRIC" ] || ESTREE_METRIC=".estree_metric.tsv"
+ESTREE_FAILURES="sh2perl/.estree_failures.tsv"
+[ -f "$ESTREE_FAILURES" ] || ESTREE_FAILURES=".estree_failures.tsv"
+export ESTREE_METRIC ESTREE_FAILURES   # the python heredoc below reads these
 HOURS="${1:-4}"
 SINCE="$HOURS hours ago"
 
@@ -150,8 +159,14 @@ if f_now == 0:
     # count is fleet-wide (single .estree_metric.tsv), so mark it global
     # rather than implying it is this tree's own measurement.
     sh2 = None
-    if os.path.isfile('.estree_metric.tsv'):
-        for ln in open('.estree_metric.tsv', errors='replace'):
+    # ESTREE_METRIC is exported by the shell above (fail-estree writes into
+    # the tree it measured, not the workspace root). Default to the new
+    # location, with the old one as a fallback for a pre-move file.
+    estree_metric = os.environ.get('ESTREE_METRIC', 'sh2perl/.estree_metric.tsv')
+    if not os.path.isfile(estree_metric):
+        estree_metric = '.estree_metric.tsv'
+    if os.path.isfile(estree_metric):
+        for ln in open(estree_metric, errors='replace'):
             f = ln.split('\t')
             if f and f[0].strip() == 'total' and len(f) > 1:
                 sh2 = f[1].strip()
@@ -260,12 +275,12 @@ if [ -f .estree_history.log ]; then
   fi
   rm -f /tmp/.metric_rows.$$
   # the live count for the current tree (independent of the log)
-  if [ -f .estree_metric.tsv ]; then
-    cur=$(awk -F'\t' '$1=="total"{print $2}' .estree_metric.tsv 2>/dev/null)
+  if [ -f "$ESTREE_METRIC" ]; then
+    cur=$(awk -F'\t' '$1=="total"{print $2}' "$ESTREE_METRIC" 2>/dev/null)
     # Say WHEN it was measured: a stale snapshot read as "current" looks
     # like a regression against the tracked series and sends people chasing
     # a phantom. Timestamp it explicitly.
-    m_age=$(( ($(date +%s) - $(stat -c %Y .estree_metric.tsv 2>/dev/null || date +%s)) / 60 ))
+    m_age=$(( ($(date +%s) - $(stat -c %Y "$ESTREE_METRIC" 2>/dev/null || date +%s)) / 60 ))
     if [ "$m_age" -lt 60 ]; then when="${m_age}m ago"
     else when="$((m_age / 60))h$((m_age % 60))m ago"
     fi
@@ -320,10 +335,13 @@ else
 fi
 
 # Estree — parse the TSV header for the last row
-if [ -f .estree_failures.tsv ]; then
-  estree_last=$(tail -1 .estree_failures.tsv 2>/dev/null)
-  estree_pass=$(echo "$estree_last" | awk -F'\t' '{for(i=1;i<=NF;i++) if($i ~ /pass/) print $(i-1)}' | head -1)
-  estree_fail=$(echo "$estree_last" | awk -F'\t' '{for(i=1;i<=NF;i++) if($i ~ /fail/) print $(i-1)}' | head -1)
+if [ -f "$ESTREE_FAILURES" ]; then
+  # The TSV is PER-TEST (name, verdict, reason) — its last row is one test's
+  # verdict, not a corpus total, so reading it here reported a single PASS as
+  # if it were the whole corpus. The real total is the report line
+  # fail-estree appends per run; count the rows instead.
+  estree_pass=$(awk -F'\t' '$2=="PASS"' "$ESTREE_FAILURES" 2>/dev/null | wc -l | tr -d ' ')
+  estree_fail=$(awk -F'\t' '$2=="FAIL"' "$ESTREE_FAILURES" 2>/dev/null | wc -l | tr -d ' ')
   echo "  Estree: ${estree_pass:-?} pass, ${estree_fail:-?} fail"
 else
   echo "  Estree: (no data)"

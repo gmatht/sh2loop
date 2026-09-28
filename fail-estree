@@ -28,6 +28,32 @@ my $root = dirname(abs_path($0));
 # tree's — so its uncommitted WIP can never leak into another worker's
 # measurement.
 my $sh2perl = $ENV{SH2PERL_DIR} // "$root/sh2perl";
+# ── PER-RUN OUTPUT DIRECTORY (2026-09-28) ──────────────────────────────
+# Every output file used to land in $root (the workspace) regardless of
+# which worktree was measured, so two workers measuring two DIFFERENT trees
+# clobbered each other's state: the core worker
+# (SH2PERL_DIR=sh2perl/backends/core) and the estree loop
+# (SH2PERL_DIR=sh2perl/backends/estree) both wrote .estree_failures.tsv
+# and .estree_metric.tsv, last writer wins. Observed on 2026-09-28: the
+# core worker's 9 failures overwrote the estree loop's 2, and the ledger
+# read as a regression that never happened. progress.sh and
+# main_loop_estree.pl read these files, so the collision also corrupted
+# the model-rotation comparison.
+#
+# Each run now writes into the tree it actually measured, so a worker's
+# state is its own. SH2PERL_DIR is the exact thing that distinguishes the
+# runs (it already selects the examples and the binary), so keying on it
+# needs no new configuration.
+#
+# The shir loop's $edir symlink farm also lands here — that is deliberate:
+# it is a per-candidate throwaway check, and its own file is cleaned up
+# with the dir. Two such runs racing on one file would be harmless (both
+# are transient, and the verdict is parsed from stdout, not the file).
+#
+# .estree_trusted_count is deliberately NOT moved: the shir loop READS it
+# to check that a candidate transform does not regress the estree corpus,
+# so that one is meant to be shared.
+my $outdir = -d $sh2perl ? $sh2perl : $root;
 # otranspilerl-cli is the transpiler (PLAN "migrate to otranspiler only") —
 # renders the same shIR pipeline, byte-identical to otranspilerl-cli's modern paths.
 #
@@ -359,8 +385,8 @@ printf "ESTREE: %d passed, %d failed out of %d  (%.1f%%)\n", $estree_pass, $estr
 # the KNOWN report location (summarize-progress.sh reads this, not the log)
 {
     my $stamp = localtime;
-    mkdir "$root/gate-reports" unless -d "$root/gate-reports";
-    open my $rh, '>>', "$root/gate-reports/estree.report" or die "write estree report: $!";
+    mkdir "$outdir/gate-reports" unless -d "$outdir/gate-reports";
+    open my $rh, '>>', "$outdir/gate-reports/estree.report" or die "write estree report: $!";
     print $rh "$stamp estree: $estree_pass/$total pass, $estree_fail fail; perl $perl_pass/$total\n";
     close $rh;
 }
@@ -385,14 +411,14 @@ if ($do_metric) {
     # Full runs only: prefix runs are partial views and must not clobber the
     # committed-state baseline the loop diffs against.
     if (!@prefix_args) {
-        open my $mfh, '>', "$root/.estree_metric.tsv" or warn "write metric: $!";
+        open my $mfh, '>', "$outdir/.estree_metric.tsv" or warn "write metric: $!";
         print $mfh "total\t$metric_total\n";
         print $mfh "in_loop\t$in_loop_total\n";
         for my $k (sort keys %agg) {
             print $mfh "$k\t$agg{$k}\t$aggin{$k}\n";
         }
         close $mfh;
-        print "metric written to .estree_metric.tsv\n";
+        print "metric written to $outdir/.estree_metric.tsv\n";
     }
 }
 
@@ -428,10 +454,10 @@ if (!@prefix_args) {
     # completion order (parallel, nondeterministic) — an unsorted write
     # reorders all 552 lines every run, and a tracked file then diffs as
     # pure churn that hides the real verdict changes.
-    open my $ofh, '>', "$root/.estree_failures.tsv" or warn "write failures tsv: $!";
+    open my $ofh, '>', "$outdir/.estree_failures.tsv" or warn "write failures tsv: $!";
     print $ofh join("\n", sort @estree_failures), "\n";
     close $ofh;
-    print "\n(full per-test list in .estree_failures.tsv)\n";
+    print "\n(full per-test list in $outdir/.estree_failures.tsv)\n";
 } else {
     print "\n(per-test list not written for prefix runs — full runs only)\n";
 }
