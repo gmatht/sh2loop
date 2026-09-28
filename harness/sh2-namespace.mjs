@@ -1554,9 +1554,9 @@ export const sh2 = {
       // present). In `[ ]` the empty vanishes (word-splitting) and a
       // lone `-n` becomes a non-empty string test (true) — the two must
       // differ.
-      const tokens = tokenizeTest(expr, style === '[[');
-      const ast = parseTest(tokens);
-      const r = evalTest(ast, this);
+      const [tokens, tokenQuoted] = tokenizeTest(expr, style === '[[');
+      const ast = parseTest(tokens, tokenQuoted);
+      const r = evalTest(ast, this, style === '[[');
       this.lastExit = r ? 0 : 1;
       return r;
     } catch (e) {
@@ -9176,7 +9176,7 @@ export function tokenizeTest(expr, keepEmpty) {
     // expansion remains an empty operand (`[[ -n $(empty) ]]` → false).
     if (started && (tok !== '' || quoted || keepEmpty)) { push(tok, quoted); }
   }
-  return tokens;
+  return [tokens, tokenQuoted];
 }
 
 export function parseTest(tokens) {
