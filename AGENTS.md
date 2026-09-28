@@ -13,7 +13,7 @@ revision history).
   workspace** — its CI is self-contained.
 - `sh2runtime/` — **not a submodule**. Separate repo; coupled only via the
   ESTree-JSON contract (PLAN.md §1). Pinned by commit SHA in CI when needed.
-- Test harness: `fail` (Perl corpus gate), `check_qx.pl`, `main_loop_rust.pl`,
+- Test harness: `fail` (Perl corpus gate), `check_qx.pl`,
   `fail-coreutils` (workspace-side regression corpus); planned: `fail-estree`,
   `harness/estree-runner.mjs` (reference executor).
 - **Model rotation (see `harness/MODEL_ROTATION.md`).** Four workers run on two
