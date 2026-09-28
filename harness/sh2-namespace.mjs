@@ -5437,7 +5437,7 @@ builtins.env = function (args) {
 builtins.test = function (args) {
   if (args.length === 0) { this.lastExit = 1; return false; }
   try {
-    const r = evalTest(parseTest(args.map(String)), this);
+    const r = evalTest(parseTest(args.map(String)), this, false);
     this.lastExit = r ? 0 : 1;
     return r;
   } catch {
@@ -9179,7 +9179,7 @@ export function tokenizeTest(expr, keepEmpty) {
   return [tokens, tokenQuoted];
 }
 
-export function parseTest(tokens) {
+export function parseTest(tokens, tokenQuoted = null) {
   // bash `[` argument-count semantics after word-splitting:
   //  0 args  → false (`[ $unset ]` → `[ ]`)
   //  1 arg   → true iff the arg is non-empty (and not `!`) — even when the
@@ -9188,6 +9188,7 @@ export function parseTest(tokens) {
   if (tokens.length === 1) return { op: 'str', arg: tokens[0] === '!' ? '' : tokens[0] };
   let i = 0;
   function peek() { return tokens[i]; }
+  function isQuoted(idx) { return tokenQuoted && idx < tokenQuoted.length && tokenQuoted[idx]; }
   function or() {
     let left = and();
     while (peek() === '-o') { i++; left = { op: 'or', l: left, r: and() }; }
@@ -9228,14 +9229,16 @@ export function parseTest(tokens) {
       i++;
       return { op: 'unary', flag: t, arg };
     }
+    const lIdx = i;
     const l = tokens[i++];
     const op = peek();
     if (isBinOp(op)) {
+      const rIdx = i + 1;
       i++;
       const r = tokens[i];
       if (r === undefined) throw new Error(`missing operand for ${op}`);
       i++;
-      return { op: 'bin', binOp: op, l, r };
+      return { op: 'bin', binOp: op, l, r, lQuoted: isQuoted(lIdx), rQuoted: isQuoted(rIdx) };
     }
     return { op: 'str', arg: l };
   }
@@ -9270,19 +9273,22 @@ function intCmp(l, r, cmp) {
   return a !== null && b !== null && cmp(a, b);
 }
 
-function evalTest(ast, sh) {
+function evalTest(ast, sh, isDestructuring = false) {
   switch (ast.op) {
-    case 'or': return evalTest(ast.l, sh) || evalTest(ast.r, sh);
-    case 'and': return evalTest(ast.l, sh) && evalTest(ast.r, sh);
-    case 'not': return !evalTest(ast.v, sh);
+    case 'or': return evalTest(ast.l, sh, isDestructuring) || evalTest(ast.r, sh, isDestructuring);
+    case 'and': return evalTest(ast.l, sh, isDestructuring) && evalTest(ast.r, sh, isDestructuring);
+    case 'not': return !evalTest(ast.v, sh, isDestructuring);
     case 'str': return String(ast.arg).length > 0;
     case 'unary': return evalUnary(ast.flag, ast.arg, sh);
     case 'bin': {
       const l = String(ast.l), r = String(ast.r);
       switch (ast.binOp) {
-        // `[[ ]]` uses pattern matching for ==; `[ ]` uses string equality.
-        // Match bash semantics for both by glob-matching when the right side
-        // contains glob metacharacters, else plain string equality.
+        // `[[ ]]` (isDestructuring) pattern-matches on `==` / `!=` when the
+        // RHS is an unquoted pattern; `[ ]` (and the `test` builtin) NEVER
+        // globs — bash's `[` is a builtin receiving already-expanded argv,
+        // so even an unquoted `a*` arrives as the literal string `a*`. A
+        // QUOTED RHS operand never globs in `[[ ]]` either (`[[ abc == "a*" ]]`
+        // is a literal compare). For `[ ]` / `test`, always literal.
         // Extglob groups (@(a|b), !(a), *(a), +(a), ?(a)) count as pattern
         // syntax: bash's `[[ == ]]` matches "as if the extglob shell option
         // were enabled" (at-in-test.sh: `[[ "$x" = @(foo|bar) ]]` matches
@@ -9297,14 +9303,19 @@ function evalTest(ast, sh) {
           // bash patterns are C strings: a NUL byte truncates the pattern
           // (`*$'\x00'*` matches everything — the pattern becomes `*`).
           const rPat = r2.split('\u0000')[0];
-          return /[*?[]|[!@*+?]\(/.test(rPat) ? globMatch(rPat, l2) : l2 === rPat;
+          // glob only when [[ ]] AND unquoted RHS with glob metacharacters
+          const doGlob = isDestructuring && !ast.rQuoted &&
+            /[*?[]|[!@*+?]\(/.test(rPat);
+          return doGlob ? globMatch(rPat, l2) : l2 === rPat;
         }
         case '!=': {
           const ci = sh.shoptState.get('nocasematch');
           const l2 = ci ? l.toLowerCase() : l;
           const r2 = ci ? r.toLowerCase() : r;
           const rPat = r2.split('\u0000')[0];
-          return !(/[*?[]|[!@*+?]\(/.test(rPat) ? globMatch(rPat, l2) : l2 === rPat);
+          const doGlob = isDestructuring && !ast.rQuoted &&
+            /[*?[]|[!@*+?]\(/.test(rPat);
+          return !(doGlob ? globMatch(rPat, l2) : l2 === rPat);
         }
         case '-eq': return intEq(l, r, 0);
         case '-ne': return intEq(l, r, 1);
