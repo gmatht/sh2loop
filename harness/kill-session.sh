@@ -62,32 +62,46 @@ done
 wait "$child"
 rc=$?
 
+# The sweep below must not itself become a load source. The first version
+# ran `ps -o sid= -p <pid>` for EVERY live pid, twice — on this box that is
+# 2 x N forks per example (N=647 at the time of writing, i.e. ~1300 `ps`
+# processes per invocation). A 555-example gate is 2 sides x 555 x 1300 =
+# ~1.4M short-lived processes, which is precisely the fork/fork-storm load
+# this wrapper exists to keep off the box. One `awk` over /proc/N/stat reads
+# every pid's session in a single pass with no forks; `kill` is a builtin.
+#
+# /proc/N/stat layout: pid (comm) state ppid pgrp session ... — `comm` may
+# contain spaces AND parentheses, so the fields are taken AFTER the LAST ')'
+# rather than by splitting the whole line.
+session_members() {
+    awk -v want="$sid" '
+        { i = 0
+          for (p = 1; p <= length($0); p++) if (substr($0, p, 1) == ")") i = p
+          if (!i) next
+          n = split(substr($0, i + 2), f, " ")
+          if (n < 4) next
+          if (f[4] == want) print f[1] }        # f[4] = session
+    ' /proc/[0-9]*/stat 2>/dev/null
+}
+
 if [ -n "$sid" ]; then
     self=$$
-    for p in /proc/[0-9]*; do
-        [ -r "$p/stat" ] || continue
-        pid=${p#/proc/}
-        [ "$pid" = "$self" ] && continue
-        [ "$pid" = "$child" ] && continue
-        s=$(ps -o sid= -p "$pid" 2>/dev/null | tr -d ' ')
-        [ "$s" = "$sid" ] || continue
-        # TERM first so a well-behaved child can clean up, then KILL on the
-        # next pass. `kill` here is deliberately not a group kill: the point
-        # is to catch members that are no longer in a live group.
-        kill -TERM "$pid" 2>/dev/null
+    # TERM first so a well-behaved child can clean up, then KILL on the
+    # next pass. `kill` here is deliberately not a group kill: the point
+    # is to catch members that are no longer in a live group.
+    for p in $(session_members); do
+        [ "$p" = "$self" ] && continue
+        [ "$p" = "$child" ] && continue
+        kill -TERM "$p" 2>/dev/null
     done
     # Give the TERM a moment, then make sure. A `while true; do sleep 1; done`
     # writer does not act on TERM while blocked in sleep, so KILL is the
     # reliable finish.
     sleep 0.2
-    for p in /proc/[0-9]*; do
-        [ -r "$p/stat" ] || continue
-        pid=${p#/proc/}
-        [ "$pid" = "$self" ] && continue
-        [ "$pid" = "$child" ] && continue
-        s=$(ps -o sid= -p "$pid" 2>/dev/null | tr -d ' ')
-        [ "$s" = "$sid" ] || continue
-        kill -KILL "$pid" 2>/dev/null
+    for p in $(session_members); do
+        [ "$p" = "$self" ] && continue
+        [ "$p" = "$child" ] && continue
+        kill -KILL "$p" 2>/dev/null
     done
 fi
 
