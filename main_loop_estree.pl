@@ -1936,6 +1936,29 @@ while (1) {
         write_list($prev_file, $fails);
         log_decision('same', $diff->{old_count}, $diff->{new_count}, '');
         # fall through to possibly invoke pi on remaining failures
+    } elsif ($summary->{estree_failed} == 0) {
+        # GREEN corpus reached the else branch. This is NOT a tolerance
+        # event: with 0 estree failures both fail sets are empty, so
+        # old_count == new_count == 0, and logging it as 'tolerance' made
+        # progress.sh print
+        #
+        #     Estree corpus (gate rows):
+        #       0 -> 0 fail
+        #       0 -> 0 fail
+        #
+        # as a fail-count TREND. 799 of the 825 tolerance rows in
+        # .estree_history.log are exactly these, so the estree trend has
+        # read "0 -> 0 fail" every run since the corpus went green — and it
+        # said nothing about the 10f the per-tree board shows for the same
+        # corpus from the report line. Two panels, same worker, same run,
+        # contradicting numbers, both looking authoritative.
+        #
+        # Nothing needs recording: the baseline is written here and
+        # improvement mode (the $summary->{estree_failed} == 0 block below)
+        # owns a green corpus. It logs metric-seed/improve/regress/idle,
+        # which progress.sh DOES read correctly.
+        print "\nEstree corpus GREEN (0 estree failures) — baseline updated; no fix round.\n";
+        write_list($prev_file, $fails);
     } else {
         # regressed vs baseline but within trusted tolerance → update baseline,
         # then let pi look at the regressed set
