@@ -9,17 +9,30 @@ RUNNER="$ROOT/harness/estree-runner.mjs"
 TRIAGE="${TRIAGE:-$ROOT/triage}"
 norm() { tr -d '\r' | sed 's/[[:space:]]*$//' | awk 'NF'; }
 
+# SESSION teardown + a BOUND for every render executed below. `timeout`
+# signals only its direct child, and a rendered example can spawn a
+# producer that outlives it (the corpus's 096_head_procsub.sh is
+# `head <(while true; do echo .; sleep 1; done)`); with SIGPIPE ignored
+# such a writer is reparented to init in a dead process group, where
+# nothing can signal it, and it spins forever. kill-session.sh runs the
+# command in its own session and sweeps that whole SESSION once the
+# command is reaped. See harness/kill-session.sh.
+KS="$ROOT/harness/kill-session.sh"
+# The sh/perl/python/js arms previously ran with NO timeout at all, so a
+# hang there parked the triage worker forever. TRIAGE_TMO bounds them
+# like the arms that already had one; override per-call if needed.
+TRIAGE_TMO=${TRIAGE_TMO:-20}
 be_run() {  # be rendered-file -> executed output
   local be="$1" rendered="$2" tmp; tmp=$(mktemp -d "$TRIAGE/.bt.XXXXXX")
   case "$be" in
-    sh) ( cd "$tmp" && bash "$rendered" ) < /dev/null 2>/dev/null;;
-    perl) ( cd "$tmp" && perl "$rendered" ) < /dev/null 2>/dev/null;;
-    c) ( cd "$tmp" && cp "$rendered" main.c && cc main.c -o t 2>/dev/null && timeout 15 ./t ) < /dev/null 2>/dev/null;;
-    go) ( cd "$tmp" && cp "$rendered" main.go && timeout 15 go run main.go ) < /dev/null 2>/dev/null;;
-    python) ( cd "$tmp" && python3 "$rendered" ) < /dev/null 2>/dev/null;;
-    java) ( cd "$tmp" && cls=$(grep -oE 'public class [A-Za-z_][A-Za-z0-9_]*' "$rendered" | head -1 | awk '{print $3}') && cp "$rendered" "$cls.java" 2>/dev/null && timeout 15 javac "$cls.java" 2>/dev/null && timeout 15 java "$cls" ) < /dev/null 2>/dev/null;;
-    rust) ( cd "$tmp" && rustc "$rendered" -o t 2>/dev/null && timeout 15 ./t ) < /dev/null 2>/dev/null;;
-    js) ( cd "$tmp" && node "$rendered" ) < /dev/null 2>/dev/null;;
+    sh) ( cd "$tmp" && "$KS" timeout "$TRIAGE_TMO" bash "$rendered" ) < /dev/null 2>/dev/null;;
+    perl) ( cd "$tmp" && "$KS" timeout "$TRIAGE_TMO" perl "$rendered" ) < /dev/null 2>/dev/null;;
+    c) ( cd "$tmp" && cp "$rendered" main.c && cc main.c -o t 2>/dev/null && "$KS" timeout "$TRIAGE_TMO" ./t ) < /dev/null 2>/dev/null;;
+    go) ( cd "$tmp" && cp "$rendered" main.go && "$KS" timeout "$TRIAGE_TMO" go run main.go ) < /dev/null 2>/dev/null;;
+    python) ( cd "$tmp" && "$KS" timeout "$TRIAGE_TMO" python3 "$rendered" ) < /dev/null 2>/dev/null;;
+    java) ( cd "$tmp" && cls=$(grep -oE 'public class [A-Za-z_][A-Za-z0-9_]*' "$rendered" | head -1 | awk '{print $3}') && cp "$rendered" "$cls.java" 2>/dev/null && "$KS" timeout "$TRIAGE_TMO" javac "$cls.java" 2>/dev/null timeout 15 javac "$cls.java" 2>/dev/null && timeout 15 java "$cls"timeout 15 javac "$cls.java" 2>/dev/null && timeout 15 java "$cls" "$KS" timeout "$TRIAGE_TMO" java "$cls" ) < /dev/null 2>/dev/null;;
+    rust) ( cd "$tmp" && rustc "$rendered" -o t 2>/dev/null && "$KS" timeout "$TRIAGE_TMO" ./t ) < /dev/null 2>/dev/null;;
+    js) ( cd "$tmp" && "$KS" timeout "$TRIAGE_TMO" node "$rendered" ) < /dev/null 2>/dev/null;;
   esac
   rm -rf "$tmp"
 }
@@ -51,12 +64,12 @@ fe_emit() {  # fe example -> A1 json on stdout
 fe_native() {  # fe example -> native output
   local fe="$1" ex="$2" tmp; tmp=$(mktemp -d "$TRIAGE/.bn.XXXXXX")
   case "$fe" in
-    sh2perl|posix-sh-go) ( cd "$tmp" && timeout 20 bash "$ROOT/sh2perl/examples/$ex" ) < /dev/null 2>/dev/null;;
-    zsh-sh-go) ( cd "$ROOT/sh2perl/frontends/zsh-sh-go" && timeout 20 zsh "$ex" ) < /dev/null 2>/dev/null;;
-    fish-sh-go) ( cd "$ROOT/sh2perl/frontends/fish-sh-go" && timeout 20 fish "$ex" ) < /dev/null 2>/dev/null;;
-    go-sh) if grep -q 'func main()' "$ROOT/sh2perl/frontends/go-sh/testdata/$ex"; then cp "$ROOT/sh2perl/frontends/go-sh/testdata/$ex" "$tmp/main.go"; else { printf 'package main\nimport "fmt"\nfunc main() {\n'; cat "$ROOT/sh2perl/frontends/go-sh/testdata/$ex"; printf '}\n'; } > "$tmp/main.go"; fi; ( cd "$tmp" && timeout 20 go run main.go ) < /dev/null 2>/dev/null;;
-    py-sh-go) ( cd "$tmp" && timeout 20 python3 "$ROOT/sh2perl/frontends/py-sh-go/testdata/$ex" ) < /dev/null 2>/dev/null;;
-    perl-sh-go) ( cd "$tmp" && timeout 20 perl "$ROOT/sh2perl/frontends/perl-sh-go/testdata/$ex" ) < /dev/null 2>/dev/null;;
+    sh2perl|posix-sh-go) ( cd "$tmp" && "$KS" timeout "$TRIAGE_TMO" bash "$ROOT/sh2perl/examples/$ex" ) < /dev/null 2>/dev/null;;
+    zsh-sh-go) ( cd "$ROOT/sh2perl/frontends/zsh-sh-go" && "$KS" timeout "$TRIAGE_TMO" zsh "$ex" ) < /dev/null 2>/dev/null;;
+    fish-sh-go) ( cd "$ROOT/sh2perl/frontends/fish-sh-go" && "$KS" timeout "$TRIAGE_TMO" fish "$ex" ) < /dev/null 2>/dev/null;;
+    go-sh) if grep -q 'func main()' "$ROOT/sh2perl/frontends/go-sh/testdata/$ex"; then cp "$ROOT/sh2perl/frontends/go-sh/testdata/$ex" "$tmp/main.go"; else { printf 'package main\nimport "fmt"\nfunc main() {\n'; cat "$ROOT/sh2perl/frontends/go-sh/testdata/$ex"; printf '}\n'; } > "$tmp/main.go"; fi; ( cd "$tmp" && "$KS" timeout "$TRIAGE_TMO" go run main.go ) < /dev/null 2>/dev/null;;
+    py-sh-go) ( cd "$tmp" && "$KS" timeout "$TRIAGE_TMO" python3 "$ROOT/sh2perl/frontends/py-sh-go/testdata/$ex" ) < /dev/null 2>/dev/null;;
+    perl-sh-go) ( cd "$tmp" && "$KS" timeout "$TRIAGE_TMO" perl "$ROOT/sh2perl/frontends/perl-sh-go/testdata/$ex" ) < /dev/null 2>/dev/null;;
     *) : ;;
   esac
   rm -rf "$tmp"
@@ -74,7 +87,7 @@ while read -r fe ex be; do
   fi
   src=""
   if [ "$fe" = "sh2perl" ]; then src="$ROOT/sh2perl/examples/$ex"; elif [ "$fe" = "cpp-sh-go" ]; then src="$ROOT/sh2perl/frontends/cpp-sh-go/testdata_cpp/$ex"; else src="$ROOT/sh2perl/frontends/$fe/testdata/$ex"; fi
-  enorm=$(timeout 30 node "$RUNNER" "$T/e.json" --source "$src" 2>/dev/null | norm)
+  enorm=$("$KS" timeout 30 node "$RUNNER" "$T/e.json" --source "$src" 2>/dev/null | norm)
   if [ "${enorm:0:12}" = "__ESTREE_REF" ]; then
     echo "SKIP-ESTREE-REF $fe/$ex/$be (ref failed)"; rm -rf "$T"; continue
   fi

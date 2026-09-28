@@ -32,6 +32,8 @@
 set -u
 BIN=${1:?backend renderer bin (otranspilerl/target/debug/otranspilerl-cli)}
 WORKSPACE=${2:?workspace root}
+# SESSION teardown for the bash reference runs below — see kill-session.sh.
+KS="$WORKSPACE/harness/kill-session.sh"
 GATE=${3:-/home/llm/sh-gate-full}
 SH_GATE=${SH_GATE:-/usr/local/bin/sh-gate}
 
@@ -81,7 +83,10 @@ nref=0; rc_own=0
 for f in "$scratch"/corpus/*.sh; do
   [ -f "$f" ] || continue
   bn=$(basename "$f" .sh)
-  (cd "$scratch" && timeout 20 bash "corpus/$bn.sh" < /dev/null > "ref/$bn.out" 2>&1)
+  # SESSION teardown — see harness/kill-session.sh: the corpus spawns
+  # producers that outlive the shell, and `timeout` only signals its
+  # direct child, so they survive reparented to init in a dead group.
+  (cd "$scratch" && "$KS" timeout 20 bash "corpus/$bn.sh" < /dev/null > "ref/$bn.out" 2>&1)
   rc=$?
   if [ "$rc" -ne 0 ]; then
     rc_own=$((rc_own+1))

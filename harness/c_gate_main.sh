@@ -107,9 +107,15 @@ run_one() {
   # transpiled program's native pipeline execs the real binary — a
   # harness artifact, not a shell-semantics difference. Neutralize it for
   # BOTH sides so the gate measures the translator, not the dev shim.
-  (cd "$d/w" && env -u BASH_ENV timeout 15 bash -c 'exec -a "$0" '"$d/bin" "$f" > "$d/.out" 2>/dev/null); eq_exit=$?
+  # SESSION teardown: an example that spawns a producer outliving its
+  # shell (096_head_procsub.sh: `head <(while true; do echo .; sleep 1; done)`)
+  # keeps spinning after timeout signals its direct child, and with SIGPIPE
+  # ignored the writer is reparented to init in a dead group — nothing left
+  # to kill. kill-session.sh sweeps the whole SESSION after the command is
+  # reaped, and passes the exit status through (124 still detected below).
+  (cd "$d/w" && env -u BASH_ENV "$ROOT/harness/kill-session.sh" timeout 15 bash -c 'exec -a "$0" '"$d/bin" "$f" > "$d/.out" 2>/dev/null); eq_exit=$?
   bash_rc=0
-  (cd "$d/w" && env -u BASH_ENV timeout 15 bash "$f" > "$d/.ref" 2>/dev/null) || bash_rc=$?
+  (cd "$d/w" && env -u BASH_ENV "$ROOT/harness/kill-session.sh" timeout 15 bash "$f" > "$d/.ref" 2>/dev/null) || bash_rc=$?
   verdict=FAIL
   # exit codes must AGREE (not merely be zero — t83_exit exits 3 on both
   # sides); a 124 (timeout) on either side fails unconditionally.
