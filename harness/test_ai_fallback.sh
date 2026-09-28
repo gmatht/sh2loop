@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # test_ai_fallback.sh — regression tests for harness/ai_fallback.pm, the
-# Laguna daily-quota fallback shared by main_loop_rust.pl and
+# Laguna daily-quota fallback shared by the A1/estree loops
 # main_loop_estree.pl.
 #
 # THE BUG (2026-09-26). The module compared the model id by exact string
 # equality against `poolside/laguna-s-2.1-free` (hyphen variant), but BOTH
 # loops actually run the OpenRouter colon form
-# `poolside/laguna-s-2.1:free` (main_loop_rust.pl:36, main_loop_estree.pl:78)
+# `poolside/laguna-s-2.1:free` (main_loop_estree.pl:78)
 # — confirmed in the live process table. So `ai_fallback_for` returned undef
 # for the model in use, the switch never fired, and the worker sat in pir's own
 # infinite 429 retry (observed climbing: attempt 5 at 480s ... attempt 10 at
@@ -144,7 +144,7 @@ check "never falls back to itself" "$got" "UNDEF"
 echo "== case 9: the module's own default matches what the loops run =="
 # If someone changes the loops' model default, this catches the drift at once
 # instead of after a quota day.
-loop_model=$(grep -oE "WORKER_MODEL\} // '[^']+'" "$ROOT/main_loop_rust.pl" | head -1 | sed "s/.*\/\/ '//; s/'$//")
+loop_model=$(grep -oE "WORKER_MODEL\} // '[^']+'" "$ROOT/main_loop_estree.pl" | head -1 | sed "s/.*\/\/ '//; s/'$//")
 # Read the module's Laguna id with perl. Note the `$ai_fallback::` sigil is
 # referenced inside SINGLE quotes so bash expands nothing: inside double quotes
 # bash substitutes $ai_fallback to the empty string and the comparison silently
@@ -156,7 +156,7 @@ mod_model=$(env -i PATH="$PATH" HOME="$HOME" perl -e '
   exit 0;
 ' 2>/dev/null)
 if [ "$loop_model" = "$mod_model" ]; then
-  ok "the module's Laguna id matches main_loop_rust.pl's default ($mod_model)"
+  ok "the module's Laguna id matches main_loop_estree.pl's default ($mod_model)"
 else
   bad "drift: loops run '$loop_model' but the fallback module expects '$mod_model'"
 fi

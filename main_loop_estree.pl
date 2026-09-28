@@ -984,15 +984,7 @@ sub kill_tree {
 }
 
 # ── scoped git operations (never add -A) ─────────────────────────────
-# Whether the Perl worker (main_loop_rust.pl) is alive decides the fix
-# surface: solo → all of sh2perl/src; rust loop live → src/estree.rs only.
-sub perl_worker_running {
-    my @ps = `ps -eo args 2>/dev/null`;
-    for my $l (@ps) {
-        return 1 if $l =~ /main_loop_rust\.pl\b/;
-    }
-    return 0;
-}
+# (the former perl_worker_running() probe is gone with the perl worker — 2026-09-29)
 
 # May this loop touch anything under src/ in its fix surface?
 #
@@ -1181,8 +1173,11 @@ print "project_root: $project_root\n";
 print "dry_run: $dry_run  prefix: $prefix  seed: $seed\n";
 
 my $wide = fix_surface_wide();
-print "perl worker (main_loop_rust.pl): ", $wide ? "NOT running" : "RUNNING",
-      "  -> fix surface: ", $wide ? "ALL of sh2perl/src + harness/*" : "src/estree.rs + harness/* (narrow)", "\n";
+  # RETIRED 2026-09-29: the perl worker (main_loop_rust.pl) is deleted along
+  # with the duplicate perl renderer it measured, so its liveness can no longer
+  # be reported — this line would always print a stale answer. This loop owns
+  # sh2perl/backends/estree outright (see fix_surface_wide above).
+  print "fix surface: ", $wide ? "ALL of sh2perl/src + harness/*" : "src/estree.rs + harness/* (narrow)", "\n";
 if ($wide) {
     my @dirty = `git -C "$sh2perl" status --porcelain src/`;
     chomp @dirty;

@@ -54,7 +54,9 @@ workers=(
   # ── cross-product ────────────────────────────────────────────────────
   "triage|$REP/triage.report|run_triage_worker|$ROOT/loop-triage-worker.log|triage: cycle [a-z-]+ done|PASS[a-z-]* [^\"\\n]{0,60}"
   # ── new workers (Laguna/cmd configurable) ─────────────────────────────
-  "perl worker|$REP/perl-worker.report|main_loop_rust|$ROOT/loop-perl-worker.log|perl: gate (GREEN|FAILED)|improved to [0-9]+|perl: TRAPPED"
+  # RETIRED 2026-09-29: the perl worker row (main_loop_rust.pl) is gone —
+  # the loop and the duplicate perl renderer it measured were both deleted.
+  # estree (line ~37) is the surviving corpus/emission loop.
   "perl generator|$REP/perl-generator.report|run_perl_generator|$ROOT/loop-perl-generator.log|perl-generator: gate (GREEN|improved)|perl-generator: TRAPPED"
   "janitor|$REP/janitor.report|run_janitor|$ROOT/loop-janitor-worker.log|janitor: iteration done|janitor: [0-9]+ request"
   "rust-cleanup|$REP/rust-cleanup.report|rust_cleanup_worker|$ROOT/loop-rust-cleanup.log|rust-cleanup: committed [0-9]+|rust-cleanup: clean"

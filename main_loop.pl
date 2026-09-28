@@ -241,7 +241,10 @@ while (1) {
     if ($exit_code == 0) {
         print $output;
         print "\nAll errors are fixed.\n";
-        system('perl', "$FindBin::RealBin/main_loop_rust.pl");
+        # RETIRED 2026-09-29: main_loop_rust.pl (the Perl loop) is deleted
+        # along with the duplicate perl renderer it measured. This legacy
+        # entry point no longer re-launches a worker; ./fail remains the perl
+        # corpus gate and main_loop_estree.pl is the surviving A1/estree loop.
         last;
     }
 
@@ -272,7 +275,10 @@ while (1) {
     if ($exit_code == 0) {
         print $output;
         print "\nAll errors are fixed.\n";
-        system('perl', "$FindBin::RealBin/main_loop_rust.pl");
+        # RETIRED 2026-09-29: main_loop_rust.pl (the Perl loop) is deleted
+        # along with the duplicate perl renderer it measured. This legacy
+        # entry point no longer re-launches a worker; ./fail remains the perl
+        # corpus gate and main_loop_estree.pl is the surviving A1/estree loop.
         last;
     }
 
