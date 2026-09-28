@@ -51,7 +51,12 @@ now=$(date +%s)
 for p in /proc/[0-9]*; do
     pid=${p#/proc/}
     [ "$pid" = "$self" ] && continue
-    cmd=$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null 2>/dev/null) || continue
+    # A pid can vanish between the glob and the read (this box churns ~60
+    # pids/min), and `tr` is a CHILD: the shell reports the redirect failure
+    # itself, so silencing tr's stderr is not enough. Guard on readability
+    # first, and drop the whole iteration quietly if it still disappears.
+    [ -r "$p/cmdline" ] || continue
+    cmd=$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null) || continue
     [ -n "$cmd" ] || continue
     # The corpus example must be an ARGUMENT of the running command. A shell
     # `case` glob cannot express this pattern (the alternation + `\.` are
