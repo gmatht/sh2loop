@@ -81,6 +81,23 @@ echo "== case 3: the real OpenRouter quota error is detected =="
 got=$(probe -- 'ai_fallback::quota_marker("HTTP 429: Rate limit exceeded: free-models-per-day. Add 10 credits") ? "MATCH" : "NOMATCH"')
 check "free-models-per-day is detected" "$got" "MATCH"
 
+echo "== case 3b: the CAPACITY error also triggers the fallback =="
+# Laguna is single-provider, so a saturated provider leaves it with nothing
+# to fail over to and it retries the same dead request forever. Observed
+# 2026-09-28: 316 such errors and `attempt 19, retry in 300s` on the c worker.
+got=$(probe -- 'ai_fallback::capacity_marker("The request limited providers for this model and they are currently at capacity. Add more providers or remove restrictions for automatic fallback. Providers considered: poolside.") ? "MATCH" : "NOMATCH"')
+check "providers-at-capacity is detected" "$got" "MATCH"
+
+echo "== case 3c: ordinary output does NOT look like capacity exhaustion =="
+for t in "Build complete." "test result: ok. 498 passed" "provider timeout" "at capacity of the cache"; do
+  r=$(probe -- "ai_fallback::capacity_marker('$t') ? 'MATCH' : 'NOMATCH'")
+  if [ "$r" = "NOMATCH" ]; then
+    ok "ordinary output not matched: $t"
+  else
+    bad "ordinary output wrongly matched: $t"
+  fi
+done
+
 echo "== case 4: near-miss 429s do NOT match (they keep their normal retry) =="
 for t in "HTTP 429: Rate limit exceeded" \
          "HTTP 429: weekly usage limit reached" \

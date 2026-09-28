@@ -21,6 +21,18 @@ use warnings;
 # carries this marker" is a sufficient guard.
 our $QUOTA_MARKER = 'free-models-per-day';
 
+# The CAPACITY error — a different reason a single-provider model gets stuck.
+# Observed 2026-09-28 on Laguna: 316 occurrences in the c worker's log, each
+# reading "The request limited providers for this model and they are
+# currently at capacity. ... Providers considered: poolside."
+#
+# This is NOT the daily-quota error, so the quota marker never fired and the
+# retry ladder re-issued the same dead request indefinitely (`attempt 19,
+# retry in 300s`). Laguna has one provider, so when poolside is busy there is
+# nothing to fail over to inside OpenRouter — the only cure is to switch the
+# call to the fallback model, which is what the quota path already does.
+our $CAPACITY_MARKER = 'currently at capacity';
+
 # The Laguna model id. THIS MUST MATCH WHAT THE WORKERS ACTUALLY RUN.
 #
 # Both loops default to the OpenRouter-style COLON form
@@ -84,6 +96,23 @@ sub quota_marker {
     return undef unless defined $text;
     for my $line (split /\n/, $text) {
         return $line if index($line, $QUOTA_MARKER) >= 0;
+    }
+    return undef;
+}
+
+# capacity_marker($text) — the matched line when the output shows every
+# provider for the model at capacity, else undef. The sibling of
+# quota_marker with the same shape and the same caller-side guard (the caller
+# already restricts the switch to Laguna), for the reason quota_marker does
+# not cover: the provider is busy rather than the daily budget spent.
+#
+# Matched on the message rather than the model, so it also covers a
+# multi-provider model that happens to exhaust its pool.
+sub capacity_marker {
+    my ($text) = @_;
+    return undef unless defined $text;
+    for my $line (split /\n/, $text) {
+        return $line if index($line, $CAPACITY_MARKER) >= 0;
     }
     return undef;
 }
