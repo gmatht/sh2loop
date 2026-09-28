@@ -26,7 +26,10 @@ DEST="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 UNITS=(
   "$UNITDIR/sh2core.service"
   "$UNITDIR/sh2estree.service"
-  "$UNITDIR/sh2perlloop.service"
+  # sh2perlloop.service is NOT here: it was removed 2026-09-29 with
+  # main_loop_rust.pl. Listing it would re-deploy a unit whose ExecStart
+  # points at a deleted script — and systemd respawns it, so the loop
+  # would come back on the next install.
   "$UNITDIR/sh2backend-c.service"
   "$UNITDIR/sh2backend-perl.service"
   "$UNITDIR/sh2backend-rust.service"
@@ -64,13 +67,13 @@ status)
   ls -1 "$DEST"/sh2*.service 2>/dev/null || echo "  (none installed)"
   echo
   echo "== runtime state =="
-  for u in sh2core sh2estree sh2perlloop sh2backend-c sh2backend-perl sh2backend-rust sh2loop.target; do
+  for u in sh2core sh2estree sh2backend-c sh2backend-perl sh2backend-rust sh2loop.target; do
     printf '  %-20s %s\n' "$u" "$(systemctl --user is-active "$u.service" 2>/dev/null)"
   done
   exit 0
   ;;
 stop)
-  for u in "${TARGETS[@]}" sh2core sh2estree sh2perlloop sh2backend-c sh2backend-perl sh2backend-rust; do
+  for u in "${TARGETS[@]}" sh2core sh2estree sh2backend-c sh2backend-perl sh2backend-rust; do
     systemctl --user stop "$u.service" 2>/dev/null || true
     systemctl --user disable "$u.service" 2>/dev/null || true
   done
@@ -125,6 +128,6 @@ done
 sleep 2
 echo
 echo "== state =="
-for u in sh2core sh2estree sh2perlloop sh2backend-c sh2backend-perl sh2backend-rust sh2loop.target; do
+for u in sh2core sh2estree sh2backend-c sh2backend-perl sh2backend-rust sh2loop.target; do
   printf '  %-20s %s\n' "$u" "$(systemctl --user is-active "$u.service" 2>/dev/null)"
 done
