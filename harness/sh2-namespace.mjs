@@ -1470,6 +1470,16 @@ export const sh2 = {
     return v;
   },
 
+  // `warn(v)` — the `IrStmt::Warn` lowering (bash's `echo … >&2` under
+  // `set -u`-ish warning sites / the parse-recovery diagnostics). Writes
+  // the message to stderr like bash's `>&2` and leaves `$?` alone, exactly
+  // as a bash `printf '%s\n' v >&2` would. Routed through `sh2.*` (not a raw
+  // `console.warn`) because the structural gate requires EVERY CallExpression
+  // callee to be a whitelisted `sh2.<name>` — a raw console call fails it.
+  warn(v) {
+    process.stderr.write(String(v ?? '') + '\n');
+  },
+
   // ── direct native function calls ─────────────────────────────────
   // The emitter lowers provably-positional-free sync-function calls to
   // direct JS calls on module-level `let f` bindings (src/shir.rs
@@ -8962,6 +8972,21 @@ function ansiCDecode(s) {
 
 export function tokenizeTest(expr, keepEmpty) {
   const tokens = [];
+  // Index-aligned `was this token QUOTED in the source?` flags.
+  //
+  // A `[ ]`/`[[ ]]` equality only pattern-matches when the RHS operand is an
+  // UNQUOTED pattern: bash's `[` is a BUILTIN receiving already-expanded
+  // argv (it never globs — `[ "abc" = "a*" ]` is a literal compare, and even
+  // an unquoted `a*` reaches it as the literal string `a*`), while `[[ ]]` is
+  // a KEYWORD that performs pathname expansion on an unquoted RHS
+  // (`[[ abc == a* ]]` is true, `[[ abc == "a*" ]]` is not). The tokenizer
+  // already knows `quoted` per token but discarded it, so evalTest
+  // glob-matched a quoted `"a*"` and reported a match.
+  //
+  // An OPERATOR/paren token is never quoted — the flag is `false` there, and
+  // only the RHS operand's flag is consulted.
+  const tokenQuoted = [];
+  const push = (t, q = false) => { tokens.push(t); tokenQuoted.push(q); };
   let i = 0;
   const n = expr.length;
   while (i < n) {
@@ -8970,27 +8995,27 @@ export function tokenizeTest(expr, keepEmpty) {
     if (c === '\\' && (expr[i + 1] === '(' || expr[i + 1] === ')')) {
       // `\(` / `\)` — escaped parens are GROUPING in `[ ]` (POSIX requires
       // the escape); the test-expr reconstruction keeps the backslash.
-      tokens.push(expr[i + 1]);
+      push(expr[i + 1]);
       i += 2;
       continue;
     }
-    if (c === '(') { tokens.push('('); i++; continue; }
-    if (c === ')') { tokens.push(')'); i++; continue; }
+    if (c === '(') { push('('); i++; continue; }
+    if (c === ')') { push(')'); i++; continue; }
     if (c === '!') {
       if (expr[i + 1] === '(') {
         // extglob `!(...` — not the `!` operator; collect as a word below.
       } else {
-        if (expr[i + 1] === '=') { tokens.push('!='); i += 2; continue; }
-        tokens.push('!'); i++; continue;
+        if (expr[i + 1] === '=') { push('!='); i += 2; continue; }
+        push('!'); i++; continue;
       }
     }
     if (c === '=') {
-      if (expr[i + 1] === '=') { tokens.push('=='); i += 2; continue; }
-      if (expr[i + 1] === '~') { tokens.push('=~'); i += 2; continue; }
-      tokens.push('='); i++; continue;
+      if (expr[i + 1] === '=') { push('=='); i += 2; continue; }
+      if (expr[i + 1] === '~') { push('=~'); i += 2; continue; }
+      push('='); i++; continue;
     }
-    if (c === '<') { tokens.push('<'); i++; continue; }
-    if (c === '>') { tokens.push('>'); i++; continue; }
+    if (c === '<') { push('<'); i++; continue; }
+    if (c === '>') { push('>'); i++; continue; }
     // collect a token (word, quote, or var). `started` distinguishes a
     // deliberately empty token (e.g. `"$y"` with y unset) from whitespace
     // that should produce nothing.
@@ -9149,7 +9174,7 @@ export function tokenizeTest(expr, keepEmpty) {
     // `[ -gt ]`); only quoted empties survive as an empty argument.
     // EXCEPT in `[[ ]]` (keepEmpty — no word-splitting there): the empty
     // expansion remains an empty operand (`[[ -n $(empty) ]]` → false).
-    if (started && (tok !== '' || quoted || keepEmpty)) tokens.push(tok);
+    if (started && (tok !== '' || quoted || keepEmpty)) { push(tok, quoted); }
   }
   return tokens;
 }

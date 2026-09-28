@@ -27,7 +27,7 @@ my %whitelist = map { $_ => 1 } qw(
     trimCapture dirname basename uname date readlink hostname whoami mktempValue split readFile writeFile appendFile lstat access unlink rm mkdir mkdtemp addrOf memLoad memStore walkLines readLine eachLine
     memAlloc memFree ternary arrayStore memAdvance memTest line
     assocSet assocGet assocNames assocValues
-    lit
+    lit warn die
 );
 
 my $file = shift @ARGV or die "usage: estree_gate.pl <program.estree.json>\n";
