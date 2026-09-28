@@ -48,10 +48,13 @@ DEFAULT_BACKEND_LANGS="perl js c python zig go rust sh java fish"
 DEFAULT_FRONTEND_LANGS="py-sh-go go-sh posix-sh-go perl-sh-go fish-sh-go zsh-sh-go c-sh-go cpp-sh-go rust-frontend zig-sh-go powershell-sh-go"
 
 # Active backends whose workers already run from the main checkout
-# (main_loop_rust.pl / main_loop_estree.pl); the per-worktree worker
+# (main_loop_estree.pl only — the perl loop is retired); the per-worktree worker
 # started by --start-workers is a *scoped complement* (it touches only
 # its worktree's subdir + harness/*, not the shared core).
-declare -A WORKER=( [perl]=main_loop_rust.pl [js]=main_loop_estree.pl )
+# [perl] retired 2026-09-29: main_loop_rust.pl is deleted (it measured the
+# duplicate perl renderer, which is deleted too). An empty entry makes the
+# scaffold print "not implemented yet" instead of exec'ing a missing file.
+declare -A WORKER=( [perl]= [js]=main_loop_estree.pl )
 
 # Load-gate: poll the 5-min load average and wait until it drops below
 # (nproc * threshold). Used before every heavy op (build/test/corpus).
