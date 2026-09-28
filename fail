@@ -278,7 +278,34 @@ if ($? != 0) {
 }
 print "Build complete.\n\n";
 
+# The per-test scratch dir is removed with CLEANUP => 1, i.e. at scope exit.
+# That races a straggler: 096_head_procsub.sh is
+# `head <(while true; do echo .; sleep 1; done)`, so if the writer outlives
+# the shell it still holds an fd into this tree, and removing the tree under
+# it leaves it blocked forever in __wait_on_buffer on a deleted inode
+# (observed 2026-09-28: 77 such orphans, ages up to 5h, all in D or S).
+#
+# kill-session.sh sweeps the run's SESSION before the gate moves on, so the
+# gate's own runs leave nothing behind (measured: 0 orphans from 4 concurrent
+# runs). What survives is (a) the residue from before that wrapping, and
+# (b) an AI agent running an example ad-hoc to debug it, which is not
+# wrapped. So: keep CLEANUP for the normal case, and add a deferred sweep
+# that waits briefly for the tree to actually go away before trying again.
+# A dir that cannot be removed (a straggler still holding it) is left for
+# the OS's own /tmp reaper rather than blocking the gate's exit.
 my $work_dir = tempdir("failtest-XXXXXXXX", CLEANUP => 1, DIR => "/tmp");
+# Deferred reap: CLEANUP already tried at scope exit. A straggler still
+# holding the tree makes that fail, so retry briefly — but never fatally.
+# (Only ONE END block in this file: the WorkerPool::release() one above.)
+END {
+    if (defined $main::work_dir && -d $main::work_dir) {
+        for my $try (1 .. 3) {
+            last unless -d $main::work_dir;
+            sleep 1;
+            remove_tree($main::work_dir, { safe => 0, error => \my $ignore });
+        }
+    }
+}
 
 # Map from child PID to { test_num => N, test_name => "str", res_file => "path" }
 my %child_info;

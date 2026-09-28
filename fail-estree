@@ -319,6 +319,19 @@ if ($skip_build) {
 print "Build complete.\n\n";
 
 my $work_dir = tempdir("estreefail-XXXXXXXX", CLEANUP => 1, DIR => "/tmp");
+# Deferred reap (see the note in ./fail): CLEANUP removes the tree at scope
+# exit, but an example straggler still holding an fd into it makes that fail
+# and leaves it blocked in __wait_on_buffer on a deleted inode. Retry
+# briefly; never fatal. A separate END block from the WorkerPool one above.
+END {
+    if (defined $main::work_dir && -d $main::work_dir) {
+        for my $try (1 .. 3) {
+            last unless -d $main::work_dir;
+            sleep 1;
+            remove_tree($main::work_dir, { safe => 0, error => \my $ignore });
+        }
+    }
+}
 my %child_info;
 my $next_idx = 0;
 
