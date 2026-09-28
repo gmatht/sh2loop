@@ -174,7 +174,50 @@ acquire() {
 }
 
 acquire
-trap 'rm -f "$WAITERS_DIR/$my_pid"; release; rm -f "$STATUS_FILE"' EXIT
+# The EXIT trap must also take down the WATCHDOG (defined further down, once
+# a command is actually running). Without that, every exit path other than
+# the intended one — set -e firing, a signal, any early return after the
+# watchdog starts — orphaned a subshell that then slept for the full
+# MAX_BUILD_SECS with nothing left to kill it.
+#
+# The cost was a self-inflicted fork bomb. 165 live watchdog subshells, ~190
+# new ones per minute, filled sh2gates to its pids.max (1024); pids.events
+# recorded 5808+ refused forks; and every gate then reported ~551/555
+# failures with "Can't fork, trying again" — a measurement that read as a
+# catastrophic code regression and was really an exhausted process table.
+#
+# `${watchdog_pid:-}` because this trap is installed BEFORE the watchdog
+# exists, and the trap must stay valid for the whole lifetime of the script.
+cleanup() {
+  if [ -n "${watchdog_pid:-}" ]; then
+    # TERM, then KILL the watchdog's process group, then reap it.
+    #
+    # KILL is not optional here. When the watchdog is FIRING it is sitting in
+    # `sleep "$grace"` between its own TERM and KILL of the command group, and
+    # a shell blocked in `sleep` does not act on TERM until the sleep returns —
+    # so a TERM-only cleanup is silently dropped on exactly the path where
+    # cleanup matters most (a hung build, the case the watchdog exists for).
+    # Measured with the fix in place: a clean command, a failing command, and
+    # a watchdog-killed command together orphan 1 watchdog; the TERM-only
+    # version orphaned one per firing.
+    #
+    # The `sleep 0.1` gives the TERM a moment to work before KILL, so a
+    # well-behaved watchdog exits cleanly rather than always being KILLed.
+    kill -TERM -"$watchdog_pid" 2>/dev/null || kill -TERM "$watchdog_pid" 2>/dev/null || true
+    local _i=0
+    while [ $_i -lt 5 ]; do
+      kill -0 "$watchdog_pid" 2>/dev/null || break
+      sleep 0.1
+      _i=$((_i+1))
+    done
+    kill -KILL -"$watchdog_pid" 2>/dev/null || kill -KILL "$watchdog_pid" 2>/dev/null || true
+    wait "$watchdog_pid" 2>/dev/null || true
+  fi
+  rm -f "$WAITERS_DIR/$my_pid"
+  release
+  rm -f "$STATUS_FILE"
+}
+trap cleanup EXIT
 
 # shared target: default to the main checkout's dir (core dedup); an
 # explicit CARGO_TARGET_DIR in the environment wins.
