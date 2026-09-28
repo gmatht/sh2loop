@@ -614,9 +614,24 @@ case "${1:-}" in
                     # NOTE: the gate is an `if` CONDITION, not `cmd; rc=$?`
                     # — under set -e the failing subshell would kill the
                     # worker before the core-build-break branch can run.
-                    if ( flock 9
-                         bash "$WORKSPACE/setup_backends.sh" --backend-gate "$rw_lang" >> "$LOG" 2>&1
-                       ) 9>"$WORKSPACE/.gate.lock"; then
+                    # `flock -o` (not `flock 9` + a redirect): -o closes the
+                    # lock fd in the GATE, so every example the gate runs
+                    # cannot inherit the lock. Without it an example that
+                    # spawns a background producer (the corpus's `mkfifo` +
+                    # `while true; do echo .; sleep 1; done` shape) keeps the
+                    # fd in a reparented process that outlives the gate, and
+                    # the flock is never released: the next worker blocks in
+                    # its gate call forever, its `--backend-gate` never
+                    # starts, and the worker log goes silent with no error
+                    # anywhere. Observed 2026-09-28 — rust wedged 6.1h behind
+                    # a leaked holder, c queued behind it. The session sweep
+                    # (harness/kill-session.sh) cannot help here: the orphan
+                    # is reparented to init, so it is in no session of ours
+                    # to match. -o is only valid in flock's FILE form
+                    # (`flock -o FILE cmd`); with a bare fd the option is
+                    # parsed as the command and fails "Permission denied".
+                    if flock -o "$WORKSPACE/.gate.lock" \
+                         bash "$WORKSPACE/setup_backends.sh" --backend-gate "$rw_lang" >> "$LOG" 2>&1; then
                       gate_rc=0
                     else
                       gate_rc=$?
@@ -1546,9 +1561,11 @@ EOF
                   bash "$WORKSPACE/setup_backends.sh" --wait 2>&1 || true
                   # `if` condition, not `cmd; rc=$?` — set -e would kill the
                   # takeover on a failing gate before rc can be examined.
-                  if ( flock 9
-                       bash "$WORKSPACE/setup_backends.sh" --backend-gate "$bw_lang" 2>&1
-                     ) 9>"$WORKSPACE/.gate.lock"; then
+                  # `flock -o` closes the lock fd in the gate: see the
+                  # worker-loop site above for why a leaked holder wedges
+                  # every later gate. -o needs flock's FILE form.
+                  if flock -o "$WORKSPACE/.gate.lock" \
+                       bash "$WORKSPACE/setup_backends.sh" --backend-gate "$bw_lang" 2>&1; then
                     rc=0
                   else
                     rc=$?
