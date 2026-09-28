@@ -16,6 +16,18 @@ revision history).
 - Test harness: `fail` (Perl corpus gate), `check_qx.pl`, `main_loop_rust.pl`,
   `fail-coreutils` (workspace-side regression corpus); planned: `fail-estree`,
   `harness/estree-runner.mjs` (reference executor).
+- **Model rotation (see `harness/MODEL_ROTATION.md`).** Four workers run on two
+  models in two fixed groups and swap every 4 hours: rust+c = group A,
+  perl+estree = group B, Space Bunny Alpha vs Laguna. Core is LLM-free and is
+  never assigned a model. The model is a **command-line argument**
+  (`cmd --model <exact-id>`); the only persistent state is one epoch timestamp
+  in the ignored `.worker-model/`. Swaps happen at **invocation boundaries** —
+  a running call finishes on its original model and no worker is signalled,
+  restarted, or killed. Compare models on *normalized* gate progress per hour
+  and per token via `./progress.sh`; the ranking is withheld until every worker
+  has a measured interval under both models. When Laguna hits OpenRouter's
+  exact `free-models-per-day` quota, the worker script retries the same prompt
+  on `ollama-cloud/deepseek-v4.1-flash` (one-way, once; may be metered).
 - `setup_backends.sh` — one git worktree per target backend (`backends/<lang>`
   on `backend/<lang>`, sharing the sh2perl core). Idempotent; `--sync` merges
   main in; `--remove` cleans up. Merge discipline: backend commits push to
@@ -40,6 +52,23 @@ revision history).
 - `cd otranspilerl && cargo build --bin otranspilerl-cli` (the CLI; the
   sh2perl core builds via `cd sh2perl && cargo build --lib`)
 - `./fail` — full corpus gate (552 examples; generated Perl vs bash stdout)
+- `harness/reap-orphan-examples.sh` — reap corpus examples that outlived
+  their runner (`096_head_procsub.sh` and friends). Both gates wrap their own
+  runs in `harness/kill-session.sh` and leave 0 behind, but an AI agent
+  running an example ad-hoc to debug it is not wrapped, and a model's
+  `shell_command` cannot be intercepted. Installed in root's crontab every
+  10 min, logging to `loop-orphan-reap.log`; `--dry-run` lists candidates.
+  **If that crontab entry is missing after a rebuild, reinstall it** —
+  it is machine state, not in git:
+
+  ```
+  */10 * * * * /home/llm/sh2loop/harness/reap-orphan-examples.sh >/dev/null 2>>/home/llm/sh2loop/loop-orphan-reap.log
+  ```
+
+  The pids matter: the documented failure of an unbounded corpus example is
+  pids.max (1024) exhaustion, after which every gate reports ~551/555
+  failures with "Can't fork" — which reads as a catastrophic code
+  regression and is not one.
 - The shIR shared library lives at `sh2perl/src/shir_passes/` (PLAN §3,
   design note in `sh2perl/docs/ir-design.md` §"The sh2.* boundary"):
   `PassContext` (analysis verdicts; replaces the ten `static Mutex<…>`
