@@ -1,0 +1,18 @@
+[Unit]
+Description=Bound the sh2loop harness scratch directories
+Documentation=file:///home/llm/sh2loop/AGENTS.md
+
+[Timer]
+# Every 6 hours, not daily. The 2.7 GB of runaway output found on
+# 2026-09-29 had been written that morning and was still there hours later;
+# a daily sweep is far too coarse to bound accumulation when a single
+# mis-lowered example can write a gigabyte in 20 seconds. The in-use guard
+# (a dir held by any process is skipped) makes a frequent, aggressive
+# sweep safe, so err on the side of often.
+OnCalendar=*-*-* 00/6:17:00
+AccuracySec=1m
+RandomizedDelaySec=20m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

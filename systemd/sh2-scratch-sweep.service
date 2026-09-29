@@ -1,0 +1,17 @@
+[Unit]
+Description=Bound the sh2loop harness scratch directories
+Documentation=file:///home/llm/sh2loop/AGENTS.md
+
+[Service]
+Type=oneshot
+# Janitor only: it deletes stale scratch files. Keep it well below the
+# workers so a sweep never competes with a gate for CPU or IO, and so the
+# journal does not get an fsync storm of its own.
+Nice=19
+IOSchedulingClass=idle
+# The /proc scan for in-use dirs is the slow part (16s measured on a 2.7 GB
+# tree), so allow headroom without letting a wedged scan hang forever.
+TimeoutStartSec=600
+ExecStart=/home/llm/sh2loop/harness/sh2-scratch-sweep.sh --run
+# Report-only is the safe default if the sweep is ever invoked bare; the
+# timer passes --run explicitly above.
