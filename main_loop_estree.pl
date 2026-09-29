@@ -1232,6 +1232,15 @@ my $core_requests_dir = "$project_root/core-requests";
 my $stalled_dir       = "$core_requests_dir/stalled";    # 3-cycle-cap requests — REVISITED, not retired
 my $stalled_report    = "$core_requests_dir/stalled-needs.tsv";  # human/agent-visible backlog report
 my $stalled_max       = $ENV{SH2_STALLED_MAX} // 15;      # stalled reqs folded per iteration (prompt hygiene)
+# How many REJECTED core-requests for one lang may accumulate while that
+# worker is asleep before the worker is woken anyway. The wake exists because
+# a rejection is a dead end by design (the request goes to done/ and the
+# sleeping marker stays), so with nothing ever implemented the wake is
+# unreachable and the worker is dead indefinitely — observed 2026-09-29 on
+# perl, asleep 6.5h with 0 wakes in the whole estree log. Two, not one: the
+# first rejection is often an honest "needs a core change I can't justify
+# yet" and the estree worker may well implement it on the next round.
+my $reject_wake_grace = $ENV{SH2_REJECT_WAKE_GRACE} // 2;
 my @core_pending = ();    # pending request files this iteration (stalled first, then pending)
 my $core_block = '';      # mediation block appended to the iteration's pi prompt
 
@@ -1554,6 +1563,10 @@ sub finalize_core_requests {
         system('mv', $r, "$core_requests_dir/done/$bn");
         if (my ($lang) = $bn =~ /^(.+)-\d{8}-\d{6}(?:-.*)?\.md$/) {
             my $marker = "$core_requests_dir/sleeping-$lang";
+            # An implementation clears any rejection debt: the worker is
+            # about to be woken, so the counter that gates the
+            # never-implemented wake must not survive into its next trap.
+            unlink "$core_requests_dir/.reject-count-$lang";
             if (-f $marker) {
                 unlink $marker;
                 print "  woke $lang (removed sleeping-$lang)\n";
@@ -1564,6 +1577,43 @@ sub finalize_core_requests {
         my $bn = (split /\//, $r)[-1];
         system('mv', $r, "$core_requests_dir/done/$bn");
         print "  rejected (worker stays asleep): $bn\n";
+        # ── REJECTION MUST NOT SLEEP A WORKER FOREVER ────────────────────
+        # A rejection used to be a permanent sentence: the request is filed
+        # to done/ and the sleeping marker is left in place, so the worker
+        # stays blocked on `while [ -f sleeping-<lang> ]; do sleep 60` and
+        # the only exit is the `implemented` branch above. If no request for
+        # that lang is ever implemented, the wake is UNREACHABLE and the
+        # worker is dead until someone manually deletes the marker. Observed
+        # 2026-09-29: perl has been asleep since 13:23 behind
+        # core-requests/sleeping-perl, `grep -c 'woke '` over the whole
+        # estree log is 0, and the estree loop had closed the one request it
+        # did touch as rejected — exactly this path. Restarting the worker
+        # does not help; it re-enters the same wait.
+        #
+        # A rejected request is still evidence that the worker is blocked on
+        # something, so this does NOT wake on the first rejection: the first
+        # is often an honest "this needs a core change I can't justify yet"
+        # and the estree worker may implement it next round. After
+        # $reject_wake_grace rejections of the same lang, the request is not
+        # coming and holding the worker buys nothing — wake it so it can
+        # re-gate and either pass, or trap again on a real build failure.
+        if (my ($lang) = $bn =~ /^(.+?)-\d{8}-\d{6}(?:-.*)?\.md$/) {
+            my $marker = "$core_requests_dir/sleeping-$lang";
+            my $countf = "$core_requests_dir/.reject-count-$lang";
+            if (-f $marker) {
+                my $n = 0;
+                if (open my $cf, '<', $countf) { $n = <$cf> // 0; close $cf; chomp $n; $n = 0 unless $n =~ /^\d+$/; }
+                $n++;
+                if ($n >= $reject_wake_grace) {
+                    unlink $marker;
+                    unlink $countf;
+                    print "  rejected $reject_wake_grace+ times for $lang — waking anyway (no request coming; the worker would sleep forever)\n";
+                } else {
+                    open my $cf, '>', $countf; print $cf $n; close $cf;
+                    print "  rejected ($n/$reject_wake_grace before $lang is woken): $bn\n";
+                }
+            }
+        }
     }
     for my $r (@progress) {
         my $bn = (split /\//, $r)[-1];

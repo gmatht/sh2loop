@@ -581,6 +581,12 @@ case "${1:-}" in
                   perl "$WORKSPACE/harness/WorkerPool.pm" --enter-worker $$ >> "$LOG" 2>&1 || true
                   cd "$rw_dir" || exit 1
                   fail_count=0
+                  # How long to wait after a gate red whose AI calls were all
+                  # blocked by provider quota. Default matches
+                  # harness/quota-gate.sh's COOLDOWN_S (1800) so the two agree
+                  # on what "the quota wall lasts" means; override for a
+                  # test.
+                  rw_quota_cooldown_s="${WORKER_QUOTA_COOLDOWN_S:-1800}"
                   while true; do
                     # WORK-STEALING: a leased slot is run by a desktop.
                     # HEARTBEAT + RECLAIM: a stale lease (the desktop
@@ -695,7 +701,51 @@ case "${1:-}" in
                       fi
                       fail_count=$((fail_count+1))
                       echo "[$(date +%FT%T)] $rw_lang: gate FAILED ($fail_count/3) — invoking AI ($WORKER_CLI/$WORKER_MODEL, scoped)" >> "$LOG"
+                      # Snapshot the log length so the quota test below reads
+                      # ONLY what this attempt appends. Grepping the whole log
+                      # is wrong twice over: the 48 historical 429s already in
+                      # the perl worker's log would suppress every FUTURE trap
+                      # (including a genuine build break) for the life of the
+                      # worker, and the c log's one incidental match is the
+                      # phrase "rate limit" inside a tool result, not an
+                      # error. A whole-file grep cannot tell either from a
+                      # real quota wall.
+                      _pre_off=$(wc -c < "$LOG" 2>/dev/null || echo 0)
                       bash "$WORKSPACE/setup_backends.sh" --pi-fix-backend "$rw_lang" 2>> "$LOG" || true
+                      # ── QUOTA IS NOT A BUILD FAILURE ──────────────────────
+                      # A provider quota wall and a broken build are OPPOSITE
+                      # conditions, and this loop used to treat them as the
+                      # same one. It escalated on `fail_count >= 3` with no
+                      # look at WHY the three attempts failed, so a run of
+                      # HTTP 429s (a provider rate limit, retriable in
+                      # minutes) marked the worker TRAPPED and parked it on
+                      # core-requests/sleeping-<lang> indefinitely. Observed
+                      # 2026-09-29: the perl worker hit 429s, went TRAPPED at
+                      # 13:23, and slept 6.5h through 20 restarts of the box,
+                      # while the gate it was "trapped" on never once failed
+                      # to build. The trap is meant for a build that cannot
+                      # be fixed in-scope; a quota wall needs a cooldown, not
+                      # a core-request and a sleep.
+                      #
+                      # Detection reads only the bytes this attempt added.
+                      # --pi-fix-backend always exits 0, so log text is the
+                      # only available signal.
+                      _quota_hit=0
+                      if [ -r "$LOG" ]; then
+                        tail -c "+$((_pre_off + 1))" "$LOG" 2>/dev/null \
+                          | grep -qE 'HTTP 429|GoUsageLimitError|quota.?blocked|quota.?exhausted|rate.?limit exceeded' \
+                          && _quota_hit=1
+                      fi
+                      if [ "$_quota_hit" = "1" ]; then
+                        echo "[$(date +%FT%T)] $rw_lang: gate red but this attempt's AI calls were QUOTA/429-blocked (not a build failure) — NOT trapping; cooling down ${rw_quota_cooldown_s}s" >> "$LOG"
+                        # Reset the counter: these attempts never exercised
+                        # the build, so they say nothing about whether the
+                        # gate is fixable. Leaving it at 3 would trap the
+                        # worker on the very next red gate.
+                        fail_count=0
+                        sleep "$rw_quota_cooldown_s"
+                        continue
+                      fi
                       if [ "$fail_count" -ge 3 ]; then
                         echo "[$(date +%FT%T)] $rw_lang: TRAPPED — escalating and backing off 30 min" >> "$LOG"
                         bash "$WORKSPACE/setup_backends.sh" --worker-trapped "$rw_lang" backend >> "$LOG" 2>&1 || true
@@ -1282,13 +1332,21 @@ EOF
                         # central (mktemp storms — 11k entries), and `cd ..` /
                         # `ls -la` scripts (046_cd..sh, 062_hard_to_lex.sh)
                         # would read /tmp's churning `..` link count and
-                        # entries; /home/llm is quiet. perl-only for now: the
-                        # other backends' rc-0 contract + their green corpus
-                        # were verified from the root CWD; the harness owner
-                        # can extend the pattern once their gates adopt the
-                        # same semantics.
+                        # entries; /home/llm is quiet. c adopted it too
+                        # (2026-09-29): its arm below runs the compiled binary
+                        # from the same scratch the bash reference runs in, so
+                        # a cell that globs the CWD sees an identical file set
+                        # on both sides. Measured why that matters: with both
+                        # sides in the workspace root, a single .log landing
+                        # there between the two runs — a concurrent worker's
+                        # log, i.e. the normal state of this box — gave bash's
+                        # `for file in *.{txt,log,dat}` an extra match the
+                        # already-finished C run never saw, and 064_hard_to
+                        # _generate.sh reported a stdout mismatch on 15/15
+                        # trials. The remaining backends keep the root CWD
+                        # until their own gates adopt the semantics.
                         eq_scratch=""
-                        if [ "$g_lang" = "perl" ]; then
+                        if [ "$g_lang" = "perl" ] || [ "$g_lang" = "c" ]; then
                           eq_scratch=$(mktemp -d "$WORKSPACE/.eq_scratch_$$.XXXXXX")
                         fi
                         # SESSION TEARDOWN for every example-executing
@@ -1319,7 +1377,7 @@ EOF
                                 # FALSE-FAILED scripts that print $0 in usage text
                                 # (057_case.sh: "Usage: .../057_case.sh {start|stop}"
                                 # vs "Usage: /tmp/eq_$$_bin ...").
-                                cc /tmp/eq_$$.c -o /tmp/eq_$$_bin 2>/dev/null && "$KS" timeout -k 2 15 bash -c 'exec -a "$0" "$1"' "$f" /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
+                                cc /tmp/eq_$$.c -o /tmp/eq_$$_bin 2>/dev/null && { if [ -n "$eq_scratch" ]; then (cd "$eq_scratch" && "$KS" timeout -k 2 15 bash -c 'exec -a "$0" "$1"' "$f" /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null); else "$KS" timeout -k 2 15 bash -c 'exec -a "$0" "$1"' "$f" /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null; fi; } && eq_exit=0 || eq_exit=$?;;
                           go)   "$KS" timeout 30 "$eq_tool" run /tmp/eq_$$.go > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           python) "$KS" timeout 15 python3 /tmp/eq_$$.py > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           rust) # argv0 = the source path (what `bash "$f"` sees),
@@ -1534,9 +1592,34 @@ EOF
                   fi
                   touch "$t_reqdir/sleeping-$t_name"
                   echo "[$(date +%FT%T)] $t_name TRAPPED — sleeping until estree wakes (marker core-requests/sleeping-$t_name)" >> "$WORKSPACE/loop-frontend-or-backend-$t_name.log" 2>/dev/null || true
+                  # Age the marker: a sleep that can only be ended by ANOTHER
+                  # worker implementing a request is an unbounded wait, and
+                  # unbounded waits on a queue whose items can be rejected
+                  # (which does not wake) are how a worker disappears. perl
+                  # slept 6.5h here on 2026-09-29 with 0 wakes in the entire
+                  # estree log, and the log line above still said "backing
+                  # off 30 min" — the 30 min backoff had already handed off
+                  # to this loop, so nothing in the message said the wait was
+                  # now open-ended.
+                  #
+                  # After $t_sleep_max_s the worker gives up waiting and
+                  # exits so its supervisor restarts it and it re-gates
+                  # from a clean state. Re-gating is the point: a worker
+                  # stuck behind a stale marker contributes nothing, whereas
+                  # a restarted one either passes, or traps again on a REAL
+                  # failure now that the quota wall is distinguished from a
+                  # build break (--run-backend-worker).
+                  t_sleep_max_s="${WORKER_TRAP_SLEEP_MAX_S:-7200}"
+                  _slept=0
                   while [ -f "$t_reqdir/sleeping-$t_name" ]; do
+                    if [ "$_slept" -ge "$t_sleep_max_s" ]; then
+                      echo "[$(date +%FT%T)] $t_name TRAP WAKE TIMEOUT after ${_slept}s (max ${t_sleep_max_s}s) — exiting so the supervisor restarts and it re-gates. Marker left for the estree worker to clear." >> "$WORKSPACE/loop-frontend-or-backend-$t_name.log" 2>/dev/null || true
+                      exit 0
+                    fi
                     sleep 60
+                    _slept=$((_slept + 60))
                   done
+                  echo "[$(date +%FT%T)] $t_name woke (sleeping-$t_name cleared after ${_slept}s)" >> "$WORKSPACE/loop-frontend-or-backend-$t_name.log" 2>/dev/null || true
                   exit 0 ;;
   --frontend-worker-once) # internal: ONE iteration of the <lang> frontend
                   # worker loop (the deployed run_frontend_worker.sh body:
