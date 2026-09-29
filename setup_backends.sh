@@ -56,25 +56,77 @@ DEFAULT_FRONTEND_LANGS="py-sh-go go-sh posix-sh-go perl-sh-go fish-sh-go zsh-sh-
 # scaffold print "not implemented yet" instead of exec'ing a missing file.
 declare -A WORKER=( [perl]= [js]=main_loop_estree.pl )
 
-# Load-gate: poll the 5-min load average and wait until it drops below
-# (nproc * threshold). Used before every heavy op (build/test/corpus).
+# Load-gate: wait until the box is not busy, then proceed.
 # Args: [threshold=1.5] [poll_secs=60] [max_wait_secs=1800]
+#
+# THE SIGNAL. This used to read /proc/loadavg field 2 — loadavg5 — against
+# 1.5*nproc = 24, and it was wrong twice over, both in the same direction
+# (throttle when the box is idle):
+#
+#   1. loadavg5 is a 5-MINUTE MOVING AVERAGE. When the box goes idle, load1
+#      falls within seconds and load5 takes 5-15 minutes to cross back under
+#      the threshold. The in-gate yield polls it every 5s for up to 120s, so
+#      it re-reads the same stale number ~24 times and can only ever get the
+#      same answer. Measured on this box: load1 7.15 while load5 9.34 — the
+#      1-min field had already recovered and the 5-min had not.
+#   2. loadavg counts runnable PLUS UNINTERRUPTIBLE (D-state) tasks. So the
+#      IO wedge — 28-58 tasks in __lock_buffer, exactly the incident this
+#      gate exists to damp — is what inflates it, while the actual CPU
+#      saturation goes uncounted. That produced readings like `load5=33.65
+#      > 24` recorded while the machine was 60.8% idle with ONE runnable
+#      task and zero D-state.
+#
+# The signal is now the RUN QUEUE: how many threads are actually runnable
+# right now. That is the literal definition of "busy", it responds within a
+# sample, and it is what saturating work shows up as. Measured on this box:
+# 3-5 runnable threads against 16 cores, versus load5's 9.34.
+#
+# D-state is still surfaced — it is the wedge signature — but as a SEPARATE,
+# much tighter bound rather than being folded into one misleading average.
+# WEDGE_DSTATE_MAX (default 8) trips only at the level the incident reached
+# (28-58), not at the ordinary 0-2 of a healthy box, so it still damps a real
+# wedge without firing on every blip.
+#
+# loadavg is retained as a FALLBACK for when /proc is unreadable or ps is
+# unavailable, so the gate degrades to the old behaviour instead of to none.
+#
+# Env: LOAD_GATE_SIGNAL=queue|loadavg (default queue)
+#      WEDGE_DSTATE_MAX=<int> (default 8)
 wait_for_load() {
   local threshold="${1:-1.5}"
   local poll_secs="${2:-60}"
   local max_wait="${3:-1800}"
   local nproc_val; nproc_val=$(nproc 2>/dev/null || echo 1)
   local max_load; max_load=$(awk -v n="$nproc_val" -v t="$threshold" 'BEGIN{printf "%d", n*t}')
+  local wedge_max="${WEDGE_DSTATE_MAX:-8}"
+  local signal="${LOAD_GATE_SIGNAL:-queue}"
   local waited=0
   while (( waited < max_wait )); do
-    local load5; load5=$(awk '{print $2}' /proc/loadavg)
-    local over; over=$(awk -v l="$load5" -v m="$max_load" 'BEGIN{print (l+0>m+0)?1:0}')
+    local busy=0 detail="" over=0
+    if [ "$signal" = "loadavg" ] || ! [ -r /proc/loadavg ]; then
+      # legacy path (and the fallback when /proc is unreadable)
+      local load5; load5=$(awk '{print $2}' /proc/loadavg 2>/dev/null || echo 0)
+      over=$(awk -v l="${load5:-0}" -v m="$max_load" 'BEGIN{print (l+0>m+0)?1:0}')
+      detail="load5=${load5:-?}"
+    else
+      # run-queue depth: threads the scheduler could be running right now.
+      # -L because loadavg counts THREADS on Linux; `ps -e` counts
+      # processes and undercounts a box with busy rustc/qemu threads.
+      local runq dstate
+      runq=$(ps -eLo stat= 2>/dev/null | awk '$1 ~ /^R/{c++} END{print c+0}')
+      dstate=$(ps -eLo stat= 2>/dev/null | awk '$1 ~ /^D/{c++} END{print c+0}')
+      detail="runq=${runq:-?} dstate=${dstate:-?}"
+      # over = the run queue is deeper than the core count, OR the wedge
+      # signature is present. Either one means "not now".
+      over=$(awk -v r="${runq:-0}" -v n="$nproc_val" -v d="${dstate:-0}" -v w="$wedge_max" \
+             'BEGIN{print ((r+0>n+0)||(d+0>w+0))?1:0}')
+    fi
     if (( over == 0 )); then return 0; fi
-    echo "    load5=${load5} > ${max_load} (${nproc_val}*${threshold}); waiting ${poll_secs}s (waited ${waited}s)..." >&2
+    echo "    ${detail} busy (>${max_load} runq or >${wedge_max} dstate of ${nproc_val} cores); waiting ${poll_secs}s (waited ${waited}s)..." >&2
     sleep "$poll_secs"
     waited=$((waited + poll_secs))
   done
-  echo "    load still > ${max_load} after ${waited}s; proceeding" >&2
+  echo "    still busy after ${waited}s; proceeding" >&2
   return 1
 }
 
