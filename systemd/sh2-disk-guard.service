@@ -1,0 +1,19 @@
+[Unit]
+Description=Disk high-water check for the sh2loop harness root filesystem
+Documentation=file:///home/llm/sh2loop/AGENTS.md
+# Reports only — it never deletes. A full disk is an operator decision, so
+# this exists to be READ (journalctl -u sh2-disk-guard), not to act.
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/llm/sh2loop/harness/sh2-disk-guard.sh
+# The breakdown path can take minutes; the fast path is ~20ms. Generous
+# ceiling so an opt-in triage never kills the unit mid-walk.
+TimeoutStartSec=300
+# Never compete with a live harness run for the disk it is measuring.
+Nice=19
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=multi-user.target

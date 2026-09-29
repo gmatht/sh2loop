@@ -1,0 +1,16 @@
+[Unit]
+Description=Run the sh2loop disk high-water check hourly
+Documentation=file:///home/llm/sh2loop/AGENTS.md
+
+[Timer]
+# Hourly: the disk filled 867G -> 873G in the time this was written, so a
+# daily check is far too coarse to be early warning. Hourly also keeps the
+# journal useful — a reader can see the trend, not just the current value.
+OnCalendar=hourly
+# Spread the wakeup so every unit on the box does not fire on the same tick.
+AccuracySec=1m
+RandomizedDelaySec=5m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,20 @@
+[Unit]
+Description=Apply a backstop io.max cap to /init.scope (close the harness IO loophole)
+Documentation=file:///home/llm/sh2loop/AGENTS.md
+# Re-applied on every boot, like sh2-io-max.service, because io.max is NOT
+# persistent: it lives in the cgroup, and cgroups are recreated on boot.
+After=local-fs.target
+Before=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Best-effort by design: never fail boot over a throttle we could not set.
+# The worst case of not finding the scope is the status quo (unthrottled),
+# which is strictly better than refusing to boot.
+ExecStart=-/home/llm/sh2loop/harness/sh2-contain.sh
+# Warn loudly if the backstop is not actually in force, without failing.
+ExecStart=-/bin/sh -c 'p=/sys/fs/cgroup/init.scope/io.max; grep -qE "^[^[:space:]]+ .*wbps=" "$p" 2>/dev/null || echo "sh2-contain: WARNING no io.max wbps= on init.scope — the unbounded-write path is OPEN" >&2'
+
+[Install]
+WantedBy=multi-user.target

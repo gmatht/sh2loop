@@ -149,9 +149,40 @@ age = f"{age_m}m" if age_m < 120 else (f"{age_m//60}h" if age_m < 48*60 else f"{
 # same stale value in all three columns implies fresh measurement at each
 # horizon, which is exactly the confident-wrong-answer failure to avoid.
 if age_m > 24*60:
-    print("  %-10s %-9s %-9s %-9s %s" % (
-        tree, "-", "-", f"{f_now}f",
-        f"STALE — {f_now}f is the last known, {age} old (not running)"))
+    # Say WHY it is stale, not just that it is. "not running" was the old
+    # wording and it was not enough: the perl tree sat here for 42 days
+    # reading "(not running)" while the actual, actionable fact was that the
+    # unit had been stopped AND disabled — i.e. it was not coming back on
+    # its own and no amount of waiting would fix it. A stale row whose cause
+    # is a dead unit must point at that unit, or the board teaches people to
+    # wait. Map tree -> the worker unit that is supposed to write the report.
+    unit = {
+        "perl": "sh2backend-perl", "rust": "sh2backend-rust",
+        "c": "sh2backend-c", "estree": "sh2estree", "core": "sh2core",
+    }.get(tree, "")
+    why = ""
+    if unit:
+        import subprocess
+        def _u(args):
+            try:
+                return subprocess.run(args, capture_output=True, text=True,
+                                      timeout=10).stdout.strip()
+            except Exception:
+                return ""
+        ust = _u(["systemctl", "--user", "is-active",  unit + ".service"])
+        uen = _u(["systemctl", "--user", "is-enabled", unit + ".service"])
+        if uen == "disabled":
+            why = (f"unit {unit} is STOPPED+DISABLED — will not self-start; "
+                   f"fix: systemctl --user enable --now {unit}.service")
+        elif ust == "active":
+            why = (f"unit {unit} IS active but wrote no gate row in {age} — "
+                   f"wedged/blocked, not stopped (check its loop log + .gate.lock)")
+        else:
+            why = f"unit {unit} is not running ({ust or 'unknown'})"
+    note = f"STALE — {f_now}f is the last known, {age} old"
+    if why:
+        note += "; " + why
+    print("  %-10s %-9s %-9s %-9s %s" % (tree, "-", "-", f"{f_now}f", note))
     sys.exit()
 
 if f_now == 0:
@@ -399,10 +430,25 @@ if [ -z "$units" ]; then
   echo "  (no sh2* user units installed — run: harness/install_units.sh --user)"
 fi
 
-printf "  %-20s %-9s %-8s %s\n" "unit" "unit-state" "process" "note"
+printf "  %-20s %-9s %-8s %-12s %s\n" "unit" "unit-state" "process" "boot-policy" "note"
 for u in $units; do
   st=$(systemctl --user is-active "$u.service" 2>/dev/null)
   [ -z "$st" ] && st=$(systemctl is-active "$u.service" 2>/dev/null)
+  # `is-active` ALONE cannot say why a worker is down, and that omission hid
+  # a dead worker for a full day (2026-09-28): sh2backend-perl was stopped
+  # with `systemctl stop sh2loop.target` and then left DISABLED, so it would
+  # not return at boot — yet the panel printed a bare "✗ inactive", which is
+  # exactly what a worker that is merely mid-restart also prints. A unit that
+  # will never come back is the one case that MUST be distinguishable, and it
+  # is the one case `is-active` cannot distinguish. So read the boot policy
+  # too: "disabled" means stopped on purpose and NOT coming back.
+  en=$(systemctl --user is-enabled "$u.service" 2>/dev/null)
+  [ -z "$en" ] && en=$(systemctl is-enabled "$u.service" 2>/dev/null)
+  case "$en" in
+    enabled|enabled-runtime) boot="auto-restart" ;;
+    disabled|static|masked|masked-runtime) boot="WILL NOT RESTART" ;;
+    *) boot="${en:-?}" ;;
+  esac
   pid=$(systemctl --user show -p MainPID --value "$u.service" 2>/dev/null)
 
   # The worker child is the supervisor's child; systemd's MainPID IS the
@@ -420,9 +466,16 @@ for u in $units; do
   [ -z "$what" ] && what="(no command info)"
 
   if [ "$st" = "active" ]; then
-    printf "  %-20s %-9s %-8s %s\n" "$u" "✓ active" "✓" "$what"
+    printf "  %-20s %-9s %-8s %-12s %s\n" "$u" "✓ active" "✓" "$boot" "$what"
   else
-    printf "  %-20s %-9s %-8s %s\n" "$u" "✗ $st" "✗" "not running"
+    # Name the CONSEQUENCE, not just the state. "inactive" alone is the same
+    # word for a unit that is restarting and one that is gone for good.
+    if [ "$boot" = "WILL NOT RESTART" ]; then
+      note="STOPPED + DISABLED — will not come back at boot; re-enable: systemctl --user enable --now $u.service"
+    else
+      note="not running"
+    fi
+    printf "  %-20s %-9s %-8s %-12s %s\n" "$u" "✗ $st" "✗" "$boot" "$note"
   fi
 done
 
