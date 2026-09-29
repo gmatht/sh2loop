@@ -47,6 +47,81 @@ revision history).
   COUNT AS FAILURES (exit 1) — never blessed; the count drops only when a
   parser/transform fix lands (case prints RESOLVED, then leaves the list).
 
+## Box-health guards (the WSL page-cache/writeback wedge)
+
+The box's failure mode is a **page-cache and writeback wedge**, not a CPU or
+RAM shortage. History: 1.4 TB written cumulatively, io PSI 93–99%, loadavg
+109 with 3 runnable, 58 of 75 D-state tasks in `__lock_buffer`, and
+`init.scope/memory.peak` 47.07 GB of 47 GB total. The transpiler looked
+broken during it; it was never a transpiler problem.
+
+**This box is cgroup v2 only.** `stat -fc %T /sys/fs/cgroup` → `cgroup2fs`.
+There is no v1 hierarchy to fall back to, and three commonly-cited remedies
+do not apply:
+
+- **There is no per-cgroup async-writeback control.** v2's real advantage
+  over v1 is *proactive reclaim* (`memory.high`/`low`/`min`/`reclaim`, plus
+  `full` accounting in `memory.pressure`, which v1 pressure lacked). That
+  is the whole win, and it is the one that matters here.
+- **`memory.force_empty` is the wrong tool.** It only works on a cgroup with
+  NO processes in it, so it can never touch `init.scope`. The interface you
+  want is **`memory.reclaim`**, which is what `cgroup-memory-manager` shells
+  out to — and it works here directly, no dependency.
+- **`memory.reclaim` returning EAGAIN is not an error.** It means "freed
+  what I could, short of the ask". Measured: 1 byte and 1 KiB succeed, 64
+  KiB fails on a cgroup holding 2 MB. Treating EAGAIN as failure makes a
+  janitor a no-op on the box it was written for.
+
+What is installed, and why each piece:
+
+- `io.max` — `sh2-io-max.service` (`sh2-io.slice`), `sh2-contain.service`
+  (the `init.scope` backstop). **Working**: measured 18/32 MB/s with `Dirty`
+  at 82 MB. It throttles IO, *not* cache.
+- `memory.high` + `memory.reclaim` — `sh2-memory-reclaim.sh`, applied by
+  `sh2-memory-reclaim.service` (boot-time oneshot) and reclaimed by
+  `sh2-memory-reclaim-loop.timer` every 60s. Per-cgroup, and the values are
+  **built-in defaults, not just env-overridable**: `init.scope` 24G (its
+  normal floor is ~21G, so its high is a backstop *above* normal usage),
+  `sh2workers` 8G and `sh2gates` 9G (98% of what they hold is reclaimable
+  cache, so an active ceiling is right). `memory.high` alone would put every
+  task to sleep in direct reclaim, and on WSL that runs in-kernel against the
+  same saturated device — cache growth becomes a throughput stall.
+  Effect: Cached 34.9G→15.1G, init.scope 28.9→11.7G, io PSI avg10 24.3%→1.3%,
+  D-state 28→0, zero `oom_kill`.
+- `pids.max` on `init.scope` = 8192, same boot-time oneshot. It was 57795
+  (effectively unbounded). See the `reap-orphan-examples.sh` note above for
+  the failure this prevents; 8192 is ~17x observed steady state and far
+  above the 479 orphans that actually broke `sh2gates`.
+- `sh2-scratch-sweep.sh` (6-hourly) — bounds the *accumulation* across runs.
+  `/usr/lib/sh2-tmp-sweep` only removes `tmp.*` trees older than 3 days,
+  which never matches `tmp_run/perl-gen-diffs/` or `tmp_run/pg/` — the two
+  dirs that actually grew without bound. Skips any dir held by a live
+  process.
+- **Byte caps in the gates** — `harness/cap-capture.pl`, wired into `fail`,
+  `fail-estree` and `harness/perl_gen_diffs.pl`. A mis-lowered example that
+  loops forever produced 1.0 GB of stdout which the gates then persisted
+  FOUR times. `timeout 20` bounds wall time and did not help; the bound has
+  to be in bytes. The cap **drains to EOF rather than truncating**, on
+  purpose: `head -c N` closes the pipe early and SIGPIPE is IGNORED on this
+  fleet (systemd `IgnoreSIGPIPE=yes`; workers inherit it), so the writer
+  would get EPIPE and keep looping — the `096_head_procsub.sh` orphan class
+  that filled `sh2gates`. **RLIMIT_FSIZE is not used for captures**: it
+  bounds file writes, not pipes (measured — 4 MB passed through a 512 KB
+  `ulimit -f`). Cap is 1 MiB against a 7,470-byte maximum legitimate corpus
+  output, and is applied to BOTH sides of every comparison.
+- **The 9p mounts are NOT a write hotspot.** `/mnt/c`, `/mnt/d`, `/mnt/e`,
+  `/mnt/j` are Windows-side. The claim that agent scratch lived there is
+  wrong: the command-code scratchpad is 12 KB, **every** harness path
+  (`/home/llm/sh2loop`, `/root`, `/tmp`, `/var/tmp`) is already on
+  `/dev/sdd` = 8:48 (the device `io.max` caps), and open fds on any 9p mount
+  = 0. The 9p blind spot is real (16 MB to `/mnt/c` records +0 MB and 1 wio
+  on 8:48, vs +17 MB and 11 wios for `/tmp`) but nothing here writes there.
+
+Reading `memory.stat` for a verdict? `file` is page cache and `anon` is real
+memory — they need opposite treatment, and conflating them is how a cache
+problem gets misdiagnosed as a RAM shortage.
+
+
 ## Common commands
 
 - `cd otranspilerl && cargo build --bin otranspilerl-cli` (the CLI; the
@@ -68,7 +143,9 @@ revision history).
   The pids matter: the documented failure of an unbounded corpus example is
   pids.max (1024) exhaustion, after which every gate reports ~551/555
   failures with "Can't fork" — which reads as a catastrophic code
-  regression and is not one.
+  regression and is not one. `sh2gates` is now at 0/1024 with its refusal
+  count flat, and `init.scope` is bounded at 8192 (see **Box-health
+  guards**), but an ad-hoc run is still not wrapped by either.
 - The shIR shared library lives at `sh2perl/src/shir_passes/` (PLAN §3,
   design note in `sh2perl/docs/ir-design.md` §"The sh2.* boundary"):
   `PassContext` (analysis verdicts; replaces the ten `static Mutex<…>`

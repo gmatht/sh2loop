@@ -12,6 +12,51 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v48: **Box-health: bound the page cache, the output bytes and the
+>   process table — the WSL writeback wedge was never a transpiler bug.**
+>   The incident looked catastrophic from inside: 1.4 TB written
+>   cumulatively, io PSI 93–99%, loadavg 109 with 3 runnable, 58 of 75
+>   D-state tasks in `__lock_buffer`, `init.scope/memory.peak` 47.07 GB of
+>   47 GB total, and gates reporting "Can't fork". The measurement that
+>   settled the diagnosis: `vm.dirty_bytes` was already 1.5 GiB, `Dirty` was
+>   82 MB, and write rate 0 MB/s against a working 32 MB/s `io.max` cap. The
+>   **IO path was working**; the hole was unbounded bytes and unbounded
+>   page cache. Landed:
+>   (a) **Byte caps in the gates** (`harness/cap-capture.pl`, wired into
+>   `fail` (2 sites), `fail-estree` (4 sites), `harness/perl_gen_diffs.pl`).
+>   `parse-error-block-in-pipeline.sh` mis-lowers a `while ! { :; }`
+>   condition, so its translation never terminates: measured 1.0 GB of
+>   "waiting" persisted FOUR times (a 1.0 GB `.pl` plus a 940 MB `.diff`).
+>   `timeout 20` bounds wall time and did not help — the bound must be in
+>   bytes. Two constraints shaped the design: RLIMIT_FSIZE does **not**
+>   bound pipes (measured: 4 MB through a 512 KB `ulimit -f`), and the cap
+>   must **drain to EOF** rather than truncate, because SIGPIPE is IGNORED on
+>   this fleet (systemd `IgnoreSIGPIPE=yes`), so an early close manufactures
+>   the `096_head_procsub.sh` orphan class. Cap 1 MiB vs a 7,470-byte
+>   maximum legitimate corpus output, applied to BOTH sides of every
+>   comparison. Also fixed a latent `perl_gen_diffs.pl` bug where a broken
+>   diff reported `failing: 0 / 1`.
+>   (b) **`memory.high` + `memory.reclaim`** (`harness/sh2-memory-reclaim.sh`,
+>   3 units) on `init.scope`/`sh2workers`/`sh2gates` — the half
+>   `sh2-contain.sh:31-40` explicitly declined to fake. This box is cgroup
+>   v2 only; there is no per-cgroup async-writeback control, and
+>   `memory.force_empty` is the wrong tool (it requires an EMPTY cgroup, so
+>   it can never touch `init.scope`). Per-cgroup values, as built-in
+>   defaults: they were originally env-only and the units silently inherited
+>   a 9 GB generic fallback, pinning `init.scope` below its ~21 GB normal
+>   floor for 75,616 high-crossings. Effect: Cached 34.9G→15.1G, io PSI
+>   avg10 24.3%→1.3%, D-state 28→0, loadavg 28.5→5.7, zero `oom_kill`.
+>   (c) **`init.scope/pids.max` 57795 → 8192** — the "Can't fork 551/555"
+>   failure in AGENTS.md, on the cgroup where un-enrolled and
+>   uninterceptable `shell_command` processes land.
+>   (d) **`sh2-scratch-sweep.sh`** — `/usr/lib/sh2-tmp-sweep` only matches
+>   `tmp.*`, so `tmp_run/perl-gen-diffs/` and `tmp_run/pg/` (the dirs that
+>   actually grew) were never eligible at ANY age. Reclaimed 2.7 GB.
+>   **One recommendation was investigated and REJECTED by measurement**: the
+>   report's claim that agent scratch lived on the 98%-full 9p `/mnt/c` and
+>   should be moved to a cappable device. It is 12 KB there, every harness
+>   path is already on `/dev/sdd` (8:48), and open fds on any 9p mount = 0.
+>   The 9p blind spot is real but unused. See AGENTS.md §Box-health guards.
 > - v47: **Ext-node coverage for the workerless backends + a node-side
 >   manifest gate (§11.12's "or lower to supported nodes" half).**
 >   Measured first: isolating every Ext node `text-ops` emits and rendering
@@ -973,6 +1018,7 @@ Covers three related work items:
 | `sh2runtime` | exists at `gmatht/sh2runtime`; node v22 available; already runs async JS commands + `.js` files in `/commands/` against its virtual FS; WASI via `@wasmer/wasi` for third-party wasm tools |
 | sh2perl backends | Perl only. `src/ir.rs` = Perl-specific IR with `RawText` bridges; `pub mod mir` commented out. **ESTree emitter exists** (`sh2perl core::estree::ast_to_estree_json`, v0 `sh2.*` namespace) and passes the full corpus. Workspace layering: `sh2perl core` (core lib) ← `otranspilerl` (CLI lib, member `cli/`) ← `otranspilerl-cli` (3-line bin). WASI: `build-wasi.sh` → `otranspilerl-cli.wasm` (command, `_start`) + `sh2perl core.wasm` (library, `wasi-lib` feature, C-ABI `otranspilerl-cli_to_perl`/`otranspilerl-cli_to_estree`) + **`otranspilerl.wasm`** (library, `wasi-cli` feature, C-ABI `otranspilerl-cli_cli_run(_json/_with_input)` — the full CLI as a library call, "otranspilerl-cli in three lines of JS"; deployed with README + examples to `~/js/`). |
 | Tests | `fail`: otranspilerl-cli → Perl → `check_qx.pl` gate → run vs `bash` → normalized stdout + side-effect compare. 516 examples, **PERL 432/84, ESTREE 516/516 (100%)**. `fail-estree`: perl + estree verdicts per example (Stage A); `--gate` Stage B (strict: a failing test is a bug — no failing-test allowlist; the M5 blessed-fail list was removed as a guardrail violation, see revision history); `--metric` sh2.* call-site tallies (improvement-mode awareness). |
+| Box health (v48) | The failure mode is a **page-cache / writeback wedge**, never a CPU or RAM shortage. cgroup **v2 only** — no v1, no per-cgroup async-writeback control, and `memory.force_empty` is unusable (needs an empty cgroup; can never touch `init.scope`). Bounds now in force: `io.max` 32 MB/s (working, measured 18/32), `memory.high` per-cgroup (init.scope 24G, sh2workers 8G, sh2gates 9G) + `memory.reclaim` on a 60s tick, `init.scope/pids.max` 8192, per-example stdout capped at 1 MiB in both gates, and a 6-hourly scratch sweep. The **9p mounts are not a write hotspot** — every harness path is on `/dev/sdd` (8:48, the device `io.max` caps) and open fds on any 9p mount = 0. Full rationale and the rejected 9p recommendation: AGENTS.md §Box-health guards. |
 
 Key docs:
 - `sh2perl/docs/ir-design.md` — Perl IR + "two-layer IR (future)" (ShIR between AST and language IRs).
@@ -2028,6 +2074,59 @@ check_qx strips the marker block (guarded fallback ≠ the qx-cheat);
 check_qx class cleared). Residue: `basename $(pwd)` (cmdsub-in-args —
 complex path, honest), the .so FEATURES list (date/sha256sum/uname
 exist in uutils, not yet built), and the both-mode parity gate.
+
+### 11.13 Model rotation: A/B the two models, not the workers' reflexes
+
+**Problem.** Manual, human-driven model sessions are consistently faster than
+the autonomous workers, and it was not clear whether that was the models, the
+prompts, or the harness. Without a controlled comparison, "the workers are
+slow" is a guess. A second symptom made measurement impossible: a Laguna
+daily-quota stall (`HTTP 429 … free-models-per-day`) made `pir` retry the same
+request forever — 19 consecutive attempts, and 28 for C — sleeping an hour per
+attempt with zero work done.
+
+**Design.** Two models, two FIXED groups, swapping every 4 hours: group A =
+rust + c, group B = perl + estree. Group membership never changes, so the swap
+does not confound model with worker difficulty. Core is LLM-free and is never
+assigned a model. Selection is a command-line argument (`cmd --model <id>`);
+the only persistent state is one epoch timestamp, because a worker's
+environment is frozen at process start and cannot implement a swap by itself.
+Swaps land at **invocation boundaries** — a call that started before a
+deadline finishes on its original model, and no worker is signalled, restarted
+or killed. Scoring is NORMALIZED gate progress per wall-clock hour and per
+token (raw fail counts are incomparable across corpora of 555/647/648), and the
+ranking is withheld until every worker has a measured interval under both
+models — one worker on one model is not a comparison.
+
+**Two findings that changed the implementation.**
+
+1. The Laguna model id was wrong in a way that looked like a broken worker.
+   `cmd` rejects the OpenRouter colon form (`poolside/laguna-s-2.1:free`) as an
+   unknown model; the catalog id is hyphen-separated. The id is now verified
+   against the catalog and a live call, because a rejected id is
+   indistinguishable from a stalled one.
+2. `cmd`'s `run_end` frame embeds the ENTIRE workspace git status and the full
+   message history — ~4.8 KB for a one-word reply, megabytes for an agentic
+   session. Echoing it unbounded is the same log-blowup class as the
+   2026-08-14/15 incident, so the wrapper strips `nextState`/`modState` (the
+   usage block, which is what we log it for, is also in the `result` frame).
+
+**Quota fallback is at the worker-script layer, not inside the CLI.** `pir`
+retries a 429 internally forever, so a script cannot learn the quota from the
+child's exit status — the child never exits. It reads the streamed retry notice
+instead, and on the exact `free-models-per-day` marker (OpenRouter's own code,
+absent from the corpus) retries the SAME prompt on
+`ollama-cloud/deepseek-v4.1-flash`, one-way and at most once. Non-markers
+(plain 429, weekly limit, billing, 5xx) keep the existing infinite retry. The
+`pi`-specific quota gate was scoped to `WORKER_CLI=pi`, since a stale `pi` 429
+marker was otherwise able to suppress a `cmd` invocation — and with it the
+fallback.
+
+**Files.** `harness/ai_invoke.py` (model-per-phase + wrapper + telemetry),
+`harness/model_report.py` (init-rotation/record-gate/status/report),
+`harness/ai_fallback.pm` (shared Perl-loop detection), `harness/MODEL_ROTATION.md`,
+`tests/test_model_rotation.py` (25), `harness/test_worker_fallback.sh` (10).
+Telemetry is `null`-not-zero: an unmeasured call is unknown, not cheap.
 
 ### 11.12 Backend node manifests + a core solver (the "solve" idea)
 
