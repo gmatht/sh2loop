@@ -14,20 +14,21 @@
 //! by walking up from the current executable (`bash-o4/target/<prof>/`
 //! → workspace root → `sh2perl/`).
 //!
-//! THE FB0 DEVICES ARE VENDORED, not borrowed. `fbdev.c` (drawing) and
-//! `fbinput.c` (keyboard) live in `src/devices/`, byte-identical to
-//! `sh2perl/runtime/`, and a render that names either is linked against
-//! those. A fb0 game therefore builds with no sh2perl tree present at
-//! all — which is the difference between "run this" and "run this on a
-//! machine with a compiler on it".
+//! THE FB0 DEVICES COME OUT OF THE SH2PERL DEPENDENCY, at COMPILE
+//! TIME. `fbdev.c` (drawing) and `fbinput.c` (keyboard) are
+//! `include_str!`'d from `../sh2perl/runtime/` — the one copy, the one
+//! the tree edits — and materialised into the cache dir before the link
+//! (see [`devices::materialize`]). A fb0 game therefore builds on a
+//! machine with no sh2perl tree beside it, AND there is no second copy
+//! of the device to fall out of date: the vendored `src/devices/` this
+//! replaced was a byte-identical duplicate that a sh2perl-side fix had
+//! to be applied to twice, in two trees, by hand.
 //!
-//! The sh2perl tree is NOT consulted for the devices, on purpose (see
-//! `find_fbdev_src`). It is still required for the uu-ffi runtime,
-//! because that is a prebuilt shared library with a build step, not a
-//! source file: it cannot be vendored without also vendoring a `.so`
-//! per architecture, which is a different trade. Set
-//! `BASH_O4_FBDEV_DIR` to a `runtime/` to build against your own
-//! device while editing it.
+//! The sh2perl tree is still required for the uu-ffi runtime, because
+//! that is a prebuilt shared library with a build step, not a source
+//! file: it cannot be embedded without also embedding a `.so` per
+//! architecture, which is a different trade. Set `BASH_O4_FBDEV_DIR` to
+//! a `runtime/` to build against a device copy you are editing.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -187,6 +188,50 @@ pub struct LinkNeeds {
     /// terminal/evdev code: the two devices are pulled in
     /// independently, by which header the render names.
     pub fbi: bool,
+    /// The sound half (`runtime/fbsound.c`). Its own header for the
+    /// same reason as the two above: a program that draws and plays
+    /// must not drag in the audio code, and a program that only draws
+    /// must not either. It links `-ldl` (it dlopens libasound) and
+    /// `-lm`, and dlopens rather than linking libasound so a box with
+    /// no sound at all still BUILDS.
+    pub fbs: bool,
+}
+
+/// Why a link could not even be ATTEMPTED.
+///
+/// A missing device, a missing uu runtime, an unusable cache: none of
+/// these is a compile error, and none of them is fixed by trying a
+/// different compiler. They must not be dressed up as one — the CC
+/// fallback exists for tcc failing to PARSE a render, and spending a
+/// second full compile on a path that cannot work buries the one line
+/// that says what is actually wrong.
+#[derive(Debug)]
+enum LinkSetup {
+    /// The link was set up and the compiler ran; the error is the
+    /// compiler's.
+    CompileFailed(String),
+    /// Refuse before compiling; the message is the whole answer.
+    Refused(String),
+}
+
+impl LinkSetup {
+    /// The message, either way.
+    fn msg(&self) -> &str {
+        match self {
+            LinkSetup::CompileFailed(m) | LinkSetup::Refused(m) => m,
+        }
+    }
+
+    /// True when trying another compiler cannot help.
+    fn is_refusal(&self) -> bool {
+        matches!(self, LinkSetup::Refused(_))
+    }
+}
+
+impl From<String> for LinkSetup {
+    fn from(e: String) -> Self {
+        LinkSetup::Refused(e)
+    }
 }
 
 /// Scan the render for optional-dependency references.
@@ -197,28 +242,23 @@ pub fn link_needs(c_src: &str) -> LinkNeeds {
         uu: c_src.contains("uu_run.h"),
         fb: c_src.contains("fbdev.h"),
         fbi: c_src.contains("fbinput.h"),
+        fbs: c_src.contains("fbsound.h"),
     }
 }
 
-/// Locate a device runtime source next to the sh2perl tree.
-/// `find_sh2perl` locates that tree; this looks inside its `runtime/`.
 /// Locate a device runtime source.
 ///
-/// THE VENDORED COPY WINS. `src/devices/` carries `fbdev.c` and
-/// `fbinput.c` verbatim, so a render that draws needs no sh2perl tree
-/// at all: the driver can build a fb0 game on a machine that has never
-/// heard of sh2perl, which is the whole point of shipping the device
-/// with the compiler rather than beside it.
+/// THE EMBEDDED COPY WINS, and it is the sh2perl file itself (see
+/// `crate::devices`): one source of truth, so a fix to the device
+/// cannot land in the tree and miss the driver, or the other way round.
 ///
 /// A sh2perl tree, when there is one, is used ONLY as an override — set
 /// `BASH_O4_FBDEV_DIR` to a `runtime/` you are actively editing and the
-/// build picks that up instead of the vendored file. It is NOT consulted
-/// implicitly: discovery by walking up from the exe would silently pick
-/// up whatever tree happens to be checked out beside the build, which is
-/// fine right up to the day it is not the one you meant — and then the
-/// "same" device renders differently depending on where the binary was
-/// built.
-fn find_fbdev_src(name: &str) -> Result<PathBuf, String> {
+/// build picks that up instead. It is NOT consulted implicitly: the
+/// embedded bytes are exactly the revision this binary was built from,
+/// which is the thing you want to compare against, and a tree checked
+/// out beside the build is whichever one happens to be there.
+fn find_fbdev_src(cache_root: &Path, name: &str) -> Result<PathBuf, String> {
     if let Ok(dir) = std::env::var("BASH_O4_FBDEV_DIR") {
         let p = PathBuf::from(&dir).join(name);
         if p.is_file() {
@@ -226,12 +266,11 @@ fn find_fbdev_src(name: &str) -> Result<PathBuf, String> {
         }
         return Err(format!(
             "$BASH_O4_FBDEV_DIR={dir} has no {name} (unset it to use the \
-             vendored device)"
+             device embedded in this driver)"
         ));
     }
-    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("src/devices")
-        .join(name);
+    let dir = crate::devices::materialize(cache_root)?;
+    let p = crate::devices::source_in(&dir, name);
     if p.is_file() {
         return Ok(p);
     }
@@ -242,24 +281,49 @@ fn find_fbdev_src(name: &str) -> Result<PathBuf, String> {
     ))
 }
 
-fn find_fbdev() -> Result<PathBuf, String> {
-    find_fbdev_src("fbdev.c")
+fn find_fbdev(cache_root: &Path) -> Result<PathBuf, String> {
+    find_fbdev_src(cache_root, "fbdev.c")
 }
 
-fn find_fbinput() -> Result<PathBuf, String> {
-    find_fbdev_src("fbinput.c")
+/// The WINDOW half of the fb0 device (runtime/fbwin.c).
+///
+/// It is part of the DRAW device, not a separate one, and that is a
+/// fact about the C rather than a choice: fbdev.c's `fb_present` blits
+/// the frame to the window and `fb_window_*` asks about it, so a link
+/// that carries fbdev.c without fbwin.c fails at link time on four
+/// undefined references. They could be made weak (so fbdev.c can link
+/// alone) but tcc REJECTS an undefined weak symbol outright — measured,
+/// `int f(void) __attribute__((weak));` is a hard error under tcc and
+/// fine under cc — so the device is one unit. The cost on a box with no
+/// X is a single dlopen("libX11.so.6") probe that fails, which is a few
+/// microseconds once, and zero on a box with a framebuffer.
+fn find_fbwin(cache_root: &Path) -> Result<PathBuf, String> {
+    find_fbdev_src(cache_root, "fbwin.c")
 }
 
-/// Compile `c_file` to `out_exe`. Extra args: `-lm` as needed, uu/GMP
-/// wiring when referenced.
+fn find_fbinput(cache_root: &Path) -> Result<PathBuf, String> {
+    find_fbdev_src(cache_root, "fbinput.c")
+}
+
+fn find_fbsound(cache_root: &Path) -> Result<PathBuf, String> {
+    find_fbdev_src(cache_root, "fbsound.c")
+}
+
 /// Compile `c_file` to `out_exe` with exactly `tc` (no fallback).
-/// Shared by AOT and JIT-temp compilation.
+/// Shared by AOT and JIT-temp compilation. `cache_root` is where the
+/// fb0 device is materialised (see `crate::devices`); nothing else
+/// writes there.
+///
+/// `LinkSetup::Refused` means the link was never attempted: a missing
+/// device, a missing uu runtime, an unwritable cache. The caller
+/// reports that as-is and does NOT retry another compiler.
 fn compile_exe(
     tc: &Toolchain,
     c_file: &Path,
     out_exe: &Path,
     c_src: &str,
-) -> Result<(), String> {
+    cache_root: &Path,
+) -> Result<(), LinkSetup> {
     let needs = link_needs(c_src);
     let mut cmd = Command::new(tc.bin());
     cmd.arg("-o").arg(out_exe).arg(c_file);
@@ -279,7 +343,8 @@ fn compile_exe(
             return Err(format!(
                 "render references uu_run.h but {} is missing (run runtime/build_uu_ffi.sh)",
                 so.display()
-            ));
+            )
+            .into());
         }
         cmd.arg(&so).arg("-lpthread");
         cmd.arg(format!("-Wl,-rpath,{}", rt.join("lib").display()));
@@ -290,27 +355,51 @@ fn compile_exe(
         // fbdev.c includes <linux/fb.h> and <sys/mman.h> and calls
         // open/ioctl/mmap — the same tcc a hello-world links against,
         // so no extra library is needed. -I is for <fbdev.h>.
-        let fb = find_fbdev()?;
+        //
+        // fbwin.c comes with it and needs -ldl and NOTHING else: libX11
+        // is dlopen'd at RUN time, not linked, so a render builds on a
+        // machine with no X11 headers at all (which is every framebuffer
+        // box, every container, every CI runner) and picks a window up
+        // only if the machine has a display. Linking -lX11 instead would
+        // put a desktop dependency in the middle of the fb0 device.
+        let fb = find_fbdev(cache_root)?;
         let dir = fb.parent().unwrap_or(Path::new(".")).to_path_buf();
         cmd.arg(&fb);
+        let fbwin = find_fbwin(cache_root)?;
+        cmd.arg(&fbwin);
+        cmd.arg("-ldl");
         cmd.arg(format!("-I{}", dir.display()));
     }
     if needs.fbi {
         // The keyboard device: poll/termios, and on Linux an ioctl on
         // the evdev node. Same tcc, no extra library; -I for
         // <fbinput.h> (the same runtime/ dir fbdev.c lives in).
-        let fbi = find_fbinput()?;
+        let fbi = find_fbinput(cache_root)?;
         let dir = fbi.parent().unwrap_or(Path::new(".")).to_path_buf();
         cmd.arg(&fbi);
         cmd.arg(format!("-I{}", dir.display()));
     }
-    let out = cmd.output().map_err(|e| format!("{}: cannot run: {e}", tc.name()))?;
+    if needs.fbs {
+        // The sound device. -ldl for the dlopen of libasound, which is
+        // NOT a link-time dependency on purpose: a framebuffer box has
+        // no sound card and no libasound, and a program that names
+        // fb_note must still build there. -I for <fbsound.h>, the same
+        // runtime/ dir the other devices live in.
+        let fbs = find_fbsound(cache_root)?;
+        let dir = fbs.parent().unwrap_or(Path::new(".")).to_path_buf();
+        cmd.arg(&fbs);
+        cmd.arg("-ldl");
+        cmd.arg(format!("-I{}", dir.display()));
+    }
+    let out = cmd
+        .output()
+        .map_err(|e| LinkSetup::CompileFailed(format!("{}: cannot run: {e}", tc.name())))?;
     if !out.status.success() {
-        return Err(format!(
+        return Err(LinkSetup::CompileFailed(format!(
             "{} compile failed:\n{}",
             tc.name(),
             String::from_utf8_lossy(&out.stderr)
-        ));
+        )));
     }
     Ok(())
 }
@@ -322,22 +411,29 @@ pub fn build_aot(
     c_file: &Path,
     out_exe: &Path,
     c_src: &str,
+    cache_root: &Path,
 ) -> Result<(), String> {
-    if let Err(e) = compile_exe(tc, c_file, out_exe, c_src) {
+    if let Err(e) = compile_exe(tc, c_file, out_exe, c_src, cache_root) {
+        // A link that was never ATTEMPTED (missing device, missing uu
+        // runtime) is not a tcc problem: another compiler would fail
+        // the same way, so report it instead of burning a compile.
+        if e.is_refusal() {
+            return Err(e.msg().to_string());
+        }
         match tc {
             Toolchain::Tcc(_) => {
                 let fb = find_cc_fallback(true)?;
                 eprintln!(
                     "bash-O4: {} failed ({}); falling back to {}",
                     tc.name(),
-                    error_head(&e),
+                    error_head(e.msg()),
                     fb.bin().display()
                 );
-                compile_exe(&fb, c_file, out_exe, c_src).map_err(|e2| {
-                    format!("fallback {} also failed:\n{e2}", fb.name())
+                compile_exe(&fb, c_file, out_exe, c_src, cache_root).map_err(|e2| {
+                    format!("fallback {} also failed:\n{}", fb.name(), error_head(e2.msg()))
                 })?;
             }
-            _ => return Err(e),
+            _ => return Err(error_head(e.msg()).to_string()),
         }
     }
     #[cfg(unix)]
@@ -371,24 +467,30 @@ pub fn run_jit(
     c_src: &str,
     prog_path: &Path,
     args: &[String],
+    cache_root: &Path,
 ) -> Result<i32, String> {
     let tmp = c_file.with_extension(format!("jit{}", std::process::id()));
     let _ = std::fs::remove_file(&tmp);
-    if let Err(e) = compile_exe(tc, c_file, &tmp, c_src) {
+    if let Err(e) = compile_exe(tc, c_file, &tmp, c_src, cache_root) {
+        // Same rule as `build_aot`: a link that was never attempted is
+        // not a toolchain problem, so do not run it twice.
+        if e.is_refusal() {
+            return Err(e.msg().to_string());
+        }
         match tc {
             Toolchain::Tcc(_) => {
                 let fb = find_cc_fallback(true)?;
                 eprintln!(
                     "bash-O4: {} failed ({}); falling back to {}",
                     tc.name(),
-                    error_head(&e),
+                    error_head(e.msg()),
                     fb.bin().display()
                 );
-                compile_exe(&fb, c_file, &tmp, c_src).map_err(|e2| {
-                    format!("fallback {} also failed:\n{e2}", fb.name())
+                compile_exe(&fb, c_file, &tmp, c_src, cache_root).map_err(|e2| {
+                    format!("fallback {} also failed:\n{}", fb.name(), error_head(e2.msg()))
                 })?;
             }
-            _ => return Err(e),
+            _ => return Err(error_head(e.msg()).to_string()),
         }
     }
     let mut cmd = std::process::Command::new(&tmp);
@@ -456,30 +558,40 @@ mod tests {
     }
 
     #[test]
-    fn devices_are_vendored() {
+    fn device_is_embedded_not_vendored() {
         // A render that names a device must find its implementation
-        // WITHOUT a sh2perl tree. This is the property the vendoring
-        // exists for, and it is the thing that regresses quietly: point
-        // the discovery back at a tree and the test still passes on this
-        // machine, because this machine has one.
+        // with no sh2perl tree beside the binary AND with no second
+        // copy of the source in this repo. Both are the properties
+        // that regress quietly: point the lookup back at a tree and the
+        // test still passes on this machine, because this machine has
+        // one; and a re-added src/devices/ would pass every test while
+        // reintroducing the duplicate this replaced.
         let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/devices");
-        for f in ["fbdev.c", "fbdev.h", "fbinput.c", "fbinput.h"] {
-            assert!(
-                dev.join(f).is_file(),
-                "src/devices/{f} must ship with the driver; a render that \
-                 names the device cannot link without it"
-            );
-        }
-        // The lookup must not consult a tree, so it must not fail when
-        // the variable points nowhere.
+        assert!(
+            !dev.exists(),
+            "src/devices/ is back: the device is embedded from sh2perl, so a \
+             second copy here can only drift from it"
+        );
+        // The lookup materialises from the embedded bytes, so it must
+        // work with the override unset and with no tree in reach.
+        let root = std::env::temp_dir().join(format!("bo4-dev-lookup-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(find_fbdev(&root).is_ok(), "the embedded device must resolve");
+        assert!(find_fbwin(&root).is_ok(), "the embedded WINDOW must resolve");
+        assert!(find_fbinput(&root).is_ok(), "the embedded keyboard must resolve");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn bad_device_override_is_a_loud_error() {
+        // A bad override names the variable; it never falls through to
+        // the embedded copy. A build that quietly used a different
+        // device than the one you named is worse than one that refuses.
+        let root = std::env::temp_dir().join(format!("bo4-dev-ovr-{}", std::process::id()));
         unsafe {
             std::env::set_var("BASH_O4_FBDEV_DIR", "/nonexistent/for/test");
         }
-        // A bad override is a loud error naming the variable, not a
-        // silent fall-through to the vendored copy: a build that quietly
-        // used a different device than the one you named is worse than
-        // one that refuses.
-        let e = find_fbdev_src("fbdev.c").unwrap_err();
+        let e = find_fbdev_src(&root, "fbdev.c").unwrap_err();
         assert!(
             e.contains("BASH_O4_FBDEV_DIR"),
             "a bad override must name the variable, got: {e}"
@@ -487,7 +599,99 @@ mod tests {
         unsafe {
             std::env::remove_var("BASH_O4_FBDEV_DIR");
         }
-        assert!(find_fbdev().is_ok(), "the vendored device must resolve");
-        assert!(find_fbinput().is_ok(), "the vendored keyboard must resolve");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A link that was never ATTEMPTED must not be dressed up as a
+    /// compile failure. The CC fallback costs a second full compile and
+    /// would bury the one line naming the actual problem under
+    /// "tcc failed (…); falling back to cc" — which is both a lie
+    /// (tcc was never run) and slower for the case that most needs a
+    /// clear message.
+    #[test]
+    fn refusal_is_not_a_compile_failure() {
+        let refused = LinkSetup::Refused("no fbdev.c".into());
+        assert!(refused.is_refusal(), "a missing device is a refusal");
+        assert!(!refused.msg().contains("compile failed"));
+
+        let failed = LinkSetup::CompileFailed("tcc compile failed:\n<regex.h>".into());
+        assert!(
+            !failed.is_refusal(),
+            "a real compile error is exactly what the CC fallback is FOR \
+             (tcc cannot parse <regex.h>); refusing it would break parity \
+             with the gcc-built corpus gate"
+        );
+        // The note printed alongside the fallback names the FIRST line,
+        // unless one says "error" — so the fallback note stays one line
+        // and points at the compiler's own complaint.
+        assert_eq!(error_head(failed.msg()), "tcc compile failed:");
+        assert_eq!(error_head("a.c:1: error: bad\nmore"), "a.c:1: error: bad");
+    }
+
+    /// The device path really is the only thing that can refuse a
+    /// draw-only link, and it does so before any compiler runs. Pinned
+    /// with a REAL bad override and a real render, because the whole
+    /// point is that tcc is never invoked.
+    #[test]
+    fn a_bad_device_refuses_before_the_compiler_runs() {
+        let root = std::env::temp_dir().join(format!("bo4-dev-refuse-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = root.join("work");
+        std::fs::create_dir_all(&dir).expect("tmp");
+        let c_file = dir.join("prog.c");
+        std::fs::write(
+            &c_file,
+            "#include <fbdev.h>\nint main(void){ fb_open(1,1); return 0; }\n",
+        )
+        .expect("write");
+        let out = dir.join("out");
+        let c_src = std::fs::read_to_string(&c_file).unwrap();
+
+        // The toolchain stands in for BOTH legs and records being run:
+        // `tc` is the primary, and `$BASH_O4_CC` steers the fallback, so
+        // the same marker catches a retry on the CC chain as well as a
+        // first attempt. An invocation stays visible even though the
+        // fake compiler fails — that is the point.
+        let marker = dir.join("toolchain-was-run");
+        let fake = dir.join("cc-that-must-not-run");
+        std::fs::write(
+            &fake,
+            format!("#!/bin/sh\ntouch {}\nexit 99\n", marker.display()),
+        )
+        .expect("write fake");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755))
+                .expect("chmod");
+        }
+        let tc = Toolchain::Tcc(fake.clone());
+
+        unsafe {
+            std::env::set_var("BASH_O4_FBDEV_DIR", "/nonexistent/for/test");
+            std::env::set_var("BASH_O4_CC", fake.to_str().unwrap());
+        }
+        let e = build_aot(&tc, &c_file, &out, &c_src, &root).unwrap_err();
+        unsafe {
+            std::env::remove_var("BASH_O4_FBDEV_DIR");
+            std::env::remove_var("BASH_O4_CC");
+        }
+
+        assert!(
+            e.contains("BASH_O4_FBDEV_DIR"),
+            "the refusal must name the variable, got: {e}"
+        );
+        assert!(
+            !e.contains("falling back"),
+            "a refusal must not be retried on the CC chain, got: {e}"
+        );
+        assert!(
+            !marker.exists(),
+            "a compiler ran for a link that could never succeed; the \
+             refusal is a setup error, not a toolchain one, so the CC \
+             fallback cannot help and must not be spent on it"
+        );
+        assert!(!out.exists(), "nothing should have been linked");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
