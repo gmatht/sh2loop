@@ -70,6 +70,14 @@ my $examples = "$sh2perl/examples";
 my $gate = "$root/harness/estree_gate.pl";
 my $runner = "$root/harness/estree-runner.mjs";
 my $timeout_per_test = 20;   # seconds per individual test (perl + estree paths)
+# Per-test stdout byte cap (see harness/cap-capture.pl). Measured 2026-09-29:
+# the largest legitimate stdout in this corpus is 7,470 bytes, so 1 MiB sits
+# ~140x above every real example and only engages on a runaway — a
+# mis-lowered `while ! { :; }` loop printed 1.0 GB of "waiting" here, which
+# these backticks slurped whole. Applied to BOTH sides of each comparison so
+# equal outputs stay equal and different outputs stay different.
+my $stdout_cap = int($ENV{FAIL_STDOUT_CAP} // (1024 * 1024));
+my $cap_cmd    = qq(perl '$root/harness/cap-capture.pl' $stdout_cap);
 
 my $ncpus = 1;
 if (open my $fh, '<', '/proc/cpuinfo') {
@@ -148,7 +156,7 @@ sub run_one_test {
         if ($perl_verdict eq 'PASS') {
             # argv0 = the source path (what `bash '$test_file'` sees) so
             # $0-dependent stdout agrees with bash ($0 is argv0 pass-through).
-            my $perl_out = `'$root/harness/kill-session.sh' timeout $timeout_per_test perl -M5.010 -e '\$0 = shift \@ARGV; my \$__f = shift \@ARGV; do \$__f' '$test_file' '$perl_file' 2>"$tmp_dir/pserr.txt"`;
+            my $perl_out = `'$root/harness/kill-session.sh' timeout $timeout_per_test perl -M5.010 -e '\$0 = shift \@ARGV; my \$__f = shift \@ARGV; do \$__f' '$test_file' '$perl_file' 2>"$tmp_dir/pserr.txt" | $cap_cmd perl`;
             my $perl_exit = $? >> 8;
             # setsid + -k: the reference run must die as a PROCESS GROUP.
             #
@@ -172,7 +180,7 @@ sub run_one_test {
             # setsid gives the run its own process group, and -k escalates
             # TERM to KILL, so a stuck writer is cleaned up with the run
             # instead of outliving it.
-            my $bash_out = `'$root/harness/kill-session.sh' timeout $timeout_per_test bash '$test_file' 2>"$tmp_dir/bserr.txt"`;
+            my $bash_out = `'$root/harness/kill-session.sh' timeout $timeout_per_test bash '$test_file' 2>"$tmp_dir/bserr.txt" | $cap_cmd bash`;
             my $bash_exit = $? >> 8;
             if ($bash_exit == 124) {
                 # the bash reference itself timed out — inconclusive, not a
@@ -207,7 +215,7 @@ sub run_one_test {
             $est_verdict = 'FAIL';
             $est_reason = 'gate: ' . (split /\n/, $gate_out)[0];
         } else {
-            my $est_out = `timeout $timeout_per_test node "$runner" "$json_file" --source "$test_file" 2>"$tmp_dir/estderr.txt"`;
+            my $est_out = `timeout $timeout_per_test node "$runner" "$json_file" --source "$test_file" 2>"$tmp_dir/estderr.txt" | $cap_cmd estree`;
             my $est_exit = $? >> 8;
             # The runner exits with the PROGRAM's exit code (the exit
             # builtin, errexit aborts, and the program-final status via
@@ -225,7 +233,7 @@ sub run_one_test {
                 my $first = (split /\n/, $err)[0];
                 $est_reason = "runtime error: $first";
             } else {
-                my $bash_out = `'$root/harness/kill-session.sh' timeout $timeout_per_test bash '$test_file' 2>"$tmp_dir/bserr2.txt"`;
+                my $bash_out = `'$root/harness/kill-session.sh' timeout $timeout_per_test bash '$test_file' 2>"$tmp_dir/bserr2.txt" | $cap_cmd bash`;
                 my $bash_exit2 = $? >> 8;
                 # The bash REFERENCE timed out (the harness's per-test cap,
                 # not a bash exit code): e.g. sqrt1337.sh's 10k-iteration

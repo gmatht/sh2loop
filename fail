@@ -21,6 +21,15 @@ my $otranspilerl = "$root/otranspilerl/target/debug/otranspilerl-cli";
 # tests/coreutils/). Defaults to the sh2perl examples corpus.
 my $examples = $ENV{FAIL_CORPUS} // "$sh2perl/examples";
 my $timeout_per_test = 20;   # seconds per individual test (align with fail-estree)
+# Per-test stdout byte cap (see harness/cap-capture.pl). Measured 2026-09-29:
+# the largest legitimate stdout in this corpus is 7,470 bytes (064_hard_
+# generate.sh), so 1 MiB sits ~140x above every real example and only ever
+# engages on a runaway. A translation that loops forever produced 1.0 GB
+# here, which the `local $/` backticks slurped and this gate then persisted
+# four times over. The cap is applied to BOTH sides of every comparison, so
+# equal outputs stay equal and different outputs stay different.
+my $stdout_cap = int($ENV{FAIL_STDOUT_CAP} // (1024 * 1024));
+my $cap_cmd    = qq(perl '$root/harness/cap-capture.pl' $stdout_cap);
 my $ncpus = 1;
 if (open my $fh, '<', '/proc/cpuinfo') {
     my @lines = grep { /^processor\s*:/ } <$fh>;
@@ -193,7 +202,7 @@ sub run_one_test {
     # agrees with bash. `do $ARGV[0]` runs the generated file in the main
     # scope with @ARGV emptied (no positional args, like bash).
     my ($perl_out, $perl_stdout, $perl_stderr);
-    $perl_out = `'$root/harness/kill-session.sh' timeout $timeout_per_test perl -M5.010 -e '\$0 = shift \@ARGV; my \$__f = shift \@ARGV; do \$__f' '$test_file' '$perl_file' 2>"$tmp_dir/perl_stderr.txt"`;
+    $perl_out = `'$root/harness/kill-session.sh' timeout $timeout_per_test perl -M5.010 -e '\$0 = shift \@ARGV; my \$__f = shift \@ARGV; do \$__f' '$test_file' '$perl_file' 2>"$tmp_dir/perl_stderr.txt" | $cap_cmd perl`;
     my $perl_exit = $? >> 8;
     if (open my $fh, '<', "$tmp_dir/perl_stderr.txt") {
         local $/; $perl_stderr = <$fh>; close $fh;
@@ -212,7 +221,7 @@ sub run_one_test {
     # signal and loops forever. 479 such orphans filled sh2gates to its
     # pids.max and every later gate reported ~551/555 failures. The run gets
     # its own process group and -k escalates TERM to KILL.
-    $bash_out = `'$root/harness/kill-session.sh' timeout $timeout_per_test bash '$test_file' 2>"$tmp_dir/bash_stderr.txt"`;
+    $bash_out = `'$root/harness/kill-session.sh' timeout $timeout_per_test bash '$test_file' 2>"$tmp_dir/bash_stderr.txt" | $cap_cmd bash`;
     $bash_exit = $? >> 8;
     my $bash_stdout = $bash_out // q{};
     my $bash_stderr = '';
