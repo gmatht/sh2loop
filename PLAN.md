@@ -12,6 +12,30 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v49: **A provider 429 no longer marks a worker TRAPPED, and a trap can no
+>   longer sleep forever.** The perl worker produced nothing for 6.5 h on
+>   2026-09-29 and looked dead; it was **asleep by design** behind
+>   `core-requests/sleeping-perl`, and restarting it could not have helped
+>   because it re-enters the same wait. Three independent bugs made a rate
+>   limit look like a code problem. (a) `--run-backend-worker` escalated on
+>   `fail_count >= 3` with no look at WHY the attempts failed, so three
+>   `HTTP 429` retries — retriable in minutes — became a core-request and an
+>   indefinite sleep, on a gate that never once failed to build; it now
+>   detects the quota signal **in only the bytes the current attempt
+>   appended** (a whole-log grep is poisoned by the 48 historical 429s
+>   already in that log and by "rate limit" appearing inside a tool result)
+>   and cools down instead. (b) A **rejected** core-request is filed to
+>   `done/` without waking anyone, so the only exit is the `implemented`
+>   branch — if nothing is ever implemented the wake is unreachable, and
+>   `grep -c 'woke '` over the entire estree log is **0**; a lang is now
+>   woken after `$SH2_REJECT_WAKE_GRACE` (default 2) rejections, and an
+>   implementation clears the debt. (c) The trap sleep is now bounded by
+>   `$WORKER_TRAP_SLEEP_MAX_S` (default 7200), after which the worker exits
+>   so its supervisor restarts it and it re-gates. The log line still said
+>   "backing off 30 min" long after that 30-minute loop had handed off to
+>   the unbounded wait, so the message never said the wait was
+>   open-ended. Diagnosis and the orphaned-`--worker-trapped` restart
+>   caveat are in AGENTS.md §Worker traps.
 > - v48: **Box-health: bound the page cache, the output bytes and the
 >   process table — the WSL writeback wedge was never a transpiler bug.**
 >   The incident looked catastrophic from inside: 1.4 TB written

@@ -121,6 +121,49 @@ Reading `memory.stat` for a verdict? `file` is page cache and `anon` is real
 memory — they need opposite treatment, and conflating them is how a cache
 problem gets misdiagnosed as a RAM shortage.
 
+## Worker traps: a quota wall is not a build failure
+
+A worker that stops producing is usually **asleep by design**, not dead, and
+**restarting it does not help** — it re-enters the same wait. Three
+mechanisms, all fixed 2026-09-29 after the perl worker sat for 6.5 h:
+
+- `core-requests/sleeping-<lang>` is the marker. `--worker-trapped` waits on
+  it, so `ps` shows a live process and the unit shows `active`.
+- **A provider 429 used to mark a worker TRAPPED.** `--run-backend-worker`
+  escalated on `fail_count >= 3` without asking *why* the attempts failed, so
+  three rate-limit retries — retriable in minutes — became a core-request and
+  an indefinite sleep, on a gate that never failed to build. It now detects
+  the quota signal in **only the bytes the current attempt appended** (a
+  whole-log grep is poisoned by historical 429s and by the phrase "rate
+  limit" inside a tool result), cools down instead of trapping, and resets
+  the counter.
+- **A rejected core-request no longer sleeps a worker forever.** Rejection is
+  filed to `done/` without waking anyone, so if nothing is ever *implemented*
+  the wake is unreachable — `grep -c 'woke '` over the whole estree log was
+  **0**. A lang is now woken after `$SH2_REJECT_WAKE_GRACE` (default 2)
+  rejections; an implementation clears the debt.
+- **The trap sleep is bounded** by `$WORKER_TRAP_SLEEP_MAX_S` (default 7200).
+  After that the worker exits so its supervisor restarts it and it re-gates.
+  The marker is left for estree to clear.
+
+Diagnosing it: the log line still says *"backing off 30 min"* long after that
+30-minute loop handed off to the unbounded wait, so **the message never said
+the wait had become open-ended**. Check the marker and the process tree, not
+the message:
+
+```
+ls -la core-requests/sleeping-*                  # who is asleep, and since when
+ps --ppid $(pgrep -f 'run-backend-worker <lang>')  # is it in a trap-sleep?
+```
+
+The estree loop self-re-execs when `main_loop_estree.pl` changes on disk
+(`[self-reexec]` in its log), so changes reach it at the top of the next
+iteration. The backend workers have **no** such mechanism — `Restart=always`
+relaunches the *supervisor*, which does **not** re-run `--worker-trapped`
+children, so after editing `setup_backends.sh` check for orphaned
+`--worker-trapped` processes and restart the units.
+
+
 
 ## Common commands
 
