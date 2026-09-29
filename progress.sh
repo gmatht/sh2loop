@@ -169,6 +169,16 @@ if age_m > 24*60:
                                       timeout=10).stdout.strip()
             except Exception:
                 return ""
+        def _ok(args):
+            # _u returns STDOUT, so it is the WRONG shape for a boolean
+            # probe: `grep -q` and `test` are silent on success and return
+            # "", which is falsy. Every `if _u([...grep -q...])` silently
+            # took the else branch. Use the exit code.
+            try:
+                return subprocess.run(args, capture_output=True, text=True,
+                                      timeout=15).returncode == 0
+            except Exception:
+                return False
         ust = _u(["systemctl", "--user", "is-active",  unit + ".service"])
         uen = _u(["systemctl", "--user", "is-enabled", unit + ".service"])
         if uen == "disabled":
@@ -206,14 +216,49 @@ if age_m > 24*60:
                             or "NO RENDERER" in got):
                         break
             if "worktree build FAILED" in lg or "NO RENDERER" in lg:
-                why += (f"; ROOT CAUSE: the gate cannot build its renderer bin — "
-                        f"see 'worktree build FAILED'/'NO RENDERER' in "
-                        f"loop-backend-{tree}.log (no report row is written "
-                        f"until it builds)")
-            elif os.path.exists(f"core-requests/sleeping-{unit}"):
+                # Only trust the build marker if it is the CURRENT state.
+                # The log is append-only, so a marker from 43 days ago keeps
+                # matching after the build is fixed and would keep naming a
+                # solved problem as the root cause. Require the marker to be
+                # in the log's tail AND for no fresh report row to exist; if
+                # the gate is currently queued on the lock, say so instead.
+                fresh_report = os.path.exists(rep) and (
+                    time.time() - os.path.getmtime(rep) < 3600)
+                if _ok(["bash", "-c",
+                        "ls -l /proc/[0-9]*/fd 2>/dev/null | "
+                        "grep -q gate.lock"]):
+                    why += ("; (queued behind another backend gate on "
+                            ".gate.lock — the gates serialize one at a time, "
+                            "so no log output during the wait is expected)")
+                elif fresh_report:
+                    why += ("; report is fresh — the earlier "
+                            "'worktree build FAILED' in the log is historical, "
+                            "not the current blocker")
+                else:
+                    why += (f"; ROOT CAUSE: the gate cannot build its renderer "
+                            f"bin — see 'worktree build FAILED'/'NO RENDERER' "
+                            f"in loop-backend-{tree}.log (no report row is "
+                            f"written until it builds)")
+            elif os.path.exists(f"core-requests/sleeping-{tree}"):
+                # NB: the marker is named by TREE (`sleeping-perl`), not by
+                # the systemd unit (`sh2backend-perl`) — the first version
+                # used `unit` here and so could never match.
                 why += (f"; ROOT CAUSE: worker is ASLEEP behind "
-                        f"core-requests/sleeping-{unit} (TRAPPED) — the unit is "
+                        f"core-requests/sleeping-{tree} (TRAPPED) — the unit is "
                         f"active but the gate is not running")
+            # Not a blocker, but worth saying so a queue is not misread as a
+            # wedge: the backend gates HARD-SERIALIZE on a single
+            # .gate.lock, so a worker sits in `flock` (wchan
+            # locks_lock_inode_wait) with an empty process tree for as long as
+            # the holder's corpus takes — 65 min for one rust gate on this
+            # box, with NO log output at all. That is the design working, and
+            # without this line the next reader concludes it is wedged.
+            elif _ok(["bash", "-c",
+                     "ls -l /proc/[0-9]*/fd 2>/dev/null | "
+                     "grep -q gate.lock"]):
+                why += ("; (queued behind another backend gate on .gate.lock — "
+                        "the gates serialize one at a time, so no log output "
+                        "during the wait is expected)")
         else:
             why = f"unit {unit} is not running ({ust or 'unknown'})"
     note = f"STALE — {f_now}f is the last known, {age} old"
