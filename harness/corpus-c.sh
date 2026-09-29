@@ -8,7 +8,7 @@
 #     python  shir_render --target python → python3
 #     sh      shir_render --target sh     → bash
 #     estree  otranspilerl-cli --source-lang shir --target estree → estree-runner.mjs (node)
-#     js      shir_render --target js     → node
+#     js      shir_render --target js     → js-run.mjs (sh2 runtime wrapper, node)
 #     go      shir_render --target go     → go build+run
 #     rust    shir_render --target rust   → rustc+run
 #     java    shir_render --target java   → javac+java
@@ -84,14 +84,17 @@ render() { # render <tgt> <a1> <od> — renderer invocation only
   esac
 }
 
-exec_target() { # exec_target <tgt> <od> — compile(if needed)+run; stdout → $od/out
-  local tgt="$1" od="$2"
+exec_target() { # exec_target <tgt> <od> [src] — compile(if needed)+run; stdout → $od/out
+  local tgt="$1" od="$2" src="${3:-}"
   case "$tgt" in
     perl)   timeout $TMO perl "$od/prog.pl" > "$od/out" 2> "$od/run.err" </dev/null ;;
     python) timeout $TMO python3 "$od/prog.py" > "$od/out" 2> "$od/run.err" </dev/null ;;
     sh)     timeout $TMO bash "$od/prog.sh" > "$od/out" 2> "$od/run.err" </dev/null ;;
     estree) timeout $TMO node "$ESTREE_RUNNER" "$od/prog.json" > "$od/out" 2> "$od/run.err" </dev/null ;;
-    js)     timeout $TMO node "$od/prog.js" > "$od/out" 2> "$od/run.err" </dev/null ;;
+    # `--target js` emits an ES-MODULE FRAGMENT needing the `sh2` runtime (no
+    # import); a bare `node prog.js` dies "sh2 is not defined" before printing
+    # — every cell read RUN-FAIL. js-run.mjs wraps it as estree-runner.mjs does.
+    js)     timeout $TMO node "$ROOT/harness/js-run.mjs" "$od/prog.js" --source "$src" > "$od/out" 2> "$od/run.err" </dev/null ;;
     go)     (cd "$od" && timeout $TMO /snap/go/current/bin/go build -o progbin prog.go) 2>>"$od/run.err" || return 3
             timeout $TMO "$od/progbin" > "$od/out" 2> "$od/run.err" </dev/null ;;
     rust)   timeout $TMO rustc -O -o "$od/progbin" "$od/prog.rs" 2>>"$od/run.err" || return 3
@@ -145,7 +148,7 @@ for f in "$DIR"/*.c; do
       [ "$VERBOSE" = 1 ] && head -2 "$od/render.err" | sed 's/^/       /'
       continue
     fi
-    rc=0; exec_target "$tgt" "$od" || rc=$?
+    rc=0; exec_target "$tgt" "$od" "$f" || rc=$?
     case "$rc" in
       0)
         if diff -q "$tmp/native.out" "$od/out" >/dev/null 2>&1; then

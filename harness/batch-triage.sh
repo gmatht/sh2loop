@@ -22,8 +22,8 @@ KS="$ROOT/harness/kill-session.sh"
 # hang there parked the triage worker forever. TRIAGE_TMO bounds them
 # like the arms that already had one; override per-call if needed.
 TRIAGE_TMO=${TRIAGE_TMO:-20}
-be_run() {  # be rendered-file -> executed output
-  local be="$1" rendered="$2" tmp; tmp=$(mktemp -d "$TRIAGE/.bt.XXXXXX")
+be_run() {  # be rendered-file [src-file] -> executed output
+  local be="$1" rendered="$2" srcf="${3:-}" tmp; tmp=$(mktemp -d "$TRIAGE/.bt.XXXXXX")
   case "$be" in
     sh) ( cd "$tmp" && "$KS" timeout "$TRIAGE_TMO" bash "$rendered" ) < /dev/null 2>/dev/null;;
     perl) ( cd "$tmp" && "$KS" timeout "$TRIAGE_TMO" perl "$rendered" ) < /dev/null 2>/dev/null;;
@@ -32,7 +32,12 @@ be_run() {  # be rendered-file -> executed output
     python) ( cd "$tmp" && "$KS" timeout "$TRIAGE_TMO" python3 "$rendered" ) < /dev/null 2>/dev/null;;
     java) ( cd "$tmp" && cls=$(grep -oE 'public class [A-Za-z_][A-Za-z0-9_]*' "$rendered" | head -1 | awk '{print $3}') && cp "$rendered" "$cls.java" 2>/dev/null && "$KS" timeout "$TRIAGE_TMO" javac "$cls.java" 2>/dev/null timeout 15 javac "$cls.java" 2>/dev/null && timeout 15 java "$cls"timeout 15 javac "$cls.java" 2>/dev/null && timeout 15 java "$cls" "$KS" timeout "$TRIAGE_TMO" java "$cls" ) < /dev/null 2>/dev/null;;
     rust) ( cd "$tmp" && rustc "$rendered" -o t 2>/dev/null && "$KS" timeout "$TRIAGE_TMO" ./t ) < /dev/null 2>/dev/null;;
-    js) ( cd "$tmp" && "$KS" timeout "$TRIAGE_TMO" node "$rendered" ) < /dev/null 2>/dev/null;;
+    # `--target js` emits an ES-MODULE FRAGMENT that references the `sh2`
+    # runtime namespace but carries no import (estree-gen.mjs header); a bare
+    # `node rendered.js` dies with "sh2 is not defined" before printing, which
+    # is a phantom backend failure. js-run.mjs wraps it exactly as the estree
+    # reference executor does (import sh2 + _init/_setAllowlist/_finish).
+    js) ( cd "$tmp" && "$KS" timeout "$TRIAGE_TMO" node "$ROOT/harness/js-run.mjs" "$rendered" --source "$srcf" ) < /dev/null 2>/dev/null;;
   esac
   rm -rf "$tmp"
 }
@@ -108,7 +113,7 @@ while read -r fe ex be; do
   elif [ "$be" = "zig" ]; then
     echo "PASS-RENDER $fe/$ex/$be"
   else
-    bnorm=$(be_run "$be" "$T/rendered" | norm)
+    bnorm=$(be_run "$be" "$T/rendered" "$src" | norm)
     if [ "$bnorm" = "$nnorm" ]; then
       echo "PASS $fe/$ex/$be"
     elif [ "$enorm" = "$nnorm" ]; then
