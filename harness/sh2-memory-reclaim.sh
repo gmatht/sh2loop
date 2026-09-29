@@ -2,6 +2,10 @@
 # sh2-memory-reclaim.sh — set memory.high on the harness cgroups and
 # continuously reclaim page cache against it.
 #
+# Also sets pids.max on init.scope, which is the process-table half of the
+# same failure mode and is here because it is the same kind of knob on the
+# same uncapped cgroups.
+#
 # WHY THIS EXISTS. The io.max half of the wedge defence is already in place
 # and is working (measured 2026-09-29: 0 MB/s against a 32 MB/s cap, Dirty
 # at 82 MB). The MEMORY half was never written, and the repo says so out
@@ -155,6 +159,41 @@ apply_high() {
 }
 
 apply_high
+
+# ── pids.max on init.scope ────────────────────────────────────────────────
+# The process-table half of the same failure, on the same uncapped cgroup.
+#
+# AGENTS.md documents the signature precisely: 479 orphaned example writers
+# filled sh2gates to its pids.max of 1024, pids.events recorded 5808 refused
+# forks, and every subsequent gate reported ~551/555 failures with "Can't
+# fork, trying again" — which reads as a catastrophic code regression and is
+# really an exhausted process table. sh2gates is now at 0/1024 with its
+# refusal count flat, so that particular leak is closed.
+#
+# init.scope is the remaining hole: pids.max was 57795 (inherited from a
+# threads-max of 385303), i.e. effectively unbounded, and it is where every
+# un-enrolled process lands — PID 1's siblings, cron, and every ad-hoc `bash`
+# tool call. A model's shell_command cannot be intercepted by supervise.sh,
+# so a runaway fan-out there is unbounded today.
+#
+# 8192 is ~17x the observed steady state (480 total, 287 in init.scope) and
+# far above any plausible burst (8 concurrent rustc, 6 workers, gates:
+# <2000). It is a SOFT limit in the useful sense: fork() returns EAGAIN to
+# the caller that asked, so the blast radius is one refusing fork rather
+# than a box-wide cascade. Verified after applying: 10 direct forks fine,
+# a cargo build compiles normally, 433 processes.
+#
+# It must be well above the number that ACTUALLY failed, not just above
+# current usage — a limit set near the observed peak converts a rare runaway
+# into a routine "Can't fork" that looks like a transpiler bug.
+for c in ${SH2_RECLAIM_PIDSCGROUPS:-init.scope}; do
+    d="$CG_ROOT/$c"
+    [ -w "$d/pids.max" ] || { echo "sh2-memory-reclaim: $c/pids.max not writable, skipping" >&2; continue; }
+    want=${SH2_RECLAIM_PIDS_MAX:-8192}
+    printf '%s' "$want" > "$d/pids.max" 2>/dev/null \
+        && echo "sh2-memory-reclaim: $c pids.max=$want" \
+        || echo "sh2-memory-reclaim: $c pids.max FAILED" >&2
+done
 
 if [ "$ONESHOT" = "1" ]; then
     exit 0
