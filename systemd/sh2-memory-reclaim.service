@@ -1,0 +1,16 @@
+[Unit]
+Description=Apply memory.high to the uncapped sh2loop harness cgroups
+Documentation=file:///home/llm/sh2loop/AGENTS.md
+# cgroups are NOT persistent across a reboot, so this must re-apply at boot
+# exactly like sh2-io-max.service and sh2-contain.service do for io.max.
+After=sh2-io-max.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# oneshot only: it SETS the soft bounds. The continuous memory.reclaim loop
+# is sh2-memory-reclaim.timer -> .service, because a oneshot that looped
+# would be indistinguishable from a hung unit in `systemctl list-units`.
+ExecStart=/home/llm/sh2loop/harness/sh2-memory-reclaim.sh --oneshot
+Nice=19
+IOSchedulingClass=idle

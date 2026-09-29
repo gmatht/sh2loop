@@ -1,0 +1,22 @@
+[Unit]
+Description=Reclaim sh2loop harness page cache against memory.high
+Documentation=file:///home/llm/sh2loop/AGENTS.md
+
+[Timer]
+# Every 60s. This is the janitor that makes memory.high a CEILING rather than
+# a cliff: with the loop running, a cgroup that grows past its high is
+# trimmed from outside instead of putting its own tasks to sleep in direct
+# reclaim. On WSL that matters more than usual, because reclaim runs in the
+# kernel against the same virtio device the harness is already saturating —
+# a self-throttling cgroup turns a cache-growth problem into a throughput
+# stall for every build on the box.
+OnBootSec=90s
+OnUnitActiveSec=60s
+AccuracySec=5s
+# Stagger so this never shares a tick with the disk guard or the scratch
+# sweep, which would contend for the same device.
+RandomizedDelaySec=10s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
