@@ -45,25 +45,78 @@ if [ $# -eq 0 ]; then
     exit 2
 fi
 
+# ── equivalence-gate CWD stabilization ──────────────────────────────────
+# The c and perl arms of `setup_backends.sh --backend-gate` run BOTH sides of
+# the equivalence verdict inside a per-cell scratch:
+#
+#     (cd "$eq_scratch" && kill-session.sh <cmd>)      # the translation
+#     (cd "$eq_scratch" && kill-session.sh bash "$f")  # the reference
+#
+# with eq_scratch = `mktemp -d "$WORKSPACE/.eq_scratch_$$.XXXXXX"` — a DIRECT
+# CHILD OF THE SHARED WORKSPACE ROOT. That root churns continuously while the
+# fleet runs (workers create/remove scratch and log directories in it;
+# measured 29 link-count changes per minute on this box). `ls -la` prints the
+# `..` entry, i.e. THAT root's link count and mtime, so the C run and the bash
+# run — milliseconds apart — disagree whenever the root changed between them
+# and a FAITHFUL translation is scored EQUIV-FAIL. Measured on
+# 062_hard_to_lex.sh (`ls -la | grep "^d" | head -5`) under controlled churn:
+# 15/25 runs red; the only difference was the `..` link count (77 vs 78).
+#
+# Fix: run one level deeper, in `$scratch/.sh2run/run`. BOTH sides move
+# together, so every observable (the CWD's contents, the files each side
+# creates, `$PWD`, `cd ..`) stays exactly as before — but now `..` is
+# `.sh2run`, created by whichever side runs first and REUSED by the second, so
+# its link count and mtime are identical for both. `.sh2run/run` lives inside
+# the gate's own scratch, so it is deleted with it: nothing new leaks into the
+# workspace and no pass-boundary bookkeeping is needed.
+#
+# Scoped strictly to the gate's scratch shape (its basename is
+# `.eq_scratch_*`): every other caller of this wrapper — the sh/rust/zsh arms,
+# chimera-gate.sh, batch-triage.sh, the perl triage helpers — runs from a
+# caller-chosen CWD and is untouched.
+case "${PWD##*/}" in
+    .eq_scratch_*)
+        if mkdir -p "$PWD/.sh2run/run" 2>/dev/null; then
+            cd "$PWD/.sh2run/run" 2>/dev/null || true
+        fi
+        ;;
+esac
+
 # setsid puts the command in a new session; $! is the setsid process, which
 # execs the command, so it carries the same SID.
 setsid "$@" &
 child=$!
 
-# Read the SID from the child itself rather than assuming, and retry briefly:
-# the child may not have called setsid(2) yet when we look.
-sid=""
-for _ in 1 2 3 4 5 6 7 8 9 10; do
-    sid=$(ps -o sid= -p "$child" 2>/dev/null | tr -d ' ')
-    [ -n "$sid" ] && break
-    sleep 0.05
-done
-# A short-lived example is reaped before the probe's `ps` runs (048_subprocess
-# exits in ~5ms), leaving $sid empty and the whole sweep skipped. `setsid` in a
-# non-interactive shell is not a process-group leader, so it does NOT fork: it
-# calls setsid(2) in place and the child IS the new session leader, i.e.
-# SID == the child's pid. The orphan keeps that session after the leader is
-# reaped, so the child's pid still names the session the sweep must close.
+# The SID is $child, and probing for it is pure cost.
+#
+# `setsid` in a non-interactive shell is not a process-group leader, so it does
+# NOT fork: it calls setsid(2) IN PLACE, which makes the child the new session
+# leader — so SID == the child's pid by construction. The orphan keeps that
+# session after the leader is reaped (reparenting changes the parent, not the
+# session), so the child's pid still names the session the sweep must close.
+#
+# This used to VERIFY that with a 10-iteration probe (`ps -o sid= -p $child`,
+# sleep 0.05 between attempts) and fall back to $child when the probe came
+# back empty. That probe was the single most expensive thing in the
+# equivalence gate, and it could only ever return $child:
+#
+#   true (instant)   probe= 787 ms  iters=10
+#   sleep 0.3        probe=  34 ms  iters= 1
+#   sleep 1          probe=  27 ms  iters= 1
+#
+# A command that finishes in 3ms is reaped BEFORE the probe's first `ps`, so
+# it always burned all ten iterations (10 `ps` forks + 10x 0.05 sleeps) to
+# learn nothing. The cost scales with the example, not the workload: the
+# corpus runs this wrapper TWICE per example (the translation and the bash
+# reference), so a 648-example pass paid 2 x 648 x ~790ms ~= 17 minutes of
+# pure process-spawn overhead — the whole reason a rust gate took 26-122 min
+# when its actual work measured 46s.
+#
+# One probe, then $child. The single `ps` costs ~18ms and still catches the
+# only case the loop was written for (setsid genuinely not having called
+# setsid(2) yet); the retry could not add information, because the value it
+# converges on is already known.
+sid=$(ps -o sid= -p "$child" 2>/dev/null | tr -d ' ')
 [ -n "$sid" ] || sid="$child"
 
 wait "$child"
