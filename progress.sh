@@ -177,6 +177,43 @@ if age_m > 24*60:
         elif ust == "active":
             why = (f"unit {unit} IS active but wrote no gate row in {age} — "
                    f"wedged/blocked, not stopped (check its loop log + .gate.lock)")
+            # Name the ACTUAL blocker. "wedged/blocked" is right but not
+            # actionable, and the real cause is almost always one of two
+            # things the gate hits BEFORE it can append a report row — so it
+            # never shows up in the report, only in the worker log:
+            #
+            #   * "worktree build FAILED" — the gate could not build the
+            #     renderer bin it probes (shir_render / <lang>_backend). The
+            #     corpus loop never starts, so the report goes untouched for
+            #     as long as the build is broken. Observed on perl for 43
+            #     days: the worktree simply had no src/bin/shir_render.rs,
+            #     while 12 of 14 worktrees did.
+            #   * the worker is asleep on core-requests/sleeping-<lang>
+            #     (a TRAPPED marker), which is invisible from `systemctl`.
+            #
+            # Both are cheap to name and turn a dead end into one command.
+            # The loop log is named loop-<unit>.log for the ESTREE/CORE
+            # workers but loop-backend-<lang>.log for the backend ones —
+            # `unit` here is the SYSTEMD name, so the two differ. Probe both
+            # and take whichever has the marker.
+            lg = ""
+            for cand in (f"loop-{unit}.log", f"loop-backend-{tree}.log",
+                         f"loop-{tree}.log"):
+                got = _u(["tail", "-400", cand])
+                if got:
+                    lg = got
+                    if ("worktree build FAILED" in got
+                            or "NO RENDERER" in got):
+                        break
+            if "worktree build FAILED" in lg or "NO RENDERER" in lg:
+                why += (f"; ROOT CAUSE: the gate cannot build its renderer bin — "
+                        f"see 'worktree build FAILED'/'NO RENDERER' in "
+                        f"loop-backend-{tree}.log (no report row is written "
+                        f"until it builds)")
+            elif os.path.exists(f"core-requests/sleeping-{unit}"):
+                why += (f"; ROOT CAUSE: worker is ASLEEP behind "
+                        f"core-requests/sleeping-{unit} (TRAPPED) — the unit is "
+                        f"active but the gate is not running")
         else:
             why = f"unit {unit} is not running ({ust or 'unknown'})"
     note = f"STALE — {f_now}f is the last known, {age} old"
