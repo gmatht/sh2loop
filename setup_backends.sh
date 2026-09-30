@@ -1395,10 +1395,23 @@ EOF
                         # `for file in *.{txt,log,dat}` an extra match the
                         # already-finished C run never saw, and 064_hard_to
                         # _generate.sh reported a stdout mismatch on 15/15
-                        # trials. The remaining backends keep the root CWD
-                        # until their own gates adopt the semantics.
+                        # trials. WORKTREES are not ENOUGH (measured
+                        # 2026-09-30, rust): the worker does `cd "$rw_dir"`,
+                        # so a gate globs the worktree root — 12 files, not
+                        # the workspace root's 66. Five of those 12 are
+                        # written BY THE PASS ITSELF (config.txt,
+                        # comparison.txt, errors.log, users.txt,
+                        # final_result.txt — 064 creates config.txt before
+                        # line 121 globs it), so the CWD is a postcondition
+                        # of the run's own side effects, plus untracked AI
+                        # debris (x.py, a file named `-`). A worktree
+                        # isolates PROVENANCE (src/, target/, git index),
+                        # not PROCESS STATE. Every backend that executes the
+                        # corpus needs the scratch; the ones left are the
+                        # unscoped scaffolds (go/python/zig/sh/fish/java),
+                        # which have not yet been exercised through 064.
                         eq_scratch=""
-                        if [ "$g_lang" = "perl" ] || [ "$g_lang" = "c" ]; then
+                        if [ "$g_lang" = "perl" ] || [ "$g_lang" = "c" ] || [ "$g_lang" = "rust" ]; then
                           eq_scratch=$(mktemp -d "$WORKSPACE/.eq_scratch_$$.XXXXXX")
                         fi
                         # SESSION TEARDOWN for every example-executing
@@ -1446,7 +1459,7 @@ EOF
                                 # (the old rc=0-on-both-sides rule made them
                                 # unpassable; the sh/perl arms adopted equality
                                 # first). A 124 (timeout) is caught below.
-                                rustc /tmp/eq_$$.rs -o /tmp/eq_$$_bin 2>/dev/null && "$KS" timeout -k 2 15 bash -c 'exec -a "$0" "$1"' "$f" /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
+                                rustc /tmp/eq_$$.rs -o /tmp/eq_$$_bin 2>/dev/null && { if [ -n "$eq_scratch" ]; then (cd "$eq_scratch" && "$KS" timeout -k 2 15 bash -c 'exec -a "$0" "$1"' "$f" /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null); else "$KS" timeout -k 2 15 bash -c 'exec -a "$0" "$1"' "$f" /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null; fi; } && eq_exit=0 || eq_exit=$?;;
                           zig)  "$KS" timeout 30 "$eq_tool" run /tmp/eq_$$.zig > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           zsh)  # argv0 = the source path (what `bash "$f"` sees),
                                # mirroring the perl/sh arms. The REAL exit
