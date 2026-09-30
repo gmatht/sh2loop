@@ -65,16 +65,34 @@ WORKERS = ("rust", "c", "perl", "estree", "perl-generator")
 
 # group -> {0: model_on_even_phase, 1: model_on_odd_phase}
 # Group A holds the two sh2-native backends; group B the two ESTree-side ones.
+#
+# ── ALL WORKERS PINNED TO SPACE BUNNY ALPHA (operator, 2026-09-30) ──────
+# Every entry below now has even == odd == SPACE_BUNNY, so the phase no longer
+# changes any worker's model. Laguna is retained as the *fallback* target of
+# last resort but is no longer any worker's primary: OpenRouter's daily
+# `free-models-per-day` budget was exhausted, and a worker whose primary is
+# Laguna has no route out of it — its only recourse is the 30-minute
+# `rw_quota_cooldown_s` sleep, which burns wall-clock and fixes nothing.
+#
+# The table is kept (rather than collapsed to a single constant) so restoring
+# the A/B is a one-line revert per worker, and so `model_for()` keeps
+# returning something meaningful if a future override reintroduces a phase.
+#
+# CONSEQUENCE: the rotation A/B is no longer being measured, so a comparison
+# between the two models over this window is meaningless. progress.sh's
+# normalized-gate-progress-per-token comparison needs both arms per worker
+# before any ranking is meaningful; re-pin a worker to LAGUNA to collect the
+# other arm.
 GROUPS = {
-    "rust": {"group": "A", "even": SPACE_BUNNY, "odd": LAGUNA},
-    "c": {"group": "A", "even": SPACE_BUNNY, "odd": LAGUNA},
-    "perl": {"group": "B", "even": LAGUNA, "odd": SPACE_BUNNY},
+    "rust": {"group": "A", "even": SPACE_BUNNY, "odd": SPACE_BUNNY},
+    "c": {"group": "A", "even": SPACE_BUNNY, "odd": SPACE_BUNNY},
+    "perl": {"group": "B", "even": SPACE_BUNNY, "odd": SPACE_BUNNY},
       # The perl GENERATOR worker (run_perl_generator_worker.sh; gate ./fail,
       # scope src/perl_generator_fixed.rs). Group B with perl/estree. It was
       # missing from the roster: an unrecognised --worker is rejected, so the
       # worker would have run its gate and then failed every AI call.
-      "perl-generator": {"group": "B", "even": LAGUNA, "odd": SPACE_BUNNY},
-    "estree": {"group": "B", "even": LAGUNA, "odd": SPACE_BUNNY},
+      "perl-generator": {"group": "B", "even": SPACE_BUNNY, "odd": SPACE_BUNNY},
+    "estree": {"group": "B", "even": SPACE_BUNNY, "odd": SPACE_BUNNY},
 }
 
 def runtime_dir() -> str:

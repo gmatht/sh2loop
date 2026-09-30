@@ -22,7 +22,21 @@ WORKER_CLI="${WORKER_CLI:-pir}"
 # Model. For pir: OpenRouter model id (poolside/laguna-s-2.1:free, etc.).
 #   For pi: opencode-go model. For cmd: CC catalog id.
 # TODO: escalate to DeepSeek for complex failures Laguna can't handle.
-WORKER_MODEL="${WORKER_MODEL:-poolside/laguna-s-2.1:free}"
+#
+# EVERY WORKER ON SPACE BUNNY ALPHA (operator, 2026-09-30 21:0x). This was
+# `poolside/laguna-s-2.1:free`, and Laguna then hit OpenRouter's exact
+# `free-models-per-day` wall ("Add 10 credits to unlock 1000 free model
+# requests per day") while the workers that ARE on rotation carried on
+# running `stealth/space-bunny-alpha` without a single quota error. Alpha is
+# healthy; Laguna's daily free tier is exhausted. Alpha is now the default
+# for the direct WORKER_CLI path, so the workers NOT on rotation (perl,
+# and any future one) stop inheriting an exhausted model.
+#
+# This is the LEGACY path only. The rotating workers (rust|c, per
+# WORKER_ROTATE_WORKER in setup_backends.sh --run-backend-worker) do not
+# read this: they go through harness/ai_invoke.py, which picks the model
+# from the four-hour phase table in GROUPS. See ai_invoke.py for that one.
+WORKER_MODEL="${WORKER_MODEL:-commandcode/stealth/space-bunny-alpha}"
 
 # Reasoning effort. For pi: --thinking. For cmd: --effort. For pir: unused.
 WORKER_EFFORT="${WORKER_EFFORT:-}"
