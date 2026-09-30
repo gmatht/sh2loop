@@ -176,6 +176,15 @@ now = time.time()
 #   estree:  Thu Sep 24 13:06:13 2026 estree: 526/555 pass, 29 fail; ...
 iso  = re.compile(r'^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}).*?(\d+) fail')
 ctime= re.compile(r'^(\w{3} \w{3} +\d+ \d{2}:\d{2}:\d{2} \d{4}).*?(\d+) fail')
+# The corpus total and skip count ride along with the fail count. They were
+# discarded, and comparing fail counts across rows with DIFFERENT totals is
+# how a smaller measured set reads as an improvement: the corpus is
+# examples/*.sh + frontends/*/testdata/*.sh, and workers add testdata, so the
+# denominator moves (measured 638/642/643/644/647 within one day). A drop in
+# fails alongside a smaller total is fewer files measured, not fewer bugs.
+TOT = re.compile(r'\b(\d+)/(\d+) corpus')
+unparsed = []   # rows carrying a timestamp we could not parse (see below)
+SKIP = re.compile(r', (\d+) skip')
 for ln in open(rep, errors='replace'):
     m = iso.match(ln)
     if m:
@@ -183,13 +192,36 @@ for ln in open(rep, errors='replace'):
         except Exception: continue
     else:
         m = ctime.match(ln)
-        if not m: continue
+        if not m:
+            # A row the parsers cannot read is a row whose verdict is
+            # INVISIBLE, which is the worst outcome: the run happened, it may
+            # have been red, and the board shows the previous state as if
+            # nothing occurred. One was found on 2026-10-01 — a single
+            # `x2026-10-01T00:04:07 [c] …` line in backend-c.report, written
+            # by a gate that ran against the file mid-append. Do not guess at
+            # the content: count it and say so.
+            if ln.strip() and re.search(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}', ln):
+                unparsed.append(ln.strip()[:60])
+            continue
         try: t = time.mktime(time.strptime(m.group(1)))
         except Exception: continue
-    rows.append((t, int(m.group(2))))
+    tot = TOT.search(ln)
+    skp = SKIP.search(ln)
+    rows.append((t, int(m.group(2)),
+                 int(tot.group(2)) if tot else None,
+                 int(skp.group(1)) if skp else None))
 if not rows:
     print("  %-10s %-9s %-9s %-9s %s" % (tree, "?", "?", "?", "no data"))
     sys.exit()
+UNPARSED_WARNING = ""
+if unparsed:
+    # Say it rather than silently showing the previous state: a run whose
+    # row cannot be parsed DID happen, and its verdict is unknown. Appended
+    # to whichever row is printed below, so the tree appears ONCE — a
+    # separate WARNING row for the same tree reads as a second tree.
+    UNPARSED_WARNING = (f" | WARNING: {len(unparsed)} report row(s) carry a "
+                       f"timestamp this board cannot parse, so their verdict "
+                       f"is INVISIBLE (e.g. {unparsed[0]!r})")
 
 def val_at(age_h):
     """fail count from the newest row at least age_h old (else '-')"""
@@ -198,7 +230,7 @@ def val_at(age_h):
     return str(cand[-1][1]) if cand else "-"
 
 v24, v4 = val_at(24), val_at(4)
-t_now, f_now = rows[-1]
+t_now, f_now, tot_now, skip_now = rows[-1]
 age_m = int((now - t_now)/60)
 age = f"{age_m}m" if age_m < 120 else (f"{age_m//60}h" if age_m < 48*60 else f"{age_m//1440}d")
 
@@ -321,7 +353,7 @@ if age_m > 24*60:
     note = f"STALE — {f_now}f is the last known, {age} old"
     if why:
         note += "; " + why
-    print("  %-10s %-9s %-9s %-9s %s" % (tree, "-", "-", f"{f_now}f", note))
+    print("  %-10s %-9s %-9s %-9s %s%s" % (tree, "-", "-", f"{f_now}f", note, UNPARSED_WARNING))
     sys.exit()
 
 if f_now == 0:
@@ -387,18 +419,19 @@ if f_now == 0:
             bits.append(f"sh2.* contract sites {sh2}s ({src})")
         if stubs is not None:
             bits.append(f"{stubs} sh2_* stubs")
-        print("  %-10s %-9s %-9s %-9s %s" % (tree, "0f", "0f", "0f", "; ".join(bits)))
+        print("  %-10s %-9s %-9s %-9s %s%s" % (tree, "0f", "0f", "0f", "; ".join(bits), UNPARSED_WARNING))
     elif stub_pattern_covers_this_tree:
         # The pattern can actually see this tree's namespace, so its number
         # is a real measurement.
         if stubs is None:
-            print("  %-10s %-9s %-9s %-9s %s" % (
+            print("  %-10s %-9s %-9s %-9s %s%s" % (
                 tree, "0f", "0f", "0f",
-                "GREEN — 0 fails; no stub count in this tree's report row"))
+                "GREEN — 0 fails; no stub count in this tree's report row",
+                UNPARSED_WARNING))
         else:
-            print("  %-10s %-9s %-9s %-9s %s" % (
+            print("  %-10s %-9s %-9s %-9s %s%s" % (
                 tree, "0f", "0f", "0f",
-                f"GREEN — 0 fails; {stubs} sh2_* stubs"))
+                f"GREEN — 0 fails; {stubs} sh2_* stubs", UNPARSED_WARNING))
     else:
         # The gate's stub pattern cannot see this tree's runtime namespace,
         # so its 0 is vacuous. Say that instead of printing a number that
@@ -414,10 +447,10 @@ if f_now == 0:
                     if f and f[0].strip() == 'total' and len(f) > 1:
                         tot = f[1].strip()
                 if tot is not None:
-                    print("  %-10s %-9s %-9s %-9s %s" % (
+                    print("  %-10s %-9s %-9s %-9s %s%s" % (
                         tree, "0f", "0f", "0f",
                         f"GREEN — 0 fails; {tot} runtime calls "
-                        f"(this tree's namespace)"))
+                        f"(this tree's namespace)", UNPARSED_WARNING))
                     sys.exit()
             except Exception:
                 pass
@@ -425,21 +458,54 @@ if f_now == 0:
             tree, "0f", "0f", "0f",
             "GREEN — 0 fails; runtime-call count NOT MEASURED — the gate's "
             "sh2_* stub pattern cannot see this backend's namespace "
-            f"({tree} emits its own); run harness/backend_runtime_metric.sh"))
+            f"({tree} emits its own); run harness/backend_runtime_metric.sh"
+            + UNPARSED_WARNING))
     sys.exit()
 else:
     # FAILING: 24h/4h/now fail counts + direction. Every number is
-    # unit-tagged so the column cannot be misread as sh2.* sites.
+    # unit-tagged so the column cannot be misread as a runtime-call count.
     def tag(v):
         return "-" if v == "-" else f"{int(v)}f"
+    # The 4h baseline row, so the denominator and skip count of BOTH runs are
+    # known. Comparing a fail count against a row that measured a different
+    # number of files is how a gap reads as progress.
+    base_row = None
+    cand = [r for r in rows if r[0] <= now - 4*3600]
+    if cand:
+        base_row = cand[-1]
     try:
         base = int(v4) if v4 != "-" else f_now
         d = f_now - base
     except ValueError:
         d = 0
-    arrow = "↓ improving" if d < 0 else ("↑ worse" if d > 0 else "= flat")
-    print("  %-10s %-9s %-9s %-9s %s (last run {})".format(age) % (
-        tree, tag(v24), tag(v4), f"{f_now}f", f"{arrow} {d:+d}f/4h"))
+    # A fail-count DROP is only progress if the same work was actually
+    # measured. If the run measured fewer files (smaller corpus total) or
+    # skipped more of them, the drop is a measurement gap, and saying
+    # "improving" is the confident-wrong-answer failure this board exists to
+    # avoid. Measured case: perl reported 397 fail against a true 401 purely
+    # because 7 files came back rc=127 from the emitter and were skipped;
+    # the board printed "↓ improving -4f/4h".
+    caveat = ""
+    if base_row is not None:
+        _, f_base, tot_base, skip_base = base_row
+        if tot_base and tot_now and tot_now < tot_base:
+            caveat = (f" — NOT comparable: measured {tot_now} files vs "
+                      f"{tot_base} at the 4h mark (fewer files measured, so a "
+                      f"lower fail count is not fewer bugs)")
+        elif skip_base is not None and skip_now is not None and skip_now > skip_base:
+            caveat = (f" — NOT comparable: {skip_now} skipped vs {skip_base} "
+                      f"at the 4h mark (more files unmeasured)")
+    if d < 0 and caveat:
+        arrow = "≈ fewer fails, but"
+    elif d < 0:
+        arrow = "↓ improving"
+    elif d > 0:
+        arrow = "↑ worse"
+    else:
+        arrow = "= flat"
+    print("  %-10s %-9s %-9s %-9s %s (last run {})%s".format(age) % (
+        tree, tag(v24), tag(v4), f"{f_now}f", f"{arrow} {d:+d}f/4h{caveat}",
+        UNPARSED_WARNING))
 PYEOF
 done
 

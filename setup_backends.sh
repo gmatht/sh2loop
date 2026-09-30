@@ -625,7 +625,7 @@ case "${1:-}" in
                   # records exact token usage. Other backends keep the direct
                   # WORKER_CLI path, so their behavior is unchanged.
                   case "$rw_lang" in
-                    rust|c) export WORKER_ROTATE_WORKER="$rw_lang" ;;
+                    rust|c|fish|zsh) export WORKER_ROTATE_WORKER="$rw_lang" ;;
                   esac
                   # Worker cgroup enrollment (harness/WorkerPool.pm): this
                   # backend worker's whole tree (builds, gates) runs inside
@@ -870,7 +870,7 @@ case "${1:-}" in
                   # harness/ai_invoke.py, which picks the phase's model, applies
                   # the Laguna daily-quota fallback, and records token usage.
                   case "$fix_lang" in
-                    rust|c) export WORKER_ROTATE_WORKER="$fix_lang" ;;
+                    rust|c|fish|zsh) export WORKER_ROTATE_WORKER="$fix_lang" ;;
                   esac
                   {
                     printf 'The %s backend in %s is failing to build.\n\n' "$fix_lang" "$fix_dir"
@@ -1242,7 +1242,7 @@ EOF
                   if [ "$g_eq" = 1 ] && [ -n "$eq_tool" ] && command -v "$eq_tool" >/dev/null 2>&1; then
                     eq_gate=1
                   fi
-                  pass=0; skip=0; fail=0; fails=""; stub_total=0; stub_files=0; al_count=0; sa_fail_total=0
+                  pass=0; skip=0; fail=0; fails=""; stub_total=0; stub_files=0; al_count=0; sa_fail_total=0; emitfail=0
                   # sh backend blessed-fail allowlist (AGENTS.md guardrail: a
                   # failing test may be allowlisted ONLY for a KNOWN RUNTIME
                   # LIMITATION, never to hide a transpiler bug). Entries are
@@ -1291,11 +1291,51 @@ EOF
                     # log; an anomalous skip count is the visible signal (core-
                     # emit health is the estree gate's job, not this gate's).
                     shir=$("$g_otrans" --target shir "$f" 2>/dev/null) || {
-                      echo "  [$g_lang] backend gate: shir emit failed for $f (rc=$?) — core emitter transient/mid-rebuild — counted as skip"
-                      skip=$((skip+1)); continue
+                      rc=$?
+                      # AN EMIT FAILURE IS NOT A SKIP. It was counted as one
+                      # until 2026-09-30, and that is actively harmful: a skip
+                      # is excluded from the fail count, so a run in which the
+                      # emitter could not be executed at all reported FEWER
+                      # failures and the board read it as progress. Measured:
+                      # the perl gate's 20:55 run reported 397 fail where the
+                      # true figure is 401, purely because 7 files came back
+                      # rc=127 (exec failure) and were skipped; the next run,
+                      # with the emitter available, was back to 401. A
+                      # measurement that could not be taken must not lower the
+                      # measured failure count.
+                      #
+                      # NOTE ON THE OLD COMMENT ("core emitter
+                      # transient/mid-rebuild"): that explanation was an
+                      # inherited guess and it does not hold. Verified 2026-09-30
+                      # — cargo replaces a built binary by RENAME, so the path
+                      # is never un-runnable: 500 rebuilds with a concurrent
+                      # exec loop gave `present=500 absent=0`, and 600 execs
+                      # across ~30 rebuilds gave `exec_failures=0`. There is
+                      # also no `cargo clean` anywhere that removes this
+                      # binary. rc=127 is exec failure (timeout gives 124; the
+                      # emitter's own errors give 1), but the trigger was not
+                      # reproducible — 647/647 files emit rc=0 on demand. So the
+                      # line now reports what is KNOWN (the rc, and the identity
+                      # of the binary that was invoked) instead of asserting a
+                      # cause, which is what makes the next occurrence
+                      # diagnosable.
+                      emitfail=$((emitfail+1)); fail=$((fail+1))
+                      fails="$f $fails"
+                      echo "  [$g_lang] backend gate: shir emit FAILED for $f (rc=$rc, binary=$g_otrans inode=$(stat -c %i "$g_otrans" 2>/dev/null || echo GONE)) — counted as FAIL (an unmeasured file is not a passing file)"
+                      continue
                     }
                     if [ -z "$shir" ]; then
-                      skip=$((skip+1)); continue
+                      # rc=0 but NO OUTPUT. Same class as an exec failure: the
+                      # file was not measured, and counting it as a skip
+                      # excludes it from the fail count and so flatters the
+                      # run. The corpus's own comment elsewhere notes the
+                      # parse-error class is handled BELOW by `bash -n`, so an
+                      # empty emit here is the core declining to produce a
+                      # program — a measurement gap, not a deliberate skip.
+                      emitfail=$((emitfail+1)); fail=$((fail+1))
+                      fails="$f $fails"
+                      echo "  [$g_lang] backend gate: shir emit EMPTY for $f (rc=0, no A1) — counted as FAIL (an unmeasured file is not a passing file)"
+                      continue
                     fi
                     # a source bash itself cannot parse (the parse-* syntax-
                     # error examples) is NOT a testable translation target:
@@ -1611,7 +1651,7 @@ EOF
                       fails="$f $fails"
                     fi
                   done
-                  echo "  [$g_lang] backend gate: $pass/$((pass+skip+fail)) corpus render OK, $fail fail ($stub_files stubs, $eq_fail equiv, $sa_fail_total static-analysis), $skip skip ($al_count allowlisted) — $stub_total stubs emitted${eq_gate:+; equiv: $eq_pass pass vs bash}"
+                  echo "  [$g_lang] backend gate: $pass/$((pass+skip+fail)) corpus render OK, $fail fail ($stub_files stubs, $eq_fail equiv, $sa_fail_total static-analysis), $skip skip ($al_count allowlisted) — $stub_total stubs emitted${emitfail:+; $emitfail of them emit-failed (core emitter could not run — a MEASUREMENT failure, not a skip)}${eq_gate:+; equiv: $eq_pass pass vs bash}"
                   # the Go corpus through this backend (the dog-food target):
                   # the Go→<lang> verdict is part of the backend's scope. rust
                   # measures it (fail-go --rust); the corpus-wide bash gate
@@ -1625,10 +1665,21 @@ EOF
                     fi
                   fi
                   # the KNOWN report location (summarize-progress.sh reads this,
-                  # not the log): one timestamped line, newest last
+                  # not the log): one timestamped line, newest last.
+                  #
+                  # The emit-failure count goes here too, and it was MISSING
+                  # from this line when the skip->fail change landed: the
+                  # console echo above showed it, so a run that could not
+                  # measure files looked clean in the log while the report
+                  # row said only "N fail" with no way to tell an
+                  # unmeasured file from a measured-and-failed one. Appended
+                  # as a trailing clause so the existing
+                  # "<n> skip" field keeps its position and any consumer
+                  # parsing the row still reads the same first fields.
                   mkdir -p "$WORKSPACE/gate-reports"
-                  printf '%s [%s] backend gate: %s/%s corpus render OK, %s fail (%s stubs, %s equiv, %s static-analysis), %s skip\n' \
+                  printf '%s [%s] backend gate: %s/%s corpus render OK, %s fail (%s stubs, %s equiv, %s static-analysis), %s skip%s\n' \
                     "$(date +%FT%T)" "$g_lang" "$pass" "$((pass+skip+fail))" "$fail" "$stub_files" "$eq_fail" "$sa_fail_total" "$skip" \
+                    "$([ "$emitfail" -gt 0 ] && printf '; %s EMIT-FAILED (core emitter could not run — a MEASUREMENT failure, not a skip)' "$emitfail")" \
                     >> "$WORKSPACE/gate-reports/backend-$g_lang.report"
                   # CHIMERA gate (sh only): the bash-free WSL sandbox (BSD
                   # shell + busybox toolchain, no bash/perl/GNU coreutils). A
@@ -1659,7 +1710,25 @@ EOF
                   # must run without memory errors — a bounded sample (the
                   # full 531 under valgrind is too slow for the gate loop)
                   if [ "$g_lang" = "c" ] && command -v valgrind >/dev/null 2>&1; then
-                    sample=$(ls "$SUB"/examples/*.sh 2>/dev/null | head -25)
+                  # the sample listing pipes ls into head: head exits after 25
+                  # lines and closes the pipe while ls still has ~500 names to
+                  # write, so ls dies on SIGPIPE (141). Under `set -o pipefail`
+                  # that 141 becomes the status of the WHOLE pipeline, the
+                  # assignment `sample=$(...)` returns nonzero, and `set -e`
+                  # kills the gate right here — AFTER it printed its verdict
+                  # and wrote the gate report, but BEFORE the valgrind arm can
+                  # echo anything. That is why the log showed
+                  # "640/647 corpus render OK, 0 fail" immediately followed by
+                  # "gate FAILED" with no valgrind line at all: the c gate had
+                  # been green and self-killed on a signalling artifact, and no
+                  # renderer change could ever fix it. Reproduced 5/5 at rc=141
+                  # (and rc=0 with pipefail off). `|| true` takes the assignment's
+                  # status from the pipeline's; the 25 lines head DID produce are
+                  # intact, so the sample is unchanged — only the bogus 141 is
+                  # discarded. (Same class as the corpus loop's guarded shir
+                  # emit above: a non-hermetic command must never decide a
+                  # verdict under set -e.)
+                    sample=$(ls "$SUB"/examples/*.sh 2>/dev/null | head -25 || true)
                     if bash "$WORKSPACE/harness/c_valgrind.sh" $sample >> "$WORKSPACE/loop-backend-$g_lang.log" 2>&1; then
                       echo "  [$g_lang] backend gate: valgrind clean (25-sample)"
                     else
