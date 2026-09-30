@@ -37,11 +37,11 @@ set -u
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 GOSH="$ROOT/sh2perl/frontends/go-sh/go-sh"
 OTRANS="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
-# the rust BACKEND renderer — otranspilerl-cli `- - --target rust` (the
-# A1 ingress + the main checkout's rust renderer, the same binary as the
-# JS leg; the per-backend worktree binaries are gone with the deleted
-# debashc CLI layer).
-RUSTBIN="$OTRANS"
+# the rust BACKEND renderer — the worktree's shir_render bin (the
+# gate's canonical entry point; builds THE worktree's rust_backend.rs,
+# not the main checkout's stale copy that still emits TODO/stub code).
+# Overridable via RUSTBIN env for testing.
+RUSTBIN="${RUSTBIN:-$ROOT/sh2perl/backends/rust/target/debug/shir_render}"
 RUNNER="$ROOT/harness/estree-runner.mjs"
 CORPUS="$ROOT/sh2perl/frontends/go-sh/testdata"
 TIMEOUT=15
@@ -95,7 +95,19 @@ ensure_oracle || exit 1
 # ── helpers ──────────────────────────────────────────────────────────
 wrap_go() { # file -> wrapped program on stdout (if it needs wrapping)
   local f="$1" imports=""
-  grep -q 'func main(' "$f" && { cat "$f"; return; }
+  # `command grep`, not bare `grep`: this box aliases `grep` to a shell
+  # function wrapping ripgrep, and that wrapper does not understand -qF (it
+  # forwards `-F` to rg, which rejects it as an unknown flag). Bypassing it
+  # is the only way to get a fixed-string -q. Without this the pattern below
+  # is an INVALID REGEX on this box — rg reports "unclosed group" and exits
+  # 2 — and a failed `grep -q` is indistinguishable from "not found", so
+  # EVERY corpus file took the wrap branch and got a second `package main`
+  # wrapped around an already-complete program. That is a guaranteed syntax
+  # error, so the oracle build failed and MORC was set to 1 for all 124
+  # cases: the oracle column was never measuring the Go program at all.
+  # Fixed 2026-09-30. The bare `grep` calls below it are safe — their
+  # patterns are escaped or -E, which ripgrep accepts.
+  command grep -qF 'func main(' "$f" && { cat "$f"; return; }
   grep -q 'fmt\.'       "$f" && imports="$imports\n\t\"fmt\""
   grep -q 'strings\.'   "$f" && imports="$imports\n\t\"strings\""
   grep -q 'bufio\.'     "$f" && imports="$imports\n\t\"bufio\""
@@ -172,7 +184,7 @@ measure_once() { # f -> run oracle+JS(+Rust) ONCE; store MO MORC MJ MJRC MJv MR 
       # worker waits on flock. 19 such orphans accumulated before this was
       # found. A timeout turns a wedge into an ordinary TARGET-ERR verdict
       # (rc 124 >= 128 is false, so it reports a clean failure, not a CRASH).
-      rs=$(printf '%s' "$a1" | timeout "$TIMEOUT" "$RUSTBIN" - - --target rust 2>/dev/null); rsrc=$?
+      rs=$(printf '%s' "$a1" | timeout "$TIMEOUT" "$RUSTBIN" --target=rust - 2>/dev/null); rsrc=$?
       if [ $rsrc -ne 0 ]; then R="TARGET-ERR";
       else
         printf '%s\n' "$rs" > "$tmp/main.rs"
