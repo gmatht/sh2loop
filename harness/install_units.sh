@@ -33,6 +33,12 @@ UNITS=(
   "$UNITDIR/sh2backend-c.service"
   "$UNITDIR/sh2backend-perl.service"
   "$UNITDIR/sh2backend-rust.service"
+  # fish + zsh (2026-09-30): the worktrees and both toolchains were already
+  # present (/usr/bin/fish, /usr/bin/zsh) but no unit deployed them, so these
+  # two backends never ran. They are ordinary backend workers — same
+  # supervise.sh wrapper, same slice, same env file.
+  "$UNITDIR/sh2backend-fish.service"
+  "$UNITDIR/sh2backend-zsh.service"
   "$ROOT/sh2loop.target"
   "$UNITDIR/sh2estree.service"
 )
@@ -67,13 +73,13 @@ status)
   ls -1 "$DEST"/sh2*.service 2>/dev/null || echo "  (none installed)"
   echo
   echo "== runtime state =="
-  for u in sh2core sh2estree sh2backend-c sh2backend-perl sh2backend-rust sh2loop.target; do
+  for u in sh2core sh2estree sh2backend-c sh2backend-perl sh2backend-rust sh2backend-fish sh2backend-zsh sh2loop.target; do
     printf '  %-20s %s\n' "$u" "$(systemctl --user is-active "$u.service" 2>/dev/null)"
   done
   exit 0
   ;;
 stop)
-  for u in "${TARGETS[@]}" sh2core sh2estree sh2backend-c sh2backend-perl sh2backend-rust; do
+  for u in "${TARGETS[@]}" sh2core sh2estree sh2backend-c sh2backend-perl sh2backend-rust sh2backend-fish sh2backend-zsh; do
     systemctl --user stop "$u.service" 2>/dev/null || true
     systemctl --user disable "$u.service" 2>/dev/null || true
   done
@@ -128,6 +134,6 @@ done
 sleep 2
 echo
 echo "== state =="
-for u in sh2core sh2estree sh2backend-c sh2backend-perl sh2backend-rust sh2loop.target; do
+for u in sh2core sh2estree sh2backend-c sh2backend-perl sh2backend-rust sh2backend-fish sh2backend-zsh sh2loop.target; do
   printf '  %-20s %s\n' "$u" "$(systemctl --user is-active "$u.service" 2>/dev/null)"
 done
