@@ -639,6 +639,20 @@ case "${1:-}" in
                   # on what "the quota wall lasts" means; override for a
                   # test.
                   rw_quota_cooldown_s="${WORKER_QUOTA_COOLDOWN_S:-1800}"
+                  # How long to wait for a core that is both CLEAN and
+                  # BUILDING after a core-build break. This was 3600, and
+                  # 3600 was not a backstop — it was the normal outcome: on
+                  # 2026-09-30 the three live workers hit "core still dirty
+                  # after 1h" 28 times against 7 times reaching a clean tree
+                  # (perl 9/1, c 9/3, rust 10/3), because a dirty EPISODE
+                  # spans the core owner's whole WIP window (median gap
+                  # between src/ commits ~20 min), not the gap between
+                  # commits. Each episode then cost a further 2h in
+                  # --worker-trapped, for a core the gate would have built
+                  # fine. 900 is above the observed WIP window and below the
+                  # episode; the buildability probe inside the loop usually
+                  # ends the wait on its first iteration anyway.
+                  CORE_DIRTY_WAIT_S="${CORE_DIRTY_WAIT_S:-900}"
                   while true; do
                     # WORK-STEALING: a leased slot is run by a desktop.
                     # HEARTBEAT + RECLAIM: a stale lease (the desktop
@@ -721,25 +735,48 @@ case "${1:-}" in
                     else
                       if grep -q "core build FAILED" <(tail -50 "$LOG"); then
                         # shared-CORE build break — the estree worker owns
-                        # the core and edits it constantly. Build only
-                        # against a HEALTHY SNAPSHOT: wait until the core
-                        # tree (src/ + Cargo.toml) is CLEAN — then the tree
-                        # IS committed HEAD, which the estree worker's
-                        # widened commit gate verified. Never grind against
-                        # mid-edit WIP on a timer.
+                        # the core and edits it constantly. Never grind
+                        # against a state that is mid-edit AND uncompilable
+                        # on a hot timer; wait for a core the gate can use.
+                        # The gate needs a CORE THAT BUILDS, not a core that is
+                        # clean — so wait for EITHER. The tree being dirty only
+                        # means the WIP is unverified; whether it COMPILES is
+                        # a separate question, and the one that decides the
+                        # gate. Measured 2026-09-30: a core dirty on
+                        # estree.rs + ir.rs + perl_generator_fixed.rs built
+                        # clean in 2m11s (0 errors, 45 warnings), so gating on
+                        # cleanliness made the backend wait on a property it
+                        # never used.
+                        #
+                        # The probe costs one build attempt, which is what the
+                        # gate does anyway on wake. It goes through
+                        # build-lock.sh so it queues like every other core
+                        # build instead of racing the estree worker's.
                         if [ -n "$(git -C "$SUB" status --porcelain -- src/ Cargo.toml 2>/dev/null)" ]; then
-                          echo "[$(date +%FT%T)] $rw_lang: core mid-edit (estree-worker WIP) — waiting for a clean core snapshot" >> "$LOG"
+                          echo "[$(date +%FT%T)] $rw_lang: core mid-edit (estree-worker WIP) — waiting for a clean-or-building core (max ${CORE_DIRTY_WAIT_S}s)" >> "$LOG"
                           core_waited=0
-                          while [ "$core_waited" -lt 3600 ]; do
+                          while [ "$core_waited" -lt "$CORE_DIRTY_WAIT_S" ]; do
                             if [ -z "$(git -C "$SUB" status --porcelain -- src/ Cargo.toml 2>/dev/null)" ]; then
                               echo "[$(date +%FT%T)] $rw_lang: core tree clean — retrying the gate" >> "$LOG"
                               break
                             fi
+                            # BUILDABILITY PROBE. Bounded and fail-open: a
+                            # probe that fails for an unrelated reason (the
+                            # lock, the box) must not be read as "still
+                            # editing" — it only ever ends the wait when it
+                            # SUCCEEDS.
+                            if "$ROOT/harness/build-lock.sh" --role backend -- \
+                                 cargo build --manifest-path "$ROOT/otranspilerl/Cargo.toml" \
+                                 --bin otranspilerl-cli >> "$LOG" 2>&1; then
+                              echo "[$(date +%FT%T)] $rw_lang: core dirty but COMPILES (buildable, WIP unverified) — retrying the gate now rather than waiting out the WIP" >> "$LOG"
+                              break
+                            fi
+                            echo "[$(date +%FT%T)] $rw_lang: core dirty and not yet building (probe failed) — waited ${core_waited}s of ${CORE_DIRTY_WAIT_S}" >> "$LOG"
                             sleep 60
                             core_waited=$((core_waited + 60))
                           done
-                          if [ "$core_waited" -ge 3600 ]; then
-                            echo "[$(date +%FT%T)] $rw_lang: core still dirty after 1h — trapping to a core-request" >> "$LOG"
+                          if [ "$core_waited" -ge "$CORE_DIRTY_WAIT_S" ]; then
+                            echo "[$(date +%FT%T)] $rw_lang: core still dirty+unbuildable after ${CORE_DIRTY_WAIT_S}s — trapping to a core-request" >> "$LOG"
                             bash "$WORKSPACE/setup_backends.sh" --worker-trapped "$rw_lang" backend >> "$LOG" 2>&1 || true
                           fi
                         else
