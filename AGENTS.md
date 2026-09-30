@@ -75,14 +75,24 @@ do not apply:
 What is installed, and why each piece:
 
 - `io.max` — `sh2-io-max.service` (`sh2-io.slice`), `sh2-contain.service`
-  (the `init.scope` backstop). **Working**: measured 18/32 MB/s with `Dirty`
-  at 82 MB. It throttles IO, *not* cache.
+  (the `init.scope` backstop), `sh2-system-slice-cap.service` (the
+  `system.slice` backstop, added 2026-09-30 — it was the last unbounded
+  population with real work in it: 164 children, 3.3 GB, including `cron`).
+  **This is a CEILING, not a control that is continuously engaged.** It sits
+  at 32 MB/s against a device whose measured single-stream ceiling is
+  70–90 MB/s, so at the current 6 MiB/s it correctly never fires:
+  `nr_throttled=0` in every capped cgroup is the *expected* reading, not a
+  sign the cap is broken. (An earlier 200 MB/s cap sat above the achievable
+  rate and was decoration; that is the failure mode to avoid, not this.)
+  It throttles IO, *not* cache. Authority on the whole installed stack:
+  `/usr/share/doc/wsl-io-throttle/README.md`.
 - `memory.high` + `memory.reclaim` — `sh2-memory-reclaim.sh`, applied by
   `sh2-memory-reclaim.service` (boot-time oneshot) and reclaimed by
   `sh2-memory-reclaim-loop.timer` every 60s. Per-cgroup, and the values are
-  **built-in defaults, not just env-overridable**: `init.scope` 24G (its
-  normal floor is ~21G, so its high is a backstop *above* normal usage),
-  `sh2workers` 8G and `sh2gates` 9G (98% of what they hold is reclaimable
+  **built-in defaults, not just env-overridable**: `init.scope` **32G**
+  (raised from 24G on 2026-09-30 — at 24G it sat *at* its ~21G working set
+  rather than above it and produced +413 `high` crossings per 30s on an
+  idle box; now 0), `sh2workers` 8G and `sh2gates` 9G (98% of what they hold is reclaimable
   cache, so an active ceiling is right). `memory.high` alone would put every
   task to sleep in direct reclaim, and on WSL that runs in-kernel against the
   same saturated device — cache growth becomes a throughput stall.
