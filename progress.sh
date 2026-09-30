@@ -3,14 +3,37 @@
 # Usage: ./progress.sh [hours] (default: 4)
 set -u
 cd "$(dirname "$0")"
-# fail-estree writes its ledger/metric into the tree it MEASURED (2026-09-28),
-# so the estree loop's state lives in sh2perl/, not the workspace root. Fall
-# back to the old workspace location so a pre-move file still reads rather
-# than reporting "(no data)".
-ESTREE_METRIC="sh2perl/.estree_metric.tsv"
-[ -f "$ESTREE_METRIC" ] || ESTREE_METRIC=".estree_metric.tsv"
-ESTREE_FAILURES="sh2perl/.estree_failures.tsv"
-[ -f "$ESTREE_FAILURES" ] || ESTREE_FAILURES=".estree_failures.tsv"
+# fail-estree writes its ledger/metric into the tree it MEASURED (2026-09-28).
+# The estree loop runs with SH2PERL_DIR=sh2perl/backends/estree, so THAT is
+# where its live metric lands. The previous pair of candidates
+# (sh2perl/.estree_metric.tsv, then .estree_metric.tsv) contained NEITHER: the
+# primary does not exist and the fallback is a Sep-28 snapshot, so the board
+# reported 1776 from a two-day-old file while the worker's actual figure was
+# in the worktree all along. Search the estree worktree first, then the
+# main checkout, then the old root path for a pre-move file.
+ESTREE_METRIC=""
+for cand in sh2perl/backends/estree/.estree_metric.tsv \
+            sh2perl/.estree_metric.tsv \
+            .estree_metric.tsv; do
+  if [ -f "$cand" ]; then ESTREE_METRIC="$cand"; break; fi
+done
+# Prefer the NEWEST of the candidates rather than the first that exists:
+# "first match" silently prefers a stale file over a fresh one in a
+# different worktree, which is the same class of bug as reading one tree's
+# number on another's row.
+if [ -n "$ESTREE_METRIC" ]; then
+  for cand in sh2perl/backends/estree/.estree_metric.tsv \
+              sh2perl/.estree_metric.tsv .estree_metric.tsv; do
+    [ -f "$cand" ] || continue
+    if [ "$cand" -nt "$ESTREE_METRIC" ]; then ESTREE_METRIC="$cand"; fi
+  done
+fi
+ESTREE_FAILURES=""
+for cand in sh2perl/backends/estree/.estree_failures.tsv \
+            sh2perl/.estree_failures.tsv \
+            .estree_failures.tsv; do
+  if [ -f "$cand" ]; then ESTREE_FAILURES="$cand"; break; fi
+done
 export ESTREE_METRIC ESTREE_FAILURES   # the python heredoc below reads these
 HOURS="${1:-4}"
 SINCE="$HOURS hours ago"
@@ -86,23 +109,26 @@ fi
 
 echo ""
 
-# ── Per-tree board: fail count 24h/4h/now, or sh2.* count if green ───
+# ── Per-tree board: fail count 24h/4h/now, or the tree's own stub count ─
 # Each backend/frontend tree has a gate report with timestamped history
 # (gate-reports/<tree>.report), each line carrying a fail count:
 #   2026-09-23T18:15:15 [rust] backend gate: 622/648 corpus render OK, 19 fail (...)
 # The ask: a tree that is FAILING shows its fail count at 24h / 4h / now;
-# a tree that is NOT failing shows its sh2.* occurrence count instead
-# (for a green tree the interesting number is no longer failures but how
-# much is still calling back into the runtime).
+# a tree that is NOT failing shows what it still delegates to its runtime.
 #
-# UNITS MATTER: the columns carry a fail count for a failing tree and an
-# sh2.* call-site count for a green one, so a bare number in "now" is
-# ambiguous — and a reader cannot tell whether `19` means "19 fails" or
-# "19 sh2.* sites". Tag every number with its unit: `19f` = fails,
-# `1767s` = sh2.* sites (s), `-` = no measurement at that horizon. The
-# header states the convention so the legend never scrolls off.
-echo "--- Per-tree board (per-tree now: fails, or sh2.* when green) ---"
-echo "    units: <n>f = failing tests   <n>s = sh2.* call sites (green)   - = no data"
+# THE GREEN NUMBER MUST BE THE TREE'S OWN. It used to be the estree
+# metric read unconditionally, so every green row showed the same
+# fleet-wide figure — `c` and `rust` both read "1776s (fleet-wide)", which
+# looks like a measurement of each and is a measurement of neither.
+#
+# UNITS MATTER: the columns carry a fail count for a failing tree and a
+# stub count for a green one, so a bare number in "now" is ambiguous — and a
+# reader cannot tell whether `19` means "19 fails" or "19 stubs". Tag every
+# number with its unit: `19f` = fails, `0 stubs` = this tree's own runtime
+# delegation, `-` = no measurement at that horizon. The header states the
+# convention so the legend never scrolls off.
+echo "--- Per-tree board (per-tree now: fails, or this tree's stubs when green) ---"
+echo "    units: <n>f = failing tests   0 stubs = fully native (this tree)   - = no data"
 printf "  %-10s %-9s %-9s %-9s %s\n" "tree" "24h" "4h" "now" "trend"
 for rep in gate-reports/backend-*.report gate-reports/estree.report; do
   [ -f "$rep" ] || continue
@@ -268,25 +294,68 @@ if age_m > 24*60:
     sys.exit()
 
 if f_now == 0:
-    # GREEN: report the sh2.* occurrence count instead of failures. The
-    # count is fleet-wide (single .estree_metric.tsv), so mark it global
-    # rather than implying it is this tree's own measurement.
-    sh2 = None
-    # ESTREE_METRIC is exported by the shell above (fail-estree writes into
-    # the tree it measured, not the workspace root). Default to the new
-    # location, with the old one as a fallback for a pre-move file.
-    estree_metric = os.environ.get('ESTREE_METRIC', 'sh2perl/.estree_metric.tsv')
-    if not os.path.isfile(estree_metric):
-        estree_metric = '.estree_metric.tsv'
-    if os.path.isfile(estree_metric):
-        for ln in open(estree_metric, errors='replace'):
-            f = ln.split('\t')
-            if f and f[0].strip() == 'total' and len(f) > 1:
-                sh2 = f[1].strip()
-    sh2s = f"{sh2}s" if sh2 else "-"
-    note = (f"GREEN — 0 fails; sh2.* sites {sh2s} (fleet-wide)"
-            if sh2 else "GREEN — 0 fails")
-    print("  %-10s %-9s %-9s %-9s %s" % (tree, "0f", "0f", "0f", note))
+    # GREEN: there are no failures to show, so show what the tree is still
+    # delegating to its runtime. The number MUST be this tree's own.
+    #
+    # BUG FIXED 2026-09-30: this branch used to read the estree metric file
+    # unconditionally, so EVERY green row printed the same fleet-wide estree
+    # number. `c` and `rust` both read "sh2.* sites 1776s (fleet-wide)" —
+    # a number that is not theirs, on a row that is. The label said
+    # "fleet-wide" but the placement implied per-tree, and two backends
+    # showing an identical figure invites exactly the wrong inference (that
+    # they delegate the same amount, or that one is reading the other's
+    # work). A metric that cannot distinguish two trees is worse than no
+    # metric: it looks like a measurement.
+    #
+    # Each backend gate already records its OWN delegation count — the
+    # `(N stubs` field in its report row, which setup_backends.sh computes
+    # with a call-shaped pattern (`sh2[A-Za-z_0-9]+\(`, so a diagnostic
+    # string is not counted) and documents as "the progress metric". That
+    # is per-tree, gated, and already 0 for c and rust. Use it.
+    #
+    # The estree sh2.* metric is a DIFFERENT question — call sites left in
+    # the runtime *contract*, which for estree is the delivery format rather
+    # than unfinished lowering — so it is reported on the estree row ONLY.
+    stubs = None
+    try:
+        last_line = open(rep, errors='replace').read().rstrip("\n").rsplit("\n", 1)[-1]
+        m = re.search(r'\((\d+) stubs', last_line)
+        if m:
+            stubs = int(m.group(1))
+    except Exception:
+        pass
+    if tree == "estree":
+        sh2 = None
+        # ESTREE_METRIC is resolved by the shell above, newest-candidate
+        # first. An empty value means no metric file exists anywhere, which
+        # must read as "no data" rather than falling back to a stale number.
+        estree_metric = os.environ.get('ESTREE_METRIC', '')
+        if estree_metric and os.path.isfile(estree_metric):
+            for ln in open(estree_metric, errors='replace'):
+                f = ln.split('\t')
+                if f and f[0].strip() == 'total' and len(f) > 1:
+                    sh2 = f[1].strip()
+        bits = ["GREEN — 0 fails"]
+        if sh2:
+            src = os.path.basename(os.path.dirname(estree_metric)) or "?"
+            bits.append(f"sh2.* contract sites {sh2}s ({src})")
+        if stubs is not None:
+            bits.append(f"{stubs} stubs")
+        print("  %-10s %-9s %-9s %-9s %s" % (tree, "0f", "0f", "0f", "; ".join(bits)))
+    else:
+        if stubs is None:
+            # No stub field on the report row (an older row, or a gate that
+            # does not emit one). Say so rather than falling back to another
+            # tree's number — a wrong figure is worse than an absent one.
+            print("  %-10s %-9s %-9s %-9s %s" % (
+                tree, "0f", "0f", "0f",
+                "GREEN — 0 fails; no stub count in this tree's report row"))
+        else:
+            print("  %-10s %-9s %-9s %-9s %s" % (
+                tree, "0f", "0f", "0f",
+                f"GREEN — 0 fails; {stubs} stubs (this tree)" if stubs
+                else "GREEN — 0 fails; 0 stubs (this tree — fully native)"))
+    sys.exit()
 else:
     # FAILING: 24h/4h/now fail counts + direction. Every number is
     # unit-tagged so the column cannot be misread as sh2.* sites.
