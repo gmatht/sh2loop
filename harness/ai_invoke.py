@@ -42,7 +42,24 @@ PHASE_SECONDS = 4 * 3600
 # rejected id looks exactly like a broken worker — so this is verified, not
 # assumed, and any override is checked the same way at init.
 LAGUNA = os.environ.get("WORKER_LAGUNA_MODEL", "poolside/laguna-s-2.1-free")
-SPACE_BUNNY = os.environ.get("WORKER_SPACE_BUNNY_MODEL", "stealth/space-bunny-alpha")
+# PROVIDER-QUALIFIED, and verified against BOTH catalogs, because the two CLIs
+# do not agree on the id space:
+#   cmd  (`cmd --list-models`)  lists the flat vendor/model form, and REJECTS
+#        the pir/OpenRouter colon form as an unknown model. It nevertheless
+#        also ACCEPTS the provider-qualified `commandcode/…` form — verified
+#        by a live call returning a `result` frame with usage, 2026-09-30 —
+#        so the qualified id works for the rotating path too.
+#   pir  REFUSES a bare `stealth/space-bunny-alpha` outright: it exists in
+#        both commandcode/ and openrouter/, and pir reports "exists in
+#        multiple providers" rather than guessing. No other provider in
+#        models-store.json carries a space-bunny model, so commandcode/ is
+#        the unambiguous target.
+#
+# One id for the whole fleet keeps the telemetry in invocations.jsonl
+# comparable: an entry recorded as `stealth/space-bunny-alpha` and one
+# recorded as `commandcode/stealth/space-bunny-alpha` would otherwise look
+# like two different models to every report that tallies by model string.
+SPACE_BUNNY = os.environ.get("WORKER_SPACE_BUNNY_MODEL", "commandcode/stealth/space-bunny-alpha")
 
 # OpenRouter's daily-free quota error code.
 QUOTA_MARKER = "free-models-per-day"

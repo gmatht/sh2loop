@@ -141,9 +141,21 @@ got=$(probe "WORKER_FALLBACK_MODEL=poolside/laguna-s-2.1:free" -- \
   'ai_fallback::ai_fallback_for("poolside/laguna-s-2.1:free")')
 check "never falls back to itself" "$got" "UNDEF"
 
-echo "== case 9: the module's own default matches what the loops run =="
-# If someone changes the loops' model default, this catches the drift at once
-# instead of after a quota day.
+echo "== case 9: the module's Laguna id is still a LAGUNA id =="
+# This case originally asserted the module's $LAGUNA_MODEL equalled the
+# loops' *primary* model, on the assumption that the loops run Laguna. That
+# conflated two different things and became wrong the moment the fleet moved
+# to Space Bunny Alpha (operator, 2026-09-30).
+#
+#   $LAGUNA_MODEL answers "which model am I allowed to FALL BACK FROM?".
+#   The loops' default answers "which model do I RUN?".
+#
+# Those are independent by design: pinning the fleet to Alpha is exactly the
+# case where the fallback guard must still recognise Laguna, so a worker
+# re-pinned to Laguna for the A/B gets its quota escape route back without
+# any edit here. So the invariant worth asserting is that the guard's id is a
+# Laguna id and the RUNNING id is not — i.e. the fleet is not on the model
+# the guard would switch away from.
 loop_model=$(grep -oE "WORKER_MODEL\} // '[^']+'" "$ROOT/main_loop_estree.pl" | head -1 | sed "s/.*\/\/ '//; s/'$//")
 # Read the module's Laguna id with perl. Note the `$ai_fallback::` sigil is
 # referenced inside SINGLE quotes so bash expands nothing: inside double quotes
@@ -155,11 +167,27 @@ mod_model=$(env -i PATH="$PATH" HOME="$HOME" perl -e '
   print defined $r ? $r : "UNDEF";
   exit 0;
 ' 2>/dev/null)
+case "$mod_model" in
+  *[Ll][Aa][Gg][Uu][Nn][Aa]*) ok "the fallback guard still targets a Laguna id ($mod_model)" ;;
+  *) bad "the guard's id '$mod_model' is not a Laguna id — a re-pinned worker would lose its quota escape route" ;;
+esac
 if [ "$loop_model" = "$mod_model" ]; then
-  ok "the module's Laguna id matches main_loop_estree.pl's default ($mod_model)"
+  bad "the loops RUN '$loop_model', the same id the guard switches away from — the fallback could never fire"
 else
-  bad "drift: loops run '$loop_model' but the fallback module expects '$mod_model'"
+  ok "the running model ('$loop_model') is not the fallback guard's target ('$mod_model')"
 fi
+
+echo "== case 10: BOTH id forms of the running model do NOT fall back =="
+# The loops now run the provider-qualified Alpha id; case 5 only covered the
+# bare form. The guard must refuse both, or a re-pin would be half-guarded.
+for m in "commandcode/stealth/space-bunny-alpha" "stealth/space-bunny-alpha"; do
+  r=$(probe -- "ai_fallback::ai_fallback_for('$m')")
+  if [ "$r" = "UNDEF" ]; then
+    ok "no fallback for the running model: $m"
+  else
+    bad "the running model $m would switch to $r — it must keep its normal retry"
+  fi
+done
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
