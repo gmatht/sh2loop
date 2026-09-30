@@ -199,6 +199,15 @@ children, so after editing `setup_backends.sh` check for orphaned
   regression and is not one. `sh2gates` is now at 0/1024 with its refusal
   count flat, and `init.scope` is bounded at 8192 (see **Box-health
   guards**), but an ad-hoc run is still not wrapped by either.
+- **`grep` is a shell function wrapping ripgrep.** `type grep` → function. It
+  forwards most flags to `rg`, so `grep -qF` and `grep -qi` **fail on every
+  input** (`rg: unrecognized flag --qF`) — including text that *does* contain
+  the needle. This has silently broken three separate things in one session: a
+  test that could not fail, a `printf` fed a mangled line, and a `getVar("s")`
+  guard in `fail-go` that read as "not found" for all 124 corpus files. In any
+  script or test where a wrong answer is worse than no answer, use
+  `command grep` (bypasses the alias) or `awk`. A helper that returns
+  non-zero for *everything* reads exactly like a correct negative result.
 - The shIR shared library lives at `sh2perl/src/shir_passes/` (PLAN §3,
   design note in `sh2perl/docs/ir-design.md` §"The sh2.* boundary"):
   `PassContext` (analysis verdicts; replaces the ten `static Mutex<…>`

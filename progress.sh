@@ -447,10 +447,19 @@ if f_now == 0:
                     if f and f[0].strip() == 'total' and len(f) > 1:
                         tot = f[1].strip()
                 if tot is not None:
+                    # NUMBER AND UNIT, NO PROSE. The legend one line above
+                    # already says "<n> runtime calls = this tree's own
+                    # delegation"; repeating it here is the duplication that
+                    # has now come back and gone three times (a legend edit
+                    # that missed the row copy, a stray "))" repair that
+                    # restored a truncated f-string, a warning appended to this
+                    # same print). A row states the measurement; the legend
+                    # states the convention. Never both.
+                    # Guarded by harness/test_progress_board.sh.
                     print("  %-10s %-9s %-9s %-9s %s%s" % (
                         tree, "0f", "0f", "0f",
-                        f"GREEN — 0 fails; {tot} runtime calls "
-                        f"(this tree's namespace)", UNPARSED_WARNING))
+                        f"GREEN — 0 fails; {tot} runtime calls",
+                        UNPARSED_WARNING))
                     sys.exit()
             except Exception:
                 pass
