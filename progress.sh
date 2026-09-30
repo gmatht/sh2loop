@@ -248,6 +248,11 @@ if age_m > 24*60:
     unit = {
         "perl": "sh2backend-perl", "rust": "sh2backend-rust",
         "c": "sh2backend-c", "estree": "sh2estree", "core": "sh2core",
+        # fish + zsh got their units on 2026-10-01. Without them here a
+        # stale row could not name the unit to check, so the board said
+        # "wedge/blocked, check its loop log" for a worker that systemd was
+        # actively restarting.
+        "fish": "sh2backend-fish", "zsh": "sh2backend-zsh",
     }.get(tree, "")
     why = ""
     if unit:
@@ -777,25 +782,33 @@ for u in $units; do
 done
 
 echo ""
-echo "  Non-unit workers (roster entries with no systemd unit):"
+echo "  Frontend + triage workers (process-scanned; not systemd units):"
 # The frontend/triage workers are still hand-launched scripts, so they can
 # only be probed by process scan. They are listed explicitly rather than
 # derived, and each is labelled so a "✗" reads as "not started" rather
 # than "broken".
-for name in triage fish zsh zig rust-frontend rust-cleanup; do
+#
+# NAME COLLISION (fixed 2026-10-01). This roster's short names are the
+# FRONTEND workers — `fish` means frontends/fish-sh-go, NOT the fish
+# BACKEND. Since sh2backend-{fish,zsh}.service were deployed, the gates
+# table above prints "fish"/"zsh" rows for those backends and this table
+# printed "✗ not started" for the same two words a few lines later, which
+# reads as a contradiction and looks like the backends never started.
+# They are qualified here so the two tables cannot be confused.
+for name in triage frontend-fish frontend-zsh frontend-zig rust-frontend rust-cleanup; do
   case $name in
     triage) pat="run_triage_worker" ;;
-    fish) pat="fish-sh-go/run_frontend" ;;
-    zsh) pat="zsh-sh-go/run_frontend" ;;
-    zig) pat="zig-sh-go/run_frontend" ;;
+    frontend-fish) pat="fish-sh-go/run_frontend" ;;
+    frontend-zsh) pat="zsh-sh-go/run_frontend" ;;
+    frontend-zig) pat="zig-sh-go/run_frontend" ;;
     rust-frontend) pat="rust-frontend/run_frontend" ;;
     rust-cleanup) pat="rust_cleanup_worker" ;;
   esac
   case $name in
     triage) wlog="loop-triage-worker.log" ;;
-    fish) wlog="loop-frontend-fish-sh-go.log" ;;
-    zsh) wlog="loop-frontend-zsh-sh-go.log" ;;
-    zig) wlog="loop-frontend-zig-sh-go.log" ;;
+    frontend-fish) wlog="loop-frontend-fish-sh-go.log" ;;
+    frontend-zsh) wlog="loop-frontend-zsh-sh-go.log" ;;
+    frontend-zig) wlog="loop-frontend-zig-sh-go.log" ;;
     rust-frontend) wlog="loop-frontend-rust-frontend.log" ;;
     rust-cleanup) wlog="loop-rust-cleanup.log" ;;
   esac
@@ -820,9 +833,25 @@ for name in triage fish zsh zig rust-frontend rust-cleanup; do
     a=$(( $(date +%s) - $(stat -c %Y "$wlog") ))
     age=" (log ${a}s ago)"
   fi
+  # A worker may have been hand-launched BEFORE it got a unit, and then been
+  # given one (sh2triage.service, 2026-10-01). Report the unit when it
+  # exists: "✓ running / no unit" told the operator to start it by hand when
+  # systemd was already auto-restarting it.
+  unit_name=""
+  case $name in
+    triage) unit_name="sh2triage" ;;
+  esac
+  unit_state="no unit"
+  if [ -n "$unit_name" ]; then
+    if systemctl --user is-active "$unit_name.service" >/dev/null 2>&1; then
+      unit_state="✓ $unit_name"
+    else
+      unit_state="✗ $unit_name inactive"
+    fi
+  fi
   if [ -n "$found" ]; then
-    printf "  %-20s %-9s %-8s %s\n" "$name" "✓ running" "✓" "no unit${age}"
+    printf "  %-20s %-9s %-8s %s\n" "$name" "✓ running" "✓" "$unit_state${age}"
   else
-    printf "  %-20s %-9s %-8s %s\n" "$name" "✗ not started" "✗" "no unit — start manually${age}"
+    printf "  %-20s %-9s %-8s %s\n" "$name" "✗ not started" "✗" "$unit_state — start manually${age}"
   fi
 done

@@ -132,6 +132,56 @@ fi
 # ── 5. the board must not hide an unparsed row ───────────────────────
 # A report row the parser cannot read is a run whose verdict is invisible.
 # Silence here is the failure.
+
+# ── 6. a name may not mean two different workers ─────────────────────
+# The confusion that started this (2026-10-01): the worker panel's short
+# names were the FRONTEND workers (`fish` = frontends/fish-sh-go), so after
+# sh2backend-{fish,zsh}.service were deployed the same screen showed
+#
+#     fish   ✓ active ✓  auto-restart setup_backends.sh --run-backend-worker fish
+#     ...
+#     fish   ✗ not started ✗  no unit — start manually
+#
+# Two rows, same word, opposite verdicts, a few lines apart. An operator
+# reading the second one concludes the backend never started. A worker name
+# must identify exactly one worker across the whole board, so a panel row
+# for a FRONTEND must not use the bare backend name.
+frontend_section() {
+    # Match the banner by its stable first words, not the whole line: the
+    # banner text changed once already ("Non-unit workers" ->
+    # "Frontend + triage workers") and keying on the full string would make
+    # this check fail on the OLD board for the wrong reason — "panel not
+    # found" instead of "the collision is present". A test that cannot
+    # distinguish the defect from a rename is a weak witness.
+    "$BOARD" 2>/dev/null \
+      | sed -n '/workers (roster entries with no systemd unit)/,/^$/p;/triage workers (process-scanned/,/^$/p'
+}
+fsec=$(frontend_section)
+if [ -z "$fsec" ]; then
+    bad "could not read the frontend/triage panel from $BOARD (empty section)"
+else
+    # Any bare backend name that also has a systemd unit must be qualified.
+    collide=""
+    for b in fish zsh; do
+        if printf '%s\n' "$fsec" | awk -v n="$b" \
+             '$1==n && $0 ~ /not started|running/ {found=1} END{exit !found}'; then
+            collide="$collide $b"
+        fi
+    done
+    if [ -n "$collide" ]; then
+        bad "the frontend panel uses the bare backend name(s):$collide — the same word also names a systemd backend unit, so the two rows read as a contradiction"
+    else
+        ok "the frontend panel never uses a bare backend name"
+    fi
+    # A worker that HAS a unit must not be labelled "no unit": that tells
+    # the operator to start by hand something systemd is restarting.
+    if printf '%s\n' "$fsec" | command grep -qE '^  triage .*no unit'; then
+        bad "triage is labelled 'no unit' — it has sh2triage.service"
+    else
+        ok "triage reports its unit instead of 'no unit'"
+    fi
+fi
+
 printf '\n  %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ] || exit 1
 exit 0
