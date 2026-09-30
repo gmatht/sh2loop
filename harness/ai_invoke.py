@@ -78,7 +78,7 @@ QUOTA_MARKER = "free-models-per-day"
 # provider-agnostic so it is matched on the message, not the model.
 CAPACITY_MARKER = "currently at capacity"
 
-WORKERS = ("rust", "c", "perl", "estree", "perl-generator")
+WORKERS = ("rust", "c", "perl", "estree", "perl-generator", "fish", "zsh")
 
 # group -> {0: model_on_even_phase, 1: model_on_odd_phase}
 # Group A holds the two sh2-native backends; group B the two ESTree-side ones.
@@ -110,6 +110,12 @@ GROUPS = {
       # worker would have run its gate and then failed every AI call.
       "perl-generator": {"group": "B", "even": SPACE_BUNNY, "odd": SPACE_BUNNY},
     "estree": {"group": "B", "even": SPACE_BUNNY, "odd": SPACE_BUNNY},
+    # fish + zsh (2026-10-01): deployed with sh2backend-{fish,zsh}.service, and
+    # like perl-generator they were missing from the roster — an unrecognised
+    # --worker is REJECTED, so on the pir path they would run their gate and
+    # then fail every AI call. Group A with the two sh2-native backends.
+    "fish": {"group": "A", "even": SPACE_BUNNY, "odd": SPACE_BUNNY},
+    "zsh": {"group": "A", "even": SPACE_BUNNY, "odd": SPACE_BUNNY},
 }
 
 def runtime_dir() -> str:
