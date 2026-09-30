@@ -75,7 +75,18 @@ if ($pool_ok) {
 # Default: pir (featherweight, auto-retry, budget guard, OpenRouter).
 # TODO: escalate to DeepSeek for complex failures Laguna can't handle.
 my $WORKER_CLI = $ENV{WORKER_CLI} // 'pir';
-my $WORKER_MODEL = $ENV{WORKER_MODEL} // 'poolside/laguna-s-2.1:free';
+# EVERY WORKER ON SPACE BUNNY ALPHA (operator, 2026-09-30). This was
+# 'poolside/laguna-s-2.1:free', and Laguna then exhausted OpenRouter's daily
+# free-models-per-day budget. This default applies only to the DIRECT path
+# ($ROTATE_WORKER unset); a rotating worker's model is chosen by
+# harness/ai_invoke.py, which is now pinned to Alpha for every phase.
+#
+# The id is provider-qualified on purpose: the bare
+# 'stealth/space-bunny-alpha' is AMBIGUOUS to pir (it exists in both
+# commandcode/ and openrouter/) and pir REFUSES an ambiguous id rather than
+# guessing. No other provider in models-store.json carries a space-bunny
+# model, so commandcode/ is the unambiguous target.
+my $WORKER_MODEL = $ENV{WORKER_MODEL} // 'commandcode/stealth/space-bunny-alpha';
 my $WORKER_EFFORT = $ENV{WORKER_EFFORT} // $ENV{WORKER_THINKING} // '';
 my $WORKER_BUDGET = $ENV{WORKER_BUDGET} // '500000';
 
