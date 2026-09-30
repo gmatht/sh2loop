@@ -650,7 +650,17 @@ export const sh2 = {
       if (typeof h === 'function') await h();
       else runShellString(h); // string handler: bash -c
     }
-    for (const p of this.pending) { try { await p; } catch { /* bg failures ignored */ } }
+    // Join the non-background pending work (the eachLine/walkLines streaming
+    // primitives push here as a safety net). Background jobs are deliberately
+    // NOT joined: bash exits without waiting for `&` children, and the corpus
+    // gate's kill-session drops their late output on BOTH the translation and
+    // the bash reference (048_subprocess.sh); an explicit `wait` joins them
+    // (builtins.wait). Joining here would print output the reference never
+    // produces.
+    for (const p of this.pending) {
+      if (p && p.__sh2bg) continue;
+      try { await p; } catch { /* bg failures ignored */ }
+    }
     this.pending = [];
     _flushStdout();
     // The corpus gate compares the program's exit code against bash's
@@ -3511,6 +3521,10 @@ export const sh2 = {
     // access inside the body (see cloneShellForJob).
     const shell = cloneShellForJob(this);
     const p = Promise.resolve().then(() => fn(shell)).catch(() => {});
+    // Tagged so `_finish` does NOT join it: bash exits without waiting for
+    // `&` children, and the corpus gate's kill-session drops their late
+    // output on BOTH sides (048_subprocess.sh). An explicit `wait` joins it.
+    p.__sh2bg = true;
     this.pending.push(p);
     return true;
   },
