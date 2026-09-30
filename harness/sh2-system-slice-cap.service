@@ -1,0 +1,42 @@
+[Unit]
+Description=Apply an io.max cap to /system.slice (close the last unbounded cgroup)
+Documentation=file:///home/llm/sh2loop/AGENTS.md
+# Same shape and same rationale as sh2-contain.service, applied to the one
+# remaining population with no ceiling of any kind.
+#
+# MEASURED 2026-09-30. Every capped cgroup reports nr_throttled=0 at the
+# current 6 MiB/s, which is correct — 6 MiB/s is well under the 32 MiB/s cap,
+# and the device's own ceiling is 70-90 MB/s. The point is not to fix today's
+# traffic; it is that system.slice has 164 children, 3.3 GB resident, and an
+# EMPTY io.max, so the population is unbounded in principle. cron lives here,
+# and cron is what appeared as 44 D-state processes that had written ~0 bytes
+# during the incident: victims queued behind a buffer lock with no throttle
+# of their own to protect them.
+#
+# Deliberately io.max ONLY, no memory.high here. system.slice contains
+# systemd-journald, systemd-logind and systemd-udevd. A throughput cap tells
+# them to WAIT, which is safe and reversible; reclaim pressure tells them to
+# shrink, and this box's failure mode is already "the tooling cannot attach".
+# Starving the init system to fix a cache problem is the memory.max risk
+# already rejected for init.scope, in a strictly worse location.
+#
+# Re-applied on every boot: io.max lives in the cgroup, and cgroups are
+# recreated at boot.
+After=local-fs.target
+Before=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Best-effort by design, exactly like sh2-contain.service: never fail boot
+# over a throttle we could not set. Continuing unthrottled strictly beats
+# refusing to boot.
+ExecStart=-/home/llm/sh2loop/harness/sh2-contain.sh
+Environment=SH2_CONTAIN_SCOPE=system.slice
+# Warn loudly if the cap is not in force, without failing. The guard tests
+# whether io.max CONTAINS an entry, not its size: cgroupfs reports no
+# meaningful st_size, so `test -s` reports "not applied" even when it is.
+ExecStart=-/bin/sh -c 'grep -qE "^[^[:space:]]+ .*wbps=" /sys/fs/cgroup/system.slice/io.max 2>/dev/null || echo "sh2-system-slice-cap: WARNING no io.max wbps= on system.slice — the unbounded path is OPEN" >&2'
+
+[Install]
+WantedBy=multi-user.target

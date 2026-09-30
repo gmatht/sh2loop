@@ -105,6 +105,28 @@ mem_total=$(awk '/^MemTotal:/{printf "%d", $2 * 1024}' /proc/meminfo)
 #                350 MB-1.27 GB each. Its high is a BACKSTOP for a real
 #                runaway: it must sit ABOVE normal usage and only engage in
 #                the territory that precedes a wedge.
+#
+#                RAISED 24G -> 32G on 2026-09-30. At 24G the ceiling was not
+#                a backstop, it was the OPERATING POINT: memory.current
+#                oscillated 18.3-23.8 GB against a documented 21 GB floor,
+#                and `high` events were measured incrementing +413 per 30 s
+#                on a box with ZERO D-state tasks and 6 MiB/s of writes.
+#                memory.high sleeps every task at the threshold, so a ceiling
+#                below the floor converts cache growth into the throughput
+#                stall this script exists to prevent — the rule stated three
+#                lines above this comment, already being broken.
+#                32G leaves 16G under a 48 GB MemTotal for sh2workers (8G)
+#                and sh2gates (9G), whose real footprints are ~1 GB each
+#                (measured 95.2% and 75.9% page cache; sh2workers anon is
+#                0.01 GB of 6.20 GB), so that arithmetic has large slack.
+#
+#                THIS IS A RELAXATION, not a tightening. If the 21 GB floor
+#                is a genuine runaway rather than normal working set, the
+#                old ceiling was MASKING it and 32G will let it run further
+#                before anything objects. It is therefore verified by
+#                watching `high` stop incrementing, and reverted if it does
+#                not: a value that still climbs at 32G means the floor is
+#                growing and this is not the fix.
 #   sh2workers   10.6 GB of 11.0 GB was file cache against 0.16 GB anon, so
 #                an ACTIVE ceiling well under normal usage is right here:
 #                it reclaims cache continuously instead of letting it grow
@@ -120,7 +142,7 @@ mem_total=$(awk '/^MemTotal:/{printf "%d", $2 * 1024}' /proc/meminfo)
 high_for() {
     _cg="$1"
     case "$_cg" in
-        init.scope)  _def=25769803776 ;;   # 24G
+        init.scope)  _def=34359738368 ;;   # 32G
         sh2workers)  _def=8589934592  ;;   #  8G
         sh2gates)    _def=9663676416  ;;   #  9G
         *)           _def=$(( mem_total * HOLD_PCT / 100 )) ;;
