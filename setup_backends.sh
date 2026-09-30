@@ -872,13 +872,46 @@ case "${1:-}" in
                   case "$fix_lang" in
                     rust|c|fish|zsh) export WORKER_ROTATE_WORKER="$fix_lang" ;;
                   esac
+                  # ── IDIOMATICITY: the REAL progress metric ──────────────
+                  # The sentence below used to say "the stub/TODO count is
+                  # the progress metric". That is a VACUOUS metric for this
+                  # backend: the gate's stub pattern is
+                  #   grep -cE 'TODO\(unsupported\)|sh2[A-Za-z_0-9]+\('
+                  # which sees the `sh2_*` namespace ONLY. This backend's
+                  # runtime is `_sh_*`, so the pattern is blind to it and the
+                  # gate reports "0 stubs" for a render that calls its runtime
+                  # 29103 times. A green gate therefore does NOT mean native.
+                  #
+                  # The measurement that does mean it is
+                  # harness/backend_runtime_metric.sh, which counts THIS
+                  # backend's own seam over the corpus and writes
+                  # <tree>/.rt_metric.tsv (the same file progress.sh reads).
+                  # Read it at prompt-construction time so the worker is told
+                  # the current number instead of being told to watch a metric
+                  # that cannot move.
+                  rt_total=""; rt_files=""; rt_seam=""
+                  _rt_tsv="$WORKSPACE/sh2perl/backends/$fix_lang/.rt_metric.tsv"
+                  if [ -f "$_rt_tsv" ]; then
+                    rt_total=$(awk -F'\t' '$1=="total"{print $2; exit}' "$_rt_tsv" 2>/dev/null || true)
+                    rt_files=$(awk -F'\t' '$1=="files"{print $2; exit}' "$_rt_tsv" 2>/dev/null || true)
+                    rt_seam=$(awk -F'\t' '$1=="seam"{print $2; exit}' "$_rt_tsv" 2>/dev/null || true)
+                  fi
                   {
                     printf 'The %s backend in %s is failing to build.\n\n' "$fix_lang" "$fix_dir"
                     printf 'Tail of the build log (%s):\n' "$fix_log"
                     tail -50 "$fix_log" 2>/dev/null || true
                     printf '\nThe shIR (A1) contract is the source of truth. Render the %s backend in idiomatic %s.\n' "$fix_lang" "$fix_lang"
                     printf 'The backend gate needs a RENDERER ENTRY in the worktree: wire a --shir-in-%s flag into the worktree''s cli/src/lib.rs argument dispatch (mirroring the --shir-in-perl/--shir-in-estree branches; takes shIR JSON on stdin via `-`) or add a %s_backend bin taking the .sh file (the c backend''s pattern). The gate probes the flag before the corpus loop — no flag, no bin = the gate stays red.\n' "$fix_lang" "$fix_lang"
-                    printf 'STUB GATE: the gate FAILS any file whose output contains sh2.* stub calls (sh2_exec()/sh2GetVar()/...) or TODO(unsupported) markers. Replace them with NATIVE lowering — the stub/TODO count is the progress metric and must drop toward zero.\n'
+                    printf 'STUB GATE: the gate FAILS any file whose output contains sh2.* stub calls (sh2_exec()/sh2GetVar()/...) or TODO(unsupported) markers.\n'
+                    if [ -n "$rt_total" ]; then
+                      printf '\nYOUR REAL PROGRESS METRIC — RUNTIME DELEGATION, NOT STUBS. This backend'"'"'s gate reports "0 stubs" and is GREEN, but that 0 is VACUOUS: the stub pattern is `sh2[A-Za-z_0-9]+\\(` and this backend'"'"'s runtime namespace is `%s`, which it cannot see. The number that actually measures how native your lowering is:\n' "${rt_seam:-<seam unknown>}"
+                      printf '    %s runtime calls over %s corpus files (%s per file)\n' "$rt_total" "${rt_files:-?}" "$(( ${rt_total:-0} / ${rt_files:-1} ))"
+                      printf 'Reduce it by lowering constructs NATIVELY in %s instead of delegating to the runtime helper. It is the ONLY signal that moves when you replace a runtime call with real target code — the stub count cannot move at all for this backend, which is why a green gate has been coexisting with %s delegations.\n' "$fix_lang" "$rt_total"
+                      printf 'Re-measure with:  harness/backend_runtime_metric.sh %s   (writes sh2perl/backends/%s/.rt_metric.tsv)\n' "$fix_lang" "$fix_lang"
+                      printf 'CAVEAT, and it matters when you choose what to rewrite: this count measures how big the runtime API is, so it is NOT a quality ranking and the totals are NOT comparable across backends. It can also fall by routing MORE work into one bulk helper — which is a legitimate lowering but is not more idiomatic. Prefer lowering a construct the runtime handles one call at a time; do not answer the metric by adding a bulk helper.\n'
+                    else
+                      printf '\nYOUR REAL PROGRESS METRIC — RUNTIME DELEGATION, NOT STUBS. The gate'"'"'s stub pattern is `sh2[A-Za-z_0-9]+\\(`, which only sees the `sh2_*` namespace; if your runtime is named anything else (this backend''s is), that 0 is VACUOUS and a green gate does NOT mean native. Measure your own namespace:  harness/backend_runtime_metric.sh %s   (writes sh2perl/backends/%s/.rt_metric.tsv), then reduce that count by lowering constructs natively.\n' "$fix_lang" "$fix_lang"
+                    fi
                     printf '\nCONCRETE RECIPE (the C backend''s PROVEN pattern — mirror it, do not reinvent):\n'
                     printf '  1. RENDERER: a library fn `shir_to_%s(&IrProgram) -> String` walking the ShIR nodes —\n' "$fix_lang"
                     printf '     read the reference: `git -C backends/c show backend/c:src/c_backend.rs` — the C\n'
