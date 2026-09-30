@@ -107,6 +107,27 @@ What is installed, and why each piece:
   which never matches `tmp_run/perl-gen-diffs/` or `tmp_run/pg/` — the two
   dirs that actually grew without bound. Skips any dir held by a live
   process.
+- `sh2-target-sweep.sh` (6-hourly, at :47 — offset from the scratch
+  sweep's :17 so their two `/proc` scans never coincide) — bounds
+  `target/`, which is where nearly all the harness's disk is: **43 GB
+  across 11 worktrees** (c 13 G, rust 10 G, java 4.3 G, sh 4.0 G, perl
+  2.9 G, js 2.5 G, fish 1.9 G, core 1.7 G, zsh 1.7 G, zig 963 M, python
+  997 M) on a 1007 GB root. Sweeps **`target/debug/incremental` only**,
+  and only in a worktree with no live `--run-backend-worker`: it is a pure
+  cache cargo regenerates, so deleting it cannot change a binary's
+  contents (measured: COLD 127 s, WARM 23 s, NO-OP 16 s, so ~104 s once).
+  `deps/` is never touched — it holds the rlib/binaries the gates exec.
+  Guards: live worker, dir held by any process, files newer than
+  `SH2_TARGET_AGE_H` (24 h), and `SH2_TARGET_MIN_MB` (256). One `/proc`
+  scan feeds all candidates (~12.7 s for ~500 pids; per-candidate would be
+  9x). **Do not move `target/` to a tmpfs** — the script header records
+  the measurements: it is a *space* problem not an IO one (a build is a
+  30 s/587 MB burst; idle is 0.0 MB/s in both cgroups), 38 GB of tmpfs
+  against 40.6 GB `MemAvailable` is 94% of RAM and is unevictable against
+  an 8 GB `sh2workers` `memory.high`, and seeding from `sh2perl/target`
+  recovers only the 2.15 GB of shared third-party crates, not the
+  per-worktree `debashl` artifacts that differ because `src/` diverges.
+  The units are machine state, not in git.
 - **Byte caps in the gates** — `harness/cap-capture.pl`, wired into `fail`,
   `fail-estree` and `harness/perl_gen_diffs.pl`. A mis-lowered example that
   loops forever produced 1.0 GB of stdout which the gates then persisted
