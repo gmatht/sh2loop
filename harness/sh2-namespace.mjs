@@ -3982,6 +3982,17 @@ export const sh2 = {
     while (j < bOrder.length) { push(bItems[bOrder[j]]); j++; }
     return out.join(', ');
   },
+  // listJoin(name) — ordered, dup-preserving ", " join of a named array's
+  // append-order values (core request py-sh-go-20260909-list-repr-pipeline).
+  // Unlike sortedIntJoin/sortedBigintJoin (which sort + dedup), this keeps
+  // insertion order and duplicates — Python list semantics. Each element is
+  // stringified as Bash interpolates it (array elements are scalar strings).
+  // Refuses nothing; the routing/default contract is the caller's (the frontend
+  // lowers `return <bare list>` to `echo sh2.listJoin(name)` and the print site
+  // wraps in brackets, exactly like the sorted() shape).
+  listJoin(name) {
+    return (this.arrayValues(name) ?? []).map((v) => String(v ?? '')).join(', ');
+  },
   arrayKeys(name) {
     const nm = String(name);
     if (this.assocNames.has(nm)) return this.assocKeys(nm);
