@@ -34,6 +34,25 @@ for cand in sh2perl/backends/estree/.estree_failures.tsv \
             .estree_failures.tsv; do
   if [ -f "$cand" ]; then ESTREE_FAILURES="$cand"; break; fi
 done
+# Per-backend runtime-call counts, written by
+# harness/backend_runtime_metric.sh into the tree that backend's gate
+# measures (the same $outdir rule fail-estree uses). Keyed by tree so each
+# row reads its own file, and exported for the python heredoc below.
+for _t in c rust perl python zig go java js sh; do
+  for _c in "sh2perl/backends/$_t/.rt_metric.tsv" "sh2perl/.rt_metric.tsv"; do
+    [ -f "$_c" ] || continue
+    # `export "NAME=$val"` does NOT work here: the subscript is expanded as
+    # part of the WORD, so bash tries to assign to a variable whose name is
+    # the file path ("SH2_RT_METRIC_c=sh2perl/...: No such file or
+    # directory") and the intended variable is never created — which under
+    # `set -u` then reads as "unbound variable" and silently loses the whole
+    # measurement. Build the NAME first, then assign by name.
+    _n="SH2_RT_METRIC_${_t^^}"
+    printf -v "$_n" '%s' "$_c"
+    export "$_n"
+    break
+  done
+done
 export ESTREE_METRIC ESTREE_FAILURES   # the python heredoc below reads these
 HOURS="${1:-4}"
 SINCE="$HOURS hours ago"
@@ -122,13 +141,25 @@ echo ""
 # looks like a measurement of each and is a measurement of neither.
 #
 # UNITS MATTER: the columns carry a fail count for a failing tree and a
-# stub count for a green one, so a bare number in "now" is ambiguous — and a
-# reader cannot tell whether `19` means "19 fails" or "19 stubs". Tag every
-# number with its unit: `19f` = fails, `0 stubs` = this tree's own runtime
-# delegation, `-` = no measurement at that horizon. The header states the
-# convention so the legend never scrolls off.
-echo "--- Per-tree board (per-tree now: fails, or this tree's stubs when green) ---"
-echo "    units: <n>f = failing tests   0 stubs = fully native (this tree)   - = no data"
+# runtime-call count for a green one, so a bare number in "now" is ambiguous
+# — and a reader cannot tell whether `19` means "19 fails" or "19 calls".
+# Tag every number with its unit: `19f` = fails, `N runtime calls` = THIS
+# tree's own delegation, `-` = no measurement at that horizon.
+#
+# The green number is each tree's OWN runtime-call count, from
+# harness/backend_runtime_metric.sh. It is deliberately NOT the gate's
+# `(N stubs` field: that is `grep -cE 'sh2[A-Za-z_0-9]+\('` and so sees the
+# `sh2_*` namespace ONLY — c emits `_sh_*`, rust/emit `__sh_*`, and both
+# scored 0 by construction while delegating 29103 and 10124 times. A 0 from
+# a pattern that cannot see the tree is NO DATA, not a result.
+#
+# The counts are NOT comparable across backends as a quality ranking: they
+# measure how large each runtime's API is, not how native the lowering is
+# (rust's 10124 `__sh_print_words` calls can replace what another target
+# spells out in many lines). Use them to find who still leans on their
+# runtime, not to rank them.
+echo "--- Per-tree board (per-tree now: fails, or this tree's runtime calls when green) ---"
+echo "    units: <n>f = failing tests   <n> runtime calls = this tree's own delegation   - = no data"
 printf "  %-10s %-9s %-9s %-9s %s\n" "tree" "24h" "4h" "now" "trend"
 for rep in gate-reports/backend-*.report gate-reports/estree.report; do
   [ -f "$rep" ] || continue
@@ -307,16 +338,27 @@ if f_now == 0:
     # work). A metric that cannot distinguish two trees is worse than no
     # metric: it looks like a measurement.
     #
-    # Each backend gate already records its OWN delegation count — the
-    # `(N stubs` field in its report row, which setup_backends.sh computes
-    # with a call-shaped pattern (`sh2[A-Za-z_0-9]+\(`, so a diagnostic
-    # string is not counted) and documents as "the progress metric". That
-    # is per-tree, gated, and already 0 for c and rust. Use it.
+    # Each backend gate already records a stub count — the `(N stubs` field
+    # in its report row, which setup_backends.sh calls "the progress
+    # metric". Use it, but DO NOT call a zero "fully native".
     #
-    # The estree sh2.* metric is a DIFFERENT question — call sites left in
-    # the runtime *contract*, which for estree is the delivery format rather
-    # than unfinished lowering — so it is reported on the estree row ONLY.
+    # BUG FIXED 2026-09-30 (second one, worse than the first): that field
+    # is `grep -cE 'TODO\(unsupported\)|sh2[A-Za-z_0-9]+\('` — it only sees
+    # the `sh2_*` namespace. The c and rust renderers do not emit `sh2_*`
+    # at all; they emit `_sh_*` (c) and `__sh_*` (rust, perl, python), so
+    # the pattern matches nothing and the count is 0 BY CONSTRUCTION, not
+    # because the work is done. Measured on 000__04c_text_processing_commands.sh:
+    #
+    #     c     309  _sh_* calls      gate says 0 stubs
+    #     rust  166  __sh_* calls     gate says 0 stubs
+    #     perl   33  __sh_* calls     gate says 0 stubs
+    #
+    # So "0 stubs" meant "this backend's runtime has a different name", and
+    # labelling it "fully native" was a confident wrong answer on the panel.
+    # A 0 from a pattern that cannot see the tree's own namespace is NO DATA.
+    # Report it as such.
     stubs = None
+    stub_seen_by_pattern = False
     try:
         last_line = open(rep, errors='replace').read().rstrip("\n").rsplit("\n", 1)[-1]
         m = re.search(r'\((\d+) stubs', last_line)
@@ -324,6 +366,10 @@ if f_now == 0:
             stubs = int(m.group(1))
     except Exception:
         pass
+    # The `sh2_*` stub pattern is the estree/js namespace. Any OTHER backend
+    # emits its own namespace, which the pattern cannot match, so its 0 is
+    # uninformative and must not be presented as a measurement.
+    stub_pattern_covers_this_tree = tree in ("estree", "js", "core", "")
     if tree == "estree":
         sh2 = None
         # ESTREE_METRIC is resolved by the shell above, newest-candidate
@@ -340,21 +386,46 @@ if f_now == 0:
             src = os.path.basename(os.path.dirname(estree_metric)) or "?"
             bits.append(f"sh2.* contract sites {sh2}s ({src})")
         if stubs is not None:
-            bits.append(f"{stubs} stubs")
+            bits.append(f"{stubs} sh2_* stubs")
         print("  %-10s %-9s %-9s %-9s %s" % (tree, "0f", "0f", "0f", "; ".join(bits)))
-    else:
+    elif stub_pattern_covers_this_tree:
+        # The pattern can actually see this tree's namespace, so its number
+        # is a real measurement.
         if stubs is None:
-            # No stub field on the report row (an older row, or a gate that
-            # does not emit one). Say so rather than falling back to another
-            # tree's number — a wrong figure is worse than an absent one.
             print("  %-10s %-9s %-9s %-9s %s" % (
                 tree, "0f", "0f", "0f",
                 "GREEN — 0 fails; no stub count in this tree's report row"))
         else:
             print("  %-10s %-9s %-9s %-9s %s" % (
                 tree, "0f", "0f", "0f",
-                f"GREEN — 0 fails; {stubs} stubs (this tree)" if stubs
-                else "GREEN — 0 fails; 0 stubs (this tree — fully native)"))
+                f"GREEN — 0 fails; {stubs} sh2_* stubs"))
+    else:
+        # The gate's stub pattern cannot see this tree's runtime namespace,
+        # so its 0 is vacuous. Say that instead of printing a number that
+        # looks like a measurement. This is the per-backend sh2.* call count
+        # question, and it is answered by a gate that counts THIS tree's
+        # namespace — see harness/backend_runtime_metric.sh.
+        rt = os.environ.get("SH2_RT_METRIC_" + tree.upper())
+        if rt and os.path.isfile(rt):
+            try:
+                tot = None
+                for ln in open(rt, errors='replace'):
+                    f = ln.split('\t')
+                    if f and f[0].strip() == 'total' and len(f) > 1:
+                        tot = f[1].strip()
+                if tot is not None:
+                    print("  %-10s %-9s %-9s %-9s %s" % (
+                        tree, "0f", "0f", "0f",
+                        f"GREEN — 0 fails; {tot} runtime calls "
+                        f"(this tree's namespace)"))
+                    sys.exit()
+            except Exception:
+                pass
+        print("  %-10s %-9s %-9s %-9s %s" % (
+            tree, "0f", "0f", "0f",
+            "GREEN — 0 fails; runtime-call count NOT MEASURED — the gate's "
+            "sh2_* stub pattern cannot see this backend's namespace "
+            f"({tree} emits its own); run harness/backend_runtime_metric.sh"))
     sys.exit()
 else:
     # FAILING: 24h/4h/now fail counts + direction. Every number is
