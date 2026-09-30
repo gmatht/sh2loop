@@ -159,8 +159,8 @@ measure_once() { # f -> run oracle+JS(+Rust) ONCE; store MO MORC MJ MJRC MJv MR 
   fi
   MO=$(printf '%s' "$MO" | tr '\n' '\036')   # record separator, keep exact bytes-ish
   # ── JS target ──
-  a1=$(timeout "$TIMEOUT" "$GOSH" --shir "$f" --raw 2>/dev/null); jrc=$?
-  if [ $jrc -ne 0 ]; then J="EMIT-FAIL"; reason="frontend cannot parse/lower";
+  a1=$(timeout "$TIMEOUT" "$GOSH" --shir "$f" --raw 2>/dev/null); arc=$?
+  if [ $arc -ne 0 ]; then J="EMIT-FAIL"; reason="frontend cannot parse/lower";
   elif [ -z "$a1" ]; then J="REFUSE";
   else
     e=$(printf '%s' "$a1" | timeout "$TIMEOUT" "$OTRANS" - --target estree 2>/dev/null); jrc=$?
@@ -176,7 +176,14 @@ measure_once() { # f -> run oracle+JS(+Rust) ONCE; store MO MORC MJ MJRC MJv MR 
   fi
   # ── Rust target ──
   if [ "$RUST" = 1 ]; then
-    if [ $jrc -eq 0 ] && [ -n "$a1" ]; then
+    # Gated on the FRONTEND's rc ($arc), NOT on the estree leg's exit code
+    # ($jrc). It used to be `[ $jrc -eq 0 ]`, which coupled the two targets:
+    # any program whose correct behaviour is a non-zero exit — t99's
+    # `os.Exit(2)` usage path is the corpus's only one — passed JS and was
+    # then scored `n/a` in the rust column for no reason of its own. The
+    # rust leg only needs a valid A1 to render; its own rc is measured below
+    # and compared against the oracle at the verdict.
+    if [ $arc -eq 0 ] && [ -n "$a1" ]; then
       # BOUND THE RENDER (2026-09-26): an unbounded renderer is a fleet-wide
       # stall. A lowering bug can make the CLI spin forever (rust_backend::
       # inline_print_words looping in str::find is the live case), and the
@@ -261,7 +268,18 @@ js_pass=0; js_fail=0; rs_pass=0; rs_fail=0; total=0
 while IFS=$'\t' read -r bn Jv Rv orc reason; do
   total=$((total+1))
   [ "$Jv" = PASS ] && js_pass=$((js_pass+1)) || js_fail=$((js_fail+1))
-  if [ "$RUST" = 1 ]; then [ "$Rv" = PASS ] && rs_pass=$((rs_pass+1)) || rs_fail=$((rs_fail+1)); fi
+  # `n/a` means the leg did not run (--rust not given, or no A1 to render).
+  # It is a SKIP, not a failure, and it must not be counted as one: doing so
+  # made the summary read 123/124 while printing no failing row, because the
+  # print condition below deliberately excludes n/a. Keep the two in step —
+  # a verdict that is not printed must not be counted.
+  if [ "$RUST" = 1 ]; then
+    case "$Rv" in
+      PASS)              rs_pass=$((rs_pass+1)) ;;
+      "n/a"|"")          ;;
+      *)                 rs_fail=$((rs_fail+1)) ;;
+    esac
+  fi
   if [ "$Jv" != PASS ] || { [ "$RUST" = 1 ] && [ "$Rv" != PASS ] && [ "$Rv" != n/a ]; }; then
     printf '  %-28s js=%-12s rust=%-16s %s\n' "$bn" "$Jv" "$Rv" "$reason"
   fi
