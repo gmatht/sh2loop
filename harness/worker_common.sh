@@ -161,10 +161,21 @@ invoke_ai_with_backoff() {
   check_context_budget "$prompt_file" "$log_file" 200000 || true
 
   while true; do
+    # The status MUST be captured by the SAME command that ran the AI, in an
+    # else branch. `local rc=$?` placed AFTER a finished `if` reads the status
+    # of the *compound statement*, not of invoke_ai: in bash, `if cmd; then
+    # …; fi` with a false condition and no `else` yields 0. That made every
+    # hard failure log as `rc=0` — a success-class retry — which is how a
+    # deterministic, never-going-to-succeed failure ran 92 times over 20h
+    # (2026-10-01: the perl worker, `pir: no model matches` on every attempt
+    # because its PATH resolved /usr/bin/pir 0.1.1 instead of the current
+    # /root/bin/pir 0.1.6; pir's real exit code here is 1).
+    local rc=0
     if invoke_ai "$prompt_file" "$log_file"; then
       return 0
+    else
+      rc=$?
     fi
-    local rc=$?
     attempt=$((attempt + 1))
     echo "[$(date +%FT%T)] $WORKER_CLI failed (rc=$rc, attempt $attempt), retry in ${delay}s" >> "$log_file"
     sleep "$delay"
