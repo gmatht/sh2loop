@@ -72,7 +72,7 @@ BACKENDS="
 js|$ROOT/otranspilerl/target/debug/otranspilerl-cli|js|run:node:js|production
 perl|$ROOT/otranspilerl/target/debug/otranspilerl-cli|pl|run:perl|production
 sh|$ROOT/otranspilerl/target/debug/otranspilerl-cli|sh|run:bash|production
-c|$ROOT/otranspilerl/target/debug/otranspilerl-cli|c|compile:cc:c|production
+c|$ROOT/otranspilerl/target/debug/otranspilerl-cli|c|compile:cc:c:-lgmp|production
 go|$ROOT/otranspilerl/target/debug/otranspilerl-cli|go|compile:go:go|production
 python|$ROOT/otranspilerl/target/debug/otranspilerl-cli|py|run:python3:py|production
 java|$ROOT/otranspilerl/target/debug/otranspilerl-cli|java|run:java:java|production
@@ -226,16 +226,26 @@ estree_ref_out() {  # a1-file [source-file] -> the estree-proxy executed output
   printf '%s' "$out"
 }
 backend_out() {  # backend run-field rendered-file [source-file] -> executed output
-  # run-field format: mode:cmd[:ext] — `run:perl`, `compile:cc:c`,
-  # `run:java:java` … The ext is needed when the toolchain keys on the
+  # run-field format: mode:cmd[:ext[:extra]] — `run:perl`, `compile:cc:c`,
+  # `run:java:java`, `compile:cc:c:-lgmp` … The ext is needed when the
+  # toolchain keys on the
   # filename (cc needs .c, go build .go, rustc .rs, node .js, java
   # single-file launch needs the file named after its PUBLIC CLASS).
+  # `extra` is the optional trailing link/compile flag list, appended after
+  # `-o main`. It exists because the C backend emits `#include <gmp.h>` and
+  # calls __gmpz_init/__gmpz_get_str for every BigInt program, so without
+  # `-lgmp` cc fails at LINK time and the cell returns EMPTY stdout — which
+  # triage then diffs against native and files as FAIL-BACKEND. That is a
+  # harness artifact, not a renderer defect: cpp-sh-go/t27_sized_type.cc and
+  # t28_sizeof.cc both emit byte-identical output to their g++ native once
+  # linked with -lgmp (measured 2026-10-02), yet both were filed as backend
+  # gaps. `extra` is only read by the `compile` mode; `run` modes ignore it.
   # `srcf` (optional) is the ORIGINAL source file: only the js cell uses it,
   # to build the same spawn allowlist the estree reference executor builds.
   local run="$1" rendered="$2" srcf="${3:-}"
   [ -z "$run" ] && { echo ""; return 0; }
-  local mode cmd ext
-  IFS=':' read -r mode cmd ext <<<"$run"
+  local mode cmd ext extra
+  IFS=':' read -r mode cmd ext extra <<<"$run"
   # `--target js` emits an ES-MODULE FRAGMENT that references the `sh2`
   # runtime namespace (sh2.builtin / sh2.lastExit / …) but carries NO import
   # — estree-gen.mjs prints "output is used only as an intermediate". A bare
@@ -276,7 +286,12 @@ backend_out() {  # backend run-field rendered-file [source-file] -> executed out
       ( cd "$tmp" && cp "$rendered" "main.${ext:-go}" && timeout 30 "$cmd" build -o main "main.${ext:-go}" 2>/dev/null \
         && timeout 30 ./main ) < /dev/null 2>/dev/null || true
     else
-      ( cd "$tmp" && cp "$rendered" "main.${ext:-b}" && timeout 30 "$cmd" "main.${ext:-b}" -o main 2>/dev/null \
+      # `extra` (4th run-field field) is appended AFTER `-o main`, so it
+      # reaches the toolchain as link/compile flags — `-lgmp` for the C
+      # backend's unconditional `#include <gmp.h>`. Unquoted on purpose so a
+      # space-separated flag list splits into separate argv entries.
+      ( cd "$tmp" && cp "$rendered" "main.${ext:-b}" \
+        && timeout 30 "$cmd" "main.${ext:-b}" -o main ${extra:+"$extra"} 2>/dev/null \
         && timeout 30 ./main ) < /dev/null 2>/dev/null || true
     fi
     rm -rf "$tmp"
