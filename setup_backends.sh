@@ -765,7 +765,24 @@ case "${1:-}" in
                             # lock, the box) must not be read as "still
                             # editing" — it only ever ends the wait when it
                             # SUCCEEDS.
-                            if "$ROOT/harness/build-lock.sh" --role backend -- \
+                            #
+                            # The probe's LOCK WAIT is bounded to the time
+                            # left in this loop's own budget. Without it the
+                            # probe inherits build-lock.sh's 1800s backend
+                            # default, which is TWICE the 900s the loop is
+                            # allowed in total: one probe queued behind the
+                            # estree worker's core build could not return
+                            # before the budget had already expired, so the
+                            # loop never completed a cycle and could only
+                            # ever fall through to the trap. Measured
+                            # 2026-10-01 — all four backend workers logged
+                            # "probe failed" every 60s for 15 straight
+                            # minutes and then trapped, while the core
+                            # compiled clean in 60s. The log never said the
+                            # lock, not the code, was what the probe lost to.
+                            probe_timeout=$(( CORE_DIRTY_WAIT_S - core_waited ))
+                            [ "$probe_timeout" -lt 60 ] && probe_timeout=60
+                            if "$ROOT/harness/build-lock.sh" --role backend --timeout "$probe_timeout" -- \
                                  cargo build --manifest-path "$ROOT/otranspilerl/Cargo.toml" \
                                  --bin otranspilerl-cli >> "$LOG" 2>&1; then
                               echo "[$(date +%FT%T)] $rw_lang: core dirty but COMPILES (buildable, WIP unverified) — retrying the gate now rather than waiting out the WIP" >> "$LOG"
