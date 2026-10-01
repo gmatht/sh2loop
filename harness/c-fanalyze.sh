@@ -4,9 +4,16 @@
 #
 # Why this exists: setup_backends.sh's C-only static-analysis gate is
 # `clang --analyze` grepped for `warning:|error:` (setup_backends.sh ~1603).
-# It reports 0 findings on files where `gcc -fanalyzer` reports real
-# heap-buffer-overflows in the EMITTED runtime helpers — the two analyzers do
-# not agree, and the one wired into the gate is the weaker of the two.
+# It reports 0 findings where `gcc -fanalyzer` reports a CONFIRMED real defect:
+# the _sh_pipeline_out stale-`prev` double-close, which ASan and valgrind also
+# miss (neither tracks fd tables). The two analyzers disagree, and the one wired
+# into the gate is the weaker.
+#
+# A finding is only allowed to FAIL this pass if it survived the controlled
+# experiment recorded against it in STRICT below — "gcc said so" is not enough,
+# because the biggest classes here are cross-buffer artifacts of _sh_grow's
+# out-parameters. gcc's own messages are precise and its paths are real; what
+# it cannot do is attribute a capacity to the right buffer.
 #
 # Usage: harness/c-fanalyze.sh [--jobs N] [--limit N] [--all] [--render-only]
 #   --jobs N     parallel gcc processes (default 8)
@@ -28,19 +35,41 @@ CORE=${CORE_BIN:-$ROOT/otranspilerl/target/debug/otranspilerl-cli}
 JOBS=${JOBS:-8}
 LIMIT=120
 RENDER_ONLY=0
-# GCC checkers that indicate a MEMORY-SAFETY defect in emitted code. These are
-# the ones with confirmed true positives in the rendered runtime helpers.
+# GCC checkers that FAILED a controlled experiment: does this finding class
+# DISCRIMINATE between known-fixed and known-unfixed renderer output?
 #
-# `double-free` is DELIBERATELY NOT here. It fires on the renderer's assignment
-# idiom `{ char *_oldN = v; v = _sh_xstrdup(...); free(_oldN); }` and gcc
-# traces the pointer VALUE, not the object: it reports `free(_old0)` at the
-# assignment and again at the end-of-program `free(v)` as one object freed
-# twice. They are two objects — `_old0` holds the pre-assignment value, `v`
-# the post-assignment one. Verified: the reduced form does NOT trip the
-# checker, and ASan on the compiled+running 000__04f_output_formatting binary
-# is clean (rc=0, zero ASan output). Adding it back requires the renderer to
-# stop using that idiom, not a suppression.
-STRICT="out-of-bounds null-argument fd-double-close fd-use-without-check use-after-free"
+# `out-of-bounds` and `null-argument` are DELIBERATELY NOT here. They were the
+# biggest classes (120 and 23 on a 120-file sample) and they are ARTIFACTS of
+# `_sh_grow(char **b, size_t *cap, ...)`'s out-parameters: gcc merges the
+# state of the two independent buffers that both call it, and then traces a
+# read of one buffer to the other buffer's capacity. Evidence, all measured on
+# the same 120 files with the same gcc:
+#
+#   * count is INVARIANT to the fix — 120/23 before and after correcting
+#     `need = n * 2 + 16` to `n * 5 + 16`. A checker whose count does not move
+#     when the defect it names is repaired cannot gate that defect.
+#   * the ISOLATED helper reports 0 at the buggy sizing too — gcc cannot see
+#     this overflow at all without the cross-buffer state merge.
+#   * replacing the runtime-built command with a quote-free LITERAL makes all
+#     120 out-of-bounds findings vanish, so the finding tracks the CONTENT of
+#     the caller's buffer, not `_sh_wrap`'s capacity.
+#
+# They stay COUNTED in the by-checker table above, so a real one is still
+# visible; they just cannot fail the pass.
+#
+# `double-free` is also not here: it fires on the assignment idiom
+# `{ char *_oldN = v; v = _sh_xstrdup(...); free(_oldN); }`, where gcc traces
+# the pointer VALUE and sees `free(_oldN)` and the end-of-program `free(v)` as
+# one object freed twice. They are two objects. Verified: the reduced form does
+# NOT trip the checker, and ASan on the compiled+running 000__04f_output_
+# formatting binary is clean (rc=0, zero ASan output).
+#
+# Kept strict = the classes with a confirmed true positive that MOVED when the
+# defect was fixed. `fd-double-close` was the _sh_pipeline_out stale-`prev`
+# double-close: 4 findings before the fix, 0 after, on the same 120 files, with
+# `close(4) = -1 EBADF` confirmed by strace. Adding a checker back requires the
+# same experiment, not just a plausible reading of the message.
+STRICT="fd-double-close fd-use-without-check use-after-free"
 
 while [ $# -gt 0 ]; do
   case "$1" in
