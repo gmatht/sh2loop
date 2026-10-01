@@ -225,15 +225,33 @@ estree_ref_out() {  # a1-file [source-file] -> the estree-proxy executed output
   rm -f "$err"
   printf '%s' "$out"
 }
-backend_out() {  # backend run-field rendered-file -> executed output
+backend_out() {  # backend run-field rendered-file [source-file] -> executed output
   # run-field format: mode:cmd[:ext] — `run:perl`, `compile:cc:c`,
   # `run:java:java` … The ext is needed when the toolchain keys on the
   # filename (cc needs .c, go build .go, rustc .rs, node .js, java
   # single-file launch needs the file named after its PUBLIC CLASS).
-  local run="$1" rendered="$2"
+  # `srcf` (optional) is the ORIGINAL source file: only the js cell uses it,
+  # to build the same spawn allowlist the estree reference executor builds.
+  local run="$1" rendered="$2" srcf="${3:-}"
   [ -z "$run" ] && { echo ""; return 0; }
   local mode cmd ext
   IFS=':' read -r mode cmd ext <<<"$run"
+  # `--target js` emits an ES-MODULE FRAGMENT that references the `sh2`
+  # runtime namespace (sh2.builtin / sh2.lastExit / …) but carries NO import
+  # — estree-gen.mjs prints "output is used only as an intermediate". A bare
+  # `node rendered.js` therefore dies with "ReferenceError: sh2 is not
+  # defined", which triage reads as "js differs" and files as a backend gap
+  # (2026-10-01: the c-sh-go t34/t38/t44/t52/t66 requests, all phantom).
+  # js-run.mjs wraps the fragment exactly as estree-runner.mjs does — import
+  # sh2 + _init/_setAllowlist/[._setLang] + _finish — so the cell measures the
+  # RENDERER, not the missing prologue. Mirrors batch-triage.sh / corpus-c.sh.
+  if [ "$cmd" = node ] && [ "$ext" = js ]; then
+    local tmpj; tmpj=$(mktemp -d "$TRIAGE/.be.XXXXXX")
+    ( cd "$tmpj" && timeout 30 node "$ROOT/harness/js-run.mjs" "$rendered" \
+        ${srcf:+--source "$srcf"} ) < /dev/null 2>/dev/null || true
+    rm -rf "$tmpj"
+    return 0
+  fi
   if [ "$mode" = run ]; then
     if [ -n "$ext" ]; then
       local tmp; tmp=$(mktemp -d "$TRIAGE/.be.XXXXXX")
@@ -280,8 +298,12 @@ record() {  # frontend backend example status detail
 }
 
 # ── the classifier: everything row-constant is passed in ───────
-classify_pair() {  # fe ex be a1-file native-out proxy-out
-  local fe="$1" ex="$2" be="$3" a1f="$4" nout="$5" pout="$6"
+classify_pair() {  # fe ex be a1-file native-out proxy-out [source-file]
+  # `srcf` (optional, $7) is the original source file — forwarded to the js
+  # cell so its sh2 runner builds the same spawn allowlist the estree
+  # reference executor does. Without it js spawns nothing and any example
+  # that spawns reads as a phantom backend mismatch.
+  local fe="$1" ex="$2" be="$3" a1f="$4" nout="$5" pout="$6" srcf="${7:-}"
   local binf; binf=$(backend_info "$be"); [ -z "$binf" ] && { echo "SKIP-UNWIRED no-backend $be"; return; }
   IFS='|' read -r bdeb bflag brun blabel <<<"$binf"
   [ -x "$bdeb" ] || { echo "SKIP-UNWIRED no-renderer $bdeb"; return; }
@@ -314,7 +336,7 @@ classify_pair() {  # fe ex be a1-file native-out proxy-out
   fi
 
   # executed comparison + ownership disambiguation
-  local bo; bo=$(backend_out "$brun" "$work/rendered")
+  local bo; bo=$(backend_out "$brun" "$work/rendered" "$srcf")
   local nnorm enorm bnorm
   nnorm=$(norm "$nout"); enorm=$(norm "$pout"); bnorm=$(norm "$bo")
   # A crashed/unavailable estree reference makes the pair UNVERIFIABLE:
@@ -443,7 +465,7 @@ sweep() {
       fi
     fi
     if [ -s "$a1f/a1.json" ]; then
-      classify_pair "$fe" "$ex" "$be" "$a1f/a1.json" "$nout" "$pout"
+      classify_pair "$fe" "$ex" "$be" "$a1f/a1.json" "$nout" "$pout" "$example"
     else
       record "$fe" "$be" "$ex" "FAIL-FRONTEND-EMIT" "frontend refused the example"
       echo "FAIL-FRONTEND-EMIT $fe/$ex/$be (frontend refused)"
@@ -542,7 +564,7 @@ case "${1:-}" in
     if emit_a1 "$1" "$example" > "$a1f/a1.json" 2>"$a1f/emit.err"; then
       nout=$(native_out "$1" "$example")
       pout=$(estree_ref_out "$a1f/a1.json" "$example" || true)
-      classify_pair "$1" "$2" "$3" "$a1f/a1.json" "$nout" "$pout"
+      classify_pair "$1" "$2" "$3" "$a1f/a1.json" "$nout" "$pout" "$example"
     else
       record "$1" "$3" "$2" "FAIL-FRONTEND-EMIT" "frontend refused the example"
       echo "FAIL-FRONTEND-EMIT $1/$2/$3 (frontend refused)"
