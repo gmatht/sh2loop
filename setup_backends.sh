@@ -92,6 +92,61 @@ declare -A WORKER=( [perl]= [js]=main_loop_estree.pl )
 #
 # Env: LOAD_GATE_SIGNAL=queue|loadavg (default queue)
 #      WEDGE_DSTATE_MAX=<int> (default 8)
+#
+# Count D-state (uninterruptible) threads in ONE process subtree only.
+# Args: $1 = a pid that is an ancestor-or-self of the work we care about.
+# Echoes the count; 0 if the subtree cannot be walked.
+#
+# WHY THIS EXISTS. The gate's load signal used to count D-state box-wide, so
+# one operator's `qemu-system-i386` or an unrelated agent session could stall
+# every backend gate (see wait_for_load's block comment for the measured
+# 924-of-925 false positives). Scoping the count to the gate's own subtree
+# keeps the wedge signature — the signal the yield exists for — while making
+# it actionable: threads WE blocked are threads pausing us can drain.
+#
+# `-eLo` (threads) not `-e` (processes): one rustc is many runnable threads,
+# and it is threads that block.
+#
+# Implementation: walk /proc, and for each thread read its PPID from
+# /proc/<pid>/stat field 4. Recursing over a parent map is O(all pids) per
+# level but the gate calls this at most 26 times per pass (once per
+# GATE_YIELD_EVERY files), so the cost is irrelevant next to a corpus pass.
+# `ps --ppid` would be one exec per level; the map is a single pass.
+gate_subtree_tasks() {
+  local root="$1"
+  local -A kids=()
+  local pid ppid
+  while read -r pid ppid _; do
+    [ -n "${ppid:-}" ] || continue
+    kids[$ppid]="${kids[$ppid]:-} $pid"
+  done < <(ps -eLo pid=,ppid=,stat= 2>/dev/null)
+  local frontier="$root" next="" seen=" $root " p c
+  local depth=0
+  while [ -n "$frontier" ] && [ "$depth" -lt 64 ]; do
+    next=""
+    for p in $frontier; do
+      for c in ${kids[$p]:-}; do
+        case "$seen" in *" $c "*) continue ;; esac
+        seen="$seen$c "
+        next="$next $c"
+      done
+    done
+    frontier="$next"
+    depth=$((depth+1))
+  done
+  echo "${seen# }"
+}
+
+gate_own_dstate() {
+  local root="$1"
+  local p st n=0
+  for p in $(gate_subtree_tasks "$root"); do
+    st=$(awk '{print $3}' "/proc/$p/stat" 2>/dev/null) || continue
+    case "$st" in D*) n=$((n+1)) ;; esac
+  done
+  echo "$n"
+}
+
 wait_for_load() {
   local threshold="${1:-1.5}"
   local poll_secs="${2:-60}"
@@ -112,12 +167,43 @@ wait_for_load() {
       # run-queue depth: threads the scheduler could be running right now.
       # -L because loadavg counts THREADS on Linux; `ps -e` counts
       # processes and undercounts a box with busy rustc/qemu threads.
+      #
+      # D-STATE IS COUNTED OVER THIS GATE'S OWN SUBTREE, NOT BOX-WIDE.
+      # It used to be `ps -eLo stat= | awk '$1 ~ /^D/'` — every
+      # uninterruptible thread on the box, whoever owns it — and that made
+      # the yield fire on other people's work. Measured 2026-10-01: of 925
+      # yield pauses in one rust pass, `runq > 24` fired ONCE and
+      # `dstate > WEDGE_DSTATE_MAX` fired 924 times, with observed D counts
+      # of 12..131 against a threshold of 8. The tasks were qemu-system-i386,
+      # rustc, python3 and unrelated `pir` sessions — a gate cannot throttle
+      # those by pausing, and pausing did not help: the yield sits INSIDE the
+      # `flock -o .gate.lock` region, so a gate waiting on a box-wide
+      # condition held the one lock the other four workers need, and those
+      # blocked workers could not drain the very D-state tasks the holder was
+      # waiting for. That is the deadlock shape, and it is what produced the
+      # 10-deep waiter queue.
+      #
+      # WHAT D-STATE IS FOR HERE. It is still the wedge signature the gate
+      # exists to damp — but as a property of THIS gate's own work. If this
+      # gate's compiles are the ones blocking on IO, pausing helps, because
+      # they are the cause and will clear. If someone else's qemu is in
+      # __lock_buffer, pausing this gate achieves nothing except stalling the
+      # fleet.
+      #
+      # Env: GATE_DSTATE_SCOPE=self|box (default self). `box` restores the old
+      # box-wide count for operators who want the blunt behaviour; it is kept
+      # as an escape hatch because the wedge argument above is real, it is
+      # just not this gate's to fix.
       local runq dstate
       runq=$(ps -eLo stat= 2>/dev/null | awk '$1 ~ /^R/{c++} END{print c+0}')
-      dstate=$(ps -eLo stat= 2>/dev/null | awk '$1 ~ /^D/{c++} END{print c+0}')
-      detail="runq=${runq:-?} dstate=${dstate:-?}"
+      if [ "${GATE_DSTATE_SCOPE:-self}" = "box" ]; then
+        dstate=$(ps -eLo stat= 2>/dev/null | awk '$1 ~ /^D/{c++} END{print c+0}')
+      else
+        dstate=$(gate_own_dstate "$$")
+      fi
+      detail="runq=${runq:-?} dstate=${dstate:-?} scope=${GATE_DSTATE_SCOPE:-self}"
       # over = the run queue is deeper than the core count, OR the wedge
-      # signature is present. Either one means "not now".
+      # signature is present IN OUR OWN WORK. Either one means "not now".
       over=$(awk -v r="${runq:-0}" -v n="$nproc_val" -v d="${dstate:-0}" -v w="$wedge_max" \
              'BEGIN{print ((r+0>n+0)||(d+0>w+0))?1:0}')
     fi
@@ -1273,7 +1359,20 @@ EOF
                   # wait is bounded and fail-open, so a busy box costs this
                   # gate time but never correctness and never a deadlock.
                   # GATE_YIELD_EVERY=0 disables; GATE_YIELD_MAX_WAIT bounds
-                  # each pause (default 120s).
+                  # each pause (default 30s, reduced from 120s).
+                  #
+                  # SCOPE (2026-10-01). The dstate half of the trigger was
+                  # box-wide, so this pause fired on OTHER processes' work and
+                  # then held the fleet's only gate lock while waiting for a
+                  # condition the other blocked workers could not help clear.
+                  # wait_for_load now counts D-state over THIS gate's subtree,
+                  # so a pause means our own compiles are blocked. The two
+                  # changes are one fix: a yield that cannot help anyone should
+                  # not hold a lock, and a yield that can help should not wait
+                  # long. Measured on the rust log: 924 of 925 pauses were
+                  # triggered by foreign D-state (runq>24 fired once).
+                  # Set GATE_DSTATE_SCOPE=box to restore the old blunt
+                  # behaviour.
                   eq_tool=""; eq_ext=""
                   case "$g_lang" in
                     c)      eq_tool="cc";        eq_ext="c";;
@@ -1312,7 +1411,17 @@ EOF
                     return 0
                   }
                   GATE_YIELD_EVERY="${GATE_YIELD_EVERY:-25}"
-                  GATE_YIELD_MAX_WAIT="${GATE_YIELD_MAX_WAIT:-120}"
+                  # 120s -> 30s. This pause happens INSIDE `flock -o .gate.lock`,
+                  # so every second of it is a second the other four backend
+                  # workers cannot run at all. With the dstate signal now
+                  # gate-local (wait_for_load), a pause means THIS gate's own
+                  # compiles are blocked — which is worth a short breather, but
+                  # not half a minute per occurrence across 26 occurrences per
+                  # pass (26 x 120s = 52 min of a pass spent asleep, holding
+                  # the fleet's only gate lock). 30s keeps the cooperative
+                  # intent and bounds the fleet-wide cost of one pass to 13
+                  # min worst case.
+                  GATE_YIELD_MAX_WAIT="${GATE_YIELD_MAX_WAIT:-30}"
                   gate_seen=0
                   for f in $corpus; do
                     # Cooperative yield (see the YIELD note above): let the box
