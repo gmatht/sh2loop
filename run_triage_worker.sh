@@ -38,22 +38,24 @@ escalate() {  # fe be ex status detail
       bash "$WORKSPACE/setup_backends.sh" --pi-fix-frontend "$fe" >> "$LOG" 2>&1 || true
       ;;
     FAIL-BACKEND)
-      local ts; ts=$(date +%Y%m%d-%H%M%S)
-      local req="$WORKSPACE/core-requests/triage-$be-$ts.md"
-      {
-        echo "# triage: $be backend can't render what the $fe frontend emits"
-        echo
-        echo "## NEED"
-        echo "The $be renderer must handle this A1 (the estree reference renders it and"
-        echo "matches native)."
-        echo
-        echo "## FAILING-CASE"
-        echo "frontend $fe, example $ex (cross-product pair)."
-        echo
-        echo "## EVIDENCE"
-        echo "$det"
-      } > "$req"
-      echo "[$(date +%FT%T)] escalating $fe/$ex/$be ($st) → $req" >> "$LOG"
+      # PLAN §11.3: the cross-product sweep is a SIGNAL, not the core's gate —
+      # "each backend uses its own verdicts to decide accept/reject" and
+      # "'out of scope' ceases to exist as a rejection category". A
+      # FAIL-BACKEND is by construction the estree REFERENCE matching native
+      # while the backend does not, i.e. the defect is in that backend's own
+      # renderer, which it owns and fixes (its gate already reads
+      # triage/verdicts.tsv). Filing it as a core-request routed the
+      # backends' work into the core queue: 15 triage-*.md requests stalled
+      # in core-requests/stalled/ on 2026-10-02, every one re-litigating
+      # PLAN §11.3 instead of being fixed in the owning worktree.
+      #
+      # The backend is still woken here — the row stays in escalated.tsv and
+      # verdicts.tsv, which is where its worker reads it. Only the core queue
+      # is no longer polluted. A genuine shared-core defect still reaches the
+      # core through the documented channels (README contract-gen spec /
+      # transform offer / bundle / analysed-bug .md), which require the
+      # filer to demonstrate the cause is shared rather than assert the pair.
+      echo "[$(date +%FT%T)] signal $fe/$ex/$be ($st) → backend-owned, not filed to core-requests (PLAN §11.3): $det" >> "$LOG"
       ;;
   esac
   printf '%s\t%s\t%s\t%s\n' "$fe" "$be" "$ex" "$st" >> "$TRIAGE/escalated.tsv"
