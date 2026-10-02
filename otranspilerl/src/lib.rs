@@ -478,6 +478,12 @@ pub fn analyze(a1: &str, python: bool) -> Result<String, String> {
                 debashl::ir::IrType::Int64 => "int64",
                 debashl::ir::IrType::UInt32 => "uint32",
                 debashl::ir::IrType::UInt64 => "uint64",
+                // AsciiStr is a core IrType variant (sh2perl/src/ir.rs:64)
+                // carrying the ASCII-only annotation, not a distinct scalar
+                // type: it lowers exactly like Str. Without this arm the whole
+                // CLI fails to compile (E0004), which starves every backend
+                // gate. Keep this list in step with IrType.
+                debashl::ir::IrType::AsciiStr => "str",
             };
             (n.clone(), s.to_string())
         })
@@ -733,7 +739,7 @@ fn render_ingested(a1: &str, lang: &str) -> Result<String, String> {
         "estree" => {
             debashl::shir::shir_to_estree_json(&prog).map_err(|e| format!("estree: {e}"))?
         }
-        "perl" => debashl::ir::shir_to_perl(&prog),
+        "perl" => debashl::perl_generator_fixed::generate(&prog),
         "c" => debashl::c_backend::shir_to_c(&prog),
         "go" => debashl::go_backend::shir_to_go(&prog),
         "python" => debashl::python_backend::shir_to_python(&prog),
@@ -1500,7 +1506,6 @@ fn apply_library(root: &Path, estree_json: &str) -> Result<String, String> {
 fn estree_json_to_js(root: &Path, estree_json: &str) -> Result<String, String> {
     #[cfg(not(target_family = "wasm"))]
     {
-        use std::io::Read as _;
         use std::io::Write as _;
         let gen = root.join("harness/estree-gen.mjs");
         if !gen.exists() {
@@ -1600,6 +1605,9 @@ fn write_out(
             return 1;
         }
         return 0;
+    }
+    if std::env::var_os("SH2_DEBUG_WRITE").is_some() {
+        eprintln!("SH2_DEBUG_WRITE: about to write {} bytes to {}", data.len(), output);
     }
     match std::fs::write(output, data) {
         Ok(()) => 0,
