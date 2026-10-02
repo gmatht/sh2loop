@@ -586,7 +586,6 @@ struct DevFns {
     destroy_fence: unsafe extern "C" fn(VkDevice, VkFence, *const c_void) -> (),
     queue_submit: unsafe extern "C" fn(VkQueue, u32, *const VkSubmitInfo, VkFence) -> VkResult,
     wait_for_fences: unsafe extern "C" fn(VkDevice, u32, *const VkFence, u32, u64) -> VkResult,
-    get_device_queue: unsafe extern "C" fn(VkDevice, u32, u32, *mut VkQueue) -> (),
     destroy_device: unsafe extern "C" fn(VkDevice, *const c_void) -> (),
 }
 
@@ -626,9 +625,11 @@ impl ComputeRunner {
             return Err(format!("vulkan create-device failed: rc={r}"));
         }
         let mut queue: VkQueue = ptr::null_mut();
-        let f: unsafe extern "C" fn(VkDevice, u32, u32, *mut VkQueue) -> () =
+        // The queue is the one device command needed before `dev_fns`
+        // exists, so it is resolved here rather than in the table below.
+        let get_queue: unsafe extern "C" fn(VkDevice, u32, u32, *mut VkQueue) -> () =
             vk.dproc(inst, dev, "vkGetDeviceQueue");
-        unsafe { f(dev, family, 0, &mut queue) };
+        unsafe { get_queue(dev, family, 0, &mut queue) };
         let mut mem_props = VkMemoryProps {
             type_count: 0,
             types: [VkMemoryType { property_flags: 0, heap_index: 0 }; 32],
@@ -677,7 +678,6 @@ impl ComputeRunner {
             destroy_fence: d!("vkDestroyFence"),
             queue_submit: d!("vkQueueSubmit"),
             wait_for_fences: d!("vkWaitForFences"),
-            get_device_queue: d!("vkGetDeviceQueue"),
             destroy_device: d!("vkDestroyDevice"),
         };
         Ok(ComputeRunner { vk, inst, dev, queue, family, mem_props, dev_fns, pipe_cache: std::cell::RefCell::new(None) })

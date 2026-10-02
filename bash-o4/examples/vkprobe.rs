@@ -119,7 +119,6 @@ fn main() {
     for g in [0, 1, 4094, 4095] {
         let p = out[0][g];
         let base = g * 256;
-        let base = g * 256;
         let exp: i128 = (base..base + 256).map(|i| (i as i128) * (i as i128)).sum();
         println!("group {g}: got {p} want {exp} match={}", p as i128 == exp);
     }

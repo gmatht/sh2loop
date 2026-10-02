@@ -162,8 +162,7 @@ mod tests {
     use super::*;
     // Used only here: the non-test build has no need for the IR types, so
     // importing them at module scope made the library build warn.
-    use debashl::ir::{ArithAst, AssignTarget, IrExpr, IrProgram, IrStmt};
-    use std::collections::{BTreeMap, BTreeSet};
+    use debashl::ir::{IrProgram, IrStmt};
     use debashl::shir_json_in::shir_json_to_ir;
     use debashl::transforms as T;
 
