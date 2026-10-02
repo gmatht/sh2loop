@@ -1958,6 +1958,29 @@ its own verdicts to decide accept/reject (a transform that makes many pairs
 pass is de-facto shared; one that helps a single pair stays scoped).
 "Out of scope" ceases to exist as a rejection category.
 
+**A FAIL-BACKEND cell is not a core request.** By construction the cell
+means: the estree REFERENCE matched native (so the frontend's A1 is
+correct) and the backend did not (so the defect is in that backend's own
+renderer). The signal is not lost — the row still lands in
+`triage/verdicts.tsv`, which is where a backend's gate reads it — so
+routing it into `core-requests/` only re-fed the core queue cells that
+by definition the core cannot fix. Backends that later want a core
+change still have the documented channels: a contract-gen spec, a
+transform offer, a bundle, or an analysed-bug `.md`.
+
+**A FAIL-BACKEND cell must not be filed on one backend's evidence
+alone.** `triage.sh` derives "matches native" from a *run* that can be
+empty for reasons that have nothing to do with the renderer: a missing
+link flag (`-lgmp`, `--extern num_bigint`) fails at LINK time and yields
+empty stdout, which diffs as "differs"; a wrong interpreter produces
+garbage that reads the same way. The `096_head_procsub.sh` procsub leak
+makes an entire run non-deterministic too. So a cell is evidence only
+after the same A1 has been re-rendered on another backend: **if a second
+backend reproduces native byte-for-byte on the identical A1, the ingress
+and the IR are proven sound and the gap is the renderer arm.** That is
+the check the core applies before rejecting, and it is cheap — the
+core only has to render the A1 a second way, not fix anything.
+
 ### 11.4 Transform manifest (required on every offer)
 
 ```text
