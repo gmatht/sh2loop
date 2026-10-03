@@ -39,6 +39,12 @@ STATUS_FILE="$LOCK_DIR/status"
 role="backend"
 timeout=""
 grace=30
+# Seconds a lock dir must be observed WITHOUT a holder record before it is
+# reclaimed as stale. Long enough to cover the mkdir->record window of a
+# live acquirer (see the race note in acquire()), short enough that the two
+# real recoveries — a SIGKILLed holder and the reboot case — still clear on
+# the next poll or two. Override for a test.
+NO_RECORD_STALE_S="${NO_RECORD_STALE_S:-5}"
 share_target=""
 
 while [[ $# -gt 0 ]]; do
@@ -83,7 +89,7 @@ my_prio=$(prio "$role")
 WAITERS_DIR="$LOCK_DIR/waiters"
 mkdir -p "$WAITERS_DIR"
 echo "$role $(date +%s)" > "$WAITERS_DIR/$my_pid"
-release() { rmdir "$LOCK_FILE" 2>/dev/null || rm -rf "$LOCK_FILE"; }
+release() { rm -rf "$LOCK_FILE" 2>/dev/null || rmdir "$LOCK_FILE" 2>/dev/null || true; }
 trap 'rm -f "$WAITERS_DIR/$my_pid"; release' EXIT
 # signal the holder to let go (graceful preemption)
 preempt_holder() {
@@ -98,52 +104,77 @@ preempt_holder() {
 acquire() {
   local deadline=$(( $(date +%s) + timeout ))
   local escalated=0
+  # How long a lock dir with NO holder record must be observed before it is
+  # treated as stale and reclaimed (seconds). See the "no holder record"
+  # branch below: without this the mkdir->record window is a STEAL window.
+  local no_record_since=""
   while true; do
     if mkdir "$LOCK_FILE" 2>/dev/null; then
-      # acquired — record the holder (pid role since)
+      # acquired — record the holder (pid role since). The record is written
+      # INSIDE the lock dir when possible so mkdir and the record are created
+      # as close together as the filesystem allows; the sibling $STATUS_FILE
+      # copy is kept for back-compat with readers that expect it there.
+      echo "$my_pid $role $(date +%s)" > "$LOCK_FILE/holder" 2>/dev/null || true
       echo "$my_pid $role $(date +%s)" > "$STATUS_FILE"
       return 0
     fi
     # stale lock? the holder died without releasing (SIGKILL, crash, or a
     # reboot that wiped the whole process table).
     #
-    # TWO ways a lock is stale, and the old check only caught the first:
+    # TWO ways a lock is stale, and the original check only caught the first:
     #   1. the status record names a process that is no longer alive
     #   2. there is NO usable status record at all (empty or missing file)
     # (2) is the reboot case and it was a REAL deadlock, not a theoretical
     # one: the lock dir survived the reboot, the status file came back empty
-    # (it is truncated/absent), so `holder` was the empty string, the
-    # `-n "$holder"` guard short-circuited, and the lock was never released.
-    # Every worker then polled here forever — the core build and eight
-    # backend gates sat blocked for 20+ minutes with an idle box.
-    # A lock dir with no holder record cannot belong to a live holder of THIS
-    # lock: the holder writes its record immediately after mkdir succeeds, so if
-    # the record is absent the owner is gone and the lock is free to take.
-    local holder
-    holder=$(awk '{print $1}' "$STATUS_FILE" 2>/dev/null || true)
-    if [[ -z "$holder" ]]; then
-      # No holder record. This lock dir is created ONLY by `mkdir` below, and
-      # this script never writes anything INSIDE it (the holder record lives in
-      # the sibling $STATUS_FILE). So "lock dir present, no record" cannot be a
-      # live holder of ours — it is a dead holder, a reboot, or debris from a
-      # foreign flock-style user of the same path. Reclaim it.
-      #
-      # The old code refused to touch a NON-EMPTY dir with no record, reasoning
-      # it might be "someone else's layout". That made every waiter spin to its
-      # timeout: a `flock 9 9>...lock` user (how the backend gates serialise)
-      # leaves a non-empty file there and never writes $STATUS_FILE, so the
-      # record is permanently absent and the "leave it alone" branch is taken
-      # on every single poll. Observed as the core gate's `cargo test --lib`
-      # returning EMPTY output with no `test result:` line, which the gate then
-      # reported as "no lib-test summary (hung or crashed)" — a lock problem
-      # misreported as a test hang. Reproduced by holding the path with a plain
-      # flock: the command never ran at all.
-      echo "build-lock.sh: removing stale lock at $LOCK_FILE (no holder record — dead holder, reboot, or a foreign flock holder; this path is ours alone)" >&2
+    # (it is truncated/absent), so the old `-n "$holder"` guard short-
+    # circuited, and the lock was never released. Every worker then polled
+    # here forever — the core build and eight backend gates sat blocked for
+    # 20+ minutes with an idle box.
+    #
+    # The comment that used to sit here ("a lock dir with no record cannot
+    # belong to a live holder of THIS lock") was WRONG, and the belief
+    # embedded in it is what caused the steal below.
+    #
+    # THE ABSENT-RECORD RACE (fixed 2026-10-03).
+    #
+    # Winning the lock is two steps: `mkdir $LOCK_FILE` (line above) and
+    # then writing the holder record. Between them the lock dir EXISTS but
+    # carries NO record, and this branch used to read that as "dead holder"
+    # and reclaim it — so a waiter arriving in that window STOLE the lock
+    # from a live holder. Reproduced deterministically: with a holder that
+    # had mkdir'd but not yet recorded, a `build-lock.sh` waiter logged
+    # "removing stale lock ... (no holder record)" and then acquired the
+    # lock, and TWO cargo builds ended up sharing one target dir. A
+    # partially-written target is not a compile error, so it surfaced
+    # downstream as an intermittent "core build FAILED" / "probe failed" in
+    # the backend workers — a build break that did not exist in the source.
+    #
+    # A missing record is therefore NOT sufficient to reclaim on the first
+    # sighting. Age it: only treat a record-less lock as stale once it has
+    # been seen record-less for $NO_RECORD_STALE_S continuously. That
+    # preserves the ORIGINAL two recoveries (a SIGKILLed holder, and the
+    # reboot case where the dir survives with an empty record) — both of
+    # which stay record-less far longer than the grace — while making the
+    # mkdir->record window impossible to steal.
+    local now_s=$(( $(date +%s) ))
+    local holder_rec
+    holder_rec=$(awk '{print $1}' "$STATUS_FILE" 2>/dev/null || true)
+    if [[ -z "$holder_rec" && ! -s "$LOCK_FILE/holder" ]]; then
+      if [[ -z "$no_record_since" ]]; then
+        no_record_since=$now_s
+      elif (( now_s - no_record_since >= NO_RECORD_STALE_S )); then
+      echo "build-lock.sh: removing stale lock at $LOCK_FILE (no holder record for ${NO_RECORD_STALE_S}s — dead holder, reboot, or a foreign flock holder; this path is ours alone)" >&2
       release; rm -f "$STATUS_FILE"
+      no_record_since=""
       continue
-    elif [[ "$holder" != "$my_pid" ]] && ! kill -0 "$holder" 2>/dev/null; then
-      echo "build-lock.sh: removing stale lock (holder $holder dead)" >&2
+      fi
+    else
+      no_record_since=""
+    fi
+    if [[ -n "$holder_rec" && "$holder_rec" != "$my_pid" ]] && ! kill -0 "$holder_rec" 2>/dev/null; then
+      echo "build-lock.sh: removing stale lock (holder $holder_rec dead)" >&2
       release; rm -f "$STATUS_FILE"
+      no_record_since=""
       continue
     fi
     # core escalation: waited past the timeout → SIGTERM the holder once,
