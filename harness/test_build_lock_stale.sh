@@ -68,7 +68,7 @@ fi
 # A reclaim that produces no diagnostic is how the original bug hid for hours.
 d=$(newlock c2); mkdir -p "$d/lock"      # lock dir present, NO status file
 out=$(BUILD_LOCK_DIR="$d" timeout 60 bash "$LOCK" --role backend -- true 2>&1)
-if printf '%s' "$out" | grep -qi "removing stale lock"; then
+if printf '%s' "$out" | command grep -qF "removing stale lock"; then
   ok "a record-less lock dir is reclaimed with a diagnostic"
 else
   bad "no reclaim diagnostic — a silent reclaim would hide the cause again"
@@ -106,7 +106,7 @@ t0=$(date +%s)
 out=$(BUILD_LOCK_DIR="$d" timeout 60 bash "$LOCK" --role backend -- echo RECLAIMED 2>&1)
 t1=$(date +%s)
 waited=$((t1 - t0))
-if printf '%s' "$out" | grep -q "RECLAIMED" && [ "$waited" -lt 30 ]; then
+if printf '%s' "$out" | command grep -qF "RECLAIMED" && [ "$waited" -lt 30 ]; then
   ok "a SIGKILLed holder's lock is reclaimed (${waited}s)"
 else
   bad "a dead holder's lock was not reclaimed (${waited}s, out='$(printf '%s' "$out" | tail -1)')"
@@ -127,12 +127,12 @@ t1=$(date +%s)
 waited=$((t1 - t0))
 kill -TERM "$holder" 2>/dev/null || true
 wait "$holder" 2>/dev/null || true
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q "CORE_RAN"; then
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | command grep -qF "CORE_RAN"; then
   ok "core preempts a live recorded holder and proceeds (${waited}s)"
 else
   bad "core did not preempt a live holder (rc=$rc after ${waited}s)"
 fi
-if printf '%s' "$out" | grep -qi "preempting holder"; then
+if printf '%s' "$out" | command grep -qF "preempting holder"; then
   ok "the preemption is reported, so it is never a silent stall"
 else
   bad "the preemption produced no diagnostic"
@@ -170,7 +170,7 @@ else
 fi
 # The only legitimate outcomes: it timed out WITH a diagnostic, or it preempted
 # and ran. A silent no-output return is exactly the failure being fixed.
-if printf '%s' "$out" | grep -qiE "timed out|preempting"; then
+if printf '%s' "$out" | command grep -qE "timed out|preempting"; then
   ok "the lock stall is reported with a reason (not a silent empty run)"
 else
   bad "no diagnostic naming the lock (out='$(printf '%s' "$out" | tail -1)')"
