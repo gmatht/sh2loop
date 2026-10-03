@@ -20,14 +20,14 @@ ROOT=/home/llm/sh2loop
 rc=0
 
 # --- half 1: the call site is bounded ------------------------------------
-probe_line=$(grep -n 'build-lock.sh" --role backend --timeout' "$ROOT/setup_backends.sh" | head -1)
+probe_line=$(command grep -n 'build-lock.sh" --role backend --timeout' "$ROOT/setup_backends.sh" | head -1)
 if [ -z "$probe_line" ]; then
   echo "FAIL: the buildability probe still passes no --timeout to build-lock.sh,"
   echo "      so it inherits the 1800s default and can overrun the 900s budget."
   rc=1
 else
   echo "ok: probe is bounded at the call site (line ${probe_line%%:*})"
-  if ! grep -q 'probe_timeout=\$(( CORE_DIRTY_WAIT_S - core_waited ))' "$ROOT/setup_backends.sh"; then
+  if ! command grep -q 'probe_timeout=\$(( CORE_DIRTY_WAIT_S - core_waited ))' "$ROOT/setup_backends.sh"; then
     echo "FAIL: the probe timeout is not derived from the REMAINING budget."
     rc=1
   else
@@ -53,7 +53,7 @@ if [ "$brc" -eq 0 ]; then
 elif [ "$elapsed" -gt 120 ]; then
   echo "FAIL: probe waited ${elapsed}s — --timeout 60 was ignored"
   rc=1
-elif ! grep -q 'timed out' "$D/out"; then
+elif ! command grep -q 'timed out' "$D/out"; then
   echo "FAIL: no 'timed out' diagnostic — a silent failure reads as a build break"
   rc=1
 else
