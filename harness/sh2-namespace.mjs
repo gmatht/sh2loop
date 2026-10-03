@@ -844,6 +844,13 @@ export const sh2 = {
       const k = normAssocKey(name.slice(eq + 1, -1));
       const base = name.slice(0, eq);
       if (!this.assocStore.has(base)) this.assocStore.set(base, new Map());
+      // Same registration as the 3-arg form above: a name only in
+      // `assocStore` is invisible to `arrayLen`/`arrayIndex`/`getVar`, all
+      // of which dispatch on `assocNames`, so `${map[foo]}` would read ''
+      // and `${#map[@]}` would count 0. (`assocSet("map[foo]", "bar")` —
+      // the baked-name lowering of `map[foo]=bar` — was the one write path
+      // that skipped this.)
+      this.assocNames.add(base);
       this.assocStore.get(base).set(k, String(key));
       return;
     }
