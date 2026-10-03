@@ -28,6 +28,12 @@ import zlib from 'node:zlib';
 
 const SPAWN_TIMEOUT_MS = 5000; // per external command
 
+// Capture time bound (see _capExceeded): a capture that runs longer than this
+// is treated as a non-terminating producer and cut. Generous by design — see
+// the comment on _capExceeded for why the previous 12 s value truncated a
+// correct translation.
+const CAP_TOTAL_MS = 14000;
+
 // ── BRE/ERE → JS regex translation (shared by grepText and builtins.sed) ──
 // GNU BRE semantics: bare `( ) { } + ? |` are literals, `\x`-escapes are the
 // ERE operators; POSIX classes translate. ERE ≈ JS already; -F is a literal.
@@ -1591,7 +1597,7 @@ export const sh2 = {
     return evalUnary(flag, arg, this);
   },
 
-  // ── command substitution ───────────────────────────────────────────
+// ── command substitution ───────────────────────────────────────────
   async capture(fn) {
     const saved = this.fdTargets[1];
     const savedStart = this.captureStart;
@@ -1607,6 +1613,7 @@ export const sh2 = {
       this.captureStart = savedStart;
     }
   },
+
 
   // resolveTempResult(out) — freeze a bare compile-time node-temp
   // result at the capture boundary (the go-sh self-hosting contract:
@@ -1648,7 +1655,7 @@ export const sh2 = {
   // form's post-await continuation; a background job's fd-1 writes go to
   // the REAL sink, never into a live capture buffer (closer to bash's
   // fork than the async form's late-restore window).
-  captureSync(fn) {
+captureSync(fn) {
     const saved = this.fdTargets[1];
     const savedStart = this.captureStart;
     this.fdTargets[1] = { kind: 'capture', buf: '' };
@@ -3318,11 +3325,39 @@ export const sh2 = {
   // the producer stops and the partial output is returned (the test then
   // fails fast as a stdout mismatch instead of burning the whole per-test
   // timeout).
+  //
+  // WHY THE TIME BOUND IS 90 s, NOT 12 s. It used to be 12 s, which is BELOW
+  // the honest runtime of the slowest legitimate example in the corpus, so it
+  // truncated a correct translation and scored it FAIL. 096_head_procsub.sh is
+  // `head <(while true; do echo .; sleep 1; done)`: head consumes 10 lines,
+  // and each line costs the producer one real `sleep 1`, so the honest run
+  // needs ~10 s and crosses 12 s whenever the box is loaded. Measured here
+  // (loadavg ~21 on 16 cores): back-to-back runs alternated 11 lines (correct)
+  // / 10 lines (one dot short) — a coin flip that surfaced as ESTREE 554/555
+  // with `096_head_procsub.sh  FAIL  stdout mismatch`. A previous round had
+  // written the same cell off as run-to-run "gate noise", which it is, but
+  // the noise is self-inflicted: the harness was killing its own correct run.
+  //
+  // 90 s clears the slowest example by a wide margin while still failing fast
+  // against the harness's own 20 s per-test cap (fail-estree): the producer is
+  // cut by `timeout` before this bound can matter, so a genuinely
+  // non-terminating capture costs one test timeout, not the whole corpus.
+  //
+  // REJECTED: a STALL/progress bound (record the buffer length each poll, cut
+  // when it stops growing). It is the more elegant rule — "has the producer
+  // stopped PRODUCING?" — and it does fix a slow-but-terminating producer,
+  // but it CANNOT catch 096 at all: that producer emits one byte per second
+  // FOREVER, so it looks like perfect progress on every poll and the capture
+  // runs until the 60 s external cap with zero output (measured: 2 runs, both
+  // killed at the cap, 0 lines — strictly WORSE than the 12 s bound, which at
+  // least returned a truncated-but-comparable capture). A progress signal is
+  // not a substitute for a wall-clock bound when the producer is slow AND
+  // infinite; both bounds are needed and the time bound must be generous.
   _capExceeded() {
     if (!this.captureStart) return false;
     const t = this.fdTargets[1];
     if (t && t.kind === 'capture' && t.buf.length > 1_000_000) return true;
-    return Date.now() - this.captureStart > 12000;
+    return Date.now() - this.captureStart > CAP_TOTAL_MS;
   },
 
   // ── subshell / background / block ──────────────────────────────────
