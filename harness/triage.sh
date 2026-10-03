@@ -285,6 +285,32 @@ backend_out() {  # backend run-field rendered-file [source-file] -> executed out
     if [ "$cmd" = go ]; then
       ( cd "$tmp" && cp "$rendered" "main.${ext:-go}" && timeout 30 "$cmd" build -o main "main.${ext:-go}" 2>/dev/null \
         && timeout 30 ./main ) < /dev/null 2>/dev/null || true
+    elif [ "$cmd" = rustc ]; then
+      # The BigInt arm renders `num_bigint::BigInt`, so a program that
+      # reaches it needs the crate LINKED or rustc fails at name
+      # resolution (E0433) and the cell returns EMPTY stdout — which the
+      # classifier reads as "rust differs" against a correct estree
+      # reference. Every py-sh-go bigint pair (t87/t89/t90) was filed as a
+      # rust backend gap that way on 2026-10-02; the renderer was never
+      # wrong. harness/py-rust-gate.sh already resolves the rlib cargo
+      # built for the core and reuses it via --extern; do the same here.
+      # Lazy: only programs whose Rust text mentions num_bigint pay for it.
+      local bflags=""
+      if command grep -q 'num_bigint' "$rendered" 2>/dev/null; then
+        # readlink -f: the cell cds into $tmp before invoking rustc, so a
+        # relative rlib path (both candidate roots are repo-relative) would
+        # not resolve from there — rustc then fails with "extern location
+        # does not exist" and the cell is empty again.
+        local rlib; rlib=$(ls -t "$ROOT"/otranspilerl/target/debug/deps/libnum_bigint-*.rlib \
+                             "$ROOT"/sh2perl/target/debug/deps/libnum_bigint-*.rlib 2>/dev/null | head -1)
+        if [ -n "$rlib" ]; then
+          rlib=$(readlink -f "$rlib")
+          bflags="--extern num_bigint=$rlib -L $(dirname "$rlib")"
+        fi
+      fi
+      ( cd "$tmp" && cp "$rendered" "main.${ext:-rs}" \
+        && timeout 60 "$cmd" "main.${ext:-rs}" -o main $bflags 2>/dev/null \
+        && timeout 30 ./main ) < /dev/null 2>/dev/null || true
     else
       # `extra` (4th run-field field) is appended AFTER `-o main`, so it
       # reaches the toolchain as link/compile flags — `-lgmp` for the C

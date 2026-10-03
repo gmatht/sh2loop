@@ -13,6 +13,12 @@ CC="${CC:-tcc -O1 -g}"
 VGBIN="${VGBIN:-valgrind}"
 TMP=/tmp/c_vg; mkdir -p "$TMP"
 
+# Ensure c_backend is built with current sources — the gate only
+# builds shir_render, not c_backend. Without this, the valgrind
+# check runs against a stale binary with pre-fix memory leaks.
+CARGO_TARGET_DIR="$ROOT/sh2perl/backends/c/target" cargo build \
+  --manifest-path "$ROOT/sh2perl/backends/c/Cargo.toml" --bin c_backend 2>/dev/null || true
+
 fails=0; total=0
 for f in ${@:-$ROOT/sh2perl/examples/*.sh}; do
   [ -f "$f" ] || continue

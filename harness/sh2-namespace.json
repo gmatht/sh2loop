@@ -66,6 +66,12 @@
       "signature": "(v: str) -> str",
       "semantics": "Opaque quoted literal: identity at run time. The emitter wraps a single-quoted string CONTAINING `$` (e.g. 'putb $b') so downstream interpolation passes treat it as opaque (a byte-verbatim payload) instead of rewriting it into a JS template. See upstream-repros/03-single-quoted-payload.sh."
     },
+    "warn": {
+      "purity": "PureCpu",
+      "async": false,
+      "signature": "(v: str) -> void",
+      "semantics": "Write a diagnostic to stderr (bash's `printf '%s\\n' v >&2`). Does NOT set $?. Routed through sh2.* rather than a raw console.warn because the structural gate requires every CallExpression callee to be a whitelisted sh2.<name>."
+    },
     "exec": {
       "purity": "Spawn",
       "async": true,

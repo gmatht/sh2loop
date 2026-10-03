@@ -86,10 +86,22 @@ def main():
     data = sys.stdin.read()
     if not data.strip() and len(sys.argv) >= 2 and not sys.argv[1].startswith("--"):
         data = open(sys.argv[1]).read()
+    # PROBE VALIDITY, not a violation count. Empty/unparseable input means the
+    # probe could not MEASURE this example (a missing or broken compiler, a
+    # mid-rebuild binary, a killed process). Reporting that as a "violation"
+    # is what made the core gate read "A1-native=555" — one bogus FAIL per
+    # corpus file — and made a broken measurement indistinguishable from a real
+    # regression. This marker lets the caller count probe failures separately.
+    PROBE_UNAVAILABLE = "check_qx_shir: PROBE-UNAVAILABLE"
+    if not data.strip():
+        print(f"  FAIL: {PROBE_UNAVAILABLE} — no A1 JSON on stdin (compiler missing/broken?)")
+        print(f"{PROBE_UNAVAILABLE}")
+        return 1
     try:
         a1 = json.loads(data)
     except json.JSONDecodeError as e:
-        print(f"  FAIL: invalid A1 JSON — {e}")
+        print(f"  FAIL: {PROBE_UNAVAILABLE} — invalid A1 JSON ({e})")
+        print(f"{PROBE_UNAVAILABLE}")
         return 1
 
     violations = []

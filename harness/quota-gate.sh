@@ -23,8 +23,17 @@ MEM_DIR="${QUOTA_MEM_DIR:-/home/llm/sh2loop/.quota-mem}"
 COOLDOWN_S="${QUOTA_COOLDOWN_S:-1800}"   # back off 30 min after a 429
 
 # quota_ok <worker> — 0 = pi may run, 1 = quota blocked (skip)
+#
+# This gate guards the opencode-go / `pi` provider ONLY. It is a no-op for
+# other CLIs: a stale .429 marker from a `pi` run must never suppress a `pir`
+# or `cmd` invocation, because those providers have their own quota signals —
+# and for the rotating fleet, suppressing the call would also suppress the
+# Laguna quota fallback in ai_invoke.py, which is the whole point of it.
 quota_ok() {
   local who="${1:-unknown}"
+
+  [ "${WORKER_CLI:-}" = "pi" ] || return 0
+
   # 1. the provider's own per-key block state
   if [ -f "$KEYS_JSON" ]; then
     if python3 -c "
@@ -60,6 +69,7 @@ sys.exit(0)
 # invocation backs off (the retry storm is the quota burner).
 mark_pi_outcome() {
   local rc="$1" who="${2:-unknown}" log="${3:-}"
+  [ "${WORKER_CLI:-}" = "pi" ] || return 0
   if [ "$rc" -ne 0 ]; then
     if [ -n "$log" ] && grep -q "429:\|GoUsageLimitError" "$log" 2>/dev/null; then
       mkdir -p "$MEM_DIR"
