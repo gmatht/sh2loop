@@ -810,7 +810,17 @@ export const sh2 = {
   },
   assocSet(name, key, value) {
     if (arguments.length >= 3) {
-      if (!this.assocStore.has(name)) this.assocStore.set(name, new Map());
+      const nm = String(name);
+      if (!this.assocStore.has(nm)) this.assocStore.set(nm, new Map());
+      // The 3-arg form WRITES into a named assoc without having declared it
+      // (`options["${flags:j:1}"]=v` on a `declare -A` already initialized by
+      // setArray, or a map whose first write is a dynamic key). Register the
+      // name so the READ side sees the same shape: `arrayLen` counts
+      // `assocNames` entries, `arrayIndex`/`getVar` dispatch on
+      // `assocNames` — a name only in `assocStore` is invisible to all
+      // three, so `${#m[@]}` returned 0 and a dynamic-key map stayed
+      // uncountable (063_09: `Processed 1 options` where bash prints 4).
+      this.assocNames.add(nm);
       // RAW value (no String() coercion): the translated shir-emit-go
       // stores nested A1 word-objects here and jsonMarshal serializes
       // them structurally (a write-time String() would freeze them as
