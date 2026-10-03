@@ -2,6 +2,17 @@
 # test_build_lock_stale.sh — regression tests for build-lock.sh's STALE-LOCK
 # reclaim and its wait-timeout behaviour (2026-09-27).
 #
+# FLAKY UNDER LOAD (measured 2026-10-03). The case "core preempts a live
+# recorded holder and proceeds" gives core only `--timeout 5 --grace 3`,
+# i.e. an 8s budget to SIGTERM a holder, wait out the grace, and re-acquire.
+# On this 16-core box at load ~23 it fails roughly 1 run in 5 — and it fails
+# IDENTICALLY against the pre-2026-10-03 build-lock.sh, so it is NOT a
+# regression from the absent-record-race fix (5 runs each, isolated lock
+# dirs: current 4/5, pre-fix 4/5). The steal-race fix cannot affect this
+# path: for a RECORDED holder the new branch is skipped entirely.
+# Treat a single red here as load noise unless it persists across runs or
+# appears together with a real behaviour failure.
+#
 # THE BUG. build-lock.sh serialises builds with `mkdir "$LOCK_FILE"`, and
 # records the holder in a SIBLING file ($STATUS_FILE). When the lock dir exists
 # with no readable holder record it used to take the "non-empty but no record —
