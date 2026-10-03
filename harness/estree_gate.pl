@@ -164,11 +164,15 @@ sub walk {
                 && ($prop->{name} // '') =~ /^(asIntN|asUintN)$/;
             # Number.isNaN — the NaN-guarded numeric test lowering (bash's
             # "integer expression expected" error → the whole test is false)
+            # `isSafeInteger` — the i53 bound check of the same escalation
+            # family (src/shir.rs): a value that has left the ±2^53
+            # safe-integer domain switches representation rather than
+            # silently rounding. Same `Number.<static>` shape as isNaN.
             my $is_number_member = ref $obj eq 'HASH'
                 && ($obj->{type} // '') eq 'Identifier'
                 && ($obj->{name} // '') eq 'Number'
                 && ref $prop eq 'HASH'
-                && ($prop->{name} // '') eq 'isNaN';
+                && ($prop->{name} // '') =~ /^(isNaN|isSafeInteger)$/;
             # Array.isArray — the native sh2.join lowering (the runtime
             # helper's exact `Array.isArray(v) ? v.join(" ") : String(v)`)
             my $is_array_member = ref $obj eq 'HASH'
