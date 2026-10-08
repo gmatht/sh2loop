@@ -88,6 +88,23 @@ QUOTA_MARKER = "free-models-per-day"
 # provider-agnostic so it is matched on the message, not the model.
 CAPACITY_MARKER = "currently at capacity"
 
+# GLYPH CLUSTER's OWN DAILY WALL (added 2026-10-09). A THIRD wording, and it
+# does not overlap with either marker above, so without this entry the switch
+# never fired for the model the fleet actually runs. Observed live:
+#
+#   "Error: You've reached today's limit on Glyph Cluster. Resets in 7h 10m
+#    (8:00 AM). Run /model to pick another model."
+#
+# and the CLI exits rc=5. Before this, that message fell through to the
+# generic retry ladder: every worker re-issued the same exhausted request
+# forever — the exact loop the fallback exists to break. Matched on the
+# message, not the exit code, for the same reason as the others: cmd's rc is
+# only meaningful alongside the text, and rc=5 also covers unrelated errors.
+#
+# NOTE the reset is a DAILY window, so this is expected to recur; the fallback
+# is what carries the fleet across it rather than a bug to stamp out.
+GLYPH_QUOTA_MARKER = "reached today's limit"
+
 WORKERS = ("rust", "c", "perl", "estree", "perl-generator", "fish", "zsh")
 
 # group -> {0: model_on_even_phase, 1: model_on_odd_phase}
@@ -331,6 +348,7 @@ def run_once(prompt_file: str, model: str, effort: str, timeout: int, log_file: 
     deadline = started + timeout
     quota_marker = False
     capacity_marker = False
+    glyph_quota_marker = False
     result = None
     tail: list[str] = []
     try:
@@ -345,6 +363,9 @@ def run_once(prompt_file: str, model: str, effort: str, timeout: int, log_file: 
                 quota_marker = True
             if CAPACITY_MARKER in line:
                 capacity_marker = True
+            if GLYPH_QUOTA_MARKER in line:
+                quota_marker = True
+                glyph_quota_marker = True
             parsed = parse_result_line(line)
             if parsed is not None:
                 result = parsed
@@ -369,6 +390,7 @@ def run_once(prompt_file: str, model: str, effort: str, timeout: int, log_file: 
         "rc": rc,
         "quota_marker": quota_marker,
         "capacity_marker": capacity_marker,
+        "glyph_quota_marker": glyph_quota_marker,
         "result": result,
         "seconds": time.time() - started,
         "output_tail": "".join(tail[-40:]),
@@ -420,26 +442,33 @@ def main(argv: list[str] | None = None) -> int:
     outcome = run_once(args.prompt_file, model, args.effort, args.timeout, args.log)
     switched = False
 
-    # Laguna fallback. One-way, at most once, and only for Laguna.
-    # TWO triggers, because they are different failures with the same cure:
-    #   - quota_marker:   the daily free-models-per-day budget is spent
-    #   - capacity_marker: the model's providers are all busy right now
-    # Without the second one a saturated single-provider Laguna retries the
+    # Daily-quota fallback. One-way, at most once, and NOT scoped to one model:
+    # the fleet runs SPACE_BUNNY (Glyph Cluster) as primary and Laguna as an
+    # occasional pin, and BOTH are single-provider free tiers that hit a daily
+    # wall in different words. Scoping this to LAGUNA alone — as it was until
+    # 2026-10-09 — meant that when Glyph Cluster hit its own limit the guard
+    # never fired and every worker re-issued the same exhausted request
+    # forever. The trigger is therefore the MESSAGE, not the model id.
+    #
+    # THREE triggers, three different wordings for the same cure:
+    #   - quota_marker / glyph quota: a daily budget is spent
+    #   - capacity_marker:            providers are all busy right now
+    # Without the capacity one a saturated single-provider model retries the
     # same dead request until the backoff gives up (observed: 316 capacity
     # errors and `attempt 19, retry in 300s` over one day on the c worker).
     _needs_fallback = outcome["quota_marker"] or outcome.get("capacity_marker")
     if (
         _needs_fallback
-        and model == LAGUNA
         and fallback
-        and fallback != LAGUNA
+        and fallback != model
     ):
         blocked = outcome["seconds"]
-        why = (
-            f"OpenRouter {QUOTA_MARKER} (daily quota)"
-            if outcome["quota_marker"]
-            else f"providers at capacity ({CAPACITY_MARKER!r})"
-        )
+        if outcome.get("glyph_quota_marker"):
+            why = f"Glyph Cluster daily limit ({GLYPH_QUOTA_MARKER!r})"
+        elif outcome["quota_marker"]:
+            why = f"{QUOTA_MARKER!r} (daily quota)"
+        else:
+            why = f"providers at capacity ({CAPACITY_MARKER!r})"
         log_line(
             args.log,
             f"fallback: {model} hit {why} after {blocked:.0f}s — "

@@ -115,26 +115,37 @@ else
 fi
 
 # ── 3. Non-Laguna model must never switch ────────────────────────────
-echo "--- non-Laguna never switches ---"
-# Drop the override: every worker is back on the pinned Alpha, so the quota
-# marker must NOT move it. Switching Alpha on a transient 429 would suppress
-# its own retry and leave the worker with no model at all.
-unset WORKER_SPACE_BUNNY_MODEL
-rm -f "$ARGV_LOG" "$SEEN"; : > "$ARGV_LOG"
-cat > "$TMP/bin/cmd" <<'FAKE'
+echo "--- the pinned model DOES switch on its own daily wall ---"
+# THIS ASSERTION WAS INVERTED 2026-10-09. It used to be "non-Laguna never
+# switches", on the reasoning that a quota marker must not move the pinned
+# model. That reasoning was wrong and cost real worker time: the guard was
+# scoped `model == LAGUNA`, so the model the fleet actually runs had NO route
+# out of its own daily wall, and every worker re-issued the same exhausted
+# request forever. Switching is the cure, not the hazard — the primary is
+# re-probed by the next worker restart once its window resets.
+#
+# Both wordings are checked because they are two different providers' walls:
+# OpenRouter's `free-models-per-day` and Glyph Cluster's `reached today's
+# limit` (cmd exits rc=5, observed live 2026-10-09).
+for msg in "HTTP 429: Rate limit exceeded: free-models-per-day" \
+           "Error: You've reached today's limit on Glyph Cluster. Resets in 7h 10m (8:00 AM)."; do
+  unset WORKER_SPACE_BUNNY_MODEL
+  rm -f "$ARGV_LOG" "$SEEN"; : > "$ARGV_LOG"
+  cat > "$TMP/bin/cmd" <<FAKE
 #!/usr/bin/env bash
-printf '%s\n' "$*" >> "$ARGV_LOG"
-echo 'HTTP 429: Rate limit exceeded: free-models-per-day'
-exit 1
+printf '%s\n' "\$*" >> "\$ARGV_LOG"
+echo "$msg"
+exit 5
 FAKE
-chmod +x "$TMP/bin/cmd"
-echo "1000000" > "$WORKER_MODEL_DIR/epoch"
-( PATH="$TMP/bin:$PATH" python3 harness/ai_invoke.py --worker rust --prompt-file "$TMP/prompt.txt" --now 1000000 ) >/dev/null 2>&1
-if ! grep -q 'deepseek' "$ARGV_LOG"; then
-  ok "space-bunny quota marker does NOT switch models"
-else
-  bad "space-bunny incorrectly switched to the fallback"
-fi
+  chmod +x "$TMP/bin/cmd"
+  echo "1000000" > "$WORKER_MODEL_DIR/epoch"
+  ( PATH="$TMP/bin:$PATH" python3 harness/ai_invoke.py --worker rust --prompt-file "$TMP/prompt.txt" --now 1000000 ) >/dev/null 2>&1
+  if grep -q 'deepseek' "$ARGV_LOG"; then
+    ok "pinned model switches on its own daily wall"
+  else
+    bad "pinned model did NOT switch on: $msg"
+  fi
+done
 
 # ── 4. Plain 429 must not switch ─────────────────────────────────────
 echo "--- near-miss errors do not switch ---"

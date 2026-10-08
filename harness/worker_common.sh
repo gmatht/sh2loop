@@ -161,6 +161,30 @@ invoke_ai() {
   esac
 }
 
+# ── daily-quota fallback (legacy WORKER_CLI path) ─────────────────────
+#
+# WHY (2026-10-09). The rotating workers get this from harness/ai_invoke.py;
+# this path had NONE. So a worker not on rotation — perl, and any future one —
+# that hit a provider's daily wall re-issued the same exhausted request
+# forever at the backoff maximum. That is not a retry, it is a stall that
+# looks like work. Observed live: Glyph Cluster returning
+#   "Error: You've reached today's limit on Glyph Cluster. Resets in 7h 10m"
+# with cmd exiting rc=5, while the worker logged `cmd failed (rc=5, attempt N)`
+# every 300s indefinitely.
+#
+# One-way and at most once per process, matching the rotating path: no
+# oscillation, no loop, and the primary is re-probed by the next worker
+# restart once its quota resets.
+#
+# Detection is on the MESSAGE, not the exit code: rc=5 also covers unrelated
+# errors, and the text is the only reliable discriminator. Only a quota
+# signal switches, so a genuine build or model error still retries and still
+# surfaces — this must never mask a real failure.
+_quota_wall_in_log() {
+  tail -c 4000 "$1" 2>/dev/null | command grep -qaE \
+    'reached today.s limit|free-models-per-day|currently at capacity|GoUsageLimitError|quota.?exhausted'
+}
+
 # ── invoke_ai_with_backoff ───────────────────────────────────────────
 # Invoke the configured AI CLI with exponential backoff on failure.
 # Args: $1=prompt_file, $2=log_file
@@ -192,6 +216,21 @@ invoke_ai_with_backoff() {
       rc=$?
     fi
     attempt=$((attempt + 1))
+
+    # Daily-quota wall: switch the model ONCE rather than retrying a request
+    # that cannot succeed until the window resets. Checked before the generic
+    # retry so the switch is immediate, not after a 300s backoff.
+    if [ "${_fallback_used:-0}" = "0" ] && [ -n "${WORKER_FALLBACK_MODEL:-}" ] \
+       && [ "$WORKER_FALLBACK_MODEL" != "$WORKER_MODEL" ] \
+       && _quota_wall_in_log "$log_file"; then
+      echo "[$(date +%FT%T)] fallback: $WORKER_MODEL hit a daily quota wall (rc=$rc) — switching this worker to $WORKER_FALLBACK_MODEL" >> "$log_file"
+      WORKER_MODEL="$WORKER_FALLBACK_MODEL"
+      export WORKER_MODEL
+      _fallback_used=1
+      delay=$BACKOFF_BASE
+      continue
+    fi
+
     echo "[$(date +%FT%T)] $WORKER_CLI failed (rc=$rc, attempt $attempt), retry in ${delay}s" >> "$log_file"
     sleep "$delay"
     delay=$((delay * BACKOFF_MULTIPLIER))

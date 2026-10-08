@@ -1002,7 +1002,32 @@ case "${1:-}" in
                   {
                     printf 'The %s backend in %s is failing to build.\n\n' "$fix_lang" "$fix_dir"
                     printf 'Tail of the build log (%s):\n' "$fix_log"
-                    tail -50 "$fix_log" 2>/dev/null || true
+                    # THE GATE'S DIAGNOSTICS, NOT THE AI'S OWN CHATTER.
+                    #
+                    # These logs are written by THREE producers at once: the
+                    # gate (human lines like "backend gate: 307/652 ..."), the
+                    # AI CLI (cmd's JSON event stream, which is most of the
+                    # BYTES), and this script. A raw `tail -50` therefore hands
+                    # the model ~42/49 lines of its own tool-call JSON and only
+                    # ~2 lines of actual result — measured on
+                    # loop-backend-perl.log 2026-10-09 — and the build error is
+                    # usually not in it at all. Worse, that JSON carries OLD
+                    # turns, so the model reads stale history as current state.
+                    #
+                    # So filter to the shapes the gate and the supervisors
+                    # actually emit: the gate summary, its `fails:` list, its
+                    # per-example `[lang]` lines, and timestamped lifecycle
+                    # lines. JSON is dropped. Same line-shape approach as the
+                    # quota detection below, and for the same reason: the only
+                    # reliable signal is in the text, not the exit code.
+                    _gate_tail=$(tail -400 "$fix_log" 2>/dev/null \
+                      | command grep -aE '^\[[0-9]{4}-[0-9]{2}-[0-9]{2}T|^  \['"${fix_lang}"'\]|^ *'"${fix_lang}"'[^ ]* (backend )?gate:|^fails:|build FAILED|^error(\[|:)|^warning:' \
+                      | tail -40 || true)
+                    if [ -n "$_gate_tail" ]; then
+                      printf '%s\n' "$_gate_tail"
+                    else
+                      printf '(no gate diagnostics in the last 400 log lines — see %s)\n' "$fix_log"
+                    fi
                     printf '\nThe shIR (A1) contract is the source of truth. Render the %s backend in idiomatic %s.\n' "$fix_lang" "$fix_lang"
                     printf 'The backend gate needs a RENDERER ENTRY in the worktree: wire a --shir-in-%s flag into the worktree''s cli/src/lib.rs argument dispatch (mirroring the --shir-in-perl/--shir-in-estree branches; takes shIR JSON on stdin via `-`) or add a %s_backend bin taking the .sh file (the c backend''s pattern). The gate probes the flag before the corpus loop — no flag, no bin = the gate stays red.\n' "$fix_lang" "$fix_lang"
                     printf 'STUB GATE: the gate FAILS any file whose output contains sh2.* stub calls (sh2_exec()/sh2GetVar()/...) or TODO(unsupported) markers.\n'
@@ -1053,7 +1078,32 @@ case "${1:-}" in
                   {
                     printf 'The %s frontend in %s is failing to build.\n\n' "$fix_name" "$fix_dir"
                     printf 'Tail of the build log (%s):\n' "$fix_log"
-                    tail -50 "$fix_log" 2>/dev/null || true
+                    # THE GATE'S DIAGNOSTICS, NOT THE AI'S OWN CHATTER.
+                    #
+                    # These logs are written by THREE producers at once: the
+                    # gate (human lines like "backend gate: 307/652 ..."), the
+                    # AI CLI (cmd's JSON event stream, which is most of the
+                    # BYTES), and this script. A raw `tail -50` therefore hands
+                    # the model ~42/49 lines of its own tool-call JSON and only
+                    # ~2 lines of actual result — measured on
+                    # loop-backend-perl.log 2026-10-09 — and the build error is
+                    # usually not in it at all. Worse, that JSON carries OLD
+                    # turns, so the model reads stale history as current state.
+                    #
+                    # So filter to the shapes the gate and the supervisors
+                    # actually emit: the gate summary, its `fails:` list, its
+                    # per-example `[lang]` lines, and timestamped lifecycle
+                    # lines. JSON is dropped. Same line-shape approach as the
+                    # quota detection below, and for the same reason: the only
+                    # reliable signal is in the text, not the exit code.
+                    _gate_tail=$(tail -400 "$fix_log" 2>/dev/null \
+                      | command grep -aE '^\[[0-9]{4}-[0-9]{2}-[0-9]{2}T|^  \['"${fix_name}"'\]|^ *'"${fix_name}"'[^ ]* (backend )?gate:|^fails:|build FAILED|^error(\[|:)|^warning:' \
+                      | tail -40 || true)
+                    if [ -n "$_gate_tail" ]; then
+                      printf '%s\n' "$_gate_tail"
+                    else
+                      printf '(no gate diagnostics in the last 400 log lines — see %s)\n' "$fix_log"
+                    fi
                     printf '\nThe shIR (A1) contract is the source of truth (sh2perl/src/shir_json.rs). Parse the %s source language, emit the A1 shIR JSON byte-identical to the core frontend.\n' "$fix_name"
                     printf 'Shared core (DO NOT TOUCH): sh2perl/src/shir.rs, sh2perl/src/ir.rs, sh2perl/src/estree.rs, sh2perl/src/parser/\n'
                     printf 'You may create or edit files inside frontends/%s/ and harness/.\n' "$fix_name"

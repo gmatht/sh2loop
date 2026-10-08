@@ -26,15 +26,18 @@ sys.path.insert(0, HARNESS)
 import ai_invoke  # noqa: E402
 import model_report  # noqa: E402
 
-SB = "commandcode/stealth/space-bunny-alpha"
-# The cmd catalog id is hyphen-separated; the OpenRouter colon form is rejected
-# by cmd as an unknown model. Verified against `cmd --list-models`.
+# The fleet's pinned model, Glyph Cluster (2026-10-09), verified against
+# `cmd --list-models`. NOTE the COLON: cmd publishes
+# `stealth/glyph-cluster:free` and REJECTS the hyphen form
+# `stealth/glyph-cluster-free` as an unknown model — the opposite of Laguna
+# below, whose id IS hyphen-separated. Both were confirmed by live calls.
+SB = "commandcode/stealth/glyph-cluster:free"
 LAG = "poolside/laguna-s-2.1-free"
 # The bare, provider-unqualified Alpha id. pir REFUSES it ("exists in multiple
 # providers" — commandcode/ and openrouter/ both serve it), which is why the
 # fleet pins the qualified form; kept here so a test can assert that refusal
 # path is not reintroduced.
-SB_BARE = "stealth/space-bunny-alpha"
+SB_BARE = "stealth/glyph-cluster:free"
 
 # A result frame shaped like cmd's real JSON output.
 RESULT_FRAME = {
@@ -277,14 +280,24 @@ fi
         self.assertEqual(rec["model"], "ollama-cloud/deepseek-v4.1-flash")
         self.assertEqual(rec["fallback_from"], LAG)
 
-    def test_non_laguna_model_never_switches(self):
+    def test_non_laguna_falls_back_on_its_own_daily_wall(self):
+        """Glyph Cluster's daily wall MUST switch, like Laguna's.
+
+        This replaces test_non_laguna_model_never_switches, which asserted the
+        opposite. That assertion was the bug, not the spec: the check was
+        `model == LAGUNA`, so the model the fleet actually runs never triggered
+        a fallback, and when Glyph Cluster hit its limit every worker re-issued
+        the same exhausted request forever. Observed live 2026-10-09:
+        "Error: You've reached today's limit on Glyph Cluster. Resets in 7h
+         10m (8:00 AM)." with cmd exiting rc=5.
+        """
         self.write_epoch(1_000_000)
         bindir = os.path.join(self.tmp, "bin")
         os.makedirs(bindir, exist_ok=True)
         script = """#!/usr/bin/env bash
-printf '%s\\n' "$*" >> "$ARGV_LOG"
-echo 'HTTP 429: Rate limit exceeded: free-models-per-day'
-exit 1
+printf '%s\n' "$*" >> "$ARGV_LOG"
+echo "Error: You've reached today's limit on Glyph Cluster. Resets in 7h 10m (8:00 AM)."
+exit 5
 """
         path = os.path.join(bindir, "cmd")
         open(path, "w").write(script)
@@ -293,10 +306,38 @@ exit 1
         os.environ["ARGV_LOG"] = os.path.join(self.tmp, "argv.log")
         self.run_invoke("rust")
         argv = open(os.environ["ARGV_LOG"]).read()
-        self.assertNotIn("deepseek", argv)
+        self.assertIn("ollama-cloud/deepseek-v4.1-flash", argv)
         rec = self.invocations()[0]
-        self.assertFalse(rec["fallback_used"])
-        self.assertEqual(rec["model"], SB)
+        self.assertTrue(rec["fallback_used"])
+
+    def test_laguna_still_falls_back(self):
+        """The original Laguna path must keep working — this change widens
+        the trigger, it does not move it."""
+        self.write_epoch(1_000_000)
+        bindir = os.path.join(self.tmp, "bin")
+        os.makedirs(bindir, exist_ok=True)
+        script = """#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$ARGV_LOG"
+echo 'HTTP 429: Rate limit exceeded: free-models-per-day'
+exit 1
+"""
+        path = os.path.join(bindir, "cmd")
+        open(path, "w").write(script)
+        os.chmod(path, 0o755)
+        os.environ["PATH"] = bindir + os.pathsep + os.environ["PATH"]
+        os.environ["ARGV_LOG"] = os.path.join(self.tmp, "argv.log")
+        os.environ["WORKER_LAGUNA_MODEL"] = LAG
+        # pin a worker to Laguna so the primary IS Laguna
+        import ai_invoke as _ai
+        saved = _ai.GROUPS["rust"].copy()
+        try:
+            _ai.GROUPS["rust"]["even"] = LAG
+            _ai.GROUPS["rust"]["odd"] = LAG
+            self.run_invoke("rust")
+        finally:
+            _ai.GROUPS["rust"].update(saved)
+        argv = open(os.environ["ARGV_LOG"]).read()
+        self.assertIn("ollama-cloud/deepseek-v4.1-flash", argv)
 
     def test_plain_429_does_not_switch(self):
         self.write_epoch(1_000_000)
