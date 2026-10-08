@@ -56,10 +56,20 @@ LAGUNA = os.environ.get("WORKER_LAGUNA_MODEL", "poolside/laguna-s-2.1-free")
 #        the unambiguous target.
 #
 # One id for the whole fleet keeps the telemetry in invocations.jsonl
-# comparable: an entry recorded as `stealth/space-bunny-alpha` and one
-# recorded as `commandcode/stealth/space-bunny-alpha` would otherwise look
-# like two different models to every report that tallies by model string.
-SPACE_BUNNY = os.environ.get("WORKER_SPACE_BUNNY_MODEL", "commandcode/stealth/space-bunny-alpha")
+# comparable: an entry recorded as `stealth/…` and one recorded as
+# `commandcode/stealth/…` would otherwise look like two different models to
+# every report that tallies by model string.
+#
+# GLYPH CLUSTER (operator, 2026-10-09), replacing space-bunny-alpha.
+# The id is verified against `cmd --list-models` (1.79.1), NOT assumed:
+#   stealth/glyph-cluster:free     FREE stealth reasoning model in early access
+# The COLON form is the one cmd's own catalog prints and it IS accepted here
+# (both bare and commandcode/-qualified) — confirmed by a live call that got
+# past model resolution and failed only on auth. The HYPHEN form
+# (stealth/glyph-cluster-free) is REJECTED as an unknown model, which is the
+# trap the LAGUNA note above describes. Keep the colon.
+# Kept commandcode/-qualified so the fleet records a single model string.
+SPACE_BUNNY = os.environ.get("WORKER_SPACE_BUNNY_MODEL", "commandcode/stealth/glyph-cluster:free")
 
 # OpenRouter's daily-free quota error code.
 QUOTA_MARKER = "free-models-per-day"

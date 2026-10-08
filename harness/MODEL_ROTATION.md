@@ -12,11 +12,30 @@ cannot implement a swap by itself.
 
 | Worker | Group | Even phase | Odd phase |
 |---|---|---|---|
-| `rust` | A | `stealth/space-bunny-alpha` | `poolside/laguna-s-2.1-free` |
-| `c` | A | `stealth/space-bunny-alpha` | `poolside/laguna-s-2.1-free` |
-| `estree` | B | `poolside/laguna-s-2.1-free` | `stealth/space-bunny-alpha` |
-| `perl-generator` | B | `poolside/laguna-s-2.1-free` | `stealth/space-bunny-alpha` |
+| `rust` | A | `commandcode/stealth/glyph-cluster:free` | `commandcode/stealth/glyph-cluster:free` |
+| `c` | A | `commandcode/stealth/glyph-cluster:free` | `commandcode/stealth/glyph-cluster:free` |
+| `estree` | B | `commandcode/stealth/glyph-cluster:free` | `commandcode/stealth/glyph-cluster:free` |
+| `perl-generator` | B | `commandcode/stealth/glyph-cluster:free` | `commandcode/stealth/glyph-cluster:free` |
 | `core` | — | none (deterministic) | none |
+
+**Switch to Glyph Cluster (operator, 2026-10-09).** Every worker is pinned to
+`commandcode/stealth/glyph-cluster:free` (see the pinning note in
+`ai_invoke.py`), replacing Space Bunny Alpha. Because all four rows read the
+same constant, this was a one-line change; the A/B columns are shown for the
+old rotation shape and are currently all equal.
+
+**Model ids are verified, not assumed.** Two different traps, both hit in
+practice:
+
+- `cmd` rejects the OpenRouter-style **hyphen** form for some models
+  (`poolside/laguna-s-2.1-free` is right; `poolside/laguna-s-2.1:free` is not).
+- For Glyph Cluster it is the **opposite**: the catalog prints
+  `stealth/glyph-cluster:free` with a colon, and `stealth/glyph-cluster-free`
+  is **rejected** as an unknown model.
+
+A rejected id looks exactly like a broken worker, so both ids were confirmed
+with `cmd --list-models` (1.79.1) and a live call that got past model
+resolution. `ai_invoke.py` defines each id once.
 
 The `perl` row was removed 2026-09-29 with `main_loop_rust.pl`. That
 loop tracked the duplicate perl renderer; the corpus is now tracked by
@@ -31,9 +50,11 @@ drives the gate and asks the model to fix the emitted Perl. It is group B
 with estree, not a replacement for it.
 
 **Model ids are verified, not assumed.** `cmd` rejects the OpenRouter-style
-colon form (`poolside/laguna-s-2.1:free`) as an unknown model — the catalog id
-is hyphen-separated. A rejected id looks exactly like a broken worker, so
-`ai_invoke.py` defines the id once and it was confirmed with a live call.
+colon form (`poolside/laguna-s-2.1:free`) as an unknown model — that catalog id
+is hyphen-separated. Note the reverse is true for Glyph Cluster, whose id does
+carry a colon (see **Groups** above). A rejected id looks exactly like a broken
+worker, so `ai_invoke.py` defines each id once and it was confirmed with a live
+call.
 
 ## Swaps happen at invocation boundaries
 

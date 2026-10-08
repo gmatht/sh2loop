@@ -17,7 +17,16 @@
 #   pi   — opencode-go provider (legacy, limited model catalog)
 #   pir  — featherweight pi-compatible agent (OpenRouter, auto-retry, budget)
 #   cmd  — Command Code headless (full CC catalog, heavier)
-WORKER_CLI="${WORKER_CLI:-pir}"
+#
+# DEFAULT IS NOW `cmd` (operator, 2026-10-09). The fleet was switched to
+# Glyph Cluster, and Glyph Cluster is a cmd-catalog model: `pir` has no
+# glyph-cluster entry at all and answers every call with
+#   "pir: no model matches 'commandcode/stealth/glyph-cluster:free'".
+# So on this default the non-rotating workers (perl, and any future one)
+# would gate fine and then fail EVERY AI call. Verified against both
+# catalogs, not assumed: `cmd --list-models` lists
+# `stealth/glyph-cluster:free`; `pir` offers no glyph match.
+WORKER_CLI="${WORKER_CLI:-cmd}"
 
 # Model. For pir: OpenRouter model id (poolside/laguna-s-2.1:free, etc.).
 #   For pi: opencode-go model. For cmd: CC catalog id.
@@ -36,7 +45,13 @@ WORKER_CLI="${WORKER_CLI:-pir}"
 # WORKER_ROTATE_WORKER in setup_backends.sh --run-backend-worker) do not
 # read this: they go through harness/ai_invoke.py, which picks the model
 # from the four-hour phase table in GROUPS. See ai_invoke.py for that one.
-WORKER_MODEL="${WORKER_MODEL:-commandcode/stealth/space-bunny-alpha}"
+# GLYPH CLUSTER (operator, 2026-10-09). Replaces space-bunny-alpha as the
+# default for this LEGACY path too. Id verified against `cmd --list-models`
+# (1.79.1): `stealth/glyph-cluster:free`. The colon form is the one cmd's
+# catalog prints and is what it accepts; the hyphen form is rejected as an
+# unknown model. Kept commandcode/-qualified to match ai_invoke.py so the
+# fleet records ONE model string.
+WORKER_MODEL="${WORKER_MODEL:-commandcode/stealth/glyph-cluster:free}"
 
 # Reasoning effort. For pi: --thinking. For cmd: --effort. For pir: unused.
 WORKER_EFFORT="${WORKER_EFFORT:-}"
