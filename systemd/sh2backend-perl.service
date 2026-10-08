@@ -5,25 +5,25 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/llm/sh2loop
+WorkingDirectory=__SH2LOOP_ROOT__
 # cargo is NOT on systemd's default PATH; without this every build fails
 # instantly with "cargo: command not found" and an empty log. See sh2fleet.env.
-EnvironmentFile=/home/llm/sh2loop/systemd/sh2fleet.env
+EnvironmentFile=__SH2LOOP_ROOT__/systemd/sh2fleet.env
 # Put the worker in the throttled IO slice. Without this every worker sat in
 # /init.scope, the slice held procs=0, and the io.max caps guarded nothing.
 # supervise.sh ALSO self-joins the slice (so the zellij-pane launch path is
 # covered too); this line is the declarative, boot-surviving half. Keep both.
 Slice=sh2-io.slice
-ExecStart=/home/llm/sh2loop/harness/supervise.sh \
+ExecStart=__SH2LOOP_ROOT__/harness/supervise.sh \
   --name backend-perl \
-  --log /home/llm/sh2loop/loop-backend-perl.log \
-  --pidfile /home/llm/sh2loop/loop-backend-perl.pid \
+  --log __SH2LOOP_ROOT__/loop-backend-perl.log \
+  --pidfile __SH2LOOP_ROOT__/loop-backend-perl.pid \
   -- \
-  /home/llm/sh2loop/setup_backends.sh --run-backend-worker perl
+  __SH2LOOP_ROOT__/setup_backends.sh --run-backend-worker perl
 Restart=always
 RestartSec=10
-StandardOutput=append:/home/llm/sh2loop/loop-backend-perl.log
-StandardError=append:/home/llm/sh2loop/loop-backend-perl.log
+StandardOutput=append:__SH2LOOP_ROOT__/loop-backend-perl.log
+StandardError=append:__SH2LOOP_ROOT__/loop-backend-perl.log
 
 [Install]
 WantedBy=default.target

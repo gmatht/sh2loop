@@ -7,7 +7,7 @@
 # Input list: one bare example name per line (default: /tmp/pg-now-fails.txt).
 # Output:     "<tag> <name>" per line on stdout; tallies on stderr.
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 LIST=${1:-/tmp/pg-now-fails.txt}
 
 while read -r line; do

@@ -14,7 +14,7 @@
 # program and the runtime falls back to fork/exec, so the diff here would NOT
 # be what the gate sees. Keep these three in sync with ./fail.
 set -u
-root=/home/llm/sh2loop
+root="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 export SH2_UU_LIB="$root/sh2perl/runtime/lib/libcoreutils_ffi.so"
 export SH2_UU_PIPELINE_LIB="$root/sh2perl/runtime/lib/libcoreutils_ffi_pipeline.so"
 export UU_FFI_MULTICALL="$root/sh2perl/runtime/lib/coreutils-ffi-multicall"

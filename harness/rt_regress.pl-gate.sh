@@ -11,7 +11,7 @@
 # Usage: harness/rt_regress.pl-gate.sh [--sub PREFIX] [--out FILE] [FILE...]
 #        (no FILE = the whole corpus, same glob list as the gate)
 set -u
-ROOT=/home/llm/sh2loop
+ROOT=${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}
 CLI="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
 BIN="$ROOT/sh2perl/backends/perl/target/debug/shir_render"
 OUT=""

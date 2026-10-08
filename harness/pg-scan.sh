@@ -6,7 +6,7 @@
 #
 # Usage: harness/pg-scan.sh [prefix-filter] [jobs]
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 CLI="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
 EXDIR="${PG_EXDIR:-$ROOT/sh2perl/examples}"
 FILTER="${1:-}"

@@ -5,7 +5,7 @@
 #
 #   usage: harness/pg-try.sh <example.sh>...
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 [ $# -ge 1 ] || { echo "usage: $0 <example.sh>..." >&2; exit 2; }
 
 echo "=== building"

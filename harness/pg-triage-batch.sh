@@ -21,7 +21,7 @@
 # contain "|", so the delimiter is unambiguous.
 set -u
 
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 BACKLOG="$ROOT/harness/perl_gen_backlog.txt"
 ART="$ROOT/tmp_run/pg-triage"
 

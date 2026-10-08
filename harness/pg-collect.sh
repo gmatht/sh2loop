@@ -5,7 +5,7 @@
 #
 # Usage: harness/pg-collect.sh <file-with-one-example-per-line> [outdir]
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 LIST=$1
 OUT=${2:-/tmp/pgcollect}
 rm -rf "$OUT"; mkdir -p "$OUT"

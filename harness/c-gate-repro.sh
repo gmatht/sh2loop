@@ -16,7 +16,7 @@ set -uo pipefail
 
 JOBS="${1:-8}"
 SAVE="${2:-}"
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 SUB="$ROOT/sh2perl"
 BT="$SUB/backends"
 WT="$BT/c"

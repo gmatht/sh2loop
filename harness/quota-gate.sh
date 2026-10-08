@@ -18,8 +18,16 @@
 #     echo "quota-blocked — skipping pi"
 #   fi
 set -u
-KEYS_JSON="${OPENCODE_KEYS_JSON:-/home/llm/.pi/agent/opencode-keys.json}"
-MEM_DIR="${QUOTA_MEM_DIR:-/home/llm/sh2loop/.quota-mem}"
+# Paths, de-hardcoded 2026-10-08 (the workspace moved /home/llm/sh2loop ->
+# /mnt/wsl/projects/sh2loop, and the old literal silently pointed at nothing).
+#   MEM_DIR: workspace-relative, so derive the root from this file's location
+#            ($0 = .../harness/quota-gate.sh when sourced with a path).
+#   KEYS_JSON: a USER file (~/.pi/agent), not a workspace file — anchor it to
+#            $HOME, falling back to the invoking user's home. Both remain
+#            env-overridable exactly as before.
+_QG_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." 2>/dev/null && pwd)"
+KEYS_JSON="${OPENCODE_KEYS_JSON:-${HOME:-/home/${PIR_INVOKING_USER:-$(id -un)}}/.pi/agent/opencode-keys.json}"
+MEM_DIR="${QUOTA_MEM_DIR:-$_QG_ROOT/.quota-mem}"
 COOLDOWN_S="${QUOTA_COOLDOWN_S:-1800}"   # back off 30 min after a 429
 
 # quota_ok <worker> — 0 = pi may run, 1 = quota blocked (skip)

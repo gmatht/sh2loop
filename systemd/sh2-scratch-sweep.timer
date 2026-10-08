@@ -1,6 +1,6 @@
 [Unit]
 Description=Bound the sh2loop harness scratch directories
-Documentation=file:///home/llm/sh2loop/AGENTS.md
+Documentation=file://__SH2LOOP_ROOT__/AGENTS.md
 
 [Timer]
 # Every 6 hours, not daily. The 2.7 GB of runaway output found on

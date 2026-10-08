@@ -9,7 +9,7 @@
 # Per-example artifacts land in the outdir; classes.tsv is
 # class <TAB> bash_rc <TAB> perl_rc <TAB> example, sorted deterministically.
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 cd "$ROOT"
 GATE="${1:-$ROOT/.perlgen-gate.out}"
 OUT="${2:-$ROOT/tmp_run/pg-triage-all}"

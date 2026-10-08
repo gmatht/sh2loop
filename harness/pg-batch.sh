@@ -7,7 +7,7 @@
 set -u
 out=$1; shift
 mkdir -p "$out"
-root=/home/llm/sh2loop
+root="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 for ex in "$@"; do
   name=${ex%.sh}
   [ -f "$root/sh2perl/examples/$ex" ] || ex="$ex.sh"

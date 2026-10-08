@@ -7,7 +7,7 @@
 #         DL=60 pg-d.sh <example.sh>     -more diff context lines
 #         FULL=1 pg-d.sh <example.sh>     -also copy the generated perl to scratch/
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 EX="$1"; shift || true
 case "$EX" in /*) ;; *) EX="$ROOT/sh2perl/examples/$EX" ;; esac
 [ -f "$EX" ] || { echo "no such example: $EX"; exit 2; }

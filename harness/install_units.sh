@@ -21,6 +21,30 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 UNITDIR="$ROOT/systemd"
 DEST="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 
+# RENDER THE ROOT AT INSTALL TIME (2026-10-08).
+#
+# WHY. The checked-in units used to embed the workspace path as a literal
+# (/home/llm/sh2loop, and /nvme/ai/sh2loop before that). systemd has no
+# variable expansion in WorkingDirectory/ExecStart/EnvironmentFile, so a
+# checked-in unit with an absolute path is only correct for ONE location:
+# move the tree — as happened when this workspace moved to
+# /mnt/wsl/projects/sh2loop — and every unit silently points at a path that
+# no longer exists. That is the same class of drift as the original
+# `User=ai` / `/nvme/ai/sh2loop` bug this script's header describes.
+#
+# The fix: the units carry the token __SH2LOOP_ROOT__, and this script
+# substitutes the ACTUAL root here, at install time, into a staging copy.
+# Validation (systemd-analyze verify) runs on the RENDERED unit, because a
+# unit full of __SH2LOOP_ROOT__ would "verify" only because systemd does not
+# object to a nonexistent path — the failure would be deferred to the first
+# start, which is exactly the silent breakage we are removing.
+#
+# To re-render after a move: just re-run this script; it reads ROOT from $0.
+PLACEHOLDER="__SH2LOOP_ROOT__"
+STAGE="$(mktemp -d "${TMPDIR:-/tmp}/sh2loop-units.XXXXXX")" || exit 1
+cleanup_stage() { rm -rf "$STAGE"; }
+trap cleanup_stage EXIT
+
 # The per-worker units live in systemd/; the two top-level files are kept at
 # the repo root for continuity with the original layout.
 UNITS=(
@@ -94,10 +118,48 @@ stop)
 esac
 
 mkdir -p "$DEST"
-echo "== validating units =="
-bad=0
+
+# Render every unit into the staging dir first: __SH2LOOP_ROOT__ -> $ROOT.
+# A file needing no substitution is copied verbatim.
+render() {
+  local src="$1" dst="$2"
+  if command grep -q "$PLACEHOLDER" "$src" 2>/dev/null; then
+    sed "s#$PLACEHOLDER#$ROOT#g" "$src" > "$dst" || return 1
+  else
+    cp "$src" "$dst" || return 1
+  fi
+}
+
+rendered=()
+echo "== rendering units (root=$ROOT) =="
 for u in "${UNITS[@]}"; do
-  [ -f "$u" ] || { echo "  MISSING $u"; bad=1; continue; }
+  [ -f "$u" ] || { echo "  MISSING $u"; continue; }
+  base=$(basename "$u")
+  # sh2estree.service exists in two places; the systemd/ one is canonical.
+  if [ -f "$UNITDIR/$base" ] && [ "$u" = "$ROOT/$base" ]; then
+    src="$UNITDIR/$base"
+  else
+    src="$u"
+  fi
+  dst="$STAGE/$base"
+  if render "$src" "$dst"; then
+    rendered+=("$dst")
+  else
+    echo "  FAILED to render $base" >&2
+  fi
+done
+
+# A rendered unit must not still carry the placeholder — otherwise a unit
+# that forgot to use the token would be installed broken with no warning.
+for d in "${rendered[@]}"; do
+  if command grep -q "$PLACEHOLDER" "$d"; then
+    echo "  WARN $(basename "$d") still contains $PLACEHOLDER after render" >&2
+  fi
+done
+
+echo "== validating rendered units =="
+bad=0
+for u in "${rendered[@]}"; do
   if systemd-analyze verify "$u" >/dev/null 2>&1; then
     echo "  ok   $(basename "$u")"
   else
@@ -107,22 +169,15 @@ for u in "${UNITS[@]}"; do
 done
 
 echo "== installing to $DEST =="
-for u in "${UNITS[@]}"; do
-  [ -f "$u" ] || continue
+for u in "${rendered[@]}"; do
   base=$(basename "$u")
-  # sh2estree.service exists in two places; the systemd/ one is canonical.
-  if [ -f "$UNITDIR/$base" ] && [ "$u" = "$ROOT/$base" ]; then
-    cp "$UNITDIR/$base" "$DEST/$base"
-  else
-    cp "$u" "$DEST/$base"
-  fi
+  cp "$u" "$DEST/$base"
   echo "  installed $base"
 done
 systemctl --user daemon-reload
 
 echo "== enabling =="
-for u in "${UNITS[@]}"; do
-  [ -f "$u" ] || continue
+for u in "${rendered[@]}"; do
   systemctl --user enable "$(basename "$u")" >/dev/null 2>&1 || true
 done
 
@@ -132,8 +187,7 @@ if [ "$action" = "install-nostart" ]; then
 fi
 
 echo "== starting =="
-for u in "${UNITS[@]}"; do
-  [ -f "$u" ] || continue
+for u in "${rendered[@]}"; do
   systemctl --user start "$(basename "$u")" 2>&1 | head -2
 done
 sleep 2

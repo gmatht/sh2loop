@@ -4,7 +4,7 @@
 # perl -M5.010 with argv0 = source path, compare stdout byte-for-byte + exit.
 # Leaves the generated .pl and the bash/perl outputs in $WORK for inspection.
 set -u
-root=/home/llm/sh2loop
+root="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 ex="$1"
 ex=$(readlink -f "$ex")
 name=$(basename "$ex")

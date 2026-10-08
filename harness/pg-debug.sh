@@ -9,7 +9,7 @@
 #   /tmp/pgdbg-<name>.out  stdout + stderr of the run, interleaved
 # Exits with the perl exit code so a class can be reproduced standalone.
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 CLI="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
 EX="$1"
 [ -n "$EX" ] || { echo "usage: $0 <example.sh>"; exit 2; }

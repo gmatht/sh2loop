@@ -15,7 +15,7 @@
 # of a grep (rather than only printing matches) must call `command grep`, or it
 # reports the same thing for both a hit and a miss.
 set -u
-root=/home/llm/sh2loop
+root="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 ot=$root/otranspilerl/target/debug/otranspilerl-cli
 export SH2_UU_LIB="$root/sh2perl/runtime/lib/libcoreutils_ffi.so"
 export SH2_UU_PIPELINE_LIB="$root/sh2perl/runtime/lib/libcoreutils_ffi_pipeline.so"

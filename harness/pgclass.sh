@@ -4,7 +4,7 @@
 # Perl RUNTIME error (message + line).
 #   harness/pgclass.sh -l <list>
 set -u
-root=/home/llm/sh2loop
+root="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 bin="$root/otranspilerl/target/debug/otranspilerl-cli"
 export SH2_UU_LIB="$root/sh2perl/runtime/lib/libcoreutils_ffi.so"
 export SH2_UU_PIPELINE_LIB="$root/sh2perl/runtime/lib/libcoreutils_ffi_pipeline.so"
@@ -21,7 +21,7 @@ while read -r name; do
     ndie=$(command grep -c '^die ' "$d/g.pl" 2>/dev/null); ndie=${ndie:-0}
     timeout 20 perl -M5.010 -e '$0=shift @ARGV; my $f=shift @ARGV; do $f' \
         "$ex" "$d/g.pl" >/dev/null 2>"$d/r.err"
-    rerr=$(command grep -v '^$' "$d/r.err" | head -1 | sed 's|at /home/llm/sh2loop/scratch/[^ ]*/g.pl|@g.pl|' | cut -c1-90)
+    rerr=$(command grep -v '^$' "$d/r.err" | head -1 | sed 's|at /[^ ]*/scratch/[^ ]*/g.pl|@g.pl|' | cut -c1-90)
     printf '%-52s die=%-4s gen=[%s] run=[%s]\n' "$name" "$ndie" "$gerr" "$rerr"
     rm -rf "$d"
 done <"$list"

@@ -3,7 +3,7 @@
 # the sweep's exact verdict semantics, printing PASS/FAIL-BACKEND/etc.
 # usage: batch-triage.sh [pairs-file]  (default: stdin lines "fe ex be")
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 CLI="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
 RUNNER="$ROOT/harness/estree-runner.mjs"
 TRIAGE="${TRIAGE:-$ROOT/triage}"

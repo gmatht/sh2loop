@@ -1,25 +1,25 @@
 [Unit]
 Description=sh2loop — ESTree backend repair loop
-Documentation=file:///home/llm/sh2loop/AGENTS.md
+Documentation=file://__SH2LOOP_ROOT__/AGENTS.md
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/llm/sh2loop
+WorkingDirectory=__SH2LOOP_ROOT__
 # supervise.sh restarts the loop forever; see systemd/sh2estree.service for the
 # canonical unit. This file used to say User=ai and /nvme/ai/sh2loop, neither
 # of which exists here, so it described a service that was never running.
-ExecStart=/home/llm/sh2loop/harness/supervise.sh \
+ExecStart=__SH2LOOP_ROOT__/harness/supervise.sh \
   --name estree \
-  --log /home/llm/sh2loop/loop-estree.log \
-  --pidfile /home/llm/sh2loop/loop-estree-worker.pid \
+  --log __SH2LOOP_ROOT__/loop-estree.log \
+  --pidfile __SH2LOOP_ROOT__/loop-estree-worker.pid \
   -- \
-  /usr/bin/perl /home/llm/sh2loop/main_loop_estree.pl
+  /usr/bin/perl __SH2LOOP_ROOT__/main_loop_estree.pl
 Restart=always
 RestartSec=10
-StandardOutput=append:/home/llm/sh2loop/loop-estree.log
-StandardError=append:/home/llm/sh2loop/loop-estree.log
+StandardOutput=append:__SH2LOOP_ROOT__/loop-estree.log
+StandardError=append:__SH2LOOP_ROOT__/loop-estree.log
 
 [Install]
 WantedBy=default.target

@@ -4,7 +4,7 @@
 # report the generator's own stderr, perl -c status, and the runtime stderr.
 #   harness/pg-diag-empty.sh <name>...
 set -uo pipefail
-root=/home/llm/sh2loop
+root="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 cli="$root/otranspilerl/target/debug/otranspilerl-cli"
 
 export SH2_UU_LIB="$root/sh2perl/runtime/lib/libcoreutils_ffi.so"

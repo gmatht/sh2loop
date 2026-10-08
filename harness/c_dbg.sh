@@ -1,7 +1,7 @@
 #!/bin/bash
 # Per-file C-render debug: render, compile, run, diff vs bash.
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 CORE=${CORE_BIN:-$ROOT/otranspilerl/target/debug/otranspilerl-cli}
 WBIN=$ROOT/otranspilerl/target/debug/otranspilerl-cli
 for f in "$@"; do

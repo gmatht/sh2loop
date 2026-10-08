@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Usage: verify.sh <transform.rs> <label> [expect_less]
 set -e
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 SH2PERL="$ROOT/sh2perl"
 SRC="$1"
 LABEL="$2"
@@ -11,10 +11,9 @@ VTARGET="$ROOT/.shir-verify-target"
 VPT="$SH2PERL/src/transforms.rs"
 DST="$SH2PERL/src/transforms/$MOD.rs"
 cp "$SRC" "$DST"
-python3 - "$MOD" "$LABEL" <<'PY'
+python3 - "$MOD" "$LABEL" "$VPT" <<'PY'
 import sys
-mod, label = sys.argv[1], sys.argv[2]
-p = '/home/llm/sh2loop/sh2perl/src/transforms.rs'
+mod, label, p = sys.argv[1], sys.argv[2], sys.argv[3]
 t = open(p).read()
 if f'pub mod {mod};' not in t:
     t = t.replace('pub mod sub;', f'pub mod {mod};\npub mod sub;', 1)

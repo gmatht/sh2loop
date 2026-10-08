@@ -7,7 +7,7 @@
 #
 # Reads the example list from stdin when none are given on the command line.
 set -u
-root=/home/llm/sh2loop
+root="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 CLI="$root/otranspilerl/target/debug/otranspilerl-cli"
 
 jobs=8

@@ -211,8 +211,14 @@ children, so after editing `setup_backends.sh` check for orphaned
   it is machine state, not in git:
 
   ```
-  */10 * * * * /home/llm/sh2loop/harness/reap-orphan-examples.sh >/dev/null 2>>/home/llm/sh2loop/loop-orphan-reap.log
+  */10 * * * * /mnt/wsl/projects/sh2loop/harness/reap-orphan-examples.sh >/dev/null 2>>/mnt/wsl/projects/sh2loop/loop-orphan-reap.log
   ```
+
+  (The path changed on 2026-10-08 when the tree moved from `/home/llm/sh2loop`
+  — the old literal silently pointed at a directory that no longer exists, so
+  the entry must be reinstalled with the current root. Re-run
+  `harness/reap-orphan-examples.sh --install-cron` if the path ever moves
+  again; do not hand-edit a stale absolute path back in.)
 
   The pids matter: the documented failure of an unbounded corpus example is
   pids.max (1024) exhaustion, after which every gate reports ~551/555

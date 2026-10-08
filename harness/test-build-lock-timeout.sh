@@ -16,7 +16,7 @@
 #   2. build-lock.sh must honour an EXPLICIT --timeout against a foreign holder
 #      (and say so), so bounding it actually changes the outcome.
 set -uo pipefail
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 rc=0
 
 # --- half 1: the call site is bounded ------------------------------------

@@ -1,6 +1,6 @@
 [Unit]
 Description=Reclaim sh2loop harness page cache against memory.high
-Documentation=file:///home/llm/sh2loop/AGENTS.md
+Documentation=file://__SH2LOOP_ROOT__/AGENTS.md
 # Deliberately NOT the same unit as the boot-time memory.high oneshot: that
 # one applies a bound, this one continuously reclaims against it. A
 # persistent loop is run as a long-lived Type=simple service, NOT as a
@@ -14,7 +14,7 @@ Documentation=file:///home/llm/sh2loop/AGENTS.md
 # Type=simple (not oneshot): this process loops forever by design. The
 # timer fires the START; the unit is allowed to run between ticks.
 Type=simple
-ExecStart=/home/llm/sh2loop/harness/sh2-memory-reclaim.sh
+ExecStart=__SH2LOOP_ROOT__/harness/sh2-memory-reclaim.sh
 # A memory janitor is never urgent work.
 Nice=19
 IOSchedulingClass=idle

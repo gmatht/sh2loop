@@ -42,7 +42,7 @@
 #   SH2_SCRATCH_AGE_H  minimum age of a file to remove, in hours (default 6)
 set -u
 
-ROOT=${SH2_TMP_RUN:-/home/llm/sh2loop/tmp_run}
+ROOT=${SH2_TMP_RUN:-$(cd "$(dirname "$0")/.." && pwd)/tmp_run}
 AGE_H=${SH2_SCRATCH_AGE_H:-6}
 DIRS=${SH2_SCRATCH_DIRS:-"perl-gen-diffs pg"}
 

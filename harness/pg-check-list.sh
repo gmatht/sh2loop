@@ -6,7 +6,7 @@
 # Usage: harness/pg-check-list.sh <file-with-one-example-per-line>
 #        harness/pg-check-list.sh -            # read the list from stdin
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 LIST=${1:--}
 pass=0; fail=0; missing=0
 while read -r name; do

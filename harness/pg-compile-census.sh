@@ -10,7 +10,7 @@
 #
 #   harness/pg-compile-census.sh [name...]   (defaults to the 57-failure list)
 set -uo pipefail
-root=/home/llm/sh2loop
+root="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 cli="$root/otranspilerl/target/debug/otranspilerl-cli"
 list="$root/.pg-triage-fails.txt"
 

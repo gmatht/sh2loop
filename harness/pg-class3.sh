@@ -4,7 +4,7 @@
 # Usage: pg-class3.sh <example.sh> [<example.sh> ...]
 #        pg-class3.sh -f <file-with-names>
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 CLI=$ROOT/otranspilerl/target/debug/otranspilerl-cli
 # The CLI locates its workspace root by walking up from cwd; the per-example
 # temp dir has no such ancestor, so it must be told explicitly.

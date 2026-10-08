@@ -14,7 +14,7 @@
 #      180 days — the audit trail is the remote; local is a grace buffer.
 set -u
 
-ROOT="${1:-/home/llm/sh2loop}"
+ROOT="${1:-$(cd "$(dirname "$0")" && pwd)}"
 ARCHIVE_HOST="ai@10.42.0.1"
 ARCHIVE_DIR="/a/i/sh2loop-logs"
 MIN_SIZE="$((200 * 1024 * 1024))"   # 200 MB — rotate anything this big

@@ -13,6 +13,8 @@ loop-*.log
 loop-*.pid
 # worker-pool slot accounting (harness/WorkerPool.pm — runtime state)
 /.workers/
+# model-rotation runtime state: epoch, invocations/gates JSONL, lock
+/.worker-model/
 # ts-node-gap detector build artifact (rebuilt on demand by ts-node-gap.sh)
 # refused-refresh worker state (REFUSED-REFRESH.md — runtime stamps/cursors)
 /.build-lock/
@@ -89,8 +91,41 @@ harness/f
 # ── generated run-state dirs (never commit) ──
 /log-archive/
 /.shir-verify-target/
+# core worker's isolated verifier: the temporary wrapper crate it generates
+# (harness/core_verify.sh) plus its isolated cargo target and binary.
+.core-verify/
+.core-verify-target/
 
 otranspilerl/target/
+# otranspilerl/target is a SYMLINK to /mnt/wsl/tmpbtrfs/target/otranspiler
+# (build artifacts were moved to the scratch device on 2026-10-08). The
+# trailing-slash pattern above only matches a real directory, so ignore the
+# symlink form explicitly too — otherwise `git status` reports it untracked
+# and a `git add .` would commit a machine-specific absolute path.
+otranspilerl/target
+
+# Same symlink-form problem for every redirected cargo target. The heavy
+# build caches were moved to the btrfs scratch device (/mnt/wsl/tmpbtrfs/
+# target/<name>) and each original path is now a symlink. A trailing-slash
+# ignore does not match a symlink, so name them explicitly. The submodule's
+# own `target/` rule covers its real directories; these cover the links the
+# superproject sees.
+sh2perl/backends/c/target
+sh2perl/backends/rust/target
+sh2perl/backends/fish/target
+sh2perl/backends/perl/target
+sh2perl/backends/sh/target
+sh2perl/backends/java/target
+sh2perl/backends/zsh/target
+sh2perl/backends/js/target
+sh2perl/backends/core/target
+sh2perl/backends/estree/target
+sh2perl/backends/zig/target
+sh2perl/backends/python/target
+.core-verify-target
+.core-fix-target
+.core-prefix-target
+/target
 bash-o4/target/
 # root cargo target — was committed wholesale (265 MB, 505 files) before
 # the ignore existed; see docs/CLEAN_GIT.md

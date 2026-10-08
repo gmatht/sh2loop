@@ -10,7 +10,7 @@
 #
 # Output: one TSV row per case, deterministic order (sorted by example name).
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 LIST=${1:?usage: pg-triage55.sh <list-file> [jobs]}
 JOBS=${2:-4}
 

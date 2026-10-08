@@ -4,7 +4,7 @@
 # Mirrors ./fail's pipeline: otranspilerl --target pl -> perl -M5.010 -> compare
 # stdout+exit against bash.
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 EX="$ROOT/sh2perl/examples/$1"
 [ -f "$EX" ] || { echo "no such example: $EX"; exit 2; }
 NAME=$(basename "$EX")

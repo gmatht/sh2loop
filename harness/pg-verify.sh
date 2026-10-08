@@ -5,7 +5,7 @@
 # named corpus examples, so a fix that compiles but never fires is caught.
 #   usage: harness/pg-verify.sh <example.sh> [example.sh ...]
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 CLI="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
 pass=0; fail=0
 for n in "$@"; do

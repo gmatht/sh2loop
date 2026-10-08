@@ -2,7 +2,7 @@
 # pg-die.sh — which failing examples die on the unsupported-redirect stub?
 #   harness/pg-die.sh <ex1.sh> <ex2.sh> ...
 set -u
-root=/home/llm/sh2loop
+root="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 ot=$root/otranspilerl/target/debug/otranspilerl-cli
 EX="$root/sh2perl/backends/perl/examples"
 

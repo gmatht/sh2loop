@@ -2,11 +2,12 @@
 # c backend triage: per-file failure classification (stubs / compile / run / mismatch)
 # usage: harness/c_triage.sh [corpus-glob...]
 set -u
-SUB=/home/llm/sh2loop/sh2perl
-WT=/home/llm/sh2loop/sh2perl/backends/c
+ROOT=${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}
+SUB="$ROOT/sh2perl"
+WT="$SUB/backends/c"
 CORE_BIN="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
 C_BIN="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
-CORPUS=${*:-$(ls "$SUB"/examples/*.sh /home/llm/sh2loop/frontends/*/testdata/*.sh 2>/dev/null)}
+CORPUS=${*:-$(ls "$SUB"/examples/*.sh "$ROOT"/frontends/*/testdata/*.sh 2>/dev/null)}
 mkdir -p /tmp/ctr
 rm -f /tmp/ctr/*.txt
 pass=0; stub=0; comp=0; segv=0; mismatch=0; skip=0; other=0

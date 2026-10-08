@@ -23,7 +23,7 @@
 # Usage: harness/gpu_gate.sh [file.sh ...] [jobs N]
 #   BO4_BIN=path   bash-O4 binary (default: bash-o4/target/debug/bash-O4)
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 BO4=${BO4_BIN:-$ROOT/bash-o4/target/debug/bash-O4}
 export BASH_O4_SH2PERL="${BASH_O4_SH2PERL:-$ROOT/sh2perl}"
 JOBS=${JOBS:-8}

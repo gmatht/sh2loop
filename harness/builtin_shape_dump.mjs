@@ -2,7 +2,7 @@
 // builtin_shape_dump.mjs — group sh2.builtin("<name>", args) sites by arg shape
 import { globSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-const root = '/home/llm/sh2loop';
+const root = process.env.SH2_ROOT ?? new URL('..', import.meta.url).pathname;
 const otranspilerl-cli = `${root}/sh2perl/otranspilerl/target/debug/otranspilerl-cli`;
 const tests = globSync(`${root}/sh2perl/examples/*.sh`).sort();
 function pp(node, depth = 0) {

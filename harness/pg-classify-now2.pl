@@ -7,7 +7,7 @@
 use strict;
 use warnings;
 
-my $root = '/home/llm/sh2loop';
+my $root = $ENV{SH2_ROOT} // do { require Cwd; my $s = $0; $s =~ s{/[^/]+$}{}; Cwd::abs_path("$s/..") };
 my $cli  = "$root/otranspilerl/target/debug/otranspilerl-cli";
 my $cap  = "$root/harness/cap-capture.pl";
 

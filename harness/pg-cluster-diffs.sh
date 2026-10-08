@@ -8,7 +8,7 @@
 #
 #   usage: harness/pg-cluster-diffs.sh [outdir]
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 CLI="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
 OUT="${1:-$ROOT/tmp_run/pg-cluster}"
 mkdir -p "$OUT"

@@ -7,7 +7,7 @@ import { execSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const root = '/home/llm/sh2loop';
+const root = process.env.SH2_ROOT ?? new URL('..', import.meta.url).pathname;
 const ex = join(root, 'sh2perl', 'examples');
 const otranspilerl-cli = join(root, 'sh2perl', 'target', 'debug', 'otranspilerl-cli');
 

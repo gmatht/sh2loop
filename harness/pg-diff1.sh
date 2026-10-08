@@ -2,7 +2,7 @@
 # Detail diff for one example: shows the first differing byte region.
 # Usage: pg-diff1.sh <example.sh>
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 CLI=$ROOT/otranspilerl/target/debug/otranspilerl-cli
 OTRANSPILER_ROOT=$ROOT
 export OTRANSPILER_ROOT

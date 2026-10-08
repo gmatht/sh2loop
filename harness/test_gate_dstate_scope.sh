@@ -30,7 +30,7 @@
 #   4. The in-pass yield no longer holds the lock for 120s per pause.
 set -u
 
-ROOT="${ROOT:-/home/llm/sh2loop}"
+ROOT="${ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 SB="$ROOT/setup_backends.sh"
 fail=0
 ok()  { printf '  ok   %s\n' "$1"; }

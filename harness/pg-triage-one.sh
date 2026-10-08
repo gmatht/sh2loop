@@ -4,7 +4,7 @@
 #
 # Usage: pg-triage-one.sh <example.sh> [--perl] [--gen]
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 EX=$1; shift || true
 SHOW_PERL=0; SHOW_GEN=0
 for a in "$@"; do

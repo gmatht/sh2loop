@@ -3,7 +3,7 @@
 #   pg-dbg2.sh <example.sh> [example.sh ...]
 # Prints: gen status, check_qx status, diff of expected(bash) vs actual(perl).
 set -u
-root=/home/llm/sh2loop
+root="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 ot=$root/otranspilerl/target/debug/otranspilerl-cli
 export SH2_UU_LIB="$root/sh2perl/runtime/lib/libcoreutils_ffi.so"
 export SH2_UU_PIPELINE_LIB="$root/sh2perl/runtime/lib/libcoreutils_ffi_pipeline.so"

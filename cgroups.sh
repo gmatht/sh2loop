@@ -1,5 +1,5 @@
 sudo bash -s <<'EOF'
-cd /home/llm/sh2loop
+cd /mnt/wsl/projects/sh2loop   # run this script from the workspace root
 perl harness/WorkerPool.pm --status          # primes sh2gates + sh2workers with their limits
 
 # supervisor loops (pid files) — entering the supervisor covers its whole

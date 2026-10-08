@@ -1,6 +1,6 @@
 [Unit]
 Description=Run the sh2loop disk high-water check hourly
-Documentation=file:///home/llm/sh2loop/AGENTS.md
+Documentation=file://__SH2LOOP_ROOT__/AGENTS.md
 
 [Timer]
 # Hourly: the disk filled 867G -> 873G in the time this was written, so a

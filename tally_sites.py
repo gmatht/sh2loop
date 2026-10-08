@@ -2,7 +2,8 @@
 """Tally all sh2.* call sites by shape, from generated ESTree JSON."""
 import json, subprocess, os, collections
 
-root = "/home/llm/sh2loop/sh2perl"
+import os, pathlib
+root = os.environ.get("SH2_ROOT", str(pathlib.Path(__file__).resolve().parent)) + "/sh2perl"
 ex = os.path.join(root, "examples")
 debashc = os.path.join(root, "target/debug/debashc")
 

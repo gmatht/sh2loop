@@ -13,7 +13,7 @@
 # New sanitize reds are renderer bugs (fix the generator, never bless).
 # NOTE: address and thread are mutually exclusive — pick one per run.
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 SUB=$ROOT/sh2perl
 CORE=${CORE_BIN:-$ROOT/otranspilerl/target/debug/otranspilerl-cli}
 CC=cc

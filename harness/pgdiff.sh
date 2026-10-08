@@ -2,7 +2,7 @@
 # Compact diff for a list of examples: first N differing lines only.
 #   harness/pgdiff.sh -l <list> [lines]
 set -u
-root=/home/llm/sh2loop
+root="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 bin="$root/otranspilerl/target/debug/otranspilerl-cli"
 cwd="${PGPWD:-$PWD}"
 n="${3:-6}"

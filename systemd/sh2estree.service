@@ -5,10 +5,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/llm/sh2loop
+WorkingDirectory=__SH2LOOP_ROOT__
 # cargo is NOT on systemd's default PATH; without this every build fails
 # instantly with "cargo: command not found" and an empty log. See sh2fleet.env.
-EnvironmentFile=/home/llm/sh2loop/systemd/sh2fleet.env
+EnvironmentFile=__SH2LOOP_ROOT__/systemd/sh2fleet.env
 # Put the worker in the throttled IO slice. Without this every worker sat in
 # /init.scope, the slice held procs=0, and the io.max caps guarded nothing.
 # supervise.sh ALSO self-joins the slice (so the zellij-pane launch path is
@@ -19,16 +19,16 @@ Slice=sh2-io.slice
 # calls `pir` directly, which ignores a stdin prompt and has no fallback
 # -- see the MODEL ROTATION block in systemd/sh2fleet.env.
 Environment=WORKER_ROTATE_WORKER=estree
-ExecStart=/home/llm/sh2loop/harness/supervise.sh \
+ExecStart=__SH2LOOP_ROOT__/harness/supervise.sh \
   --name estree \
-  --log /home/llm/sh2loop/loop-estree.log \
-  --pidfile /home/llm/sh2loop/loop-estree-worker.pid \
+  --log __SH2LOOP_ROOT__/loop-estree.log \
+  --pidfile __SH2LOOP_ROOT__/loop-estree-worker.pid \
   -- \
-  /usr/bin/perl /home/llm/sh2loop/main_loop_estree.pl
+  /usr/bin/perl __SH2LOOP_ROOT__/main_loop_estree.pl
 Restart=always
 RestartSec=10
-StandardOutput=append:/home/llm/sh2loop/loop-estree.log
-StandardError=append:/home/llm/sh2loop/loop-estree.log
+StandardOutput=append:__SH2LOOP_ROOT__/loop-estree.log
+StandardError=append:__SH2LOOP_ROOT__/loop-estree.log
 
 [Install]
 WantedBy=default.target

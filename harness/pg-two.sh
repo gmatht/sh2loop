@@ -7,7 +7,7 @@
 #
 # Usage: harness/pg-two.sh 063_11_complex_while_loop
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 CLI="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
 name="${1:?usage: $0 <example-basename>}"
 EX="$ROOT/sh2perl/examples/$name.sh"

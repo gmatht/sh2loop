@@ -6,7 +6,7 @@
 # perl -M5.010 do FILE -> vs bash), so a triage verdict means what the gate
 # means. Both sides go through harness/cap-capture.pl exactly as the gate does.
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 EX="$1"
 NAME="$(basename "$EX" .sh)"
 D="$ROOT/tmp_run/pg-triage/$NAME"

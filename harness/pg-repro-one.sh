@@ -3,7 +3,7 @@
 #   otranspilerl --target pl FILE  ->  perl FILE.pl  vs  bash FILE
 # Prints the verdict, the first differing line, and both exit codes.
 #   usage: pg-repro-one.sh <example.sh> [diff-lines]
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 EX="$1"; NAME=$(basename "$EX"); N=${2:-25}
 D=$(mktemp -d "/tmp/pg1.XXXXXX")
 trap 'rm -rf "$D"' EXIT

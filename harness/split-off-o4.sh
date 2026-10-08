@@ -364,17 +364,21 @@ fi
 for h in c_gate_main.sh gpu_gate.sh; do
   f="$DEST/harness/$h"
   [ -f "$f" ] || continue
-  if grep -q '^ROOT=/home/llm/sh2loop' "$f"; then
+  # The gate scripts hardcode their workspace root. Accept the historical
+  # literal AND the current tree's literal, because the workspace moved
+  # (/home/llm/sh2loop -> /mnt/wsl/projects/sh2loop, 2026-10-08) and a gate
+  # carved from either tree should be repathed.
+  if grep -qE '^ROOT=(/home/llm/sh2loop|'"$ROOT"')' "$f"; then
     # NOT `perl -pi -e`: the replacement contains $( ) and $0, which perl
     # interpolates ($( = GID, $0 = program name), producing a mangled line.
     # python does a literal replacement.
-    python3 - "$f" <<'PY'
+    python3 - "$f" "$ROOT" <<'PY'
 import sys
-p = sys.argv[1]
+p, root = sys.argv[1], sys.argv[2]
 new = 'ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"'
 lines = open(p).read().split('\n')
 for i, l in enumerate(lines):
-    if l == 'ROOT=/home/llm/sh2loop':
+    if l in ('ROOT=/home/llm/sh2loop', 'ROOT=' + root):
         lines[i] = new
 open(p, 'w').write('\n'.join(lines))
 PY

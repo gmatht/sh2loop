@@ -6,7 +6,7 @@
 # by design: GNU uses "/usr/bin/cmp" or "cmp"; ours uses its
 # invocation path). The normalize() helper strips that prefix.
 
-CMP=/home/llm/sh2loop/harness/cmp_polyfill/cmp.sh
+CMP="${SH2_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}/harness/cmp_polyfill/cmp.sh"
 GNU_CMP=/usr/bin/cmp
 TD=/tmp/cmp_test_$$
 mkdir -p "$TD"

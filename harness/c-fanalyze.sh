@@ -29,7 +29,7 @@
 # requires the renderer to actually free.
 set -uo pipefail
 
-ROOT=${SH2_ROOT:-/home/llm/sh2loop}
+ROOT=${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}
 SUB=$ROOT/sh2perl
 CORE=${CORE_BIN:-$ROOT/otranspilerl/target/debug/otranspilerl-cli}
 JOBS=${JOBS:-8}

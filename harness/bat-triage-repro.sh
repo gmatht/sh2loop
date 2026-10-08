@@ -18,7 +18,7 @@
 # program) for inspection.
 set -u
 
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 FRONTEND="$ROOT/sh2perl/frontends/bat-sh-go"
 CLI="${BAT_CLI:-$ROOT/otranspilerl/target/debug/otranspilerl-cli}"
 TD="$FRONTEND/testdata"

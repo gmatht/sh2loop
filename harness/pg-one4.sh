@@ -1,7 +1,7 @@
 #!/bin/bash
 # Reproduce ONE perl-generator failure exactly the way ./fail does.
 # usage: pg-one4.sh <example.sh>   (example name, no .sh needed)
-root=/home/llm/sh2loop
+root="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 ot="$root/otranspilerl/target/debug/otranspilerl-cli"
 ex="$1"; [[ $ex == *.sh ]] || ex="$ex.sh"
 src="$root/sh2perl/examples/$ex"

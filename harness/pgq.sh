@@ -7,7 +7,7 @@
 # /tmp and ./ paths are therefore resolved against $PWD. This script honours
 # PGPWD (default: the invocation cwd) so a repro matches the gate's view.
 set -u
-root=/home/llm/sh2loop
+root="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 bin="$root/otranspilerl/target/debug/otranspilerl-cli"
 cwd="${PGPWD:-$PWD}"
 export SH2_UU_LIB="$root/sh2perl/runtime/lib/libcoreutils_ffi.so"

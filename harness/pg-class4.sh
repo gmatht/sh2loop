@@ -2,7 +2,7 @@
 # Classify failures by the FIRST differing hunk, so identical defects group
 # together. Usage: pg-class4.sh -f <names-file>
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 CLI=$ROOT/otranspilerl/target/debug/otranspilerl-cli
 OTRANSPILER_ROOT=$ROOT
 export OTRANSPILER_ROOT

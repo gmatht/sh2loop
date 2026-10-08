@@ -5,7 +5,7 @@
 #
 # Usage: pg-classify-all.sh <name-list-file> <out-file>
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 LIST=$1; OUT=$2
 BIN=$ROOT/otranspilerl/target/debug/otranspilerl-cli
 CAP=$ROOT/harness/cap-capture.pl

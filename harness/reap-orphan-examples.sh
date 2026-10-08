@@ -32,7 +32,28 @@
 # someone's work, and this runs unattended.
 #
 # Usage: harness/reap-orphan-examples.sh [--dry-run]
+#        harness/reap-orphan-examples.sh --install-cron   # (re)install the
+#           10-minute crontab entry, deriving every path from THIS file's
+#           location. Run this after the workspace moves: the entry is
+#           machine state (not in git), so a stale absolute path in it fails
+#           silently and the orphan bound stops working. Added 2026-10-08,
+#           after the /home/llm/sh2loop -> /mnt/wsl/projects/sh2loop move
+#           left the documented entry pointing at a nonexistent directory.
 set -u
+
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+WS="$(cd "$(dirname "$0")/.." && pwd)"
+
+if [ "${1:-}" = "--install-cron" ]; then
+  line="*/10 * * * * $SELF >/dev/null 2>>$WS/loop-orphan-reap.log"
+  # Replace any existing entry for this script; keep every other line.
+  cur="$(crontab -l 2>/dev/null || true)"
+  new="$(printf '%s\n' "$cur" | command grep -v 'reap-orphan-examples.sh' | command grep -v '^$' || true)"
+  printf '%s\n%s\n' "$new" "$line" | command grep -v '^$' | crontab -
+  echo "installed crontab entry:"
+  crontab -l | command grep 'reap-orphan-examples.sh'
+  exit 0
+fi
 
 DRY=0
 [ "${1:-}" = "--dry-run" ] && DRY=1

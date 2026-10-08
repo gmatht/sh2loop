@@ -3,7 +3,7 @@
 # violations by (builtin, file). Prints a sorted frequency table.
 # Usage: qx-tally.sh [max_files]
 set -uo pipefail
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 WT=$ROOT/sh2perl/backends/perl
 R=$ROOT/otranspilerl/target/debug/otranspilerl-cli
 G=$WT/target/debug/shir_render

@@ -5,7 +5,7 @@
 #
 # Usage: harness/pg-classify.sh [outdir]
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 OUT=${1:-/tmp/pgclass}
 mkdir -p "$OUT/gen" "$OUT/run"
 export SH2_UU_LIB="$ROOT/sh2perl/runtime/lib/libcoreutils_ffi.so"

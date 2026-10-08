@@ -1,6 +1,6 @@
 [Unit]
 Description=sh2loop — the sh2perl transpiler worker fleet (all workers)
-Documentation=file:///home/llm/sh2loop/AGENTS.md
+Documentation=file://__SH2LOOP_ROOT__/AGENTS.md
 After=network-online.target
 Wants=network-online.target
 # Every member is supervised by harness/supervise.sh, which restarts it on an

@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { globSync } from 'node:fs';
 import { readFileSync } from 'node:fs';
 
-const root = '/home/llm/sh2loop';
+const root = process.env.SH2_ROOT ?? new URL('..', import.meta.url).pathname;
 const otranspilerl-cli = `${root}/sh2perl/otranspilerl/target/debug/otranspilerl-cli`;
 const namesArg = process.argv.indexOf('--names');
 const want = namesArg >= 0 ? new Set(process.argv[namesArg + 1].split(',')) : null;

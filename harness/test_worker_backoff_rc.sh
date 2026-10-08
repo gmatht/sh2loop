@@ -31,7 +31,7 @@
 #      dropped the else entirely.
 set -u
 
-ROOT="${ROOT:-/home/llm/sh2loop}"
+ROOT="${ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 COMMON="$ROOT/harness/worker_common.sh"
 LOG="$(mktemp)"
 PROMPT="$(mktemp)"

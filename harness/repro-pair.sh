@@ -4,7 +4,7 @@
 #                       → <backend> mirror render (+run) vs native
 # usage: harness/repro-pair.sh bat-sh-go t36_redirect_var.bat perl
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 CLI="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
 RUNNER="$ROOT/harness/estree-runner.mjs"
 FE="$1"; EX="$2"; BE="$3"

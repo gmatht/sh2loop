@@ -83,13 +83,16 @@
 #
 # Env-tunable:
 #   SH2_TARGET_AGE_H    minimum incremental/ age to sweep, hours (default 24)
-#   SH2_TARGET_WORKSPACE  harness root (default /home/llm/sh2loop)
+#   SH2_TARGET_WORKSPACE  harness root (default: this script's repo root,
+#                         derived from $0 — do not hardcode a path here, the
+#                         workspace moves; see the 2026-10-08 move to
+#                         /mnt/wsl/projects/sh2loop)
 #   SH2_TARGET_MIN_MB   only report/sweep dirs at least this big, MB
 #                       (default 256; below this the rebuild is not worth
 #                       the risk of touching a live worktree's cache)
 set -u
 
-WS=${SH2_TARGET_WORKSPACE:-/home/llm/sh2loop}
+WS=${SH2_TARGET_WORKSPACE:-$(cd "$(dirname "$0")/.." && pwd)}
 AGE_H=${SH2_TARGET_AGE_H:-24}
 MIN_MB=${SH2_TARGET_MIN_MB:-256}
 # Incremental-only: never widen this to deps/ or target/ itself. See the

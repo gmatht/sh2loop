@@ -11,7 +11,7 @@
 # The per-example report goes to tmp_run/pg-triage/<name>/ (.out/.err pairs)
 # and the one-line summary to stdout.
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 CLI="$ROOT/otranspilerl/target/debug/otranspilerl-cli"
 OUT="$ROOT/tmp_run/pg-triage"
 CAP=1048576

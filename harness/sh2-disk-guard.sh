@@ -6,7 +6,11 @@
 #
 #     /                 1007G total, 92% used as of 2026-09-29
 #       /root           571G  (src/corro_mainloop 137G, opencode.db 31G, …)
-#       /home/llm/sh2loop  66G (cargo target dirs, 557M loop logs, scratch)
+#       <workspace>     66G at the time (cargo target dirs, 557M loop logs,
+#                           scratch). It sat under /home/llm/sh2loop until
+#                           2026-10-08, when the tree moved to
+#                           /mnt/wsl/projects/sh2loop — the literal is gone,
+#                           see the SH2_WS derivation below.
 #
 # The harness's own share is the smaller half, so "the harness is big" is not
 # the diagnosis — but a full disk is a silent, box-wide failure: cargo cannot
@@ -30,13 +34,31 @@
 #      "failed" in `systemctl list-units` and mask the real condition behind
 #      a service error.
 #
-# Env-tunable: SH2_DISK_PATH, SH2_DISK_WARN_PCT, SH2_DISK_CRIT_PCT
+# Env-tunable: SH2_DISK_PATH (whitespace-separated list of paths to check),
+#              SH2_DISK_WARN_PCT, SH2_DISK_CRIT_PCT
 set -eu
 
-PATH_="${SH2_DISK_PATH:-/}"
+# DEFAULT PATHS, de-hardcoded 2026-10-08. Two filesystems now matter:
+#   /  — the root fs, where /root, the workspace checkout and the logs live
+#   /mnt/wsl/tmpbtrfs — the cargo scratch device (SH2_TARGET_ROOT). Builds
+#        land there since the move, so IT can fill while / stays near-empty;
+#        checking only / is how a full build disk goes unnoticed. Both are
+#        reported, because either one failing breaks the fleet.
+SH2_TARGET_ROOT="${SH2_TARGET_ROOT:-/mnt/wsl/tmpbtrfs/target/otranspiler}"
+# Use the ancestor that exists (the target dir is created on first build).
+_tgt_dev_path="/mnt/wsl/tmpbtrfs"
+[ -d "$_tgt_dev_path" ] || _tgt_dev_path="$(dirname "$SH2_TARGET_ROOT")"
+PATH_LIST="${SH2_DISK_PATH:-/ $_tgt_dev_path}"
 
 warn_pct="${SH2_DISK_WARN_PCT:-85}"
 crit_pct="${SH2_DISK_CRIT_PCT:-92}"
+
+ts() { date +%FT%T; }
+
+# Never fail the unit: a full disk is an operator decision, and a non-zero
+# exit here would show as a failed service and mask the real message.
+_check_one() {
+PATH_="$1"
 
 # df -P forces POSIX output (one line, no wrapping) — without it a long
 # device name wraps onto a second line and the awk field indices shift,
@@ -66,12 +88,17 @@ if [ "$pct" -ge "$crit_pct" ]; then
     echo "$(ts) CRITICAL disk: ${pct}% used on ${dev} (${human_avail} free of ${human_total}) — mount $PATH_"
     # The breakdown is EXPENSIVE and OPT-IN. A du -x over /root took 2m24s on
     # this box (381G of git worktrees) and blew a 60s timeout for /root and
-    # /var while /home/llm finished. A timer that stalls for minutes is a
+    # /var while the workspace finished. A timer that stalls for minutes is a
     # timer nobody enables, so the fast path reports the number and stops.
     # Set SH2_DISK_TRIAGE=1 to get the breakdown interactively.
     if [ "${SH2_DISK_TRIAGE:-0}" = "1" ]; then
         echo "  Largest consumers (does NOT delete anything):"
-        for d in /root /home/llm /var /tmp; do
+        # SH2_WS = this workspace, derived from $0 (moved 2026-10-08).
+        # SH2_TARGET_ROOT = the cargo scratch device, which is a DIFFERENT
+        # filesystem from / and is where builds now land.
+        SH2_WS="${SH2_WS:-$(cd "$(dirname "$0")/.." && pwd)}"
+        SH2_TARGET_ROOT="${SH2_TARGET_ROOT:-/mnt/wsl/tmpbtrfs/target/otranspiler}"
+        for d in /root /var /tmp "$SH2_WS" "$SH2_TARGET_ROOT"; do
             [ -d "$d" ] || continue
             # -x stays on one filesystem; without it this walks into the 9p
             # /mnt/c drvfs share and HANGS for minutes (observed 2026-09-29).
@@ -89,6 +116,13 @@ elif [ "$pct" -ge "$warn_pct" ]; then
 else
     echo "$(ts) disk ok: ${pct}% used on ${dev} (${human_avail} free)"
 fi
+}   # end _check_one
+
+# Check each path; `set -e` is disabled inside so one bad path cannot abort
+# the whole guard (a missing scratch device is not a reason to skip / ).
+for _p in $PATH_LIST; do
+    _check_one "$_p" || true
+done
 
 # Never fail the unit: a full disk is an operator decision, and a non-zero
 # exit here would show as a failed service and mask the real message.

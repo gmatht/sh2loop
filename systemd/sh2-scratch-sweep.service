@@ -1,6 +1,6 @@
 [Unit]
 Description=Bound the sh2loop harness scratch directories
-Documentation=file:///home/llm/sh2loop/AGENTS.md
+Documentation=file://__SH2LOOP_ROOT__/AGENTS.md
 
 [Service]
 Type=oneshot
@@ -12,6 +12,6 @@ IOSchedulingClass=idle
 # The /proc scan for in-use dirs is the slow part (16s measured on a 2.7 GB
 # tree), so allow headroom without letting a wedged scan hang forever.
 TimeoutStartSec=600
-ExecStart=/home/llm/sh2loop/harness/sh2-scratch-sweep.sh --run
+ExecStart=__SH2LOOP_ROOT__/harness/sh2-scratch-sweep.sh --run
 # Report-only is the safe default if the sweep is ever invoked bare; the
 # timer passes --run explicitly above.

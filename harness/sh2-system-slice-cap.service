@@ -1,6 +1,6 @@
 [Unit]
 Description=Apply an io.max cap to /system.slice (close the last unbounded cgroup)
-Documentation=file:///home/llm/sh2loop/AGENTS.md
+Documentation=file://__SH2LOOP_ROOT__/AGENTS.md
 # Same shape and same rationale as sh2-contain.service, applied to the one
 # remaining population with no ceiling of any kind.
 #
@@ -31,7 +31,7 @@ RemainAfterExit=yes
 # Best-effort by design, exactly like sh2-contain.service: never fail boot
 # over a throttle we could not set. Continuing unthrottled strictly beats
 # refusing to boot.
-ExecStart=-/home/llm/sh2loop/harness/sh2-contain.sh
+ExecStart=-__SH2LOOP_ROOT__/harness/sh2-contain.sh
 Environment=SH2_CONTAIN_SCOPE=system.slice
 # Warn loudly if the cap is not in force, without failing. The guard tests
 # whether io.max CONTAINS an entry, not its size: cgroupfs reports no

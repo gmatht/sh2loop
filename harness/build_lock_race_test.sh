@@ -5,7 +5,7 @@
 # T3: the SIGKILL case (record names a dead pid) must still clear.
 # T4: normal serialisation still works (two builds never overlap).
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 BL=$ROOT/harness/build-lock.sh
 pass=0; fail=0
 ok(){ echo "  PASS: $1"; pass=$((pass+1)); }

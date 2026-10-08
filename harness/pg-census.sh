@@ -7,7 +7,7 @@
 #   harness/pg-census.sh @pattern.txt [ex1.sh ...]   (pattern read from a
 #       file, so a regex containing `$` survives the caller's own expansion)
 set -u
-root=/home/llm/sh2loop
+root="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 export SH2_UU_LIB="$root/sh2perl/runtime/lib/libcoreutils_ffi.so"
 export SH2_UU_PIPELINE_LIB="$root/sh2perl/runtime/lib/libcoreutils_ffi_pipeline.so"
 export UU_FFI_MULTICALL="$root/sh2perl/runtime/lib/coreutils-ffi-multicall"

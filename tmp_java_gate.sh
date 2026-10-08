@@ -10,15 +10,16 @@
 #
 # Render quality is still enforced: empty output or TODO(unsupported)/
 # sh2.* markers count as render failures.
-SUB=/home/llm/sh2loop/sh2perl
-WT=/home/llm/sh2loop/sh2perl/backends/java
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")" && pwd)}"
+SUB="$ROOT/sh2perl"
+WT="$SUB/backends/java"
 # private copy: other workers rebuild the shared core mid-gate, which
 # shows up as spurious emit-empty skips — pin one snapshot per run
 CORE="/tmp/java_core_otranspilerl.$$"
 cp "$ROOT/otranspilerl/target/debug/otranspilerl-cli" "$CORE"
 trap 'rm -f "$CORE"' EXIT
 BIN="$WT/target/debug/shir_render"
-corpus=$(ls "$SUB"/examples/*.sh /home/llm/sh2loop/frontends/*/testdata/*.sh 2>/dev/null)
+corpus=$(ls "$SUB"/examples/*.sh "$ROOT"/frontends/*/testdata/*.sh 2>/dev/null)
 pass=0; skip=0; fail=0; stub=0; fails=""; outdir=/tmp/javagate_$$
 mkdir -p "$outdir"
 i=0

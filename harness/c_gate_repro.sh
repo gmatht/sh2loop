@@ -2,7 +2,7 @@
 # Fast local repro of the c backend gate loop (setup_backends.sh --backend-gate c).
 # Usage: harness/c_gate_repro.sh [file.sh ...]   (default: whole corpus)
 set -u
-ROOT=/home/llm/sh2loop
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 SUB=$ROOT/sh2perl
 WT=$SUB/backends/c
 CORE=${CORE_BIN:-$ROOT/otranspilerl/target/debug/otranspilerl-cli}

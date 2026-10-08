@@ -7,7 +7,7 @@ set -uo pipefail
 JOBS="${1:-8}"
 BIN="${BIN:?set BIN}"
 OUT="${OUT:-/tmp/cgate_run}"
-OTRANS="${OTRANS:-/home/llm/sh2loop/otranspilerl/target/debug/otranspilerl-cli}"
+OTRANS="${OTRANS:-${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/otranspilerl/target/debug/otranspilerl-cli}"
 export BIN OTRANS
 SCRATCH="$OUT/scratch"
 mkdir -p "$SCRATCH"
@@ -35,8 +35,8 @@ one() {
 export -f one
 export SCRATCH
 
-ls /home/llm/sh2loop/sh2perl/examples/*.sh \
-   /home/llm/sh2loop/sh2perl/frontends/*/testdata/*.sh 2>/dev/null \
+ls "$ROOT"/sh2perl/examples/*.sh \
+   "$ROOT"/sh2perl/frontends/*/testdata/*.sh 2>/dev/null \
  | xargs -P "$JOBS" -I{} bash -c 'r=$(one "$1"); echo "$r	$1"' _ {} \
  > "$OUT/raw.tsv" 2>/dev/null
 

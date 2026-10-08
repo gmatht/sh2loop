@@ -1620,7 +1620,7 @@ EOF
                         # central (mktemp storms — 11k entries), and `cd ..` /
                         # `ls -la` scripts (046_cd..sh, 062_hard_to_lex.sh)
                         # would read /tmp's churning `..` link count and
-                        # entries; /home/llm is quiet. c adopted it too
+                        # entries; the workspace root is quiet. c adopted it too
                         # (2026-09-29): its arm below runs the compiled binary
                         # from the same scratch the bash reference runs in, so
                         # a cell that globs the CWD sees an identical file set

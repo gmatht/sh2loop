@@ -3,7 +3,7 @@
 import { execFileSync } from 'node:child_process';
 import { globSync } from 'node:fs';
 
-const root = '/home/llm/sh2loop';
+const root = process.env.SH2_ROOT ?? new URL('..', import.meta.url).pathname;
 const tests = globSync(`${root}/sh2perl/examples/*.sh`).sort();
 const wantNames = new Set((process.argv[2] ?? 'wc,let,cmp,unset').split(','));
 

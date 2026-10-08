@@ -5,10 +5,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/llm/sh2loop
+WorkingDirectory=__SH2LOOP_ROOT__
 # cargo is NOT on systemd's default PATH; without this every build fails
 # instantly with "cargo: command not found" and an empty log. See sh2fleet.env.
-EnvironmentFile=/home/llm/sh2loop/systemd/sh2fleet.env
+EnvironmentFile=__SH2LOOP_ROOT__/systemd/sh2fleet.env
 # Put the worker in the throttled IO slice. Without this every worker sat in
 # /init.scope, the slice held procs=0, and the io.max caps guarded nothing.
 # supervise.sh ALSO self-joins the slice (so the zellij-pane launch path is
@@ -18,18 +18,18 @@ Slice=sh2-io.slice
 # counter, saturating exponential backoff. The previous hand-typed
 # `while [ $attempts -lt 5 ]` supervisors RETIRED after five child exits, which
 # is how the rust and perl workers disappeared with nothing to restart them.
-ExecStart=/home/llm/sh2loop/harness/supervise.sh \
+ExecStart=__SH2LOOP_ROOT__/harness/supervise.sh \
   --name core \
-  --log /home/llm/sh2loop/loop-core-worker.log \
-  --pidfile /home/llm/sh2loop/loop-core-worker.pid \
+  --log __SH2LOOP_ROOT__/loop-core-worker.log \
+  --pidfile __SH2LOOP_ROOT__/loop-core-worker.pid \
   -- \
-  /home/llm/sh2loop/run_core_worker.sh
+  __SH2LOOP_ROOT__/run_core_worker.sh
 Restart=always
 RestartSec=10
 # The gate's own bookkeeping (A1 + estree + lib) is appended by supervise.sh;
 # the worker's test output goes to the same log via the worker itself.
-StandardOutput=append:/home/llm/sh2loop/loop-core-worker.log
-StandardError=append:/home/llm/sh2loop/loop-core-worker.log
+StandardOutput=append:__SH2LOOP_ROOT__/loop-core-worker.log
+StandardError=append:__SH2LOOP_ROOT__/loop-core-worker.log
 
 [Install]
 WantedBy=default.target

@@ -34,7 +34,7 @@ BIN=${1:?backend renderer bin (otranspilerl/target/debug/otranspilerl-cli)}
 WORKSPACE=${2:?workspace root}
 # SESSION teardown for the bash reference runs below — see kill-session.sh.
 KS="$WORKSPACE/harness/kill-session.sh"
-GATE=${3:-/home/llm/sh-gate-full}
+GATE=${3:-${SH_GATE_FULL:-/mnt/wsl/projects/sh-gate-full}}
 SH_GATE=${SH_GATE:-/usr/local/bin/sh-gate}
 
 if [ ! -x "$SH_GATE" ]; then

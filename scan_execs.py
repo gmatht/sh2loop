@@ -2,7 +2,8 @@
 """Scan generated ESTree JSON for sh2.exec / sh2.capture / sh2.pipeline call sites."""
 import json, subprocess, sys, os, collections
 
-root = "/home/llm/sh2loop/sh2perl"
+import os, pathlib
+root = os.environ.get("SH2_ROOT", str(pathlib.Path(__file__).resolve().parent)) + "/sh2perl"
 ex = os.path.join(root, "examples")
 debashc = os.path.join(root, "target/debug/debashc")
 

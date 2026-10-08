@@ -8,7 +8,7 @@
 # With no examples it reads the newline-separated list on stdin.
 set -u
 out=$1; shift
-root=/home/llm/sh2loop
+root="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 mkdir -p "$out"
 if [ "$#" -gt 0 ]; then
   cases=("$@")
