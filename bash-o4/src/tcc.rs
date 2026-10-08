@@ -327,12 +327,15 @@ fn compile_exe(
     let needs = link_needs(c_src);
     let mut cmd = Command::new(tc.bin());
     cmd.arg("-o").arg(out_exe).arg(c_file);
-    if needs.math {
-        cmd.arg("-lm");
-    }
-    if needs.gmp {
-        cmd.arg("-lgmp");
-    }
+    // NOTE: `-lm`/`-lgmp` are appended at the END (see below), not here.
+    // Link ORDER is significant for the cc/gcc/clang fallback: GNU ld
+    // resolves a library's symbols against the objects already seen, so
+    // a `-lm` before the fb device sources leaves `exp` (used by
+    // fbdev.c's perspective/rasteriser math) an undefined reference and
+    // the link dies with "libm.so.6: error adding symbols: DSO missing
+    // from command line". tcc does not care, which is why this only ever
+    // surfaced on a box without tcc. Keeping the libraries last is also
+    // the ordering `-lm` is conventionally written in.
     let rt;
     if needs.uu {
         let sp = find_sh2perl()?;
@@ -390,6 +393,15 @@ fn compile_exe(
         cmd.arg(&fbs);
         cmd.arg("-ldl");
         cmd.arg(format!("-I{}", dir.display()));
+    }
+    // Libraries LAST (see the note at the top of this function): the
+    // fb device sources reference libm, and GNU ld resolves a library
+    // against the objects already on the command line.
+    if needs.math {
+        cmd.arg("-lm");
+    }
+    if needs.gmp {
+        cmd.arg("-lgmp");
     }
     let out = cmd
         .output()

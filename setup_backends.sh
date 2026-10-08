@@ -739,6 +739,27 @@ case "${1:-}" in
                   # episode; the buildability probe inside the loop usually
                   # ends the wait on its first iteration anyway.
                   CORE_DIRTY_WAIT_S="${CORE_DIRTY_WAIT_S:-900}"
+                  # ── runtime-delegation budget (2026-10-09) ────────────────
+                  # When a worker's gate is GREEN but its runtime-helper call
+                  # count exceeds this, the loop invokes the AI to lower the
+                  # constructs NATIVELY instead of idling. 0 disables (old
+                  # behaviour: "green means done").
+                  #
+                  # WHY A DEFAULT AND NOT A PER-LANG ONE. The counts are NOT
+                  # comparable across backends — each has its own runtime API
+                  # size (the metric's own caveat) — so a single threshold is
+                  # deliberately crude. It is a FLOOR on "worth an AI call",
+                  # not a ranking: 2000 is far below every measured backend's
+                  # current count (c 30392, rust ~3.5k, perl 3608, fish/zsh
+                  # similar) so it does not single anyone out, and far above
+                  # noise. Tighten per-backend once a first reduction is
+                  # observed and the real slope is known.
+                  #
+                  # The cooldown is what keeps this from becoming a churn
+                  # loop: a backend that cannot move its number waits, it
+                  # does not spin.
+                  rw_rt_budget="${SH2_RT_BUDGET:-2000}"
+                  rw_rt_cooldown_s="${SH2_RT_REDUCE_COOLDOWN_S:-900}"
                   while true; do
                     # WORK-STEALING: a leased slot is run by a desktop.
                     # HEARTBEAT + RECLAIM: a stale lease (the desktop
@@ -818,6 +839,75 @@ case "${1:-}" in
                         fi
                       fi
                       echo "[$(date +%FT%T)] $rw_lang: gate GREEN" >> "$LOG"
+
+                      # ── GREEN GATE != WORK DONE (2026-10-09) ─────────────
+                      # A green gate means the corpus renders and the STUB
+                      # gate is satisfied. For a backend whose runtime is
+                      # namespaced away from `sh2_*`, the stub count cannot
+                      # see its delegations at all — so green coexists with a
+                      # large runtime footprint. The C backend sat at 30,392
+                      # `_sh_*` calls (54/file, the worst of any backend)
+                      # while reporting GREEN, and the loop simply re-gated
+                      # every 60s and never asked the model to reduce them,
+                      # because the runtime prompt exists only on the RED
+                      # path. The metric was measured and never acted on.
+                      #
+                      # So: measure, and if the count is above budget, take
+                      # the same AI fix path as a red gate would — one
+                      # invocation, then fall through to the normal sleep.
+                      # Bounded by rt_reduce_cooldown_s so a backend that
+                      # cannot move its number cannot spin on it.
+                      #
+                      # Disabled by setting SH2_RT_BUDGET=0 (back to "green
+                      # means done"), and skipped while a core request from
+                      # this language is pending (that work comes first).
+                      _rt_budget="${rw_rt_budget:-0}"
+                      if [ "$_rt_budget" -gt 0 ] 2>/dev/null; then
+                        _rt_cool="${rw_rt_cooldown_s:-900}"
+                        _rt_last="$WORKSPACE/.rt_last_reduce_$rw_lang"
+                        _rt_now=$(date +%s)
+                        _rt_prev=$(cat "$_rt_last" 2>/dev/null || echo 0)
+                        _rt_age=$(( _rt_now - _rt_prev ))
+                        # Fresh measurement (the gate just re-rendered, so a
+                        # stale tsv here is the exact vacuous-reading trap).
+                        if timeout 300 bash "$WORKSPACE/harness/backend_runtime_metric.sh" "$rw_lang" >> "$LOG" 2>&1; then
+                          _rt_now_total=$(awk -F'\t' '$1=="total"{print $2; exit}' \
+                            "$WORKSPACE/sh2perl/backends/$rw_lang/.rt_metric.tsv" 2>/dev/null || echo 0)
+                          _rt_now_total=${_rt_now_total:-0}
+                          if [ "$_rt_now_total" -gt "$_rt_budget" ] 2>/dev/null && [ "$_rt_age" -ge "$_rt_cool" ]; then
+                            echo "[$(date +%FT%T)] $rw_lang: gate GREEN but runtime delegation $_rt_now_total > budget $_rt_budget — invoking AI to lower it natively" >> "$LOG"
+                            date +%s > "$_rt_last"
+                            bash "$WORKSPACE/setup_backends.sh" --pi-fix-runtime "$rw_lang" >> "$LOG" 2>&1 || true
+                            # COMMIT, do not leave it dirty. The handler asks
+                            # the model to commit, but a model that edits and
+                            # exits without committing loses the work to the
+                            # next stash sweep — observed 2026-10-09, when a
+                            # concurrent loop stashed an entire working tree
+                            # mid-session. The green-gate path above stages and
+                            # commits for the same reason; do it here too, and
+                            # verify the corpus BEFORE committing (a runtime
+                            # lowering that regresses the corpus is not a win).
+                            _rt_changes=$(git -C "$WORKSPACE" status --porcelain 2>/dev/null \
+                                      | awk '/^.. /{print $2}' \
+                                      | awk -v d="${rw_dir#$WORKSPACE/}" '$0 ~ "^"d"/" || $0 ~ /^harness\//' || true)
+                            if [ -n "$_rt_changes" ]; then
+                              if (cd "$WORKSPACE" && perl fail-estree --gate >/dev/null 2>&1); then
+                                git -C "$WORKSPACE" add $_rt_changes 2>/dev/null || true
+                                git -C "$WORKSPACE" commit -m "backend $rw_lang: reduce runtime delegation" 2>/dev/null || true
+                                echo "[$(date +%FT%T)] $rw_lang: committed runtime-reduction edit" >> "$LOG"
+                              else
+                                echo "[$(date +%FT%T)] $rw_lang: runtime-reduction edit regresses the core corpus — NOT committing (left dirty for review)" >> "$LOG"
+                              fi
+                            fi
+                          elif [ "$_rt_now_total" -gt "$_rt_budget" ] 2>/dev/null; then
+                            echo "[$(date +%FT%T)] $rw_lang: runtime delegation $_rt_now_total > budget $_rt_budget, but last reduce was ${_rt_age}s ago (< ${_rt_cool}s) — waiting" >> "$LOG"
+                          else
+                            echo "[$(date +%FT%T)] $rw_lang: runtime delegation $_rt_now_total <= budget $_rt_budget — nothing to reduce" >> "$LOG"
+                          fi
+                        else
+                          echo "[$(date +%FT%T)] $rw_lang: runtime metric measurement FAILED — not acting on a number we could not read" >> "$LOG"
+                        fi
+                      fi
                     else
                       if grep -q "core build FAILED" <(tail -50 "$LOG"); then
                         # shared-CORE build break — the estree worker owns
@@ -958,6 +1048,56 @@ case "${1:-}" in
                   shift
                   wait_for_load "${1:-1.5}" "${2:-60}" "${3:-1800}" || true
                   wait_for_ram "${4:-2048}" "${5:-0.5}" "${6:-30}" "${7:-1800}" || true
+                  exit 0 ;;
+  --pi-fix-runtime) # internal: invoked by the GREEN-gate path when the
+                  # backend's runtime-delegation count is above budget.
+                  # Same AI machinery as --pi-fix-backend, but the task is
+                  # "lower these constructs NATIVELY", not "fix a red gate".
+                  # WHY THIS EXISTS (2026-10-09): the runtime metric was
+                  # measured and reported to the model only on the RED path,
+                  # so a backend with a GREEN gate but a large runtime
+                  # footprint was never asked to reduce it — the C backend sat
+                  # at 30,392 `_sh_*` calls (54/file) while reporting GREEN and
+                  # re-gating every 60s. Green means "the corpus renders and
+                  # the stub gate is satisfied", which for a namespaced
+                  # runtime is NOT the same as "native".
+                  # Usage: setup_backends.sh --pi-fix-runtime <lang>
+                  shift; fix_lang="$1"
+                  fix_dir="$BT/$fix_lang"; fix_log="$WORKSPACE/loop-backend-$fix_lang.log"
+                  case "$fix_lang" in
+                    rust|c|fish|zsh) export WORKER_ROTATE_WORKER="$fix_lang" ;;
+                  esac
+                  # Re-read the metric AT PROMPT TIME so the number the model
+                  # is told is the number that is true now.
+                  rt_total=""; rt_files=""; rt_seam=""
+                  _rt_tsv="$WORKSPACE/sh2perl/backends/$fix_lang/.rt_metric.tsv"
+                  if [ -f "$_rt_tsv" ]; then
+                    rt_total=$(awk -F'\t' '$1=="total"{print $2; exit}' "$_rt_tsv" 2>/dev/null || true)
+                    rt_files=$(awk -F'\t' '$1=="files"{print $2; exit}' "$_rt_tsv" 2>/dev/null || true)
+                    rt_seam=$(awk -F'\t' '$1=="seam"{print $2; exit}' "$_rt_tsv" 2>/dev/null || true)
+                  fi
+                  {
+                    printf 'The %s backend in %s has a GREEN gate but still delegates heavily to its runtime helper.\n\n' "$fix_lang" "$fix_dir"
+                    printf 'THIS IS NOT A BUILD FAILURE. The gate passes; do not look for a broken build. The task is idiomaticity: replace runtime-helper calls with real target-language constructs.\n'
+                    if [ -n "$rt_total" ]; then
+                      printf 'Runtime delegation NOW: %s calls over %s corpus files (%s per file), namespace `%s`.\n' \
+                        "$rt_total" "${rt_files:-?}" "$(( ${rt_total:-0} / ${rt_files:-1} ))" "${rt_seam:-<unknown>}"
+                      printf 'Reduce that number by lowering constructs NATIVELY in %s instead of delegating to the runtime helper. It is the ONLY signal that moves when you replace a runtime call with real target code.\n' "$fix_lang"
+                    fi
+                    printf 'Re-measure with:  harness/backend_runtime_metric.sh %s   (writes sh2perl/backends/%s/.rt_metric.tsv)\n' "$fix_lang" "$fix_lang"
+                    printf 'CAVEAT: this count measures how big the runtime API is, so it is NOT a quality ranking and totals are NOT comparable across backends. It can also fall by routing MORE work into one bulk helper — a legitimate lowering, but not more idiomatic. Prefer lowering a construct the runtime handles one call at a time; do not answer the metric by adding a bulk helper.\n'
+                    printf 'Shared core (DO NOT TOUCH): sh2perl/src/shir.rs, sh2perl/src/ir.rs, sh2perl/src/estree.rs, sh2perl/src/parser/\n'
+                    printf 'You may create or edit files inside backends/%s/ and harness/.\n' "$fix_lang"
+                    printf 'If a SHARED-CORE change is required to lower a construct, APPEND a structured request to core-requests/%s-<timestamp>.md per core-requests/README.md and exit 0. Do NOT touch the core.\n' "$fix_lang"
+                    printf '\nWhen done: make the gate STILL green (it must not regress) and commit.\n'
+                  } > /tmp/pi-fix-runtime-$$
+                  wait_for_ram 2048 0.5 30 600 || true
+                  if ! quota_ok "worker"; then
+                    echo "[quota-gate] QUOTA-BLOCKED — skipping runtime-reduction AI" >> "$fix_log" 2>/dev/null || true
+                    exit 0
+                  fi
+                  invoke_ai_with_backoff /tmp/pi-fix-runtime-$$ "$fix_log" || true
+                  rm -f /tmp/pi-fix-runtime-$$
                   exit 0 ;;
   --pi-fix-backend) # internal: invoked by the per-worktree backend worker
                   # when its build FAILS. Uses WORKER_CLI/WORKER_MODEL
