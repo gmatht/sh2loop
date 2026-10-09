@@ -566,8 +566,17 @@ play() { pl_note=$1; pl_mat=$2
 # The queue file is a PARAMETER, not an env var: a transpiled program's
 # `export` never reaches a C device (see fbinput.h), and with FB_KEYS
 # unset the device falls back to evdev / the window.
+# the scripted key queue. $MIMECROFT_KEYS overrides it, and an EMPTY
+# value means "no key file" — fb_input_line then reads a real keyboard
+# (the X window / evdev / the tty), which is what an interactive FBWIN=1
+# run wants. The default file keeps a scripted run reproducible.
 MIMECROFT_KEYS=/tmp/mimecroft-keys
-if [ ! -f "$MIMECROFT_KEYS" ]; then : > "$MIMECROFT_KEYS"; fi
+if [ "$FBWIN" = "1" ] && [ ! -f "$MIMECROFT_KEYS" ]; then
+  # a windowed run with no scripted queue: let the window be the keyboard
+  MIMECROFT_KEYS=""
+else
+  if [ ! -f "$MIMECROFT_KEYS" ]; then : > "$MIMECROFT_KEYS"; fi
+fi
 key_name() {
   # ONE echo per branch, and NO intermediate variable: a global first
   # assigned an empty literal inside a function is emitted as a fixed
@@ -592,7 +601,12 @@ key_name() {
   esac
 }
 # drop any keys queued so far (the WebGL device's `echo clear > key`)
-clear_keys() { : > "$MIMECROFT_KEYS"; }
+clear_keys() {
+  # the WebGL device's `echo clear > key`. A windowed run has no key
+  # file (the window IS the keyboard), so there is nothing to drain —
+  # and truncating "" would touch a file called "" in the cwd.
+  if [ "$MIMECROFT_KEYS" != "" ]; then : > "$MIMECROFT_KEYS"; fi
+}
 
 # ─── Mimes ───────────────────────────────────────────────────────────
 mime_at() { ma_a=$1; ma_b=$2; mf=0; mt=0
@@ -1381,6 +1395,12 @@ setup_webgl() {
       disp_h=${fb_dsz#*x}
       ;;
   esac
+  # NOTE: `fb_window_open` is deliberately NOT called here, and NOT as
+  # `fb_win=$(fb_window_open)` either. A capture of an int-returning
+  # primitive does not lower (fb_capture_sig takes only string results),
+  # so it became a `bash -c` site that opened nothing; and the open
+  # belongs AFTER the size is known and reported, in main(), where its
+  # result is also printed. See main's "window — X11" line.
   fb_frag_flags $CRT_ON $CORRUPT_ON
   fb_frag_view $disp_w $disp_h
   fb_clear 0xFF000000
@@ -4364,12 +4384,22 @@ main() {
   # The WebGL path answered "headless" from /dev/webgl/state (the Node
   # CLI's NullGL device). The native fb0 device always has a surface —
   # a real /dev/fb0, an X window, or a RAM buffer — and always reads
-  # keys (evdev, a tty, the X window, or the $FB_KEYS file), so the game
-  # is never headless here: sound and the pre-game menu are on. A run
-  # that wants a silent, menu-less PPM dump sets FB_DUMP=1.
+  # keys (evdev, a tty, the X window, or the $FB_KEYS file).
+  #
+  # Two ways to run without the interactive pre-game menu, and they are
+  # different intents:
+  #   $FB_DUMP=FILE  a silent headless run that writes the last frame to
+  #                  a PPM (CI, an assertion on the pixels).
+  #   $FBWIN=1       the VIRTUAL FRAMEBUFFER: no /dev/fb0 on this box, so
+  #                  the fb0 device falls back to an X11 window and the
+  #                  game is visible there. It is still a scripted run
+  #                  (no human at the keyboard), so the menu is skipped
+  #                  and keys come from $MIMECROFT_KEYS — but sound stays
+  #                  on, because a person is watching.
   sound=$((1))
   headless=0
   if [ "$FB_DUMP" != "" ]; then sound=$((0)); headless=1; fi
+  if [ "$FBWIN" = "1" ]; then headless=1; fi
   # the stats clock starts at the GAME LOOP, not here: g_total used to
   # include the whole startup phase (shader compile, maze gen, texture
   # + label generation, the "ready." sleep) while no gspan bucket did —
@@ -4414,12 +4444,20 @@ main() {
   # there is no shader to link on the native path: fbdev.c rasterizes the
   # cubes itself. Report the surface we actually got (fb_size is "WxH",
   # or "-1" if fb_open could not open one) so a broken device is visible
-  # once here instead of as a black frame.
+  # once here instead of as a black frame. The WINDOW line is what a
+  # test asserts: "window: X11" with FBWIN=1 means the frames are going
+  # somewhere a person (or a screenshot) can see, "window: none" means
+  # the run is RAM-only and its only output is the $FB_DUMP PPM.
   fb_dsz=$(fb_size)
   case $fb_dsz in
     -1) echo "  !!! fb0: no drawing surface — the 3D view will not render" ;;
     *)  echo "  fb0: native framebuffer ${fb_dsz} (no shader)" ;;
   esac
+  if fb_window_open; then
+    echo "  fb0: window — X11 (virtual framebuffer)"
+  else
+    echo "  fb0: window — none (RAM surface${FB_DUMP:+ → $FB_DUMP})"
+  fi
 
   # the stats window covers the settings menu too: a menu quit (q at
   # the pre-game menu) still reports a stats block with the menu
@@ -4557,6 +4595,13 @@ main() {
       else
         keys=$(key_name)
       fi
+      # the window manager's close button is the game's quit: `if
+      # fb_window_closed` is true exactly when the device returned non-zero,
+      # i.e. a window EXISTS and has been asked to close. On a headless /
+      # PPM run it is always 0, so this never fires. (The device documents
+      # the polarity at fbdev.c; the emitter's fb_status maps "non-zero =
+      # yes" to the same verdict.)
+      if fb_window_closed; then keys="q"; fi
       fx=${DIR_X[$yaw]}
       fz=${DIR_Z[$yaw]}
       bx=$((0 - fx))
