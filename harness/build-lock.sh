@@ -92,10 +92,40 @@ echo "$role $(date +%s)" > "$WAITERS_DIR/$my_pid"
 release() { rm -rf "$LOCK_FILE" 2>/dev/null || rmdir "$LOCK_FILE" 2>/dev/null || true; }
 trap 'rm -f "$WAITERS_DIR/$my_pid"; release' EXIT
 # signal the holder to let go (graceful preemption)
+#
+# NEVER PREEMPT A CORE HOLDER WITH A CORE WAITER. The core role is the only
+# one that preempts at all, and it is also the role that builds on a 180s
+# budget. Two core-role callers therefore deadlock *into a kill*: the waiter
+# waits out its 180s, then SIGTERMs the holder — which is the estree loop
+# ITSELF whenever the loop's own build gate holds the lock while a second
+# core-role build queues behind it. The loop dies mid-gate with no exit line,
+# because the TERM arrives while it is inside a backtick (Perl runs the
+# command in a forked child but the signal still lands on the loop's pid, and
+# the loop has no TERM handler) — logged as nothing at all, which reads
+# exactly like "the estree worker vanished for no reason".
+#
+# Measured 2026-10-10: the supervised estree worker was started five times and
+# died five times, every death inside a gate, with no "child exited" line from
+# supervise.sh (a supervisor restart that never happens) and no DEATH-PROBE
+# output — i.e. SIGKILL- or TERM-with-no-trap. The lock's own `status` file
+# named the holder and `preempt_holder` was the only TERM sender on the box.
+#
+# The escalation exists to break a *backend* build that is hogging the lock,
+# and the prio comparison already expresses that: core (0) outranks backend
+# (2). Preempting another core-role holder buys nothing — the two waiters are
+# peers, and the "winner" is whichever started first. It only destroys work.
+# So: preempt only a strict lower-priority holder, and let a peer keep the
+# lock. The waiter still gives up after timeout+grace with a named error, so
+# a genuine lock wedge is still reported rather than spun on.
 preempt_holder() {
-  local holder
+  local holder holder_role
   holder=$(awk '{print $1}' "$STATUS_FILE" 2>/dev/null || true)
+  holder_role=$(awk '{print $2}' "$STATUS_FILE" 2>/dev/null || true)
   if [[ -n "$holder" && "$holder" != "$my_pid" ]] && kill -0 "$holder" 2>/dev/null; then
+    if [[ "$holder_role" == "core" && "$role" == "core" ]]; then
+      echo "build-lock.sh: [$role] not preempting holder pid $holder — it is also role '$holder_role' (a peer, not a subordinate); the core role must never SIGTERM the estree loop that holds this lock" >&2
+      return 0
+    fi
     echo "build-lock.sh: [$role] preempting holder pid $holder (waited ${timeout}s)" >&2
     kill -TERM "$holder" 2>/dev/null || true
   fi
