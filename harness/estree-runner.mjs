@@ -10,7 +10,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { generate } from './estree-gen.mjs';
 import { BUILTIN_NAMES } from './sh2-namespace.mjs';
 
@@ -91,24 +91,45 @@ const moduleSrc =
   js +
   `\nawait sh2._finish();\n`;
 
-// Scratch dir for prog.mjs — under os.tmpdir(), NOT in the workspace:
-// the corpus compares against `bash` runs from the workspace root, and
+// Scratch dir for prog.mjs — still under os.tmpdir(), NOT in the workspace,
+// even though this process now imports it rather than spawning a second
+// node: the corpus compares against `bash` runs from the workspace root, and
 // tests that walk the tree (`find . -name "*.sh"` in
 // 000__07_find_path_commands.sh) would see the scratch dir; worse, its
-// create/remove churn REORDERS the directory's readdir layout (ext4
-// htree), so the estree walk and the later bash reference walk the same
-// dir in a different order and the stdout comparison fails even though
-// no harness file was touched. /tmp is not listed by any corpus test
-// (only specific files are written there). The program's cwd is the
-// inherited workspace root regardless (no cwd option below).
+// create/remove churn REORDERS the directory's readdir layout (ext4 htree),
+// so the estree walk and the later bash reference walk the same dir in a
+// different order and the stdout comparison fails even though no harness
+// file was touched. /tmp is not listed by any corpus test (only specific
+// files are written there). The program's cwd is the inherited workspace
+// root either way.
+//
+// WHY NO SECOND NODE (measured 2026-10-09): this used to write prog.mjs and
+// then `execFileSync(process.execPath, [modFile])`. A bare node startup is
+// ~36 ms, so that second process cost every example an extra ~70 ms against
+// a ~15-40 ms transpile, perl run and bash run combined. On
+// 000__02_output_formatting_commands.sh the runner went 228 ms -> 87 ms
+// per example by importing in-process, which is ~78 s of pure interpreter
+// startup saved per 555-example pass.
+//
+// A `data:` URL would need no file at all, but Node caches data: URL modules
+// BY CONTENT, so a second identical program would reuse the first module
+// object and silently skip `_init` — a correctness trap for a one-shot CLI
+// that is also called from triage loops. The distinct mkdtemp path keeps
+// every import a fresh module, as the fresh process used to.
+//
+// The exit contract is unchanged: sh2-namespace.mjs installs its own
+// process.exit (flushing stdout first, see its STDOUT_BUF_LIMIT comment), and
+// every exit path — the `exit` builtin, errexit, _finish — ends the process
+// from inside the imported module. The runner only has to supply the default
+// for a program that falls off the end without exiting, which `_finish`
+// normally turns into an exit anyway.
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sh2estree-run-'));
 const modFile = path.join(tmpDir, 'prog.mjs');
 fs.writeFileSync(modFile, moduleSrc);
 
+process.exitCode = 0;
 try {
-  execFileSync(process.execPath, [modFile], { stdio: 'inherit' });
-} catch (e) {
-  process.exit(e.status ?? 1);
+  await import(pathToFileURL(modFile).href);
 } finally {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 }
