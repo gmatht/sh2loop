@@ -5,7 +5,7 @@
 #   source "$WORKSPACE/harness/worker_common.sh"
 #
 # Provides:
-#   - Configurable CLI (pi / pir / cmd) with model + effort
+#   - Configurable CLI (pi / pir / cmd / opencode) with model + effort
 #   - invoke_ai_with_backoff() — exponential retry wrapper
 #   - log_decision() — append to TSV decision log
 #   - generate_decision_report() — append .md decision report
@@ -13,10 +13,12 @@
 #   - check_context_budget() — warn/truncate if prompt is too large
 
 # ── CLI configuration ────────────────────────────────────────────────
-# Which AI CLI to invoke: pi, pir, or cmd.
-#   pi   — opencode-go provider (legacy, limited model catalog)
-#   pir  — featherweight pi-compatible agent (OpenRouter, auto-retry, budget)
-#   cmd  — Command Code headless (full CC catalog, heavier)
+# Which AI CLI to invoke: pi, pir, cmd, or opencode.
+#   pi       — opencode-go provider (legacy, limited model catalog)
+#   pir      — featherweight pi-compatible agent (OpenRouter, auto-retry, budget)
+#   cmd      — Command Code headless (full CC catalog, heavier)
+#   opencode — the OpenCode client (opencode.ai). THE ONLY CLIENT THAT CAN
+#              REACH THE opencode-go FREE TIER; see the block below.
 #
 # DEFAULT IS NOW `cmd` (operator, 2026-10-09). The fleet was switched to
 # Glyph Cluster, and Glyph Cluster is a cmd-catalog model: `pir` has no
@@ -52,6 +54,54 @@ WORKER_CLI="${WORKER_CLI:-cmd}"
 # unknown model. Kept commandcode/-qualified to match ai_invoke.py so the
 # fleet records ONE model string.
 WORKER_MODEL="${WORKER_MODEL:-commandcode/stealth/glyph-cluster:free}"
+
+# ── opencode CLI configuration (added 2026-10-09) ─────────────────────
+# The opencode client is the ONLY one that can call opencode-go's FREE tier.
+# Measured, not assumed:
+#
+#   $ cmd -m longcat-2.5-preview-free   -> Error: unknown model
+#   $ pir -m opencode/longcat-2.5-preview-free
+#         -> HTTP 403: OpenCode's free tier can only be used from within OpenCode
+#   $ curl https://opencode.ai/zen/v1/chat/completions  (no client)
+#         -> {"type":"FreeTierError","message":"OpenCode's free tier can only
+#             be used from within OpenCode"}
+#   $ opencode run -m opencode/longcat-2.5-preview-free  -> OK
+#
+# So the free tier is gated on CLIENT IDENTITY, server-side. cmd reaches
+# opencode-go's PAID models (longcat-2.0, kimi-k3, grok-4.7) but not its free
+# ones; pir is outside the gate entirely.
+#
+# MODEL IDS ARE provider-qualified `provider/model` (note the `opencode/`
+# prefix and NO `:free` suffix — the store's id already ends in -free):
+#   opencode/longcat-2.5-preview-free   free, 1M ctx  (LIMITED TIME promo)
+#   opencode/step-5-preview-free        free, 1M ctx  (LIMITED TIME promo)
+#   opencode/space-bunny-free           free
+#   opencode/ling-3.1-flash-free        free
+# Listing them: `opencode models` (11 ids — NOT `cmd --list-models`, which is
+# Command Code's catalog and does not contain the free tier at all).
+#
+# WARNING: both *_preview_free models are launch promotions ("Limited Time").
+# Treat them as one link in the fallback chain, not a hard fleet pin, and
+# keep WORKER_FALLBACK_MODEL set — the next disruption is a WITHDRAWAL, not a
+# quota reset.
+WORKER_OPENCODE_MODEL="${WORKER_OPENCODE_MODEL:-opencode/longcat-2.5-preview-free}"
+
+# The opencode binary. NOT on the systemd PATH (/usr/bin/opencode and
+# /usr/local/bin/opencode do not exist; only /root/.opencode/bin/opencode
+# does), so a worker launched with a minimal PATH would silently fail every
+# call. Resolve an absolute path with a fallback chain, and let the operator
+# override.
+WORKER_OPENCODE_BIN="${WORKER_OPENCODE_BIN:-}"
+if [ -z "$WORKER_OPENCODE_BIN" ]; then
+  for _oc in /root/.opencode/bin/opencode \
+             "${HOME:-/root}/.opencode/bin/opencode" \
+             /mnt/wsl/projects/home/.opencode/bin/opencode; do
+    [ -x "$_oc" ] && { WORKER_OPENCODE_BIN="$_oc"; break; }
+  done
+  unset _oc
+fi
+WORKER_OPENCODE_BIN="${WORKER_OPENCODE_BIN:-opencode}"
+export WORKER_OPENCODE_BIN
 
 # Reasoning effort. For pi: --thinking. For cmd: --effort. For pir: unused.
 WORKER_EFFORT="${WORKER_EFFORT:-}"
@@ -154,8 +204,37 @@ invoke_ai() {
         cmd "${args[@]}" "$query" >> "$log_file" 2>&1
       fi
       ;;
+    opencode)
+      # `opencode run` is the headless analogue of `cmd -p`. NOT argv-compatible
+      # with cmd: there is no --no-session / --yolo / --tools-all, and the model
+      # is provider-qualified. Measured flags that DO exist (2026-10-09,
+      # `opencode run --help`):
+      #   --format json  NDJSON event stream (step_start/text/tool_use/step_finish)
+      #   -m, --model    provider/model
+      #   --variant      provider-specific reasoning effort (cmd's --effort)
+      #   --dir          directory to run in
+      # --auto is NOT required: verified that write AND bash tools run without
+      # it in `opencode run` (non-interactive) mode. Left off deliberately —
+      # it only governs permissions "not explicitly denied", and the workers
+      # already rely on the fleet's own confinement.
+      local args=(run --format json -m "${WORKER_OPENCODE_MODEL:-$WORKER_MODEL}")
+      [ -n "$WORKER_EFFORT" ] && args+=(--variant "$WORKER_EFFORT")
+      local query
+      query=$(< "$prompt_file")
+      # The prompt is POSITIONAL (like pir, not stdin). MAX_ARG_STRLEN still
+      # applies, so for a large prompt hand over a short instruction to read
+      # the file itself — the same shape the pir branch uses, and for the same
+      # reason (no truncation, but the agent still has a real prompt).
+      if [ ${#query} -gt 100000 ]; then
+        "$WORKER_OPENCODE_BIN" "${args[@]}" \
+          "Read the full task instructions from $prompt_file and carry them out." \
+          >> "$log_file" 2>&1
+      else
+        "$WORKER_OPENCODE_BIN" "${args[@]}" "$query" >> "$log_file" 2>&1
+      fi
+      ;;
     *)
-      echo "[$(date +%FT%T)] ERROR: Unknown WORKER_CLI=$WORKER_CLI (expected pi|pir|cmd)" >> "$log_file"
+      echo "[$(date +%FT%T)] ERROR: Unknown WORKER_CLI=$WORKER_CLI (expected pi|pir|cmd|opencode)" >> "$log_file"
       return 1
       ;;
   esac
@@ -182,7 +261,29 @@ invoke_ai() {
 # surfaces — this must never mask a real failure.
 _quota_wall_in_log() {
   tail -c 4000 "$1" 2>/dev/null | command grep -qaE \
-    'reached today.s limit|free-models-per-day|currently at capacity|GoUsageLimitError|quota.?exhausted'
+    'reached today.s limit|free-models-per-day|currently at capacity|GoUsageLimitError|quota.?exhausted|FreeTierError|is unavailable for free|free tier can only be used'
+}
+
+# ── opencode hard-failure detection ──────────────────────────────────
+# `opencode run` can FAIL and still exit 0. Measured (2026-10-09):
+#
+#   $ opencode run -m opencode/nonexistent-model 'hi'          -> rc=1
+#   $ opencode run -m opencode/ling-3.0-flash-fin-free 'hi'    -> rc=1
+#       "Error: Upstream request failed: Model is unavailable."
+#       + "Error: {"name":"UnknownError", ...}" on stderr
+#   $ opencode run -m opencode/longcat-2.5-preview-free 'hi'  -> rc=0
+#
+# (The earlier rc=0 reading was a pipeline artifact: `... | tail` reports
+# tail's status, not opencode's. Measured without a pipe, opencode exits
+# NON-ZERO on a failed turn — so unlike cmd's glyph wall, rc IS a usable
+# signal here. This helper is the belt-and-braces check for the case where a
+# failure prints but the exit status is masked by a wrapper.)
+#
+# The distinction that matters: a genuine model/upstream error must RETRY
+# (or fall back), never be silently accepted as a successful turn.
+_opencode_failed_in_log() {
+  tail -c 4000 "$1" 2>/dev/null | command grep -qaE \
+    '^Error: |"name":"UnknownError"|Model is unavailable|Upstream request failed'
 }
 
 # ── invoke_ai_with_backoff ───────────────────────────────────────────
@@ -211,7 +312,14 @@ invoke_ai_with_backoff() {
     # /root/bin/pir 0.1.6; pir's real exit code here is 1).
     local rc=0
     if invoke_ai "$prompt_file" "$log_file"; then
-      return 0
+      # `opencode` can print a hard error and still exit 0 through a pipeline
+      # (measured — see _opencode_failed_in_log). Treat that as a failure so it
+      # retries instead of being banked as a successful turn.
+      if [ "$WORKER_CLI" = "opencode" ] && _opencode_failed_in_log "$log_file"; then
+        rc=1
+      else
+        return 0
+      fi
     else
       rc=$?
     fi
@@ -220,15 +328,31 @@ invoke_ai_with_backoff() {
     # Daily-quota wall: switch the model ONCE rather than retrying a request
     # that cannot succeed until the window resets. Checked before the generic
     # retry so the switch is immediate, not after a 300s backoff.
-    if [ "${_fallback_used:-0}" = "0" ] && [ -n "${WORKER_FALLBACK_MODEL:-}" ] \
-       && [ "$WORKER_FALLBACK_MODEL" != "$WORKER_MODEL" ] \
-       && _quota_wall_in_log "$log_file"; then
-      echo "[$(date +%FT%T)] fallback: $WORKER_MODEL hit a daily quota wall (rc=$rc) — switching this worker to $WORKER_FALLBACK_MODEL" >> "$log_file"
-      WORKER_MODEL="$WORKER_FALLBACK_MODEL"
-      export WORKER_MODEL
-      _fallback_used=1
-      delay=$BACKOFF_BASE
-      continue
+    #
+    # The fallback target must be reachable BY THE SAME CLIENT. For opencode,
+    # WORKER_FALLBACK_MODEL (ollama-cloud/…) is NOT in the opencode catalog, so
+    # switching to it would trade a quota wall for an unknown-model error on
+    # every subsequent call. Fall back WITHIN the opencode free tier instead.
+    if [ "${_fallback_used:-0}" = "0" ] && _quota_wall_in_log "$log_file"; then
+      if [ "$WORKER_CLI" = "opencode" ]; then
+        # A second free opencode-go model, not the cross-provider fallback.
+        local oc_fb="${WORKER_OPENCODE_FALLBACK_MODEL:-opencode/step-5-preview-free}"
+        if [ "$oc_fb" != "${WORKER_OPENCODE_MODEL:-$WORKER_MODEL}" ]; then
+          echo "[$(date +%FT%T)] fallback: ${WORKER_OPENCODE_MODEL:-$WORKER_MODEL} hit a quota wall (rc=$rc) — switching this worker to $oc_fb" >> "$log_file"
+          WORKER_OPENCODE_MODEL="$oc_fb"
+          export WORKER_OPENCODE_MODEL
+          _fallback_used=1
+          delay=$BACKOFF_BASE
+          continue
+        fi
+      elif [ -n "${WORKER_FALLBACK_MODEL:-}" ] && [ "$WORKER_FALLBACK_MODEL" != "$WORKER_MODEL" ]; then
+        echo "[$(date +%FT%T)] fallback: $WORKER_MODEL hit a daily quota wall (rc=$rc) — switching this worker to $WORKER_FALLBACK_MODEL" >> "$log_file"
+        WORKER_MODEL="$WORKER_FALLBACK_MODEL"
+        export WORKER_MODEL
+        _fallback_used=1
+        delay=$BACKOFF_BASE
+        continue
+      fi
     fi
 
     echo "[$(date +%FT%T)] $WORKER_CLI failed (rc=$rc, attempt $attempt), retry in ${delay}s" >> "$log_file"
