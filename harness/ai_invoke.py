@@ -251,8 +251,33 @@ def parse_result_line(line: str) -> dict | None:
     }
 
 
+# cmd's `-p` mode caps conversation turns and EXITS 8 WHEN THE CAP IS HIT:
+#   --max-turns <number>  Cap conversation turns in -p mode (default 100; exit 8 on cap-hit)
+#
+# WHY WE MUST PASS IT (observed 2026-10-09, and misread as a broken fallback).
+# Leaving the default in place made rc=8 look like a failing call — 19 of the
+# last 20 invocations logged rc=8, which reads as "the ollama fallback is
+# broken". It is not: rc=8 is the CAP-HIT signal, and a direct reproduction of
+# the worker's exact argv (real prompt, worker cwd) did 16+ turns of real tool
+# use and edited c_backend.rs before the cap stopped it. The fleet's tasks are
+# whole-backend refactors ("lower 19,911 runtime delegations across 560 files,
+# keep the gate green") that cannot fit in 100 turns, so EVERY call was exiting
+# partway through with the work unlanded.
+#
+# 400 is chosen against the observed shape, not guessed: ~100 turns already
+# exhausted a single prompt's budget, so the ceiling has to be well clear of it
+# while still bounding a runaway loop. It is env-overridable so an operator can
+# tune it per box without editing this file.
+DEF_MAX_TURNS = os.environ.get("WORKER_MAX_TURNS", "400")
+
+
 def cmd_argv(model: str, effort: str) -> list[str]:
-    argv = ["cmd", "-p", "--no-session", "--yolo", "--model", model, "--output-format", "json", "--tools-all"]
+    argv = [
+        "cmd", "-p", "--no-session", "--yolo",
+        "--model", model,
+        "--output-format", "json", "--tools-all",
+        "--max-turns", DEF_MAX_TURNS,
+    ]
     if effort:
         argv += ["--effort", effort]
     return argv

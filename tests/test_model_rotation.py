@@ -210,6 +210,33 @@ class TestTelemetry(Base):
         parsed = ai_invoke.parse_result_line(json.dumps({"type": "result", "usage": {"inputTokens": "lots"}}))
         self.assertEqual(parsed["tokens"]["input"], None)
 
+    def test_cmd_argv_passes_max_turns(self):
+        """cmd -p EXITS 8 when its turn cap is hit.
+
+        Leaving the default (100) made rc=8 read as a broken fallback — 19 of
+        20 invocations logged rc=8 while the model was actually doing real
+        tool use and simply running out of turns on a whole-backend refactor.
+        The cap must be passed explicitly and be well clear of 100.
+        """
+        argv = ai_invoke.cmd_argv(SB, "")
+        self.assertIn("--max-turns", argv)
+        turns = int(argv[argv.index("--max-turns") + 1])
+        self.assertGreater(turns, 100)
+
+    def test_max_turns_is_env_overridable(self):
+        import importlib, os
+        old = os.environ.get("WORKER_MAX_TURNS")
+        os.environ["WORKER_MAX_TURNS"] = "77"
+        try:
+            mod = importlib.reload(ai_invoke)
+            self.assertIn("77", mod.cmd_argv(SB, ""))
+        finally:
+            if old is None:
+                del os.environ["WORKER_MAX_TURNS"]
+            else:
+                os.environ["WORKER_MAX_TURNS"] = old
+            importlib.reload(ai_invoke)
+
     def test_run_end_nextstate_blob_is_stripped(self):
         # cmd's run_end frame carries the whole workspace git status + message
         # history. Echoing it unbounded is the GB-scale log incident class.
