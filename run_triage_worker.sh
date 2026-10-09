@@ -146,10 +146,29 @@ sync_gui_gate() {
   fi
 }
 
+# The backend worker's supervisor pid lives in TWO possible places, because
+# there are two launch paths and they do not agree:
+#   * systemd units (systemd/sh2backend-*.service) pass
+#       --pidfile $ROOT/loop-backend-<be>.pid            (the ROOT path)
+#   * setup_backends.sh --start-workers / --start-backend-worker write
+#       $BT/<be>/loop-backend-<be>.pid                  (the WORKTREE path)
+# This check used to look ONLY at the worktree path, so on a systemd boot —
+# where every backend unit writes the root pidfile — triage concluded no
+# backend worker existed and ran --backend-worker-once for every backend on
+# every cycle (observed 2026-10-10, first fleet start after a WSL reboot:
+# duplicate perl/direct gates queueing behind the real worker's .gate.lock).
+# Check BOTH; a worker is alive if EITHER pidfile names a live process.
+backend_worker_alive() {  # be
+  local be="$1"
+  worker_alive "$WORKSPACE/loop-backend-$be.pid" && return 0
+  worker_alive "$WORKSPACE/sh2perl/backends/$be/loop-backend-$be.pid" && return 0
+  return 1
+}
+
 takeover_backends() {
   local be
   for be in $(bash "$WORKSPACE/harness/triage.sh" --list-backends 2>/dev/null || true); do
-    if ! worker_alive "$WORKSPACE/sh2perl/backends/$be/loop-backend-$be.pid"; then
+    if ! backend_worker_alive "$be"; then
       echo "[$(date +%FT%T)] backend $be worker NOT running — triage taking over" >> "$LOG"
       bash "$WORKSPACE/setup_backends.sh" --backend-worker-once "$be" >> "$LOG" 2>&1 || true
     fi
