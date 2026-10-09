@@ -80,8 +80,15 @@ headless=1            # no surface/menu — set from $FB_DUMP in main()
 # shader's pixel effects (fx-400 CRT/vignette) need the view width, so
 # emit_fragment_shader re-compiles with --view <width> on a change.
 disp_size=7              # 7=AUTO (3/4 of the window) is the DEFAULT canvas size
-disp_w=800
-disp_h=600
+# the surface size, kept in sync with the DEVICE (see set_display_size /
+# setup_webgl). The initializer is a PADDED STRING and that is
+# load-bearing, not cosmetic: a variable's C buffer is sized from its
+# first top-level assignment, so `disp_w=800` emits `char disp_w[4]` (3
+# digits + NUL) and a later `disp_w=1920` is then truncated to "192" —
+# every 1080p/1440p preset silently became a 3-digit width. The 5-byte
+# literal reserves room for four digits plus the NUL.
+disp_w="0800"
+disp_h="0600"
 # difficulty — the MIMEs spawned when a treasure is claimed (the menu's
 # DIFFICULTY row): 0 "My uptime's too low to pkill" 1 "hey -c '!2 rough'"
 # 2 "while true; do Hz me; done" 3 "sk_hard" 5 "rm -rf /" (4 has no name)
@@ -447,7 +454,12 @@ cache_sound() { cs_name=$1
   # across a `.` boundary yet, so the lib is inlined into ONE chunk).
   # The staged file is also valid bash, so host bash runs it identically.
   cs_base=$cs_name
-  cs_mat=""
+  # the material name ("stone"/"dirt"/...) that sound-hit.sh branches on.
+  # The initializer is a PADDED STRING: a bare `cs_mat=""` emits
+  # `char cs_mat[1]`, so the very next `cs_mat=${cs_name#hit-}` was
+  # truncated to one byte and EVERY bash-mode hit played as the empty
+  # material (the whole material ladder collapsed to one sound).
+  cs_mat="........"
   case $cs_name in
     hit-*) cs_base="hit"; cs_mat=${cs_name#hit-} ;;
   esac
@@ -1353,10 +1365,22 @@ emit_fragment_shader() {
 }
 
 setup_webgl() {
-  # the surface + the effect switches. The device keeps its own block
-  # textures and shades them per pixel, so there is nothing to link,
-  # bind or buffer: the cube geometry and face shades live in fbdev.c.
+  # OPEN FIRST, THEN ASK WHAT WE GOT. On a real /dev/fb0 the device adopts
+  # the HARDWARE geometry and ignores the requested size (fbdev.c:
+  # fb_try_dev does `S_w = v.xres; S_h = v.yres`), so opening with the
+  # script's preset and then believing it is how the whole port ends up
+  # drawing to 800x600 while the framebuffer is, say, 1920x1080. Read the
+  # size back AFTER the open and make disp_w/disp_h the truth — the
+  # fragment view and the settings readout both have to agree with the
+  # surface, not with the request.
   fb_open $disp_w $disp_h
+  fb_dsz=$(fb_size)
+  case $fb_dsz in
+    *x*)
+      disp_w=${fb_dsz%x*}
+      disp_h=${fb_dsz#*x}
+      ;;
+  esac
   fb_frag_flags $CRT_ON $CORRUPT_ON
   fb_frag_view $disp_w $disp_h
   fb_clear 0xFF000000
@@ -3257,11 +3281,13 @@ gspan() {
 # happened < 2s ago, so the menu shows the canvas (first swap) and keeps
 # swapping. W/S select · A/D change · SPACE start · Q quit.
 
-# set disp_w/disp_h from the DISPLAY row and write the new canvas size to
-# the native fb0 surface size (fb_resize + a fb_size read-back). The
-# 3D view + HUD are NDC-based, so they re-render at the new resolution;
-# only the fragment stage's pixel-space effects (CRT/vignette) need the
-# canvas width, which fb_frag_view carries.
+# the script's disp_w/disp_h track the REAL surface, which on a
+# /dev/fb0 is the hardware's geometry, not the requested one. So this
+# only ever REQUESTS a size when the surface is ours to size (the RAM /
+# X11 backends); on a real framebuffer the request is a no-op and the
+# read-back is what makes disp_w/disp_h true. fb_size is "-1" before the
+# first fb_open, which is the "no surface yet" case: keep the preset and
+# let setup_webgl adopt the real geometry once it opens.
 set_display_size() {
   case $disp_size in
     0) disp_w=568; disp_h=320 ;;
@@ -3271,34 +3297,37 @@ set_display_size() {
     4) disp_w=1920; disp_h=1080 ;;
     5) disp_w=2560; disp_h=1440 ;;
     7|*)
-      # AUTO / FULL WINDOW: the WebGL device resolved "3/4 of the window"
-      # or "the whole window". The native device has no window manager to
-      # ask — it is a real /dev/fb0 or an X window of a chosen size — so
-      # AUTO means "whatever the surface already is". fb_size reports the
-      # ACTUAL dimensions ("-1" before fb_open), so a surface that is
-      # already open keeps its size and a fresh run gets a sane default.
-      disp_sz=$(fb_size)
+      # AUTO / FULL WINDOW: the WebGL path asked the browser for a
+      # fraction of the window. The native device has no window manager
+      # to ask, so AUTO = the surface's CURRENT size when one is open,
+      # and the 800x600 default otherwise (setup_webgl adopts the real
+      # geometry right after it opens).
       disp_w=800
       disp_h=600
+      disp_sz=$(fb_size)
       case $disp_sz in
         *x*)
           disp_w=${disp_sz%x*}
           disp_h=${disp_sz#*x}
+          return
           ;;
       esac
       return
       ;;
   esac
-  # the named presets resize the surface; the read-back keeps disp_w/h
-  # truthful if the device clamped anything
-  fb_resize $disp_w $disp_h
-  disp_sz=$(fb_size)
-  case $disp_sz in
-    *x*)
-      disp_w=${disp_sz%x*}
-      disp_h=${disp_sz#*x}
-      ;;
-  esac
+  # only resize an OPEN, non-hardware surface: opening the real /dev/fb0
+  # adopts its geometry and cannot be resized to a preset, so asking
+  # would be a lie the read-back would then have to correct anyway.
+  if [ "$disp_size" -ne 7 ]; then
+    fb_resize $disp_w $disp_h
+    disp_sz=$(fb_size)
+    case $disp_sz in
+      *x*)
+        disp_w=${disp_sz%x*}
+        disp_h=${disp_sz#*x}
+        ;;
+    esac
+  fi
 }
 
 settings_inc() {
