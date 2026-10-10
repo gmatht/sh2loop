@@ -12,6 +12,58 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v51: **The fb0 device NODE (the run-time half of the fb0 mechanism).**
+>   bash-O4's fb0 "device" was a build artefact only — `src/devices.rs`
+>   materialises the device's C *sources* into a content-addressed cache
+>   dir for the linker's `-I` — so with no `/dev/fb0` on the box a shell
+>   writing pixels, or a program opening the path, found nothing.
+>   `bash-o4/src/fbnode.rs` publishes the node: ONE regular file at the
+>   device path, `w*h*4` ARGB in the device mapping's layout (not the PPM
+>   dump's), so `cat frame.raw > /dev/fb0` / `cat /dev/urandom > /dev/fb0`
+>   / `cat /dev/zero > /dev/fb0` do what they say; `to_ppm`/`from_ppm`
+>   bridge to `fb_dump_ppm`'s P6 layout, so a drawn frame can be written
+>   into the node. Driver `--publish-fb0[=PATH]` / `--dump-fb0[=PATH]`,
+>   `$FB0_GEOM`/`$FB0_NODE`/`$FB0_DEV`. **`/dev/fb0` has NO sub-files** —
+>   the `/dev/fb0/blocks` lines in `MIMEcroft_fb.sh` are the pre-port
+>   spelling the `fbdev-gpu` transform lifts and rewrites to an
+>   in-process `fb_blocks(payload)` call; a per-verb node models
+>   something that never runs (an earlier attempt did, and was stopped).
+>   The boundary is asserted, not assumed: a userspace node serves pixel
+>   writers but not `fb_try_dev`, which needs the fb ioctls + `mmap` and
+>   correctly gets `ENOTTY` and falls back. Also fixed a real bug this
+>   surfaced (`sh2perl` dacf1d585): `fb_clear 0xFF204060` lowered to
+>   `(int)atoll("0xFF204060")` = 0, so all five `fb_clear 0xFF000000`
+>   sites in `MIMEcroft_fb.sh` cleared to transparent black. See §11.14.
+> - v50: **The fb0 port of MIMEcroft, and the fbdev fragment stage measured
+>   as a GPU candidate.** The design: bash writes **structured text to
+>   device files** and bash-O4 swaps the device. The WebGL device is
+>   `sh2runtime/src/fs/webgldev.js:3` (Plan 9-style: every GPU resource a
+>   file); the WebGL game is `sh2runtime/www/bin/mimecroft.sh` (4,990
+>   lines, 92 `/dev/webgl` sites); the fb0 port is
+>   `sh2runtime/tools/fb0/mimecroft-fb0.sh`, **generated** by
+>   `sh2runtime/tools/fb_substitute.py`, which maps each `/dev/webgl/*`
+>   write to an `fb_*` call of the same shape (re-run here: `72 writes,
+>   11 reads`, output byte-identical to the committed port). **Two
+>   orthogonal layers, and earlier revisions of this entry wrongly
+>   collapsed them:** the *device swap* is implemented (drawing moved off
+>   the GPU onto a CPU rasterizer); the *GPU leg* — `bash → ShIR → C →
+>   tcc`, with hot loops → Vulkan compute (§4.4's `_sh_gpu_dispatch` host
+>   split, §4.2 stage ⑤, and "gpu-prep passes" at stage ②) — is specified
+>   but its emit half **"remains"** unimplemented, so `_sh_gpu_*` exists
+>   nowhere in the tree. Candidacy's `body-redirect` veto
+>   (`candidacy.rs:599`) excludes a loop whose *body* does device I/O; it
+>   is **not** a prohibition on lifting a device write *into* a GPU
+>   operation, which is the transform this entry's session was asked to
+>   build and which has no home yet. Full mechanism:
+>   **`sh2runtime/docs/fb0-port.md`** (new this revision); this repo's
+>   §11.14 records only the bash-O4-side consequences. Positive findings:
+>   a full range proof over `frag_pixel` (largest intermediate 255,000, so
+>   the i64-in-two-ints pack is not a blocker; the `tr>255` clamp at
+>   `fbdev.c:294` is load-bearing), and the real blocker is the `double`
+>   texture UV in `frag_sample`, fixable with fixed-point ints — but
+>   `tools/fbdev-frag.py` uses Python floats and would flag a correct
+>   fixed-point rewrite as a regression, so a new oracle is required
+>   first. Details in §11.14. No code changed.
 > - v49: **A provider 429 no longer marks a worker TRAPPED, and a trap can no
 >   longer sleep forever.** The perl worker produced nothing for 6.5 h on
 >   2026-09-29 and looked dead; it was **asleep by design** behind
@@ -2221,4 +2273,223 @@ into naming a node nothing renders). Each candidate must still be
 corpus-proven byte-exact per backend before it is offered (the doc's
 extended guardrail; e.g. `wc -l → Split+ArrayLen` is off-by-one on the
 trailing newline, so it is only offered to backends that accept it).
+
+### 11.14 The fb0 port of MIMEcroft, and the fragment stage as a GPU candidate
+
+Recorded 2026-10-09 after a session that began as "can we port fbwin to
+bash?". **No code was changed to write this.** The port itself and its
+full mechanism are documented in `sh2runtime/docs/fb0-port.md`, which owns
+that description; this section records only what bears on the bash-O4
+side.
+
+**The design.** MIMEcroft never writes pixels. It writes **structured text
+to device files** (`echo "$blk_p" > /dev/webgl/blocks`,
+`echo "swap" > /dev/webgl/call`) and a device interprets them — Plan
+9-style. The WebGL device is `sh2runtime/src/fs/webgldev.js:3`; the native
+one is `sh2perl/runtime/fbdev.h:1` ("A native (no WebGL) sink for a shell
+script's draw calls"), with **three surfaces in order of preference**:
+a real `/dev/fb0` mmapped (`fbdev.c:958`, `fb_try_dev(dev ? dev :
+"/dev/fb0", w, h)` with `FBIOGET_VSCREENINFO` + `mmap`), else an X11 window
+(`fbwin.c`), else RAM dumped as a PPM.
+
+**Two layers, and they are orthogonal — do not collapse them.**
+
+*The device swap (implemented).* The fb0 port moves the drawing off the
+GPU: a WebGL device replaced by a CPU rasterizer that mmaps a framebuffer.
+`fbdev.c` has no GL/EGL/Vulkan call, by design. It is generated by
+`sh2runtime/tools/fb_substitute.py`, a rule table mapping each
+`/dev/webgl/*` write to the `fb_*` primitive of the same shape; re-run here
+it reports `72 writes, 11 reads` and reproduces the committed port
+byte-for-byte.
+
+*The GPU leg (specified, emit-half unimplemented).* bash-O4 is a compiler
+whose stated end state is `bash → ShIR → C → tcc → native binary`, with
+"hot pure-compute loops → Vulkan compute shaders (SPIR-V)" hanging off it
+(`docs/BASH-O4.md`, executive summary). **§4.4** ("Codegen: host split +
+device shader") is where the C backend would emit an
+`_sh_gpu_dispatch(...)` call site per candidate loop, SPIR-V blob beside
+it and the CPU loop always emitted as the correctness firewall; §4.2
+stage ⑤ names the same emit, §4.2 stage ② names "gpu-prep passes (§4.3)"
+as the transforms step, and the status note records that this dispatch
+**"remains"** — designed, not built. `_sh_gpu_*` has no implementation in
+the tree today.
+
+**Where device writes sit in that.** Candidacy's rule 2 vetoes
+`body-redirect` (`bash-o4/src/candidacy.rs:599`) — a loop whose *body
+performs* device I/O cannot be offloaded as-is. That is a statement about
+loop bodies, **not** a prohibition on a device write being *lifted into* a
+GPU operation; those are different transformations, and conflating them
+would wrongly rule out the lift. The loop-level shader axis is described
+separately in `sh2runtime/WRITING_GPU_SHADERS_IN_BASH.md:23`: *"if your
+bash needs a process, a file, or an external binary, it cannot run on a
+GPU"* — precisely the constraint a device-write rewrite must work within,
+since a device write *is* a file operation.
+
+**Status of the port: do not overstate it.** Startup, the shader report,
+all 16 block textures, the treasure labels, per-frame key reads, the render
+loop and a clean `q` exit are verified by running it. A **scored
+playthrough is not**, and there is **no byte-exact oracle yet**. The
+equivalence suite that would supply one is
+`sh2runtime/mimecroft-fb-equivalence.sh` (25 scripted walks, diffing real
+bash + `fbrefr` against the bash-O4 build). At least three variants of the
+program now exist across the two repos — the WebGL source, the generated
+port, and the suite's oracle — so future work should name which one it
+means; `wc -l` and a function count tell them apart, and the READMEs do
+not (one size table in `sh2runtime/tools/fb0/README.md` had gone stale and
+has been corrected).
+
+
+**Why the fragment stage cannot be submitted as it stands.**
+`candidacy::analyze` takes an `IrProgram` (`bash-o4/src/candidacy.rs:61`),
+fed by `pipeline::parse_to_shir` (`cli.rs:184`) — it never sees C. The
+fragment stage is `frag_pixel` in `sh2perl/runtime/fbdev.c:278`, which is
+hand-written C compiled by tcc. The shell *does* drive the device (that
+is the design — `fb_blocks`' payload), but the per-pixel arithmetic is on
+the far side of the boundary, inside the C device, so there is no ShIR
+loop for candidacy to see and no verdict is produced. `--check` reports
+on the transpiled *script's* loops and never on the device's. The
+script's own draw loops are no help
+either: they are `while [ … ]` shapes, which `walk_stmts` explicitly
+skips ("`While`/`DoWhile` are not counted shapes").
+
+**The range proof, and what it settles.** Enumerated every intermediate
+in `frag_pixel` (`fbdev.c:290-331`) against the input domains the code
+actually establishes — `tr/tg/tb` 0..255 (`fb_texture:164` clamps),
+`shade` 500..1000 (`fbdev.c:841`'s aShade table, ×1000),
+`damage` 0..level (a `bhp` hit counter, `bhp_inc` adds 1), `ca` 0..255
+(`uint8_t`), canvas ≤ 1920×1080:
+
+| intermediate | max | fits i32 |
+|---|---|---|
+| `tr*shade` | 255,000 | ✓ |
+| `r = tr*tex_r/128` | 508 | ✓ |
+| `r*90/100` | 229 | ✓ |
+| `mix = damage*ca/4` (damage ≤ 256 assumed) | 16,320 | ✓ |
+| `(r-cr)*mix/128` | 32,385 | ✓ |
+| `r*dim/256` (dim ≤ 30) | 29 | ✓ |
+| `hash = px*7+py*13` | 27,480 | ✓ |
+| vignette `vx+vy` | 1,500 | ✓ |
+
+Largest intermediate **255,000** (≈8,400× inside i32). Note `tr` is
+clamped to ≤255 at `fbdev.c:294` **before** `r = tr*tex_r/128` at
+`:299`, so that product is at most 508 — NOT the ~508,000 a naive
+`255000*255/128` would give. The clamp is load-bearing for the bound.
+
+**The i64-in-two-ints pack is therefore NOT a prerequisite for
+this candidate** — `docs/BASH-O4.md:108,143` lists it as the blocker for
+GLSL integers generally, but `frag_pixel`'s values never leave i32, and
+GLSL ES 3.00 `int` division truncates identically to C's on positive
+operands. Recorded so nobody adds the pack later "for safety".
+
+**The one real blocker: `u,v` are `double`.** Everything above is
+integer; the sole non-integer is the texture UV in `frag_sample`
+(`fbdev.c:224`): `u = u - (double)(long)u; iu = (int)(u * t->size);`.
+Under GLSL that is two behaviour changes — `(double)(long)u` truncates
+toward zero while `fract()` is `x - floor(x)` (differ by 1.0 on the
+negative UVs a clipped face interpolates), and a GPU float→int
+conversion is implementation-defined where C's is not. Note the *overlay*
+path already does this the integer way
+(`fbdev.c:764-765`: `tu = (x - corners[0]) * t->size / (corners[2] - …)`),
+so the fix is to make the world path match the overlay path: carry UV as
+fixed-point `int`, removing the double from `frag_sample`, `tri_shaded`,
+`frag_pixel` and `fb_frag_color` (~40 lines of C).
+
+**The oracle problem, which must be resolved before the fix.**
+`sh2perl/runtime/tools/fbdev-frag.py` is written from the shader in
+Python **floats**; it would agree with today's double implementation and
+**report a correct fixed-point rewrite as a regression** at exactly the
+negative-UV and rounding edges. It is the wrong oracle for that step.
+The right ones are `fbwin-oracle.c` (reads real pixels back through the
+X server, a separate process — "agrees with itself proves nothing about
+the blit") plus a *new* fixed-point reference written from the shader
+independently, per that file's own "two programs that agree because they
+share a bug is not a test".
+
+**Sequencing, if this is picked up.** (1) add the fixed-point reference
+oracle; (2) transcribe `frag_sample`/`tri_shaded`/`frag_pixel` to integer
+UV and verify against `fbwin-oracle` readback; (3) inline or lift
+`frag_sample` so candidacy rule 2 can see its body (it is pure and
+affine-indexed, which rule 4 permits); (4) only then does the loop become
+submittable — and it is then the *best* candidate in the tree: a bounded
+2D loop of pure integer arithmetic, with an existing independent oracle
+and a byte-exactness requirement that GPU integer semantics satisfy more
+easily than C doubles do.
+
+**The bash-port question that started this.** `MIMEcroft_fb.sh` as
+shipped cannot run under plain bash: 95 call sites of `fb_*` primitives
+that exist only as C in `sh2perl/runtime/{fbdev,fbwin,fbinput,fbsound}.c`,
+and `sh2perl/src/c_backend.rs:19000` records that an unlowerable `fb_*`
+call falls back to a `bash -c` site that "cannot work, since fb_* are
+not executables, so the frame came out black".
+
+**This does not contradict the original design — it is a consequence
+of how it was realised.** The `fb_*` primitives ARE the `/dev/fb0`
+write mechanism: `fb_open` mmaps the framebuffer (`fbdev.c:958`) and
+`fb_present` writes the frame into it. The design decision was to put
+that device in C and have the transpiler lower the shell's draw calls to
+in-process calls, rather than have bash `printf` raw pixels. So
+"MIMEcroft renders to /dev/fb0" is true, and "MIMEcroft_fb.sh runs under
+plain bash" is false, for the same reason: the device is C.
+
+The remaining obstacle to a pure-shell variant is `fbwin.c`'s
+`dlopen("libX11.so.6")`, which bash cannot do at all; the `/dev/fb0`
+surface itself needs no such thing, so a bash-only path would have to
+target fb0 (or the `$FB_DUMP` PPM) and give up the window. The only
+non-rewrite path for the full program is to compile the device once and
+drive it from bash via `$FB_DUMP`/`$FB_KEYS` or a FIFO.
+
+**The node half of that mechanism (implemented 2026-10-10).** The last
+paragraph's "compile the device once and drive it" leaves one gap: on a
+box with no `/dev/fb0` the path does not exist at all, so a shell that
+writes pixels — or a program that opens the path before falling back —
+finds nothing there. The fb0 "device" in bash-O4 was only a BUILD
+artefact (`src/devices.rs` materialises the device's C SOURCES into a
+content-addressed cache dir for the linker's `-I`); there was no run-time
+node.
+
+`bash-o4/src/fbnode.rs` adds one:
+`publish(PATH)` creates a single regular file at the device path, sized
+`w*h*4` and holding ARGB pixels in the device mapping's own layout (not
+the PPM dump's), so `cat frame.raw > /dev/fb0`, `cat /dev/urandom >
+/dev/fb0` and `cat /dev/zero > /dev/fb0` all do what they say.
+`to_ppm`/`from_ppm` bridge to the P6 layout `fb_dump_ppm` produces, so a
+drawn frame can be written into the node and the two are interchangeable
+at the file level. Geometry comes from `$FB0_GEOM` (default 320x240); the
+path from `$FB0_NODE` > `$FB0_DEV` (the C device's own override) >
+`/dev/fb0`. Driver: `--publish-fb0[=PATH]` and `--dump-fb0[=PATH]`, with
+a JIT run publishing best-effort when the path is absent.
+
+**`/dev/fb0` has NO sub-files.** The `/dev/fb0/blocks` and
+`/dev/fb0/overlay` lines in `MIMEcroft_fb.sh` are the pre-port SPELLING:
+the `fbdev-gpu` transforms (`sh2perl/src/transforms/fbdev_gpu.rs`) lift
+those writes into `GpuOp` nodes and rewrite them back to one in-process
+`fb_blocks(payload)` call, "the Plan 9 spelling at direct-call speed"
+(`MIMEcroft_fb.sh:24`). They are not a filesystem contract, and a node
+that served a verb per path segment would be modelling something that
+never runs. An earlier attempt in this session did exactly that and was
+stopped.
+
+**The boundary, asserted rather than assumed.** A userspace node serves
+pixel writers but NOT `fb_try_dev`, which requires
+`FBIOGET_FSCREENINFO`/`FBIOGET_VSCREENINFO` and then `mmap`: a regular
+file — and even `/dev/null` — answers `ENOTTY`, and the device correctly
+falls back to its RAM surface. That rejection is load-bearing, because a
+device that mmapped an ordinary file would mis-stride every row that is
+not `line_length`-padded. This WSL2 box cannot have a kernel-backed node
+(no `/proc/fb`, no framebuffer resource, and only `hyperv_fb`, which
+registers but makes no node), so the userspace node is the whole of what
+"a device node" can mean here. `node_is_not_a_kernel_framebuffer` is the
+tripwire.
+
+**A real bug this surfaced (fixed).** Probing the node end to end showed
+`fb_clear 0xFF204060` clearing to black: the `'i'` coercion in
+`c_backend.rs`'s `fb_call_opt` routes a string word through `value_num`,
+whose fallback is `(int)atoll(...)`, and `atoll` stops at the `x` and
+returns 0. All five `fb_clear 0xFF000000` sites in `MIMEcroft_fb.sh` were
+affected. It survived because opaque black and black-under-a-blit-that-
+ignores-alpha are the same frame; a colour with a nonzero low byte is
+visibly wrong. Hex literals now parse as hex
+(`sh2perl` dacf1d585), pinned by
+`fb_clear_hex_literal_lowers_as_a_number`, which fails without the hunk.
+
 
