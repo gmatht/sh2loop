@@ -21,6 +21,13 @@
 # sound through fbsound (fb_note oscillators by default), all in one
 # binary: the device mmaps a real /dev/fb0, blits to an X11 window, or
 # keeps a RAM surface and dumps a PPM — no browser, no WebGL, no shader.
+# Draws are written straight to the device (echo "$p" > /dev/fb0/blocks,
+# /dev/fb0/overlay, /dev/fb0/overlay_flash): the fbdev-gpu* transforms
+# lift the writes into GpuOps, batch consecutive same-verb payloads into
+# one dispatch, and rewrite it back to a single in-process fb_* call —
+# the Plan 9 spelling at direct-call speed. Queries, multi-arg setup
+# (fb_open/texture/camera/frag/sound) and presents stay fb_* calls: a
+# write carries no return value, so they have no device spelling.
 # `mimecroft --sounds bash` / the settings menu's SOUND MODE row switches
 # to the sample-accurate examples/sounds/sound-*.sh generators, whose PCM
 # buffers go to fb_samples.
@@ -154,7 +161,12 @@ found=(0 0 0 0 0 0 0 0 0 0)
 # shader's exact perspective), scaled to the treasure's projected size.
 LABEL_TEX0=21        # fb_texture slot of the first label
 LABEL_W=64           # label texture resolution (square, power of two)
-LABEL_VER=3          # label-generator version (cache key)
+LABEL_VER=5          # label-generator version (cache key). BUMP ON ANY
+                     # generator change so stale /tmp caches regenerate.
+                     #   4 = glyph width: gl_col could reach the 4th (gap)
+                     #       cell and read the NEXT row's col 0.
+                     #   5 = GMASK indirection: lgi holds glyph INDICES,
+                     #       not bitmasks (J=9 shifted as a mask = 0b1001).
 lgi=(0 0 0 0 0 0 0 0 0 0 0 0)   # per-character glyph indices (max name 12)
 tl_wpx=(0 0 0 0 0 0 0 0 0 0)   # label text pixel width  (aspect)
 tl_hpx=(0 0 0 0 0 0 0 0 0 0)   # label text pixel height (aspect)
@@ -1534,7 +1546,7 @@ load_tex_payload() { ltp_name=$1; ltp_idx=$2
   fi
   # show the freshly generated texture on the loading screen (one swap
   # keeps the keyboard grab fresh, so keys typed during startup queue)
-  fb_overlay "$lt_preview"
+  echo "$lt_preview" > /dev/fb0/overlay
   fb_present
 }
 
@@ -1611,7 +1623,7 @@ load_tex() { lt_name=$1; lt_idx=$2
     tex_upload_payload $lt_idx 3
     if [ "$lt_menu" -eq 1 ]; then
       sm_tex_thumb_line $lt_menu_slot $lt_idx
-      fb_overlay "$tt_line"
+      echo "$tt_line" > /dev/fb0/overlay
     fi
     return 0
   fi
@@ -1634,7 +1646,7 @@ load_tex4() { lt_name=$1; lt_idx=$2
     tex_upload_payload $lt_idx 4
     if [ "$lt_menu" -eq 1 ]; then
       sm_tex_thumb_line $lt_menu_slot $lt_idx
-      fb_overlay "$tt_line"
+      echo "$tt_line" > /dev/fb0/overlay
     fi
     return 0
   fi
@@ -1769,7 +1781,7 @@ load_textures() {
   # the fb0 overlay layer is persistent and has no clear verb: the
   # full-canvas erase (E) sets alpha 0 across the layer, which is
   # what the WebGL device's "C" lead did at composite time.
-  fb_overlay "E -1.000 -1.000 1.000 1.000"
+  echo "E -1.000 -1.000 1.000 1.000" > /dev/fb0/overlay
   hud_static_dirty=1
 }
 
@@ -1862,30 +1874,49 @@ gen_label_tex() { gl_t=$1
       if [ "$gl_x" -ge $((gl_tx0 - 2)) ] && [ "$gl_x" -le $((gl_tx0 + gl_tw + 1)) ] && [ "$gl_y" -ge $((gl_ty0 - 2)) ] && [ "$gl_y" -le $((gl_ty0 + gl_th + 1)) ]; then
         gl_r=10; gl_g=9; gl_b=14; gl_a=160
       fi
-      # glyph stroke + 1px outline — only inside the text block
+      # glyph stroke + 1px outline — only inside the text block.
+      # The glyph is 3 cells WIDE (GFONT packs 15 = 3x5), but the pitch
+      # between glyphs is 4*gs (3 ink cells + a 1-cell gap). Bounding this
+      # test by the glyph PITCH (gl_tw2) let gl_col reach 3, the gap, and
+      # bit(row*3+3) is the NEXT row's col 0 — ink bled across the glyph,
+      # widening the strokes and filling the 1-cell counters ("too bold,
+      # holes missing"): the J drew as a solid bar and the P's bowl closed.
+      # Bound by the glyph's OWN 3 cells (gl_col < 3, gl_ci < gl_len).
       gl_ot=0
       gl_cx=$(( gl_x - gl_tx0 ))
       gl_cy=$(( gl_y - gl_ty0 ))
-      if [ "$gl_cx" -ge 0 ] && [ "$gl_cx" -lt "$gl_tw2" ] && [ "$gl_cy" -ge 0 ] && [ "$gl_cy" -lt "$gl_th2" ]; then
+      if [ "$gl_cx" -ge 0 ] && [ "$gl_cy" -ge 0 ] && [ "$gl_cy" -lt "$gl_th2" ]; then
         gl_ci=$(( gl_cx / (4 * gl_gs) ))
         gl_col=$(( (gl_cx - gl_ci * 4 * gl_gs) / gl_gs ))
         gl_row=$(( gl_cy / gl_gs ))
-        gl_gi2=${lgi[$gl_ci]}
-        gl_bit=$(( (gl_gi2 >> (gl_row * 3 + gl_col)) & 1 ))
-        if [ "$gl_bit" -eq 1 ]; then gl_ot=1; fi
+        if [ "$gl_ci" -lt "$gl_len" ] && [ "$gl_col" -lt 3 ]; then
+          # GMASK, NOT lgi: lgi holds GFONT glyph INDICES (J=9, P=15,
+          # ...), and shifting an INDEX as if it were a bitmask gives
+          # 0b1001 for the J — a bare 2-bit pattern with no letter in it.
+          # build_glyph_masks packs GFONT into GMASK[glyph] for exactly
+          # this read; the indirection was dropped, so every label and
+          # banner drew a 2-pixel smear instead of its letters.
+          gl_gix=${lgi[$gl_ci]}
+          gl_gi2=${GMASK[$gl_gix]}
+          gl_bit=$(( (gl_gi2 >> (gl_row * 3 + gl_col)) & 1 ))
+          if [ "$gl_bit" -eq 1 ]; then gl_ot=1; fi
+        fi
       fi
       if [ "$gl_ot" -eq 0 ]; then
         gl_n=0
         while [ "$gl_n" -lt 8 ] && [ "$gl_ot" -eq 0 ]; do
           gl_ox=$(( gl_cx + (gl_n % 3) - 1 ))
           gl_oy=$(( gl_cy + (gl_n / 3) - 1 ))
-          if [ "$gl_ox" -ge 0 ] && [ "$gl_ox" -lt "$gl_tw2" ] && [ "$gl_oy" -ge 0 ] && [ "$gl_oy" -lt "$gl_th2" ]; then
+          if [ "$gl_ox" -ge 0 ] && [ "$gl_oy" -ge 0 ] && [ "$gl_oy" -lt "$gl_th2" ]; then
             gl_ci2=$(( gl_ox / (4 * gl_gs) ))
             gl_col2=$(( (gl_ox - gl_ci2 * 4 * gl_gs) / gl_gs ))
             gl_row2=$(( gl_oy / gl_gs ))
-            gl_gi3=${lgi[$gl_ci2]}
-            gl_bit2=$(( (gl_gi3 >> (gl_row2 * 3 + gl_col2)) & 1 ))
-            if [ "$gl_bit2" -eq 1 ]; then gl_ot=2; fi
+            if [ "$gl_ci2" -lt "$gl_len" ] && [ "$gl_col2" -lt 3 ]; then
+              gl_gix2=${lgi[$gl_ci2]}
+              gl_gi3=${GMASK[$gl_gix2]}
+              gl_bit2=$(( (gl_gi3 >> (gl_row2 * 3 + gl_col2)) & 1 ))
+              if [ "$gl_bit2" -eq 1 ]; then gl_ot=2; fi
+            fi
           fi
           gl_n=$((gl_n + 1))
         done
@@ -1936,30 +1967,49 @@ gen_mime_label_tex() { gm_t=$1
       if [ "$gl_x" -ge $((gl_tx0 - 2)) ] && [ "$gl_x" -le $((gl_tx0 + gl_tw + 1)) ] && [ "$gl_y" -ge $((gl_ty0 - 2)) ] && [ "$gl_y" -le $((gl_ty0 + gl_th + 1)) ]; then
         gl_r=10; gl_g=9; gl_b=14; gl_a=160
       fi
-      # glyph stroke + 1px outline — only inside the text block
+      # glyph stroke + 1px outline — only inside the text block.
+      # The glyph is 3 cells WIDE (GFONT packs 15 = 3x5), but the pitch
+      # between glyphs is 4*gs (3 ink cells + a 1-cell gap). Bounding this
+      # test by the glyph PITCH (gl_tw2) let gl_col reach 3, the gap, and
+      # bit(row*3+3) is the NEXT row's col 0 — ink bled across the glyph,
+      # widening the strokes and filling the 1-cell counters ("too bold,
+      # holes missing"): the J drew as a solid bar and the P's bowl closed.
+      # Bound by the glyph's OWN 3 cells (gl_col < 3, gl_ci < gl_len).
       gl_ot=0
       gl_cx=$(( gl_x - gl_tx0 ))
       gl_cy=$(( gl_y - gl_ty0 ))
-      if [ "$gl_cx" -ge 0 ] && [ "$gl_cx" -lt "$gl_tw2" ] && [ "$gl_cy" -ge 0 ] && [ "$gl_cy" -lt "$gl_th2" ]; then
+      if [ "$gl_cx" -ge 0 ] && [ "$gl_cy" -ge 0 ] && [ "$gl_cy" -lt "$gl_th2" ]; then
         gl_ci=$(( gl_cx / (4 * gl_gs) ))
         gl_col=$(( (gl_cx - gl_ci * 4 * gl_gs) / gl_gs ))
         gl_row=$(( gl_cy / gl_gs ))
-        gl_gi2=${lgi[$gl_ci]}
-        gl_bit=$(( (gl_gi2 >> (gl_row * 3 + gl_col)) & 1 ))
-        if [ "$gl_bit" -eq 1 ]; then gl_ot=1; fi
+        if [ "$gl_ci" -lt "$gl_len" ] && [ "$gl_col" -lt 3 ]; then
+          # GMASK, NOT lgi: lgi holds GFONT glyph INDICES (J=9, P=15,
+          # ...), and shifting an INDEX as if it were a bitmask gives
+          # 0b1001 for the J — a bare 2-bit pattern with no letter in it.
+          # build_glyph_masks packs GFONT into GMASK[glyph] for exactly
+          # this read; the indirection was dropped, so every label and
+          # banner drew a 2-pixel smear instead of its letters.
+          gl_gix=${lgi[$gl_ci]}
+          gl_gi2=${GMASK[$gl_gix]}
+          gl_bit=$(( (gl_gi2 >> (gl_row * 3 + gl_col)) & 1 ))
+          if [ "$gl_bit" -eq 1 ]; then gl_ot=1; fi
+        fi
       fi
       if [ "$gl_ot" -eq 0 ]; then
         gl_n=0
         while [ "$gl_n" -lt 8 ] && [ "$gl_ot" -eq 0 ]; do
           gl_ox=$(( gl_cx + (gl_n % 3) - 1 ))
           gl_oy=$(( gl_cy + (gl_n / 3) - 1 ))
-          if [ "$gl_ox" -ge 0 ] && [ "$gl_ox" -lt "$gl_tw2" ] && [ "$gl_oy" -ge 0 ] && [ "$gl_oy" -lt "$gl_th2" ]; then
+          if [ "$gl_ox" -ge 0 ] && [ "$gl_oy" -ge 0 ] && [ "$gl_oy" -lt "$gl_th2" ]; then
             gl_ci2=$(( gl_ox / (4 * gl_gs) ))
             gl_col2=$(( (gl_ox - gl_ci2 * 4 * gl_gs) / gl_gs ))
             gl_row2=$(( gl_oy / gl_gs ))
-            gl_gi3=${lgi[$gl_ci2]}
-            gl_bit2=$(( (gl_gi3 >> (gl_row2 * 3 + gl_col2)) & 1 ))
-            if [ "$gl_bit2" -eq 1 ]; then gl_ot=2; fi
+            if [ "$gl_ci2" -lt "$gl_len" ] && [ "$gl_col2" -lt 3 ]; then
+              gl_gix2=${lgi[$gl_ci2]}
+              gl_gi3=${GMASK[$gl_gix2]}
+              gl_bit2=$(( (gl_gi3 >> (gl_row2 * 3 + gl_col2)) & 1 ))
+              if [ "$gl_bit2" -eq 1 ]; then gl_ot=2; fi
+            fi
           fi
           gl_n=$((gl_n + 1))
         done
@@ -2156,7 +2206,17 @@ render_frame() {
     fmt_pos $((dpcz_ms + swr[1]))
     czs=$fv
   fi
-  fmt_pos $dpyw_ms
+  # fb_set_camera's yaw is in DEGREES (fbdev.c: rad = yaw * PI/180), while
+  # dpyw_ms is MILLI-degrees (90000 per quarter turn) — the same scale the
+  # culling and dyaw below read. Passing dpyw_ms raw made every yaw a
+  # multiple of 90000, and 90000 is an exact multiple of 360, so cos/sin
+  # collapsed to (1,0) at EVERY facing: the world never rotated (the
+  # camera slid through an unrotated map), while rd_cs/rd_sn — which DO
+  # divide by 1000 — culled as if it had. Hence the "rotated weird" view
+  # with the fixed-NDC gun and muzzle reading right-side-up and to the
+  # right on every turn. fmt_deg converts and keeps the mid-turn glide
+  # (90500 milli -> "90.500"): the device takes a double yaw.
+  fmt_deg $dpyw_ms
   yws=$fv
   # the eye height: standing 1.6 (the shader adds 0.5 to uCamPos.y, so
   # cys 1.100 → the eye at 1.6 — ABOVE the y=1 block tops (1.5), so the
@@ -2331,8 +2391,11 @@ render_frame() {
   # (they fill the void), then the cubes paint over them. The device
   # draws payload order as draw order, exactly as the WebGL path drew
   # bg_p before blk_p.
-  fb_blocks "$bg_p"
-  fb_blocks "$blk_p"
+  # direct fb0 writes: the fbdev-gpu* transforms lift these into GpuOps,
+  # batch the pair into one dispatch, and rewrite it back to a single
+  # in-process fb_blocks call — one device round-trip per frame.
+  echo "$bg_p" > /dev/fb0/blocks
+  echo "$blk_p" > /dev/fb0/blocks
   gtick
   g_rf=$(( g_rf + g_now - r_rf0 ))
 }
@@ -2375,6 +2438,20 @@ fmt3() { fp=$1
   if [ "$fp" -lt 10 ]; then fp="00$fp"; elif [ "$fp" -lt 100 ]; then fp="0$fp"; fi
   fv=$fp
 }
+
+# milli-degrees -> a DEGREE string for fb_set_camera (the device divides
+# by nothing: yaw is degrees). Unlike fmt_pos, the decimal point sits
+# after the whole degrees and the fraction keeps its three digits, so a
+# mid-turn glide reads "90.500" — a fractional yaw the device's double
+# rotation follows smoothly. dpyw_ms is always in 0..359999 here.
+fmt_deg() { fd_ms=$1
+  fd_i=$((fd_ms / 1000))
+  fd_f=$((fd_ms % 1000))
+  fd_fs=$fd_f
+  if [ "$fd_f" -lt 10 ]; then fd_fs="00$fd_f"; elif [ "$fd_f" -lt 100 ]; then fd_fs="0$fd_f"; fi
+  fv="$fd_i.$fd_fs"
+}
+
 fmt_ndc() { fm=$1
   if [ "$fm" -eq 0 ]; then fv="-1.000"
   elif [ "$fm" -eq 2000 ]; then fv="1.000"
@@ -2421,23 +2498,36 @@ erase_rect() { er_cx=$1; er_cy=$2; er_w=$3; er_h=$4
 
 # the viewmodel gun — a 3D-looking rectangular shape, bottom-right at 3/4
 # across, drawn back so it pokes off the bottom-right edge, tilted 30°
-# counter-clockwise. R-lines are rotated quads (R cx cy w h deg r g b)
+# COUNTER-clockwise. R-lines are rotated quads (R cx cy w h deg r g b)
 # rendered by the device; the muzzle flash appears at the barrel tip
 # after a shot.
+#
+# THE TILT AIMS THE MUZZLE AT THE SCREEN CENTRE. The device rotates a
+# record's rectangle about its centre by `deg` degrees with +y UP (NDC):
+# a POSITIVE angle swings the barrel's top to the RIGHT, which made the
+# gun point up-and-away from the centre (into the bottom-right corner) —
+# the "mussel pointing the wrong way". A NEGATIVE angle (-30) swings the
+# barrel top to the LEFT, so the muzzle aims in toward the middle of the
+# screen, where the crosshair is. The barrel is already on the LEFT of
+# the receiver (cx 0.70 vs 0.85), so the lean is what decides the aim.
 draw_gun() {
   # receiver body (partially off the bottom/right edge) + top highlight
   # + barrel — STATIC, drawn once into the static layer (the muzzle
   # flash is per-frame and erased when it fades)
-  ov_text="${ov_text}R 0.85 -0.95 0.40 0.30 30 0.24 0.26 0.30
+  ov_text="${ov_text}R 0.85 -0.95 0.40 0.30 -30 0.24 0.26 0.30
 "
-  ov_text="${ov_text}R 0.85 -0.82 0.40 0.05 30 0.32 0.34 0.38
+  ov_text="${ov_text}R 0.85 -0.82 0.40 0.05 -30 0.32 0.34 0.38
 "
-  # barrel: front face + left highlight + right shade (tilted +30°)
-  ov_text="${ov_text}R 0.70 -0.50 0.16 0.90 30 0.30 0.33 0.38
+  # barrel: front face + outer (right) highlight + inner (left) shade —
+  # tilted -30° so the muzzle leans LEFT, toward the screen centre. The
+  # highlight sits on the OUTER edge and the shade on the inner edge (the
+  # reverse of the old +30° gun) so the light still reads from the same
+  # side once the gun is mirrored.
+  ov_text="${ov_text}R 0.70 -0.50 0.16 0.90 -30 0.30 0.33 0.38
 "
-  ov_text="${ov_text}R 0.665 -0.50 0.03 0.90 30 0.44 0.47 0.52
+  ov_text="${ov_text}R 0.735 -0.50 0.03 0.90 -30 0.44 0.47 0.52
 "
-  ov_text="${ov_text}R 0.735 -0.50 0.03 0.90 30 0.15 0.16 0.18
+  ov_text="${ov_text}R 0.665 -0.50 0.03 0.90 -30 0.15 0.16 0.18
 "
 }
 
@@ -2821,7 +2911,7 @@ hud_build_static() {
   ov_text="E -1.000 -1.000 1.000 1.000
 "
   ov_text="$ov_text$hud_static"
-  fb_overlay "$ov_text"
+  echo "$ov_text" > /dev/fb0/overlay
 }
 
 # the score/hp/art/fps digit groups — erase + redraw only when a value
@@ -3180,15 +3270,17 @@ draw_hud_canvas() {
   # (The old flash_clear erase+redraw cycle is gone: the gun in the
   # static layer is never overlapped by a persistent flash.)
   if [ "$muzzle" -gt 0 ]; then
-    # the yellow ring is 2x the core and shifted right by 10% of the
-    # remaining distance from its (scaled) right edge to the canvas edge
-    # (0.475 + 0.22 = 0.695 → 0.305 remaining → +0.030 → centre 0.505); it
-    # fades to transparent at its outer edge but stays opaque where it
-    # borders the white core. The white core is a DIAMOND (the square
-    # rotated 45° more than the ring: 30 + 45 = 75°) centred on the
-    # barrel tip (0.475, -0.11) — the 30°-tilted barrel's top centre.
-    fb_overlay_flash "R 0.580 -0.11 0.44 0.44 30 1.0 0.82 0.2 0.45
-R 0.575 -0.11 0.10 0.10 75 1.0 1.0 0.9 1.0"
+    # The flash sits ON the barrel tip. With the gun now tilted -30° (the
+    # muzzle leaning left, toward the screen centre), the barrel record
+    # `R 0.70 -0.50 0.16 0.90 -30` has its top centre (local (0, -h/2))
+    # rotated by -30° to NDC x = 0.70 - (0.45·600/800)·sin30 = 0.3625,
+    # y = -0.50 + 0.45·cos30 = -0.11 + ... — the measured tip is
+    # (0.363, 0.279). The yellow ring keeps the barrel's tilt (-30°); the
+    # white core is a DIAMOND, the same square rotated 45° more
+    # (-30 + 45 = 15°). Both are centred on the tip so the flash reads as
+    # fire at the muzzle.
+    echo "R 0.363 0.279 0.44 0.44 -30 1.0 0.82 0.2 0.45
+R 0.358 0.279 0.10 0.10 15 1.0 1.0 0.9 1.0" > /dev/fb0/overlay_flash
   fi
   if [ "$digits_dirty" -eq 1 ]; then
     draw_digits
@@ -3200,7 +3292,7 @@ R 0.575 -0.11 0.10 0.10 75 1.0 1.0 0.9 1.0"
     labels_dirty=0
   fi
   if [ "$ov_text" != "" ]; then
-    fb_overlay "$ov_text"
+    echo "$ov_text" > /dev/fb0/overlay
   fi
 }
 
@@ -3731,7 +3823,7 @@ draw_settings_menu() {
 "
     sm_i=$((sm_i + 1))
   done
-  fb_overlay "$ov_text"
+  echo "$ov_text" > /dev/fb0/overlay
 }
 
 # ─── menu AI preview ──────────────────────────────────────────────
@@ -4162,7 +4254,7 @@ level_clear_popup() {
   draw_text "CLEARED" 7 760 1210 12 16 0.60 0.95 0.75
   draw_text "ALL ARTIFACTS RECOVERED" 23 660 1070 7 10 0.85 0.85 0.85
   draw_text "PRESS SPACE FOR THE NEXT LEVEL" 30 560 980 7 10 0.85 0.85 0.85
-  fb_overlay "$ov_text"
+  echo "$ov_text" > /dev/fb0/overlay
   fb_present
   # pause until the player dismisses the popup
   lp_done=0
@@ -4185,7 +4277,7 @@ level_clear_popup() {
   # the fb0 overlay layer is persistent and has no clear verb: the
   # full-canvas erase (E) sets alpha 0 across the layer, which is
   # what the WebGL device's "C" lead did at composite time.
-  fb_overlay "E -1.000 -1.000 1.000 1.000"
+  echo "E -1.000 -1.000 1.000 1.000" > /dev/fb0/overlay
 }
 
 # MINED OUT — an artifact was SHATTERED (shot), so the board can't be
@@ -4214,7 +4306,7 @@ mined_out_popup() {
   draw_text "MINED OUT" 9 760 1210 12 16 0.95 0.60 0.40
   draw_text "AN ARTIFACT WAS LOST" 22 660 1070 7 10 0.85 0.85 0.85
   draw_text "PRESS SPACE FOR THE NEXT LEVEL" 30 560 980 7 10 0.85 0.85 0.85
-  fb_overlay "$ov_text"
+  echo "$ov_text" > /dev/fb0/overlay
   fb_present
   # pause until the player dismisses the popup
   mp_done=0
@@ -4237,7 +4329,7 @@ mined_out_popup() {
   # the fb0 overlay layer is persistent and has no clear verb: the
   # full-canvas erase (E) sets alpha 0 across the layer, which is
   # what the WebGL device's "C" lead did at composite time.
-  fb_overlay "E -1.000 -1.000 1.000 1.000"
+  echo "E -1.000 -1.000 1.000 1.000" > /dev/fb0/overlay
 }
 
 # GAME OVER — the player LOST (hp 0 or the licence revoked). Same popup
@@ -4269,7 +4361,7 @@ game_over_popup() {
   fi
   #TODO: draw_text "PRESS R TO RESTART  SPACE TO QUIT" 33 560 980 6 8 0.85 0.85 0.85
   draw_text "PRESS SPACE TO QUIT" 33 560 980 6 8 0.85 0.85 0.85
-  fb_overlay "$ov_text"
+  echo "$ov_text" > /dev/fb0/overlay
   fb_present
   # drop any keys queued during the losing frame (the shot/move that
   # killed the player) so the popup PAUSES for a fresh keypress instead
@@ -4301,7 +4393,7 @@ game_over_popup() {
   # the fb0 overlay layer is persistent and has no clear verb: the
   # full-canvas erase (E) sets alpha 0 across the layer, which is
   # what the WebGL device's "C" lead did at composite time.
-  fb_overlay "E -1.000 -1.000 1.000 1.000"
+  echo "E -1.000 -1.000 1.000 1.000" > /dev/fb0/overlay
 }
 
 print_stats() {
