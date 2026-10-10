@@ -40,7 +40,28 @@ fn decode_bytes(bytes: &[u8]) -> String {
 
 /// Parse bash source to ShIR A1 JSON (with A2 annotations attached).
 pub fn parse_to_shir(source: &str) -> String {
+    // The C target must be selected BEFORE parsing, not at render time:
+    // `transforms::apply` runs inside `shell_to_shir`, so a target set
+    // only in `render_c_with` arrives after every target-gated transform
+    // (fbdev-gpu-calls, text-ops-planner) has already been skipped.
+    debashl::transforms::set_target(Some("c"));
     otranspilerl::shell_to_shir(source)
+}
+
+/// Parse with the ShIR layer cache: same text, but a repeat run serves
+/// the stored A1 instead of re-parsing (~8 s for a game-sized script).
+/// Falls back to direct parse when the cache is unusable, so a cache
+/// problem can never fail a run that would otherwise work. The key
+/// (`cache::parse_key`) folds the source bytes, the code rev, and every
+/// env var the frontend/transforms consult.
+pub fn parse_to_shir_cached(source: &str, cache_root: &std::path::Path) -> (String, bool) {
+    let key = crate::cache::parse_key(source);
+    match crate::cache::cached_text(cache_root, &key, "shir.json", "shir", || {
+        Ok(parse_to_shir(source))
+    }) {
+        Ok(t) => (t.text, t.hit),
+        Err(_) => (parse_to_shir(source), false),
+    }
 }
 
 /// Render A1 JSON to C. Mirrors the CLI's `c` target exactly: transform

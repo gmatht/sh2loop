@@ -14,6 +14,7 @@ fn usage() -> String {
          {}\n\
          Driver-specific:\n\
          \x20 --emit-shader ID     print the GLSL450 compute shader for candidate ID\n\
+         \x20                     (`fb-blocks`/`fb-overlay`: the fb0 fragment pair)\n\
          \x20 --fetch-libs[=ask|auto|off]  library download policy (default ask)\n\
          \x20 --prefetch           warm the fetch cache from the manifest, then exit\n\
          \x20 --audit-fetch        print the fetch audit log, then exit\n\n\
@@ -124,6 +125,27 @@ fn verbose(o: &Options, msg: &str) {
     }
 }
 
+/// `chmod 755` (AOT copy path: `fs::copy` creates umask-default
+/// permissions, while the direct `build_aot` path it replaces sets the
+/// executable bit — the `-o` artifact must stay runnable). No-op
+/// off unix.
+fn chmod_x(p: &std::path::Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perm = std::fs::metadata(p)
+            .map_err(|e| format!("stat {}: {e}", p.display()))?
+            .permissions();
+        perm.set_mode(0o755);
+        std::fs::set_permissions(p, perm).map_err(|e| format!("chmod {}: {e}", p.display()))?;
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = p;
+    }
+    Ok(())
+}
+
 pub fn run(args: &[String]) -> i32 {
     let o = match parse_args(args) {
         Ok(o) => o,
@@ -181,7 +203,8 @@ pub fn run(args: &[String]) -> i32 {
             return 1;
         }
     };
-    let a1 = crate::pipeline::parse_to_shir(&src);
+    let (a1, shir_hit) = crate::pipeline::parse_to_shir_cached(&src, &cache_root);
+    verbose(&o, &format!("shir cache {}", if shir_hit { "hit" } else { "miss" }));
     if o.common.dump_shir {
         println!("{a1}");
         return 0;
@@ -261,24 +284,60 @@ pub fn run(args: &[String]) -> i32 {
         return 0;
     }
 
-    // ⑧/⑨ link + run.
+    // ⑧/⑨ link + run. The executable itself is cached under the same
+    // content key as the C (see cache::cached_exe): a hit skips the
+    // ~minute gcc link of a game-sized render entirely. Any cache
+    // problem falls back to the uncached path, so caching can never
+    // fail a run that would otherwise work.
     if let Some(out) = o.common.out_exe.clone() {
         verbose(&o, &format!("AOT via {}", tc_id));
-        match crate::tcc::build_aot(&tc, &c_file, &PathBuf::from(&out), &cached.c_src) {
-            Ok(()) => 0,
-            Err(e) => {
-                eprintln!("bash-O4: {e}");
-                1
+        let out = PathBuf::from(&out);
+        match crate::cache::cached_exe(&cached.dir, |dst| {
+            crate::tcc::build_aot(&tc, &c_file, dst, &cached.c_src, &cache_root).map(|_| ())
+        }) {
+            Ok(hit) => {
+                verbose(&o, &format!("exe cache {}", if hit.hit { "hit" } else { "miss" }));
+                match std::fs::copy(&hit.path, &out)
+                    .map_err(|e| format!("copy cached exe: {e}"))
+                    .and_then(|_| chmod_x(&out))
+                {
+                    Ok(()) => 0,
+                    Err(e) => {
+                        eprintln!("bash-O4: {e}");
+                        1
+                    }
+                }
             }
+            Err(_) => match crate::tcc::build_aot(&tc, &c_file, &out, &cached.c_src, &cache_root) {
+                Ok(()) => 0,
+                Err(e) => {
+                    eprintln!("bash-O4: {e}");
+                    1
+                }
+            },
         }
     } else {
         verbose(&o, &format!("JIT via {}", tc_id));
-        match crate::tcc::run_jit(&tc, &c_file, &cached.c_src, &prog_path, &o.common.prog_args) {
-            Ok(rc) => rc,
-            Err(e) => {
-                eprintln!("bash-O4: {e}");
-                1
+        match crate::cache::cached_exe(&cached.dir, |dst| {
+            crate::tcc::build_aot(&tc, &c_file, dst, &cached.c_src, &cache_root).map(|_| ())
+        }) {
+            Ok(hit) => {
+                verbose(&o, &format!("exe cache {}", if hit.hit { "hit" } else { "miss" }));
+                match crate::tcc::exec_compiled(&hit.path, &prog_path, &o.common.prog_args) {
+                    Ok(rc) => rc,
+                    Err(e) => {
+                        eprintln!("bash-O4: {e}");
+                        1
+                    }
+                }
             }
+            Err(_) => match crate::tcc::run_jit(&tc, &c_file, &cached.c_src, &prog_path, &o.common.prog_args, &cache_root) {
+                Ok(rc) => rc,
+                Err(e) => {
+                    eprintln!("bash-O4: {e}");
+                    1
+                }
+            },
         }
     }
 }
@@ -339,7 +398,10 @@ fn cmd_check(o: &Options, a1: &str) -> i32 {
     0
 }
 
-/// `--emit-shader ID`: GLSL450 for one candidate loop.
+/// `--emit-shader ID`: GLSL450 for one candidate loop, or the fb0
+/// fragment pair for `fb-blocks`/`fb-overlay` (the device-write leg —
+/// needs `/dev/fb0/<verb>` writes, or their `fb_*` call equivalents,
+/// in the program; SPIR-V-checked per stage when a compiler exists).
 fn cmd_emit_shader(o: &Options, a1: &str, id: &str) -> i32 {
     let prog = match crate::pipeline::parse_program(a1) {
         Ok(p) => p,
@@ -348,6 +410,11 @@ fn cmd_emit_shader(o: &Options, a1: &str, id: &str) -> i32 {
             return 1;
         }
     };
+    // Any `fb-` id routes to the fragment leg (supported verbs emit;
+    // the rest refuse with an explanation instead of "unknown loop id").
+    if id.starts_with("fb-") {
+        return cmd_emit_fb_shader(o, &prog, id);
+    }
     match crate::shader::emit_shader(&prog, id) {
         Ok(glsl) => {
             print!("{glsl}");
@@ -360,6 +427,39 @@ fn cmd_emit_shader(o: &Options, a1: &str, id: &str) -> i32 {
                 match crate::shader::compile_spv(&cc, &glsl, &dir) {
                     Ok(spv) => verbose(o, &format!("shader {id}: SPIR-V {} bytes", spv.len())),
                     Err(e) => verbose(o, &format!("shader {id}: SPIR-V check: {e}")),
+                }
+                let _ = std::fs::remove_dir_all(&dir);
+            } else {
+                verbose(o, "no SPIR-V compiler; GLSL only");
+            }
+            0
+        }
+        Err(e) => {
+            eprintln!("bash-O4: shader: {e}");
+            1
+        }
+    }
+}
+
+/// `--emit-shader fb-blocks|fb-overlay`: the fb0 fragment pair.
+fn cmd_emit_fb_shader(o: &Options, prog: &debashl::ir::IrProgram, id: &str) -> i32 {
+    let verb = id.strip_prefix("fb-").unwrap_or(id);
+    match crate::fb_frag::emit_fb_shader(prog, verb) {
+        Ok((vertex, fragment)) => {
+            print!("// ===== vertex ({id}) =====\n{vertex}");
+            print!("// ===== fragment ({id}) =====\n{fragment}");
+            let cache_root = crate::cache::cache_root(o.common.cache_dir.as_deref());
+            if let Some(cc) = crate::shader::find_spirv_compiler(&cache_root) {
+                let dir = std::env::temp_dir().join(format!("bo4spv{}", std::process::id()));
+                let _ = std::fs::create_dir_all(&dir);
+                for (src, ext) in [(&vertex, "vert"), (&fragment, "frag")] {
+                    match crate::fb_frag::compile_stage(&cc, src, &dir, ext) {
+                        Ok(spv) => verbose(
+                            o,
+                            &format!("shader {id}.{ext}: SPIR-V {} bytes", spv.len()),
+                        ),
+                        Err(e) => verbose(o, &format!("shader {id}.{ext}: SPIR-V check: {e}")),
+                    }
                 }
                 let _ = std::fs::remove_dir_all(&dir);
             } else {

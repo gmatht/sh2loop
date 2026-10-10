@@ -505,17 +505,27 @@ pub fn run_jit(
             _ => return Err(error_head(e.msg()).to_string()),
         }
     }
-    let mut cmd = std::process::Command::new(&tmp);
+    let rc = exec_compiled(&tmp, prog_path, args)?;
+    let _ = std::fs::remove_file(&tmp);
+    Ok(rc)
+}
+
+/// Exec an already-compiled program with the JIT stdio/exit/argv[0]
+/// contract: inherited stdio, the program's exit code, and argv[0] = the
+/// script path (like `bash script.sh`), never the executable's path.
+/// Shared by the temp-exe path (`run_jit`) and the exe-cache path (run
+/// the cached `prog.exe` directly — no recompile).
+pub fn exec_compiled(exe: &Path, prog_path: &Path, args: &[String]) -> Result<i32, String> {
+    let mut cmd = std::process::Command::new(exe);
     cmd.args(args);
     // argv[0] = script path (see doc above). arg0 is Unix-only; elsewhere
-    // the temp path leaks as $0 (same as an -o binary run by path).
+    // the exe path leaks as $0 (same as an -o binary run by path).
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
         cmd.arg0(prog_path);
     }
-    let st = cmd.status().map_err(|e| format!("run temp exe: {e}"))?;
-    let _ = std::fs::remove_file(&tmp);
+    let st = cmd.status().map_err(|e| format!("run exe {}: {e}", exe.display()))?;
     Ok(st.code().unwrap_or(1))
 }
 
@@ -578,6 +588,16 @@ mod tests {
         // test still passes on this machine, because this machine has
         // one; and a re-added src/devices/ would pass every test while
         // reintroducing the duplicate this replaced.
+        // TAKE THE ENV GUARD. This test READS `BASH_O4_FBDEV_DIR` (through
+        // `find_fbdev`), and two sibling tests WRITE it. Serialising only the
+        // writers against each other is not enough: without this lock the
+        // reader can run inside a writer's set/assert/remove window, see the
+        // bogus override, and fail with "the embedded device must resolve" —
+        // intermittently, and only under the timing that tcc's presence
+        // happens to produce. Found exactly that way: `cargo test --lib`
+        // failed on this test, then on `toolchain_found` on the next run,
+        // while each passed alone.
+        let _guard = ENV_GUARD.lock().unwrap();
         let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/devices");
         assert!(
             !dev.exists(),
@@ -594,11 +614,20 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// Both env-mutating tests below share process-global state (the
+    /// harness runs tests in parallel threads): without serialisation,
+    /// one's `remove_var` can land inside the other's build window, the
+    /// bad override silently vanishes, the embedded device resolves, a
+    /// real fallback compiler succeeds — and `unwrap_err` panics on the
+    /// `Ok`. The mutex makes the set/assert/remove sequences atomic.
+    static ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn bad_device_override_is_a_loud_error() {
         // A bad override names the variable; it never falls through to
         // the embedded copy. A build that quietly used a different
         // device than the one you named is worse than one that refuses.
+        let _guard = ENV_GUARD.lock().unwrap();
         let root = std::env::temp_dir().join(format!("bo4-dev-ovr-{}", std::process::id()));
         unsafe {
             std::env::set_var("BASH_O4_FBDEV_DIR", "/nonexistent/for/test");
@@ -679,6 +708,9 @@ mod tests {
         }
         let tc = Toolchain::Tcc(fake.clone());
 
+        // Serialised against the override test above (shared
+        // process-global env; see ENV_GUARD).
+        let _guard = ENV_GUARD.lock().unwrap();
         unsafe {
             std::env::set_var("BASH_O4_FBDEV_DIR", "/nonexistent/for/test");
             std::env::set_var("BASH_O4_CC", fake.to_str().unwrap());
