@@ -34,6 +34,7 @@ pub mod flags;
 pub mod cudaffi;
 pub mod cu_candidacy;
 pub mod devices;
+pub mod fbnode;
 pub mod fetch;
 pub mod fb_frag;
 pub mod pipeline;

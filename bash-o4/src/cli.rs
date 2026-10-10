@@ -17,7 +17,14 @@ fn usage() -> String {
          \x20                     (`fb-blocks`/`fb-overlay`: the fb0 fragment pair)\n\
          \x20 --fetch-libs[=ask|auto|off]  library download policy (default ask)\n\
          \x20 --prefetch           warm the fetch cache from the manifest, then exit\n\
-         \x20 --audit-fetch        print the fetch audit log, then exit\n\n\
+         \x20 --audit-fetch        print the fetch audit log, then exit\n\
+         \x20 --publish-fb0[=PATH]  create the fb0 device NODE as a file of raw\n\
+         \x20                     ARGB pixels (default $FB0_NODE > $FB0_DEV >\n\
+         \x20                     /dev/fb0, size $FB0_GEOM WxH), print its path,\n\
+         \x20                     then exit\n\
+         \x20 --dump-fb0[=PATH]   write the PPM named by $FB_DUMP into the fb0\n\
+         \x20                     node, so a shell can read the frame the\n\
+         \x20                     program drew (`cat /dev/fb0`), then exit\n\n\
          {}\n\
          The GPU leg prints the offloaded loop's checksum (equal to the\n\
          program's stdout for the map/reduce bench shapes); the\n\
@@ -37,6 +44,16 @@ pub struct Options {
     pub fetch_libs: Option<String>,
     pub prefetch: bool,
     pub audit_fetch: bool,
+    /// `--publish-fb0[=PATH]`: create the fb0 device NODE tree (see
+    /// `crate::fbnode`) and exit. `Some("")` means "use the default path
+    /// (`$FB0_NODE` > `$FB0_DEV` > `/dev/fb0`)".
+    pub publish_fb0: Option<String>,
+    /// `--dump-fb0=FILE`: after the run, copy a P6 PPM (the device's own
+    /// `fb_dump_ppm` output) into the node, converting it to the node's
+    /// ARGB layout. This is the bridge that makes the node show a device
+    /// frame: the device dumps pixels as PPM, and this writes them where
+    /// the node (and therefore a shell or a viewer) can read them.
+    pub dump_fb0: Option<String>,
 }
 
 impl Default for Options {
@@ -47,6 +64,8 @@ impl Default for Options {
             fetch_libs: None,
             prefetch: false,
             audit_fetch: false,
+            publish_fb0: None,
+            dump_fb0: None,
         }
     }
 }
@@ -102,6 +121,14 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
             }
             "--prefetch" => o.prefetch = true,
             "--audit-fetch" => o.audit_fetch = true,
+            "--publish-fb0" => o.publish_fb0 = Some(String::new()),
+            s if s.starts_with("--publish-fb0=") => {
+                o.publish_fb0 = Some(s["--publish-fb0=".len()..].to_string());
+            }
+            "--dump-fb0" => o.dump_fb0 = Some(String::new()),
+            s if s.starts_with("--dump-fb0=") => {
+                o.dump_fb0 = Some(s["--dump-fb0=".len()..].to_string());
+            }
             s if s.starts_with("--fetch-libs") => {
                 let v = s.strip_prefix("--fetch-libs=").unwrap_or("ask");
                 match v {
@@ -162,6 +189,19 @@ pub fn run(args: &[String]) -> i32 {
     }
 
     let cache_root = crate::cache::cache_root(o.common.cache_dir.as_deref());
+
+    // --publish-fb0 is device-only (no program needed): create the fb0 node
+    // tree and exit, so a script or harness can materialise the device with
+    // no render at all.
+    if let Some(path) = &o.publish_fb0 {
+        return cmd_publish_fb0(path);
+    }
+
+    // --dump-fb0 is likewise device-only: it converts a PPM the device
+    // already produced into the node's pixels.
+    if let Some(path) = &o.dump_fb0 {
+        return cmd_dump_fb0(path);
+    }
 
     // --audit-fetch / --prefetch are cache-only (no program needed).
     if o.audit_fetch {
@@ -318,6 +358,14 @@ pub fn run(args: &[String]) -> i32 {
         }
     } else {
         verbose(&o, &format!("JIT via {}", tc_id));
+        // The fb0 DEVICE NODE, if this box has none (see `fbnode::publish`):
+        // a JIT run is the one mode where the program is about to execute,
+        // so it is the one mode where a device path it opens has to name
+        // something. Best-effort — a program that never touches the path
+        // must not fail because `/dev` is not writable.
+        if let Err(e) = publish_fb0_for_run() {
+            verbose(&o, &format!("fb0 node not published ({e})"));
+        }
         match crate::cache::cached_exe(&cached.dir, |dst| {
             crate::tcc::build_aot(&tc, &c_file, dst, &cached.c_src, &cache_root).map(|_| ())
         }) {
@@ -340,6 +388,138 @@ pub fn run(args: &[String]) -> i32 {
             },
         }
     }
+}
+
+/// `--dump-fb0=FILE`: write a P6 PPM (the device's `fb_dump_ppm` output) into
+/// the fb0 node, converting it to the node's ARGB layout.
+///
+/// This is the half that makes the node a display rather than a dead file: the
+/// C device draws into its own RAM surface, the program dumps that surface as
+/// PPM (`fb_dump_ppm "$FB_DUMP"`), and this puts those pixels in the node so a
+/// shell — or anything with the node open — reads the frame the program drew.
+///
+/// `arg` empty means "the node path from the environment", which is the usual
+/// spelling: `--dump-fb0` after a run that set `$FB_DUMP`.
+fn cmd_dump_fb0(arg: &str) -> i32 {
+    let node_path = if arg.is_empty() {
+        crate::fbnode::path_from_env()
+    } else {
+        PathBuf::from(arg)
+    };
+    // The source PPM: `$FB_DUMP`, the same variable a headless run dumps to.
+    let Ok(src) = std::env::var("FB_DUMP") else {
+        eprintln!("bash-O4: dump-fb0: $FB_DUMP is not set, so there is no PPM to copy");
+        return 1;
+    };
+    if src.is_empty() {
+        eprintln!("bash-O4: dump-fb0: $FB_DUMP is empty");
+        return 1;
+    }
+    let ppm = match std::fs::read(&src) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("bash-O4: dump-fb0: read {src}: {e}");
+            return 1;
+        }
+    };
+    let mut node = match crate::fbnode::publish(&node_path) {
+        Ok(n) => n,
+        Err(e) => {
+            eprintln!("bash-O4: dump-fb0: {e}");
+            return 1;
+        }
+    };
+    let frame = match crate::fbnode::from_ppm(&ppm, node.geom()) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!(
+                "bash-O4: dump-fb0: {src} does not fit {}x{}: {e}",
+                node.geom().w,
+                node.geom().h
+            );
+            return 1;
+        }
+    };
+    match node.write_frame(&frame) {
+        Ok(()) => {
+            eprintln!(
+                "fb0 node {} now holds {}x{} from {src}",
+                node.path().display(),
+                node.geom().w,
+                node.geom().h
+            );
+            0
+        }
+        Err(e) => {
+            eprintln!("bash-O4: dump-fb0: write {}: {e}", node.path().display());
+            1
+        }
+    }
+}
+
+/// `--publish-fb0[=PATH]`: create the fb0 device NODE and exit.
+///
+/// This is the "make the emulation a device node" half of the driver: the
+/// linker-side device is `crate::devices` (a content-addressed source
+/// directory), and this is the run-time-side one — one path, `/dev/fb0` by
+/// default, sized to the geometry and holding raw pixels (see
+/// [`crate::fbnode`]).
+///
+/// The path is printed on stdout so a caller can capture it
+/// (`fb0=$(bash-O4 --publish-fb0)`); the geometry goes to stderr as a
+/// diagnostic, because this mode does nothing else.
+fn cmd_publish_fb0(arg: &str) -> i32 {
+    let path = if arg.is_empty() {
+        crate::fbnode::path_from_env()
+    } else {
+        PathBuf::from(arg)
+    };
+    match crate::fbnode::publish(&path) {
+        Ok(node) => {
+            let g = node.geom();
+            eprintln!(
+                "published fb0 node {} ({}x{}, {} bytes, ARGB)",
+                node.path().display(),
+                g.w,
+                g.h,
+                g.len()
+            );
+            println!("{}", node.path().display());
+            0
+        }
+        Err(e) => {
+            eprintln!("bash-O4: publish-fb0: {e}");
+            1
+        }
+    }
+}
+
+/// Publish the fb0 node for a run if this box has none.
+///
+/// WHY AUTOMATIC, and why it may fail quietly: a program that draws by calling
+/// the `fb_*` primitives does not need the node (the C lowering turns the draw
+/// into an in-process call), and a program that OPENS the device path needs it
+/// to exist. The driver cannot tell the two apart before the render, so the
+/// node is published for every JIT run where the path is absent — and a publish
+/// failure is a note, not an error, because a box where `/dev` is not writable
+/// must still run a program that never touches the path.
+///
+/// An EXISTING path is left to [`crate::fbnode::publish`], which refuses
+/// anything that is not a regular file: on a box with a real `/dev/fb0` that
+/// node is the display, and it is the thing this emulation exists to be
+/// compatible with.
+fn publish_fb0_for_run() -> Result<(), String> {
+    let path = crate::fbnode::path_from_env();
+    let node = crate::fbnode::publish(&path)?;
+    // One node per process, for the process's lifetime: the handle must
+    // outlive this call, and the node is a single file rather than the
+    // per-verb read ends an earlier design needed. `Box::leak` is the honest
+    // spelling — the alternative is a `OnceLock` whose destructor runs at
+    // exit, which is the one moment where dropping it is harmless but the
+    // type then misstates how long the node is readable.
+    let leaked: &'static crate::fbnode::Node = Box::leak(Box::new(node));
+    let _ = leaked;
+    Ok(())
 }
 
 /// `--check`: candidacy verdicts over the typed program.
