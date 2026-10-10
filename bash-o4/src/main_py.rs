@@ -228,7 +228,7 @@ fn run(args: &[String]) -> i32 {
     }
 
     if let Some(out) = o.common.out_exe.clone() {
-        match tcc::build_aot(&tc, &c_file, &PathBuf::from(&out), &cached.c_src) {
+        match tcc::build_aot(&tc, &c_file, &PathBuf::from(&out), &cached.c_src, &cache_root) {
             Ok(()) => 0,
             Err(e) => {
                 eprintln!("python-O4: {e}");
@@ -236,7 +236,7 @@ fn run(args: &[String]) -> i32 {
             }
         }
     } else {
-        match tcc::run_jit(&tc, &c_file, &cached.c_src, &prog_path, &o.common.prog_args) {
+        match tcc::run_jit(&tc, &c_file, &cached.c_src, &prog_path, &o.common.prog_args, &cache_root) {
             Ok(rc) => rc,
             Err(e) => {
                 eprintln!("python-O4: {e}");
