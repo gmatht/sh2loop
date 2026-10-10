@@ -582,13 +582,42 @@ play() { pl_note=$1; pl_mat=$2
 # value means "no key file" — fb_input_line then reads a real keyboard
 # (the X window / evdev / the tty), which is what an interactive FBWIN=1
 # run wants. The default file keeps a scripted run reproducible.
-MIMECROFT_KEYS=/tmp/mimecroft-keys
+#
+# THE QUEUE IS TRUNCATED AT STARTUP, and that is not tidiness. It used
+# to be created only when missing, so a file left by a PREVIOUS run was
+# inherited whole: its unconsumed tail was fed to the next run, one key
+# per frame. A leftover queue ending in `q` therefore quit the game the
+# moment the new run reached that entry — a 7-frame game that reported
+# "Quit at level 1" with hp/mimes/score all untouched, which reads
+# exactly like the game ending by itself. It never was: the game obeyed
+# an old session's keystrokes. Truncating makes every run start from an
+# empty queue, so the only keys a run sees are the ones it was given.
+MIMECROFT_KEYS="${MIMECROFT_KEYS:-/tmp/mimecroft-keys}"
 if [ "$FBWIN" = "1" ] && [ ! -f "$MIMECROFT_KEYS" ]; then
   # a windowed run with no scripted queue: let the window be the keyboard
   MIMECROFT_KEYS=""
 else
-  if [ ! -f "$MIMECROFT_KEYS" ]; then : > "$MIMECROFT_KEYS"; fi
+  : > "$MIMECROFT_KEYS"
 fi
+# Read ONE key, from the WINDOW first and then the scripted queue / evdev /
+# tty. THE WINDOW IS A SEPARATE SOURCE, and leaving it out is why the window
+# ignored every keypress: fb_input_line reads only a key FILE, evdev and a
+# tty, and the fb0 device's X window is NONE of those — fbwin.c hands window
+# keys to the game through fb_window_key(), a DIFFERENT primitive that
+# MIMEcroft never called. Worse, the X event queue is drained (and the keys
+# discarded) by x_drain(NULL,0) inside EVERY fbwin_present, so a key pressed
+# into the window survives only until the frame's next fb_present. key_name
+# is called at the TOP of the frame, before that present, so reading the
+# window here is also the only point at which the key is still there.
+#
+# ORDER MATTERS and it is window-first: a windowed run has no key file
+# (MIMECROFT_KEYS is "" when $FBWIN=1 and the file is absent), so the
+# fb_input_line read below returns "" and the window key would be the only
+# one — but if a scripted queue IS present alongside a window, the scripted
+# run must stay reproducible, so the window is consulted first ONLY when
+# there is no key file. Both names come back in the device's own vocabulary
+# (w/a/s/d/q/e/r/f 1..5, h/l/i/k for the arrows, " ", "\n", "."), so the same
+# case arms translate either source.
 key_name() {
   # ONE echo per branch, and NO intermediate variable: a global first
   # assigned an empty literal inside a function is emitted as a fixed
@@ -596,7 +625,15 @@ key_name() {
   # strncpy(kn,"ArrowLeft",1)` — which both aborts in a debug build and
   # truncates to one byte otherwise. Returning the value on stdout (the
   # capture is in-process, `_sh_capture_fn`) sidesteps the fixed buffer.
-  rk=$(fb_input_line "$MIMECROFT_KEYS")
+  rk=""
+  # the window is the keyboard of a windowed run (no key file): read it
+  # BEFORE fb_present drains the X queue this frame
+  if [ "$MIMECROFT_KEYS" = "" ]; then
+    rk=$(fb_window_key)
+  fi
+  if [ "$rk" = "" ]; then
+    rk=$(fb_input_line "$MIMECROFT_KEYS")
+  fi
   case $rk in
     h) echo "ArrowLeft" ;;
     l) echo "ArrowRight" ;;
@@ -615,9 +652,23 @@ key_name() {
 # drop any keys queued so far (the WebGL device's `echo clear > key`)
 clear_keys() {
   # the WebGL device's `echo clear > key`. A windowed run has no key
-  # file (the window IS the keyboard), so there is nothing to drain —
-  # and truncating "" would touch a file called "" in the cwd.
-  if [ "$MIMECROFT_KEYS" != "" ]; then : > "$MIMECROFT_KEYS"; fi
+  # file (the window IS the keyboard) — draining the file would touch a
+  # file called "" in the cwd, so instead drain the WINDOW: fb_window_key
+  # consumes one X keypress per call, so calling it here drops the keys
+  # that queued during the frame the player died (otherwise the death
+  # popup would be dismissed instantly by the very keystroke that killed
+  # them). MIMECROFT_KEYS = "" is exactly the "the window is the
+  # keyboard" case, so that test selects the right drain.
+  if [ "$MIMECROFT_KEYS" != "" ]; then
+    : > "$MIMECROFT_KEYS"
+  else
+    ck_i=0
+    ck_k="x"
+    while [ "$ck_k" != "" ] && [ "$ck_i" -lt 16 ]; do
+      ck_k=$(fb_window_key)
+      ck_i=$((ck_i + 1))
+    done
+  fi
 }
 
 # ─── Mimes ───────────────────────────────────────────────────────────
