@@ -1,11 +1,13 @@
 //! Minimal Vulkan FFI (docs/BASH-O4.md §4.4, M3 scaffolding).
 //!
 //! `libvulkan.so.1` is opened at RUNTIME (`dlopen` — never a build
-//! dependency, so missing Vulkan never breaks the build). Only the
-//! instance/device/compute subset is bound, with layouts verified
-//! against `vulkan_core.h`. Used by `--check` (device presence) and the
-//! lavapipe end-to-end dispatch test; generated-code host-split wiring
-//! is M3-remaining.
+//! dependency, so missing Vulkan never breaks the build). The
+//! instance/device/compute subset is bound here, with layouts verified
+//! against `vulkan_core.h`; the GRAPHICS subset (render pass +
+//! framebuffer + graphics pipeline + image readback) lives in
+//! `crate::fb_draw`, which reuses this module's loader + device open.
+//! Used by `--check` (device presence) and the lavapipe end-to-end
+//! dispatch tests; generated-code host-split wiring is M3-remaining.
 
 use std::ffi::{c_char, c_int, c_void, CString};
 use std::ptr;
@@ -26,23 +28,23 @@ fn lib_path() -> String {
 
 // ---- handles ----------------------------------------------------------
 
-type VkInstance = *mut c_void;
-type VkPhysicalDevice = *mut c_void;
-type VkDevice = *mut c_void;
-type VkQueue = *mut c_void;
-type VkBuffer = u64;
-type VkDeviceMemory = u64;
-type VkDescriptorSetLayout = u64;
-type VkPipelineLayout = u64;
-type VkShaderModule = u64;
-type VkPipeline = u64;
-type VkDescriptorPool = u64;
-type VkDescriptorSet = u64;
-type VkCommandPool = u64;
-type VkCommandBuffer = *mut c_void;
-type VkFence = u64;
-type VkResult = i32;
-const VK_SUCCESS: VkResult = 0;
+pub(crate) type VkInstance = *mut c_void;
+pub(crate) type VkPhysicalDevice = *mut c_void;
+pub(crate) type VkDevice = *mut c_void;
+pub(crate) type VkQueue = *mut c_void;
+pub(crate) type VkBuffer = u64;
+pub(crate) type VkDeviceMemory = u64;
+pub(crate) type VkDescriptorSetLayout = u64;
+pub(crate) type VkPipelineLayout = u64;
+pub(crate) type VkShaderModule = u64;
+pub(crate) type VkPipeline = u64;
+pub(crate) type VkDescriptorPool = u64;
+pub(crate) type VkDescriptorSet = u64;
+pub(crate) type VkCommandPool = u64;
+pub(crate) type VkCommandBuffer = *mut c_void;
+pub(crate) type VkFence = u64;
+pub(crate) type VkResult = i32;
+pub(crate) const VK_SUCCESS: VkResult = 0;
 
 // ---- sType values (vulkan_core.h) -------------------------------------
 
@@ -54,7 +56,7 @@ const STYPE_SUBMIT_INFO: u32 = 4;
 const STYPE_MEMORY_ALLOCATE_INFO: u32 = 5;
 const STYPE_FENCE_CREATE_INFO: u32 = 8;
 const STYPE_BUFFER_CREATE_INFO: u32 = 12;
-const STYPE_SHADER_MODULE_CREATE_INFO: u32 = 16;
+pub(crate) const STYPE_SHADER_MODULE_CREATE_INFO: u32 = 16;
 const STYPE_COMPUTE_PIPELINE_CREATE_INFO: u32 = 29;
 const STYPE_PIPELINE_LAYOUT_CREATE_INFO: u32 = 30;
 const STYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO: u32 = 32;
@@ -66,6 +68,7 @@ const STYPE_COMMAND_BUFFER_ALLOCATE_INFO: u32 = 40;
 const STYPE_COMMAND_BUFFER_BEGIN_INFO: u32 = 42;
 
 const QUEUE_COMPUTE_BIT: u32 = 0x2;
+pub(crate) const QUEUE_GRAPHICS_BIT: u32 = 0x1;
 const BUFFER_USAGE_STORAGE: u32 = 0x20;
 const MEM_HOST_VISIBLE: u32 = 0x1;
 const MEM_HOST_COHERENT: u32 = 0x2;
@@ -79,7 +82,7 @@ const API_VERSION_1_1: u32 = (1 << 22) | (1 << 12);
 // ---- structs (C layout, verified against vulkan_core.h) ---------------
 
 #[repr(C)]
-struct VkApplicationInfo {
+pub(crate) struct VkApplicationInfo {
     s_type: u32,
     p_next: *const c_void,
     p_app_name: *const c_char,
@@ -90,7 +93,7 @@ struct VkApplicationInfo {
 }
 
 #[repr(C)]
-struct VkInstanceCreateInfo {
+pub(crate) struct VkInstanceCreateInfo {
     s_type: u32,
     p_next: *const c_void,
     flags: u32,
@@ -103,15 +106,15 @@ struct VkInstanceCreateInfo {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct VkQueueFamilyProps {
-    flags: u32,
-    count: u32,
+pub(crate) struct VkQueueFamilyProps {
+    pub(crate) flags: u32,
+    pub(crate) count: u32,
     _timestamp_bits: u32,
     _granularity: [u32; 3],
 }
 
 #[repr(C)]
-struct VkDeviceQueueCreateInfo {
+pub(crate) struct VkDeviceQueueCreateInfo {
     s_type: u32,
     p_next: *const c_void,
     flags: u32,
@@ -121,7 +124,7 @@ struct VkDeviceQueueCreateInfo {
 }
 
 #[repr(C)]
-struct VkDeviceCreateInfo {
+pub(crate) struct VkDeviceCreateInfo {
     s_type: u32,
     p_next: *const c_void,
     flags: u32,
@@ -136,92 +139,104 @@ struct VkDeviceCreateInfo {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct VkMemoryType {
-    property_flags: u32,
-    heap_index: u32,
+pub(crate) struct VkMemoryType {
+    pub(crate) property_flags: u32,
+    pub(crate) heap_index: u32,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct VkMemoryHeap {
-    size: u64,
-    flags: u32,
+pub(crate) struct VkMemoryHeap {
+    pub(crate) size: u64,
+    pub(crate) flags: u32,
     _pad: u32,
 }
 
 #[repr(C)]
-struct VkMemoryProps {
-    type_count: u32,
-    types: [VkMemoryType; 32],
-    heap_count: u32,
-    heaps: [VkMemoryHeap; 16],
+pub(crate) struct VkMemoryProps {
+    pub(crate) type_count: u32,
+    pub(crate) types: [VkMemoryType; 32],
+    pub(crate) heap_count: u32,
+    pub(crate) heaps: [VkMemoryHeap; 16],
 }
 
 #[repr(C)]
-struct VkBufferCreateInfo {
-    s_type: u32,
-    p_next: *const c_void,
-    flags: u32,
-    size: u64,
-    usage: u32,
-    sharing_mode: u32,
-    queue_family_index_count: u32,
-    p_queue_family_indices: *const u32,
+pub(crate) struct VkBufferCreateInfo {
+    pub(crate) s_type: u32,
+    pub(crate) p_next: *const c_void,
+    pub(crate) flags: u32,
+    pub(crate) size: u64,
+    pub(crate) usage: u32,
+    pub(crate) sharing_mode: u32,
+    pub(crate) queue_family_index_count: u32,
+    pub(crate) p_queue_family_indices: *const u32,
 }
 
 #[repr(C)]
-struct VkMemoryReq {
-    size: u64,
-    alignment: u64,
-    type_bits: u32,
+pub(crate) struct VkMemoryReq {
+    pub(crate) size: u64,
+    pub(crate) alignment: u64,
+    pub(crate) type_bits: u32,
     _pad: u32,
 }
 
+impl VkMemoryReq {
+    pub(crate) fn zero() -> Self {
+        VkMemoryReq { size: 0, alignment: 0, type_bits: 0, _pad: 0 }
+    }
+}
+
 #[repr(C)]
-struct VkMemoryAllocInfo {
-    s_type: u32,
-    p_next: *const c_void,
-    size: u64,
-    type_index: u32,
+pub(crate) struct VkMemoryAllocInfo {
+    pub(crate) s_type: u32,
+    pub(crate) p_next: *const c_void,
+    pub(crate) size: u64,
+    pub(crate) type_index: u32,
     _pad: u32,
 }
 
-#[repr(C)]
-struct VkSetLayoutBinding {
-    binding: u32,
-    descriptor_type: u32,
-    descriptor_count: u32,
-    stage_flags: u32,
-    p_immutable_samplers: *const c_void,
+impl VkMemoryAllocInfo {
+    pub(crate) fn for_type(s_type: u32, size: u64, type_index: u32) -> Self {
+        VkMemoryAllocInfo { s_type, p_next: ptr::null(), size, type_index, _pad: 0 }
+    }
 }
 
 #[repr(C)]
-struct VkSetLayoutCreateInfo {
-    s_type: u32,
-    p_next: *const c_void,
-    flags: u32,
-    binding_count: u32,
-    p_bindings: *const VkSetLayoutBinding,
+pub(crate) struct VkSetLayoutBinding {
+    pub(crate) binding: u32,
+    pub(crate) descriptor_type: u32,
+    pub(crate) descriptor_count: u32,
+    pub(crate) stage_flags: u32,
+    pub(crate) p_immutable_samplers: *const c_void,
 }
 
 #[repr(C)]
-struct VkPipelineLayoutCreateInfo {
-    s_type: u32,
-    p_next: *const c_void,
-    flags: u32,
-    set_layout_count: u32,
-    p_set_layouts: *const VkDescriptorSetLayout,
-    push_constant_range_count: u32,
-    p_push_constant_ranges: *const c_void,
+pub(crate) struct VkSetLayoutCreateInfo {
+    pub(crate) s_type: u32,
+    pub(crate) p_next: *const c_void,
+    pub(crate) flags: u32,
+    pub(crate) binding_count: u32,
+    pub(crate) p_bindings: *const VkSetLayoutBinding,
 }
 
 #[repr(C)]
-struct VkShaderModuleCreateInfo {
-    s_type: u32,
-    p_next: *const c_void,
-    flags: u32,
-    code_size: usize,
-    p_code: *const u32,
+pub(crate) struct VkPipelineLayoutCreateInfo {
+    pub(crate) s_type: u32,
+    pub(crate) p_next: *const c_void,
+    pub(crate) flags: u32,
+    pub(crate) set_layout_count: u32,
+    pub(crate) p_set_layouts: *const VkDescriptorSetLayout,
+    pub(crate) push_constant_range_count: u32,
+    pub(crate) p_push_constant_ranges: *const c_void,
+}
+
+#[repr(C)]
+pub(crate) struct VkShaderModuleCreateInfo {
+    pub(crate) s_type: u32,
+    pub(crate) p_next: *const c_void,
+    pub(crate) flags: u32,
+    pub(crate) code_size: usize,
+    pub(crate) p_code: *const u32,
 }
 
 #[repr(C)]
@@ -247,94 +262,94 @@ struct VkComputePipelineCreateInfo {
 }
 
 #[repr(C)]
-struct VkPoolSize {
-    ty: u32,
-    count: u32,
+pub(crate) struct VkPoolSize {
+    pub(crate) ty: u32,
+    pub(crate) count: u32,
 }
 
 #[repr(C)]
-struct VkPoolCreateInfo {
-    s_type: u32,
-    p_next: *const c_void,
-    flags: u32,
-    max_sets: u32,
-    pool_size_count: u32,
-    p_pool_sizes: *const VkPoolSize,
+pub(crate) struct VkPoolCreateInfo {
+    pub(crate) s_type: u32,
+    pub(crate) p_next: *const c_void,
+    pub(crate) flags: u32,
+    pub(crate) max_sets: u32,
+    pub(crate) pool_size_count: u32,
+    pub(crate) p_pool_sizes: *const VkPoolSize,
 }
 
 #[repr(C)]
-struct VkSetAllocInfo {
-    s_type: u32,
-    p_next: *const c_void,
-    pool: VkDescriptorPool,
-    set_count: u32,
-    p_set_layouts: *const VkDescriptorSetLayout,
+pub(crate) struct VkSetAllocInfo {
+    pub(crate) s_type: u32,
+    pub(crate) p_next: *const c_void,
+    pub(crate) pool: VkDescriptorPool,
+    pub(crate) set_count: u32,
+    pub(crate) p_set_layouts: *const VkDescriptorSetLayout,
 }
 
 #[repr(C)]
-struct VkDescriptorBufferInfo {
-    buffer: VkBuffer,
-    offset: u64,
-    range: u64,
+pub(crate) struct VkDescriptorBufferInfo {
+    pub(crate) buffer: VkBuffer,
+    pub(crate) offset: u64,
+    pub(crate) range: u64,
 }
 
 #[repr(C)]
-struct VkWriteSet {
-    s_type: u32,
-    p_next: *const c_void,
-    dst_set: VkDescriptorSet,
-    dst_binding: u32,
-    dst_array_element: u32,
-    descriptor_count: u32,
-    descriptor_type: u32,
-    p_image_info: *const c_void,
-    p_buffer_info: *const VkDescriptorBufferInfo,
-    p_texel_view: *const c_void,
+pub(crate) struct VkWriteSet {
+    pub(crate) s_type: u32,
+    pub(crate) p_next: *const c_void,
+    pub(crate) dst_set: VkDescriptorSet,
+    pub(crate) dst_binding: u32,
+    pub(crate) dst_array_element: u32,
+    pub(crate) descriptor_count: u32,
+    pub(crate) descriptor_type: u32,
+    pub(crate) p_image_info: *const c_void,
+    pub(crate) p_buffer_info: *const VkDescriptorBufferInfo,
+    pub(crate) p_texel_view: *const c_void,
 }
 
 #[repr(C)]
-struct VkCmdPoolCreateInfo {
-    s_type: u32,
-    p_next: *const c_void,
-    flags: u32,
-    queue_family_index: u32,
+pub(crate) struct VkCmdPoolCreateInfo {
+    pub(crate) s_type: u32,
+    pub(crate) p_next: *const c_void,
+    pub(crate) flags: u32,
+    pub(crate) queue_family_index: u32,
 }
 
 #[repr(C)]
-struct VkCmdAllocInfo {
-    s_type: u32,
-    p_next: *const c_void,
-    pool: VkCommandPool,
-    level: u32,
-    count: u32,
+pub(crate) struct VkCmdAllocInfo {
+    pub(crate) s_type: u32,
+    pub(crate) p_next: *const c_void,
+    pub(crate) pool: VkCommandPool,
+    pub(crate) level: u32,
+    pub(crate) count: u32,
 }
 
 #[repr(C)]
-struct VkCmdBeginInfo {
-    s_type: u32,
-    p_next: *const c_void,
-    flags: u32,
-    p_inheritance_info: *const c_void,
+pub(crate) struct VkCmdBeginInfo {
+    pub(crate) s_type: u32,
+    pub(crate) p_next: *const c_void,
+    pub(crate) flags: u32,
+    pub(crate) p_inheritance_info: *const c_void,
 }
 
 #[repr(C)]
-struct VkSubmitInfo {
-    s_type: u32,
-    p_next: *const c_void,
-    wait_count: u32,
-    p_wait_sems: *const c_void,
-    p_wait_masks: *const u32,
-    cmd_count: u32,
-    p_cmds: *const VkCommandBuffer,
-    signal_count: u32,
-    p_signal_sems: *const c_void,
+pub(crate) struct VkSubmitInfo {
+    pub(crate) s_type: u32,
+    pub(crate) p_next: *const c_void,
+    pub(crate) wait_count: u32,
+    pub(crate) p_wait_sems: *const c_void,
+    pub(crate) p_wait_masks: *const u32,
+    pub(crate) cmd_count: u32,
+    pub(crate) p_cmds: *const VkCommandBuffer,
+    pub(crate) signal_count: u32,
+    pub(crate) p_signal_sems: *const c_void,
 }
 
 #[repr(C)]
-struct VkFenceCreateInfo {
-    s_type: u32,
-    p_next: *const c_void,
-    flags: u32,
+pub(crate) struct VkFenceCreateInfo {
+    pub(crate) s_type: u32,
+    pub(crate) p_next: *const c_void,
+    pub(crate) flags: u32,
 }
 
 // ---- function table ---------------------------------------------------
@@ -356,7 +371,7 @@ macro_rules! vkfn {
 
 /// Resolve an INSTANCE-level command through a real instance handle.
 /// Panics loudly when the loader lacks it (never a null call).
-fn ifn<T>(vk: &Vk, inst: VkInstance, name: &str) -> T
+pub(crate) fn ifn<T>(vk: &Vk, inst: VkInstance, name: &str) -> T
 where
     T: Copy,
 {
@@ -366,7 +381,7 @@ where
 }
 
 pub struct Vk {
-    handle: *mut c_void,
+    pub(crate) handle: *mut c_void,
     get_proc: unsafe extern "C" fn(VkInstance, *const c_char) -> *mut c_void,
 }
 
@@ -387,12 +402,12 @@ impl Vk {
         Ok(Vk { handle, get_proc: unsafe { std::mem::transmute(get_proc) } })
     }
 
-    fn proc(&self, name: &str) -> *mut c_void {
+    pub(crate) fn proc(&self, name: &str) -> *mut c_void {
         let c = CString::new(name).unwrap();
         unsafe { (self.get_proc)(ptr::null_mut(), c.as_ptr()) }
     }
 
-    fn iproc(&self, inst: VkInstance, name: &str) -> *mut c_void {
+    pub(crate) fn iproc(&self, inst: VkInstance, name: &str) -> *mut c_void {
         let c = CString::new(name).unwrap();
         unsafe { (self.get_proc)(inst, c.as_ptr()) }
     }
@@ -400,7 +415,7 @@ impl Vk {
     vkfn!(vkCreateInstance(p_create_info: *const VkInstanceCreateInfo, p_allocator: *const c_void, p_instance: *mut VkInstance) -> VkResult);
 
     #[allow(clippy::too_many_arguments)]
-    fn dproc<T>(&self, inst: VkInstance, dev: VkDevice, name: &str) -> T
+    pub(crate) fn dproc<T>(&self, inst: VkInstance, dev: VkDevice, name: &str) -> T
     where
         T: Copy,
     {
@@ -422,7 +437,7 @@ impl Drop for Vk {
     }
 }
 
-fn vk_ok(what: &str, rc: VkResult) -> Result<(), String> {
+pub(crate) fn vk_ok(what: &str, rc: VkResult) -> Result<(), String> {
     if rc == VK_SUCCESS {
         Ok(())
     } else {
@@ -434,22 +449,132 @@ fn vk_ok(what: &str, rc: VkResult) -> Result<(), String> {
 
 /// True when a loader + ≥1 physical device with a compute queue exists.
 /// Any failure ⇒ false (callers take the CPU path — doc §4.4 firewall).
-/// The probe instance is destroyed afterwards (no leak per `--check`).
+///
+/// NOTE: the probe instance is intentionally NOT destroyed here.
+/// Destroying a probe instance while the process later creates + tears
+/// down a second instance segfaults lavapipe (its instance teardown
+/// races its own loader refcount — same class as the RasterRunner
+/// pool/framebuffer teardown faults). One leaked probe instance per
+/// process is the v1 cost (the `--check` path exits immediately, and
+/// tests create a handful at most).
 pub fn has_compute_device() -> bool {
     let Ok(vk) = Vk::load() else { return false };
-    match pick_compute_device(&vk) {
-        Ok((inst, _, _)) => {
-            let destroy: unsafe extern "C" fn(VkInstance, *const c_void) -> () =
-                ifn(&vk, inst, "vkDestroyInstance");
-            unsafe { destroy(inst, ptr::null()) };
-            true
-        }
+    // Keep the loader AND the instance alive: dropping `vk` would
+    // dlclose the loader under the leaked instance.
+    std::mem::forget(vk);
+    match pick_probe_instance() {
+        Ok(()) => true,
         Err(_) => false,
     }
 }
 
+/// Probe body: open + close nothing, leak everything. Split from
+/// `has_compute_device` so the leak is explicit.
+fn pick_probe_instance() -> Result<(), String> {
+    let vk = Vk::load()?;
+    let (inst, _, _) = pick_compute_device(&vk)?;
+    let _ = inst;
+    std::mem::forget(vk);
+    Ok(())
+}
+
 /// First physical device with a compute-capable queue family.
 fn pick_compute_device(vk: &Vk) -> Result<(VkInstance, VkPhysicalDevice, u32), String> {
+    pick_queue_device(vk, QUEUE_COMPUTE_BIT, "compute")
+}
+
+/// Device open shared by the compute runner and the graphics
+/// (`fb_draw`) runner: instance → physical device with a queue family
+/// carrying `want_bits` → logical device + queue + memory properties.
+/// On success the caller owns `inst` and `dev`; on failure the
+/// instance is destroyed before returning.
+pub(crate) struct OpenDevice {
+    pub(crate) vk: Vk, // NOTE: Vk has a Drop (dlclose) — OpenDevice must NEVER grow one (see destroy_instance)
+    pub(crate) inst: VkInstance,
+    pub(crate) dev: VkDevice,
+    pub(crate) queue: VkQueue,
+    pub(crate) family: u32,
+    pub(crate) mem_props: VkMemoryProps,
+}
+
+impl OpenDevice {
+    /// Dead today (teardown lives in RasterRunner::drop by design) —
+    /// kept for the future host-split owner that destroys explicitly.
+    #[allow(dead_code)]
+    /// The loader handle must outlive the instance destroy (the
+    /// trampoline resolves through it). `Vk::drop` closes the
+    /// loader — so the device/instance teardown belongs to the
+    /// OWNER of the `OpenDevice` (RasterRunner::drop), never to a
+    /// `Drop for OpenDevice`.
+    pub(crate) fn destroy_instance(&self) {
+        let destroy: unsafe extern "C" fn(VkInstance, *const c_void) -> () =
+            ifn(&self.vk, self.inst, "vkDestroyInstance");
+        unsafe { destroy(self.inst, ptr::null()) };
+    }
+}
+
+/// Open the first device whose queue family carries `want_bits`
+/// (`QUEUE_GRAPHICS_BIT` covers compute on every real ICD; lavapipe
+/// exposes both on family 0). Queue creation asks for exactly the
+/// bits wanted, so the family is sufficient for the caller's use.
+pub(crate) fn open_queue_device(
+    want_bits: u32,
+    want_name: &'static str,
+) -> Result<OpenDevice, String> {
+    let vk = Vk::load()?;
+    let (inst, phys, family) = pick_queue_device(&vk, want_bits, want_name)?;
+    let prio = [1.0f32];
+    let qci = VkDeviceQueueCreateInfo {
+        s_type: STYPE_DEVICE_QUEUE_CREATE_INFO,
+        p_next: ptr::null(),
+        flags: 0,
+        family_index: family,
+        queue_count: 1,
+        p_priorities: prio.as_ptr(),
+    };
+    let dci = VkDeviceCreateInfo {
+        s_type: STYPE_DEVICE_CREATE_INFO,
+        p_next: ptr::null(),
+        flags: 0,
+        queue_create_info_count: 1,
+        p_queue_create_infos: &qci,
+        enabled_layer_count: 0,
+        pp_enabled_layer_names: ptr::null(),
+        enabled_extension_count: 0,
+        pp_enabled_extension_names: ptr::null(),
+        p_enabled_features: ptr::null(),
+    };
+    let mut dev: VkDevice = ptr::null_mut();
+    let create_dev: unsafe extern "C" fn(VkPhysicalDevice, *const VkDeviceCreateInfo, *const c_void, *mut VkDevice) -> VkResult =
+        ifn(&vk, inst, "vkCreateDevice");
+    let r = unsafe { create_dev(phys, &dci, ptr::null(), &mut dev) };
+    if r != VK_SUCCESS {
+        let destroy: unsafe extern "C" fn(VkInstance, *const c_void) -> () =
+            ifn(&vk, inst, "vkDestroyInstance");
+        unsafe { destroy(inst, ptr::null()) };
+        return Err(format!("vulkan create-device failed: rc={r}"));
+    }
+    let mut queue: VkQueue = ptr::null_mut();
+    let get_queue: unsafe extern "C" fn(VkDevice, u32, u32, *mut VkQueue) -> () =
+        vk.dproc(inst, dev, "vkGetDeviceQueue");
+    unsafe { get_queue(dev, family, 0, &mut queue) };
+    let mut mem_props = VkMemoryProps {
+        type_count: 0,
+        types: [VkMemoryType { property_flags: 0, heap_index: 0 }; 32],
+        heap_count: 0,
+        heaps: [VkMemoryHeap { size: 0, flags: 0, _pad: 0 }; 16],
+    };
+    let get_mem_props: unsafe extern "C" fn(VkPhysicalDevice, *mut VkMemoryProps) -> () =
+        ifn(&vk, inst, "vkGetPhysicalDeviceMemoryProperties");
+    unsafe { get_mem_props(phys, &mut mem_props) };
+    Ok(OpenDevice { vk, inst, dev, queue, family, mem_props })
+}
+
+fn pick_queue_device(
+    vk: &Vk,
+    want_bits: u32,
+    want_name: &str,
+) -> Result<(VkInstance, VkPhysicalDevice, u32), String> {
     let ai = VkApplicationInfo {
         s_type: STYPE_APPLICATION_INFO,
         p_next: ptr::null(),
@@ -494,12 +619,12 @@ fn pick_compute_device(vk: &Vk) -> Result<(VkInstance, VkPhysicalDevice, u32), S
             ];
             unsafe { qfam_props(d, &mut m, fams.as_mut_ptr()) };
             for (i, f) in fams.iter().enumerate() {
-                if f.flags & QUEUE_COMPUTE_BIT != 0 && f.count > 0 {
+                if f.flags & want_bits == want_bits && f.count > 0 {
                     return Ok((inst, d, i as u32));
                 }
             }
         }
-        Err("no compute queue".to_string())
+        Err(format!("no {want_name} queue"))
     })();
     if result.is_err() {
         unsafe { destroy(inst, ptr::null()) };

@@ -15,6 +15,10 @@ fn usage() -> String {
          Driver-specific:\n\
          \x20 --emit-shader ID     print the GLSL450 compute shader for candidate ID\n\
          \x20                     (`fb-blocks`/`fb-overlay`: the fb0 fragment pair)\n\
+         \x20 --fb-proof[=WxH]    dispatch the fb0 fragment pair (blocks + overlay)\n\
+         \x20                     offscreen and print a P6 PPM of the frame to\n\
+         \x20                     stdout (default 64x64; proof scene, not the\n\
+         \x20                     program's payload)\n\
          \x20 --fetch-libs[=ask|auto|off]  library download policy (default ask)\n\
          \x20 --prefetch           warm the fetch cache from the manifest, then exit\n\
          \x20 --audit-fetch        print the fetch audit log, then exit\n\
@@ -41,6 +45,10 @@ pub struct Options {
     pub common: CommonFlags,
     // -- driver-specific (bash + GLSL/Vulkan fetch) --
     pub emit_shader: Option<String>,
+    /// `--fb-proof[=WxH]`: dispatch the fragment-leg proof scene
+    /// (blocks + overlay) offscreen and print a P6 PPM. `Some("")`
+    /// means the default 64x64.
+    pub fb_proof: Option<String>,
     pub fetch_libs: Option<String>,
     pub prefetch: bool,
     pub audit_fetch: bool,
@@ -66,6 +74,7 @@ impl Default for Options {
             audit_fetch: false,
             publish_fb0: None,
             dump_fb0: None,
+            fb_proof: None,
         }
     }
 }
@@ -118,6 +127,10 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
             }
             "--emit-shader" => {
                 o.emit_shader = Some(it.next().ok_or("--emit-shader needs ID")?.clone());
+            }
+            "--fb-proof" => o.fb_proof = Some(String::new()),
+            s if s.starts_with("--fb-proof=") => {
+                o.fb_proof = Some(s["--fb-proof=".len()..].to_string());
             }
             "--prefetch" => o.prefetch = true,
             "--audit-fetch" => o.audit_fetch = true,
@@ -228,6 +241,14 @@ pub fn run(args: &[String]) -> i32 {
                 e.exit_code()
             }
         };
+    }
+
+    // --fb-proof is device-only (no program needed): dispatch the
+    // fragment-leg proof scene (blocks + overlay) offscreen and print
+    // a P6 PPM to stdout. Same scene as tests/fb_dispatch.rs, through
+    // the real binary — the CLI half of the dispatch proof.
+    if let Some(size) = &o.fb_proof {
+        return cmd_fb_proof(size);
     }
 
     let Some(prog) = o.common.prog.clone() else {
@@ -388,6 +409,112 @@ pub fn run(args: &[String]) -> i32 {
             },
         }
     }
+}
+
+/// `--fb-proof[=WxH]`: dispatch the fragment-leg proof scene offscreen
+/// and print a P6 PPM to stdout.
+///
+/// The scene is the same one `tests/fb_dispatch.rs` proves: one red
+/// cube (blocks) + one opaque green full-screen quad (overlay) on a
+/// 10-layer grey atlas, camera at the origin, no effects. The binary
+/// compiles both `fb_frag` pairs to SPIR-V, uploads the atlas,
+/// dispatches blocks then overlay, reads back RGBA8, and writes P6
+/// (dropping alpha). Exit 2 when no Vulkan device is present (a
+/// usage-showing skip — CPU gates must never fail on hardware drift);
+/// exit 1 on any real dispatch failure.
+///
+/// `arg` empty means 64x64; otherwise `WIDTHxHEIGHT` (both ≤ 4096).
+fn cmd_fb_proof(arg: &str) -> i32 {
+    let (w, h) = if arg.is_empty() {
+        (64u32, 64u32)
+    } else {
+        let Some((ws, hs)) = arg.split_once('x') else {
+            eprintln!("bash-O4: --fb-proof wants WxH, got {arg:?}");
+            return 2;
+        };
+        match (ws.parse::<u32>(), hs.parse::<u32>()) {
+            (Ok(w), Ok(h)) if w > 0 && h > 0 && w <= 4096 && h <= 4096 => (w, h),
+            _ => {
+                eprintln!("bash-O4: --fb-proof wants WxH (1..4096), got {arg:?}");
+                return 2;
+            }
+        }
+    };
+    if !crate::vkffi::has_compute_device() {
+        eprintln!("bash-O4: --fb-proof: no Vulkan device (need lavapipe or a GPU)");
+        return 2;
+    }
+    match fb_proof_ppm(w, h) {
+        Ok(ppm) => {
+            use std::io::Write;
+            if std::io::stdout().write_all(&ppm).is_err() {
+                eprintln!("bash-O4: --fb-proof: stdout write failed");
+                return 1;
+            }
+            0
+        }
+        Err(e) => {
+            eprintln!("bash-O4: --fb-proof: {e}");
+            1
+        }
+    }
+}
+
+/// The proof scene, as bytes: P6 `WxH 255` + RGB.
+fn fb_proof_ppm(w: u32, h: u32) -> Result<Vec<u8>, String> {
+    let cache_root = crate::cache::cache_root(None);
+    let dir = std::env::temp_dir().join(format!("bo4proof{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let cc = crate::shader::find_spirv_compiler(&cache_root)
+        .ok_or_else(|| "no SPIR-V compiler (need glslangValidator)".to_string())?;
+    let bv = crate::fb_frag::compile_stage(&cc, &crate::fb_frag::blocks_vertex(), &dir, "vert")?;
+    let bf = crate::fb_frag::compile_stage(&cc, &crate::fb_frag::blocks_fragment(), &dir, "frag")?;
+    let ov = crate::fb_frag::compile_stage(&cc, &crate::fb_frag::overlay_vertex(), &dir, "vert")?;
+    let of_ = crate::fb_frag::compile_stage(&cc, &crate::fb_frag::overlay_fragment(), &dir, "frag")?;
+    let mut runner = crate::fb_draw::RasterRunner::new(w, h)?;
+    // Grey atlas (128 — tint identity) + crack layer 9, same as the test.
+    let mut atlas = Vec::new();
+    for layer in 0..10u32 {
+        for _ in 0..16 {
+            if layer == 9 {
+                atlas.extend_from_slice(&[200, 100, 50, 0]);
+            } else {
+                atlas.extend_from_slice(&[128, 128, 128, 255]);
+            }
+        }
+    }
+    let (_img, view) = runner.upload_atlas(&atlas, 10, 4)?;
+    let push = crate::fb_draw::PushConstants {
+        cam0: [0.0, 0.0, 0.0, 1.0],
+        cam1: [0.0, 0.0, w as f32, h as f32],
+        cfg: [0, 0, 0, 0],
+    };
+    // Cube scales with the canvas so the proof frame reads the same at
+    // any size: half-width cube at z = 2 (world x∈[-1,1] at 64x64).
+    let s = (w.max(h) as f32) * 2000.0 / 64.0;
+    runner.draw_blocks(
+        &bv,
+        &bf,
+        &[0.0, 0.5, 2.0, s, s, s, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        &push,
+        view,
+    )?;
+    runner.draw_overlay(
+        &ov,
+        &of_,
+        &[0.0, 0.0, 2.0, 2.0, 0.0, 1.0, 0.0, 0.4, 0.0, 0.0, 0.0, 0.0],
+        &push,
+        view,
+    )?;
+    let rgba = runner.readback()?;
+    let _ = std::fs::remove_dir_all(&dir);
+    // P6: translucent green (a=0.4) over red blocks — exercises the
+    // src-alpha blend path, unlike the test's opaque quad.
+    let mut ppm = format!("P6\n{w} {h}\n255\n").into_bytes();
+    for px in rgba.chunks(4) {
+        ppm.extend_from_slice(&[px[0], px[1], px[2]]);
+    }
+    Ok(ppm)
 }
 
 /// `--dump-fb0=FILE`: write a P6 PPM (the device's `fb_dump_ppm` output) into

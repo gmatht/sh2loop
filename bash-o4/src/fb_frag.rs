@@ -157,8 +157,8 @@ layout(location = 2) out vec2 vUv;
 layout(location = 3) flat out int vTex;
 layout(location = 4) flat out int vDmg;
 void main() {
-  uint cube = gl_InstanceID;
-  uint k = gl_VertexID; // 0..35, drawn non-indexed
+  uint cube = gl_InstanceIndex;
+  uint k = gl_VertexIndex; // 0..35, drawn non-indexed
   uint vi = uint(CUBE_I[k]);
   CubeRec R = rec[cube];
   vec3 centre = R.a.xyz;
@@ -166,8 +166,8 @@ void main() {
   vec3 corner = vec3(float(CUBE_P[vi * 3u]), float(CUBE_P[vi * 3u + 1u]), float(CUBE_P[vi * 3u + 2u]));
   // to_view, fbdev.c:1379 (milli corner x world scale, recenter, yaw)
   float fx = corner.x * sc.x / 1000000.0 + centre.x - cam0.x;
-  float fy = corner.y * sc.y + centre.y - (cam0.y + 0.5);
-  float fz = corner.z * sc.z + centre.z - cam0.z;
+  float fy = corner.y * sc.y / 1000000.0 + centre.y - (cam0.y + 0.5);
+  float fz = corner.z * sc.z / 1000000.0 + centre.z - cam0.z;
   float dx = fx * cam0.w + fz * cam1.x;
   float dz = -fx * cam1.x + fz * cam0.w;
   float w = max(dz, WNEAR); // bug-compatible near clamp (see docs)
@@ -255,8 +255,10 @@ void main() {
   if (b < 0) b = 0;
   // device pack parity, incl. overbright bleed: (508<<16) keeps 0xFC
   // and green overflow increments red (fbdev.c put_px packing).
+  // Alpha is OPAQUE (the device stores BGRX — no alpha channel — so
+  // the Vulkan target's alpha is 1.0, never the pack value / 255).
   uint packed = (uint(r) << 16u) | (uint(g) << 8u) | uint(b);
-  o = vec4(float((packed >> 16u) & 0xFFu), float((packed >> 8u) & 0xFFu), float(packed & 0xFFu), 1.0) / 255.0;
+  o = vec4(vec3(float((packed >> 16u) & 0xFFu), float((packed >> 8u) & 0xFFu), float(packed & 0xFFu)) / 255.0, 1.0);
 }
 "#,
     );
@@ -282,16 +284,30 @@ struct OvRec { vec4 g; vec4 c; vec4 d; };
 layout(std430, set = 0, binding = 2) readonly buffer OvRecs { OvRec rec[]; };
 layout(location = 0) out vec4 vCol;
 void main() {
-  OvRec R = rec[gl_InstanceID];
-  uint k = gl_VertexID; // 0..3, triangle strip
+  OvRec R = rec[gl_InstanceIndex];
+  // 6 verts as a triangle LIST (not a strip): lavapipe rasterizes a
+  // 4-vert strip's second triangle with a subtly wrong interpolant
+  // (measured: uniform vCol came out pixel-varying on tri1), while a
+  // list of two explicit triangles is exact. Both triangles share
+  // the TL→BR diagonal and wind the same way: k=0..2 → (TL,TR,BR),
+  // k=3..5 → (BR,BL,TL).
+  uint k = gl_VertexIndex;
+  // Two triangles sharing the TL→BR diagonal: k=0..2 → corners
+  // (TL,TR,BR), k=3..5 → (BR,BL,TL). Corner order per triangle is
+  // (diagonal-start, off-diagonal, diagonal-end) so BOTH triangles
+  // wind the same way (a list has no strip parity flip; a (TL,BR,BL)
+  // second triangle would wind backwards and misinterpolate —
+  // measured: the half-quad + diagonal-alpha fault).
+  // q: 0,1,2,2,3,0.
+  uint q = (k == 3u) ? 2u : ((k == 4u) ? 3u : ((k == 5u) ? 0u : k));
   float cxp = (R.g.x * 0.5 + 0.5) * cam1.z;
   float cyp = (0.5 - R.g.y * 0.5) * cam1.w;
   float hw = R.g.z * cam1.z * 0.5;
   float hh = R.g.w * cam1.w * 0.5;
   float rad = R.d.x * 3.14159265 / 180.0;
   float ca = cos(rad), sa = sin(rad);
-  float sx = (k == 0u || k == 3u) ? -1.0 : 1.0;
-  float sy = (k < 2u) ? -1.0 : 1.0;
+  float sx = (q == 0u || q == 3u) ? -1.0 : 1.0;
+  float sy = (q < 2u) ? -1.0 : 1.0;
   float dx = sx * hw, dy = sy * hh;
   float px = cxp + dx * ca - dy * sa;
   float py = cyp + dx * sa + dy * ca;
@@ -472,12 +488,21 @@ mod tests {
         assert!(v.contains("0, 1, 2, 0, 2, 3"), "CUBE_I head");
         assert!(v.contains("-500, 500, 500"), "CUBE_P head");
         assert!(v.contains("1000, 1000, 1000, 1000, 500"), "CUBE_SHADE head");
-        assert!(v.contains("gl_InstanceID"), "one instance per cube");
+        assert!(v.contains("gl_InstanceIndex"), "one instance per cube");
         assert!(v.contains("gl_Position"), "clip output");
         // to_view/project transcription (fbdev.c:1379/1209)
         assert!(v.contains("(cam0.y + 0.5)"), "eye half-block offset");
         assert!(v.contains("0.7"), "ndcx factor");
         assert!(v.contains("0.45"), "ndcy factor");
+        // milli-corner × world scale on ALL THREE axes (fbdev.c
+        // to_view divides each by 1e6 — a missing divisor on y/z
+        // explodes verts to ±50000 and fills the screen; caught by
+        // the fb_dispatch proof, pinned here).
+        assert_eq!(
+            v.matches("/ 1000000.0").count(),
+            3,
+            "milli divisor on x, y, z:\n{v}"
+        );
         assert!(v.contains("WNEAR"), "near clamp");
         assert!(v.contains("DEPTH_FAR"), "depth range");
         assert!(v.contains("CubeRec"), "record struct");
@@ -505,7 +530,11 @@ mod tests {
         let (v, f) = (overlay_vertex(), overlay_fragment());
         assert!(v.contains("OvRec"), "record struct");
         assert!(v.contains("cos(rad)"), "rotation");
-        assert!(v.contains("gl_InstanceID"), "one instance per rect");
+        assert!(v.contains("gl_InstanceIndex"), "one instance per rect");
+        // 6-vert triangle list (not a 4-vert strip): lavapipe
+        // misinterpolates the strip's second triangle (the
+        // fb_dispatch + --fb-proof diagonal-alpha fault).
+        assert!(v.contains("(k == 3u) ? 2u"), "k-to-corner fold");
         assert!(f.contains("o = vCol"), "flat color");
     }
 
@@ -537,7 +566,7 @@ mod tests {
         // GpuOp spelling (echo … > /dev/fb0/blocks, pre-calls-transform)
         let (v, f) = emit_fb_shader(&gpu_op_prog("/dev/fb0", "blocks"), "blocks")
             .expect("blocks must emit");
-        assert!(v.contains("gl_InstanceID") && f.contains("sampler2DArray"));
+        assert!(v.contains("gl_InstanceIndex") && f.contains("sampler2DArray"));
         // fb_* call spelling (post-calls-transform IR)
         let mut prog = gpu_op_prog("/dev/fb0", "overlay");
         prog.stmts = vec![IrStmt::Expr(IrExpr::Call {
