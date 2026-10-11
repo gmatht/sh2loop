@@ -290,7 +290,32 @@ cleanup() {
     rm -f "$pidfile" 2>/dev/null || true
   fi
 }
-trap cleanup EXIT
+# NAME THE DEATH (2026-10-10). A supervisor that vanishes WITHOUT an exit line
+# is indistinguishable from one that never started: the pidfile goes stale and
+# the log's last entry is the worker's own output. That ambiguity cost hours —
+# the estree and core workers were each restarted five-plus times while the
+# cause was invisible, because the only exits that logged were TERM (via
+# on_term) and a child exit inside the restart loop.
+#
+# `$?` is the exit status at the moment the trap starts; 143/130 mean a TERM/INT
+# that bypassed on_term, and anything else is an abrupt end (a SIGKILL leaves
+# NO trace at all, which is itself the diagnosis: an empty trailing line means
+# "killed, not exited").
+#
+# ONE EXIT TRAP ONLY (bugfix 2026-10-10): this used to read
+#   trap exit_trace EXIT
+#   trap cleanup EXIT
+# but bash does NOT stack same-signal traps — the second REPLACES the first
+# (POSIX: setting a trap replaces the existing action). exit_trace therefore
+# NEVER RAN, and *every* supervisor death looked like a SIGKILL, including
+# ordinary TERM exits whose "received TERM" note had failed. The combined
+# trap below restores the intended behavior: the trace runs first (so `$?`
+# is still the triggering status), then cleanup.
+exit_trace() {
+  local st=$?
+  note "supervisor EXITING rc=$st (uptime ${SECONDS}s, restarts=$restarts) — if this is the last line and the process is gone, it was killed, not stopped"
+}
+trap 'exit_trace; cleanup' EXIT
 trap 'on_term' TERM INT
 
 # Publish our pid atomically so `kill $(cat file)` never reads a half-written

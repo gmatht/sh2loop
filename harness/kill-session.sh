@@ -82,9 +82,34 @@ case "${PWD##*/}" in
         ;;
 esac
 
-# setsid puts the command in a new session; $! is the setsid process, which
-# execs the command, so it carries the same SID.
-setsid "$@" &
+# ── equivalence-gate ENV neutralization ─────────────────────────────────
+# Every caller of this wrapper runs a TRANSLATION against a `bash` REFERENCE
+# and diffs them (setup_backends.sh's backend gate, c_gate_main.sh,
+# chimera-gate.sh, perl_gate_local.sh, batch-triage.sh, the pg-* repros). A
+# non-interactive bash sources $BASH_ENV, so a DEVELOPER environment that
+# defines shell FUNCTIONS there is applied to the reference side only — the
+# translated program's native pipeline execs the real binary, while `bash "$f"`
+# runs the function. The gate then measures the dev shim, not the translator.
+# harness/c_gate_main.sh:104-118 documents exactly this and neutralizes it for
+# BOTH of its sides; this wrapper is the single chokepoint every other caller
+# goes through, so the same neutralization belongs here rather than duplicated
+# at ten call sites.
+#
+# Measured 2026-10-09 on this box, where the agent harness exports
+# BASH_ENV=/tmp/pir-timeout/bashenv defining `grep` -> ripgrep (and `find`,
+# `timeout`): the rust backend's gate reported 015_grep_advanced.sh and
+# 016_grep_basic.sh as EQUIV-FAIL. Re-running the 47 corpus examples that
+# mention grep/egrep/find/timeout in BOTH modes gave exactly those two as
+# shimmed=FAIL / clean=PASS and ZERO as shimmed=PASS / clean=FAIL — the
+# reference was wrong, the renderer was right. (rg is not a grep drop-in:
+# `grep -o "pattern[0-9]\+"` is one-or-more in BRE but a literal `+` in rg's
+# Rust regex, and `--color=always` emits a different SGR sequence.)
+#
+# The wrappers fall back to the real tool for flags they cannot translate, so
+# the blast radius is narrow — 45 of those 47 files were unaffected either way.
+# `env -u` EXECs (it does not fork), so setsid still lands in the same pid and
+# the SID == $child invariant below is unchanged.
+env -u BASH_ENV setsid "$@" &
 child=$!
 
 # The SID is $child, and probing for it is pure cost.

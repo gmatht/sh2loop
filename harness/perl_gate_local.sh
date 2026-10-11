@@ -73,8 +73,8 @@ why)
   [ "${s:-0}" -gt 0 ] && { echo "### FAIL: stub gate ($s)"; exit 1; }
   sc=$(mktemp -d "$ROOT/.perlwhy.XXXXXX"); cd "$sc" || exit 2
   cp "$TMPD.why.pl" "$sc/prog.pl"
-  bash_out=$(bash "$f" 2>/dev/null | perl "$CAP" "$CAPBYTES" out); bash_rc=$?
-  pl_out=$(perl "$sc/prog.pl" 2>/dev/null | perl "$CAP" "$CAPBYTES" out); pl_rc=$?
+  bash_out=$("$KS" timeout -k 2 "$TIMEOUT_S" bash "$f" 2>/dev/null | perl "$CAP" "$CAPBYTES" out); bash_rc=${PIPESTATUS[0]}
+  pl_out=$("$KS" timeout -k 2 "$TIMEOUT_S" perl -x "$sc/prog.pl" 2>/dev/null | perl "$CAP" "$CAPBYTES" out); pl_rc=${PIPESTATUS[0]}
   echo "### bash (rc=$bash_rc):"; printf '%s\n' "$bash_out"
   echo "### perl (rc=$pl_rc):"; printf '%s\n' "$pl_out"
   if [ "$bash_out" = "$pl_out" ] && [ "$bash_rc" = "$pl_rc" ]; then echo "### EQUIV PASS"; else echo "### FAIL: equivalence (bash_rc=$bash_rc perl_rc=$pl_rc)"; diff <(printf '%s\n' "$bash_out") <(printf '%s\n' "$pl_out") | head -40; fi
@@ -82,7 +82,9 @@ why)
 esac
 
 mkdir -p "$TMPD"
-STDIN_F="$TMPD/.stdin"
+# Named *.pl, NOT `.stdin`: check_qx.pl skips every file that is not `*.pl`
+# (see the note at the anti-cheat stage below).
+STDIN_F="$TMPD/render.pl"
 pass=0; fail=0; skip=0; stub=0; qxf=0; renderfail=0; equivfail=0
 fails=""
 for f in $CORPUS; do
@@ -97,22 +99,45 @@ for f in $CORPUS; do
     [ $VERBOSE = 1 ] && echo "RENDER-FAIL $b"; continue
   fi
   printf '%s' "$out" > "$STDIN_F"
+  # STAGE ORDER MIRRORS THE FLEET GATE, and that is load-bearing for the
+  # verdict's MEANING: setup_backends.sh computes the stub count first and
+  # enters its anti-cheat block only when it is zero, so a file that carries
+  # both a TODO marker and a qx violation is counted as a STUB failure. With
+  # the qx stage first (as this mirror had it) the same file was reported as
+  # a check_qx failure — a different number for the same tree, which is the
+  # one thing a mirror must not do.
+  s=$(command grep -cE 'TODO\(unsupported\)|sh2[A-Za-z_0-9]+\(' "$STDIN_F" || true)
+  stub=$((stub + ${s:-0}))
+  if [ "${s:-0}" -gt 0 ]; then fail=$((fail+1)); fails="$b $fails"; [ $VERBOSE = 1 ] && echo "FAIL(stub=$s) $b"; continue; fi
   if command grep -qE "system\('bash',\s*'[^']*'\)" "$STDIN_F"; then
     fail=$((fail+1)); fails="$b $fails"; [ $VERBOSE = 1 ] && echo "FAIL(bash-wrapper) $b"; continue
   fi
+  # THE RENDER MUST BE NAMED *.pl HERE. check_qx.pl opens only `*.pl` files
+  # (`next if $file !~ /\.pl$/`), and this mirror wrote the render to
+  # "$TMPD/.stdin" — so the stage scanned NOTHING, printed nothing, and
+  # reported `0 check_qx` for a corpus the fleet gate was simultaneously
+  # failing 20+ files on. A gate stage that cannot fire is worse than a
+  # missing one: it reports a verdict (green) it never measured.
   qx=$(perl "$ROOT/check_qx.pl" "$STDIN_F" 2>/dev/null | command grep -c FAIL || true)
   if [ "${qx:-0}" -gt 0 ]; then
     qxf=$((qxf+1)); fail=$((fail+1)); fails="$b $fails"; [ $VERBOSE = 1 ] && echo "FAIL(check_qx=$qx) $b"; continue
   fi
-  s=$(command grep -cE 'TODO\(unsupported\)|sh2[A-Za-z_0-9]+\(' "$STDIN_F" || true)
-  stub=$((stub + ${s:-0}))
-  if [ "${s:-0}" -gt 0 ]; then fail=$((fail+1)); fails="$b $fails"; [ $VERBOSE = 1 ] && echo "FAIL(stub=$s) $b"; continue; fi
   # executed equivalence, hermetic scratch, argv0 = source path (the gate's
   # perl treatment), cap on both sides, stderr dropped on both sides
   sc=$(mktemp -d "$ROOT/.perlgate.XXXXXX")
   cp "$STDIN_F" "$sc/prog.pl"
-  bash_out=$(cd "$sc" && timeout -k 2 "$TIMEOUT_S" bash "$f" 2>/dev/null | perl "$CAP" "$CAPBYTES" out); bash_rc=${PIPESTATUS[0]}
-  pl_out=$(cd "$sc" && timeout -k 2 "$TIMEOUT_S" "$KS" perl -x "$sc/prog.pl" 2>/dev/null | perl "$CAP" "$CAPBYTES" out); pl_rc=${PIPESTATUS[0]}
+  # SESSION TEARDOWN ORDER MATTERS. This used to be `timeout -k 2 N "$KS" ...`
+  # — timeout OUTSIDE the session wrapper. Then `setsid` runs as a DESCENDANT
+  # of timeout, so when the bound fires timeout signals only its direct child
+  # (the KS shell, which is blocked in `wait`) and dies BEFORE its session
+  # sweep; the example's perl/bash survives, still holding the write end of
+  # the pipe into cap-capture.pl, so the command substitution never sees EOF
+  # and the gate HANGS with no verdict (measured: a 52-minute-old orphaned
+  # `perl -x prog.pl` holding one run open forever). The fleet gate wraps the
+  # other way round — "$KS" timeout ... — so the sweep runs after the bound
+  # fires and the pipe closes. Mirror the fleet order on BOTH sides.
+  bash_out=$(cd "$sc" && "$KS" timeout -k 2 "$TIMEOUT_S" bash "$f" 2>/dev/null | perl "$CAP" "$CAPBYTES" out); bash_rc=${PIPESTATUS[0]}
+  pl_out=$(cd "$sc" && "$KS" timeout -k 2 "$TIMEOUT_S" perl -x "$sc/prog.pl" 2>/dev/null | perl "$CAP" "$CAPBYTES" out); pl_rc=${PIPESTATUS[0]}
   rm -rf "$sc"
   if [ "$bash_out" = "$pl_out" ]; then
     pass=$((pass+1)); [ $VERBOSE = 1 ] && echo "PASS $b"

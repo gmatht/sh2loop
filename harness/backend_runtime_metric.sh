@@ -82,6 +82,22 @@ FISH_SHIR_RENDER="${FISH_SHIR_RENDER:-$ROOT/sh2perl/backends/fish/target/debug/s
 # g_flag="--target=$g_lang"), so the metric must too or the two disagree about
 # the same tree.
 RUST_SHIR_RENDER="${RUST_SHIR_RENDER:-$ROOT/sh2perl/backends/rust/target/debug/shir_render}"
+# SAME REASON for go, measured 2026-10-09 on 018_grep_params.sh: the CLI's
+# `--target go` arm links the MAIN tree's src/go_backend.rs via the
+# `debashl` path dependency, a DIFFERENT revision from the worktree
+# renderer the go gate actually runs.
+#
+#     renderer                          lines   runtime calls
+#     main, via --target go              8633            129
+#     worktree, via shir_render          8639            129
+#
+# (identical counts on that file, but the two renders are not byte-equal —
+# the counts will diverge as the worktree renderer improves, and the whole
+# point of the number is that the go worker can move it.) The gate renders
+# through the worktree bin (setup_backends.sh's scaffold arm:
+# g_bin="$g_wt/target/debug/shir_render", g_flag="--target=$g_lang"), so the
+# metric must too or the two disagree about the same tree.
+GO_SHIR_RENDER="${GO_SHIR_RENDER:-$ROOT/sh2perl/backends/go/target/debug/shir_render}"
 
 [ -x "$CLI" ] || { echo "backend_runtime_metric: $CLI missing" >&2; exit 1; }
 
@@ -98,12 +114,26 @@ SEAM_java='sh[A-Z][A-Za-z0-9]+'
 SEAM_js='sh2\.[A-Za-z_0-9]+'
 SEAM_sh='sh2[a-z_]+\('
 SEAM_zsh='_[a-z][a-z_0-9]*\('
-# fish has no sh2.* runtime at all: the renderer lowers every construct it can
-# into native fish (`set`, `math`, `(cmd)`, `begin`/`end`), so the namespace to
-# count is the same sh2.* one the gate's stub check uses. Kept identical to
-# SEAM_sh on purpose — a fish render that DOES emit sh2_* is a regression, and
-# this must count it rather than reporting a vacuous 0.
-SEAM_fish='sh2[a-z_]*\('
+# fish had SEAM_fish='sh2[a-z_]*\(' — the sh2_* namespace — and reported
+# "0 calls / 560 files" forever. That 0 was VACUOUS for exactly the reason
+# this script exists: the fish renderer emits no sh2_* name at all, so the
+# seam could never see its runtime. Its runtime is a fish-FUNCTION PREAMBLE
+# (`function _arr_expand …` … `function _fish_get_el …`) emitted ahead of the
+# translated body whenever the file touches a bash array. Measured
+# 2026-10-09 over the 644 corpus renders: 8 helpers emitted as a block into
+# 23 files (184 definitions), plus 130 CALL sites. A fish function call is
+# fish's own naming underneath, which is the trap the old seam fell into —
+# `grep 'sh2[a-z_]*('` cannot match `(_arr_expand arr)`.
+#
+# The seam counts CALL SITES, not mentions: the definition block is emitted
+# whole (all 8 helpers) whenever one is needed, so including it would let the
+# number move without a single construct being lowered natively. The trailing
+# group is what separates the two — a call is followed by `)`, `;`, EOL, or a
+# space then a non-`-` argument, while a definition is followed by
+# ` --argument-names`. The `\b` is load-bearing: without it the `[a-z_]+`
+# backtracks into the identifier (`_arr_expan` + `d`) and every definition
+# matches. Measured against the corpus: 130 call sites, 0 definitions.
+SEAM_fish='_(arr_[a-z_]+|fish_get_el)\b(\)| [^-]|;|$)'
 
 ext_for() { case "$1" in c) echo c;; rust) echo rs;; perl) echo pl;; python) echo py;;
                   zig) echo zig;; go) echo go;; java) echo java;; js) echo mjs;; sh) echo sh;; zsh) echo zsh;;
@@ -157,6 +187,15 @@ render_one() {
         shir=$("$CLI" --target shir "$f" 2>/dev/null) || return 1
         [ -n "$shir" ] || return 1
         printf '%s' "$shir" | "$RUST_SHIR_RENDER" --target=rust - > "$out" 2>/dev/null || return 1
+        ;;
+    go)
+        # The worktree bin, for the same reason as c: --target go would
+        # measure the main tree's stale go_backend.rs, not the renderer
+        # under test. See the GO_SHIR_RENDER comment above.
+        [ -x "$GO_SHIR_RENDER" ] || return 1
+        shir=$("$CLI" --target shir "$f" 2>/dev/null) || return 1
+        [ -n "$shir" ] || return 1
+        printf '%s' "$shir" | "$GO_SHIR_RENDER" --target=go - > "$out" 2>/dev/null || return 1
         ;;
     *)
         "$CLI" "$f" "$out" --target "$lang" >/dev/null 2>&1 || return 1
