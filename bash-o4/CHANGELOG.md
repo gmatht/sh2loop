@@ -5,6 +5,43 @@ ends over one pipeline (`ShIR` → C via tcc, or → PTX via the CUDA candidacy)
 sharing one flag surface (`bash-o4/src/flags.rs`) and one dispatch vehicle
 (`bash_o4::cu_run`).
 
+## Unreleased — fb0 fragment dispatch loop (PLAN v52)
+
+Closes the emit-half §11.14 called "remains": the `fb_frag` static
+GLSL450 pairs (`blocks`/`overlay`) now dispatch offscreen on a real
+Vulkan device (Lavapipe-pinned).
+
+### Added
+
+- **`fb_draw::RasterRunner`** (`bash-o4/src/fb_draw.rs`): offscreen
+  color+depth target, atlas upload (crack = layer 9), blocks (36-vert
+  list, depth on) + overlay (6-vert list, src-alpha) graphics
+  pipelines, push constants, readback. Struct layouts verified against
+  `vulkan_core.h` (gcc sizeof probe).
+- **`tests/fb_dispatch.rs`**: blocks centre pixel == Rust oracle of
+  `frag_pixel` (204,0,0 for shade-800 red) + clear corners +
+  determinism; overlay opaque green full-screen. Reported skip with no
+  device, loud failure on misrender.
+- **`--fb-proof[=WxH]`**: the proof scene through the real binary as a
+  P6 PPM (translucent-green-over-red exercises the blend path).
+
+### Fixed
+
+- Two emitter bugs the missing dispatch hid (both pinned by
+  strengthened unit tests): `gl_InstanceID`/`VertexID` are OpenGL names
+  — Vulkan wants `gl_InstanceIndex`/`VertexIndex`; `fy`/`fz` missed the
+  `/1e6` milli divisor and exploded verts to ±50000.
+- Lavapipe teardown faults found + documented (pool/framebuffer/
+  render-pass freed pool-last / cached / device-leaked by design).
+
+Verified 2026-10-12: `cargo test --offline --test fb_dispatch` 2/2 ok,
+`--fb-proof=64x64` rc=0 12301-byte P6, `--emit-shader fb-blocks` rc=0.
+
+### Still open (unchanged)
+
+- The `_sh_gpu_*` host split in generated C; the proof scene is not a
+  program payload.
+
 ## 0.1.1 — 2026-09-14
 
 Transpiled GPU (CUDA) reaches parity with hand-written kernels, and the

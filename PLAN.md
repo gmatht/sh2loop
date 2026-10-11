@@ -12,6 +12,28 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v52: **The fb0 fragment dispatch loop is closed (the emit-half
+>   §11.14 called "remains").** `bash-o4/src/fb_frag.rs` emitted static
+>   GLSL450 pairs (`blocks`/`overlay`) but nothing dispatched them:
+>   `vkffi` bound compute only. HEAD `448f32db` lands the host half —
+>   `bash-o4/src/fb_draw.rs` (`RasterRunner`: offscreen color+depth
+>   target, atlas upload with crack = layer 9, blocks 36-vert list with
+>   depth on + overlay 6-vert list with src-alpha, push constants,
+>   readback), `bash-o4/tests/fb_dispatch.rs` (blocks centre pixel ==
+>   Rust oracle of `frag_pixel`, clear corners, determinism; overlay
+>   opaque green full-screen; lavapipe-pinned), and driver
+>   `--fb-proof[=WxH]` (the proof scene through the real binary as P6).
+>   The proof caught two emitter bugs hiding behind the missing dispatch
+>   (`gl_InstanceID`/`VertexID` are OpenGL names — Vulkan wants
+>   `gl_InstanceIndex`/`VertexIndex`; `fy`/`fz` missed the `/1e6` milli
+>   divisor and exploded verts to ±50000), both pinned by strengthened
+>   unit tests. Re-verified 2026-10-12: `cargo test --offline --test
+>   fb_dispatch` 2/2 ok, `--fb-proof=64x64` rc=0 12301-byte P6,
+>   `--emit-shader fb-blocks` rc=0. Lavapipe teardown faults found +
+>   documented (pool/framebuffer/render-pass freed pool-last / cached /
+>   device-leaked by design). What stays open is unchanged: the
+>   `_sh_gpu_*` host split in generated C, and the proof scene is not a
+>   program payload. See §11.14.
 > - v51: **The fb0 device NODE (the run-time half of the fb0 mechanism).**
 >   bash-O4's fb0 "device" was a build artefact only — `src/devices.rs`
 >   materialises the device's C *sources* into a content-addressed cache
@@ -2491,5 +2513,35 @@ ignores-alpha are the same frame; a colour with a nonzero low byte is
 visibly wrong. Hex literals now parse as hex
 (`sh2perl` dacf1d585), pinned by
 `fb_clear_hex_literal_lowers_as_a_number`, which fails without the hunk.
+
+**The dispatch loop is closed (2026-10-12, HEAD `448f32db`).** The
+v50 entry's "emit-half remains" is now the landed host half:
+`bash-o4/src/fb_draw.rs` (`RasterRunner` — offscreen color+depth
+target, atlas upload with crack = layer 9, blocks 36-vert list with
+depth on + overlay 6-vert list with src-alpha, push constants,
+readback), `bash-o4/tests/fb_dispatch.rs` (blocks centre pixel == Rust
+oracle of `frag_pixel` — 204,0,0 for shade-800 red — plus clear corners
+and determinism; overlay opaque green full-screen; lavapipe-pinned; no
+device ⇒ reported skip, present-but-misrender ⇒ loud FAIL), and driver
+`--fb-proof[=WxH]` (the proof scene through the real binary as a P6
+PPM — translucent-green-over-red, exercising the blend path).
+`--emit-shader fb-blocks`/`fb-overlay` still prints the pair
+(SPIR-V-checked per stage when a compiler exists) and still requires a
+matching device write in that program (`GpuOp` or the `fb_*` call
+spelling, else a refusal — never a guessed dispatch). The proof caught
+two emitter bugs hiding behind the missing dispatch
+(`gl_InstanceID`/`VertexID` are OpenGL names — Vulkan wants
+`gl_InstanceIndex`/`VertexIndex`; `fy`/`fz` missed the `/1e6` milli
+divisor and exploded verts to ±50000), both pinned by strengthened unit
+tests. Proof re-run 2026-10-12: `cargo test --offline --test
+fb_dispatch` 2/2 ok, `--fb-proof=64x64` rc=0 12301-byte P6,
+`--emit-shader fb-blocks` rc=0. Lavapipe teardown faults found +
+documented in the module (pool/framebuffer/render-pass freed pool-last
+/ cached / device-leaked by design — eager destroy segfaults the second
+runner teardown in the process; `vkffi::has_compute_device` leaks its
+probe instance by design, same class). What this does NOT change:
+the proof scene is not a program payload, per-frame record packing and
+texture upload from game assets stay caller-side, and the `_sh_gpu_*`
+host split in generated C is still the open M3 item.
 
 

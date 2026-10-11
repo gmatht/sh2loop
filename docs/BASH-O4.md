@@ -2,7 +2,9 @@
 
 > Status: **M1, M2, M4 (fetch/cache), and the M3 scaffolding are
 > implemented** (`bash-o4/` crate, `sh2perl/src/vulkan_backend.rs`,
-> `harness/gpu_gate.sh`; milestones §4.9, deviations §6). GPU *dispatch*
+> `harness/gpu_gate.sh`; milestones §4.9, deviations §6). The fb0
+> fragment dispatch loop is closed (`bash-o4/src/fb_draw.rs` +
+> `tests/fb_dispatch.rs` + `--fb-proof`, PLAN v52). GPU *dispatch*
 > from generated code (the `_sh_gpu_*` host split in `c_backend.rs`)
 > remains. The original design below is kept intact; §6 records what
 > landed, what moved, and what is still open.
@@ -411,7 +413,13 @@ around 10⁵–10⁶ trips; below ~10⁴ trips the GPU always loses. Hence:
 - **M3 — first dispatch: SCAFFOLDING + PROOF, host split remaining.**
   The one-loop-shape path is proven end to end on Lavapipe (GLSL450
   emission → `glslangValidator -V` → real dispatch, all lanes
-  asserted); the `_sh_gpu_*` host split in generated C is open.
+  asserted); the `_sh_gpu_*` host split in generated C is open. The
+  fb0 fragment leg's dispatch loop is closed alongside it
+  (`bash-o4/src/fb_draw.rs` `RasterRunner` + `tests/fb_dispatch.rs` +
+  `--fb-proof`, PLAN v52): the `fb_frag` blocks/overlay pairs dispatch
+  offscreen on Lavapipe against a Rust `frag_pixel` oracle — but the
+  proof scene is not a program payload, and per-frame record packing
+  stays caller-side.
 - **M4 — fetch/cache + static release: MECHANISM LANDED** (manifest,
   `ask/auto/off`, `--prefetch`, `--audit-fetch`, musl story open):
   volk amalgamation hash-pinned; shaderc still unpinned (refused,
