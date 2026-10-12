@@ -460,7 +460,17 @@ sweep() {
     if [ "$fe" != "$last_fe" ] || [ "$ex" != "$last_ex" ]; then
       last_fe="$fe"; last_ex="$ex"
       local fe_corpus; fe_corpus=$(frontend_info "$fe" | cut -d'|' -f1)
-      local example="$ROOT/sh2perl/frontends/$fe/$fe_corpus/$ex"
+      # fe_abs, NOT the naive frontends/$fe/<corpus>/ join: the sh2perl
+      # row's corpus field is an ABSOLUTE path ($ROOT/sh2perl/examples),
+      # so the join produced "$ROOT/sh2perl/frontends/sh2perl//mnt/.../
+      # examples/<ex>" — a path that cannot exist. Every sh2perl sweep
+      # cell then recorded the emit refusal as FAIL-FRONTEND-EMIT
+      # "frontend refused the example" (5040 rows) while the emit itself
+      # was fine (the correct absolute path emits rc=0), and the row's
+      # SKIP-ESTREE-REF rows came from the same bad $example. The
+      # single-pair path below already resolves via fe_abs; the sweep was
+      # the one caller that did not.
+      local example; example="$(fe_abs "$fe" "$fe_corpus")/$ex"
       a1f=$(mktemp -d "$TRIAGE/.row.XXXXXX")
       if emit_a1 "$fe" "$example" > "$a1f/a1.json" 2>/dev/null; then
         # STALE-REFUSAL SELF-HEAL (2026-08-14): a successful emit
