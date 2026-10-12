@@ -710,9 +710,20 @@ case "${1:-}" in
                   # phase's model, applies the Laguna daily-quota fallback, and
                   # records exact token usage. Other backends keep the direct
                   # WORKER_CLI path, so their behavior is unchanged.
-                  case "$rw_lang" in
-                    rust|c|fish|zsh) export WORKER_ROTATE_WORKER="$rw_lang" ;;
-                  esac
+                  #
+                  # Rotation bypass (operator, 2026-10-10): WORKER_ROTATE_OFF=1
+                  # drops this worker to the direct WORKER_CLI path.
+                  # harness/ai_invoke.py invokes cmd only, so a rotated worker
+                  # cannot run any other CLI; the bypass (honored here, in the
+                  # fix entry points, and in start-worker.sh) keeps every AI
+                  # fix on the operator-selected CLI + model.
+                  if [ -z "${WORKER_ROTATE_OFF:-}" ]; then
+                    case "$rw_lang" in
+                      rust|c|fish|zsh) export WORKER_ROTATE_WORKER="$rw_lang" ;;
+                    esac
+                  else
+                    export WORKER_ROTATE_WORKER=""
+                  fi
                   # Worker cgroup enrollment (harness/WorkerPool.pm): this
                   # backend worker's whole tree (builds, gates) runs inside
                   # sh2workers. Best-effort: unprivileged WSL → cooperative.
@@ -760,6 +771,16 @@ case "${1:-}" in
                   # does not spin.
                   rw_rt_budget="${SH2_RT_BUDGET:-2000}"
                   rw_rt_cooldown_s="${SH2_RT_REDUCE_COOLDOWN_S:-900}"
+                  # GENERATION MARKER (operator, 2026-10-10): verdict reads
+                  # below must only see THIS run's lines. The log is
+                  # append-only across supervisor restarts, so a bare
+                  # `tail -50` on a quiet log reads the PREVIOUS generation's
+                  # verdicts: a restarted worker saw a stale "core build
+                  # FAILED" and trapped without ever gating (measured on the
+                  # remote box, whose sparse log kept 8h-old failures in the
+                  # window). On huge local logs the window covers seconds and
+                  # the bug hides — same defect, masked by volume.
+                  rw_log_mark=$(wc -l < "$LOG" 2>/dev/null || echo 0)
                   while true; do
                     # WORK-STEALING: a leased slot is run by a desktop.
                     # HEARTBEAT + RECLAIM: a stale lease (the desktop
@@ -909,7 +930,12 @@ case "${1:-}" in
                         fi
                       fi
                     else
-                      if grep -q "core build FAILED" <(tail -50 "$LOG"); then
+                      # Only this generation's lines: see GENERATION MARKER
+                      # above (a quiet log keeps dead generations in a bare
+                      # tail window). If the log rotated under us the marker
+                      # overshoots and the tail is empty — correctly read as
+                      # "no failure yet", i.e. gate fresh.
+                      if tail -n +"$((rw_log_mark + 1))" "$LOG" 2>/dev/null | grep -q "core build FAILED"; then
                         # shared-CORE build break — the estree worker owns
                         # the core and edits it constantly. Never grind
                         # against a state that is mid-edit AND uncompilable
@@ -924,11 +950,42 @@ case "${1:-}" in
                         # cleanliness made the backend wait on a property it
                         # never used.
                         #
+                        # @generated FILES ARE NOT DIRT (operator, 2026-10-10).
+                        # build.rs rewrites handler mod.rs lists in readdir
+                        # order with no sort, so they churn on ANY directory
+                        # change (a new handler file, a fresh checkout on
+                        # another fs) with zero human intent behind them — and
+                        # the next build overwrites them anyway, so waiting on
+                        # them can never converge. Measured: this class of
+                        # dirt trapped every backend worker fleet-wide (plus
+                        # the remote go worker, whose tree nothing else had
+                        # touched). A NEW handler .rs still shows as ?? and
+                        # still trips the wait — that is the real signal. The
+                        # permanent cure (sorting generation in build.rs) is
+                        # filed as a core-request; this filter is the
+                        # unblocking that needs no core touch.
+                        _db_raw=$(git -C "$SUB" status --porcelain -- src/ Cargo.toml 2>/dev/null || true)
+                        _db_dirty=$(printf '%s\n' "$_db_raw" | while IFS= read -r _line; do
+                          [ -n "$_line" ] || continue
+                          # porcelain: 'XY PATH' / 'XY ORIG -> NEW' (rename)
+                          _p=${_line#?? }
+                          case "$_p" in *' -> '*) _p=${_p#* -> };; esac
+                          # untracked dir (trailing /): conservative, keep
+                          case "$_p" in */) printf '%s\n' "$_line"; continue;; esac
+                          _f="$SUB/$_p"
+                          if [ -f "$_f" ]; then
+                            case "$(head -1 "$_f" 2>/dev/null)" in
+                              '// @generated by build.rs'*) continue ;;
+                            esac
+                          fi
+                          printf '%s\n' "$_line"
+                        done) || true
+                        #
                         # The probe costs one build attempt, which is what the
                         # gate does anyway on wake. It goes through
                         # build-lock.sh so it queues like every other core
                         # build instead of racing the estree worker's.
-                        if [ -n "$(git -C "$SUB" status --porcelain -- src/ Cargo.toml 2>/dev/null)" ]; then
+                        if [ -n "$_db_dirty" ]; then
                           echo "[$(date +%FT%T)] $rw_lang: core mid-edit (estree-worker WIP) — waiting for a clean-or-building core (max ${CORE_DIRTY_WAIT_S}s)" >> "$LOG"
                           core_waited=0
                           while [ "$core_waited" -lt "$CORE_DIRTY_WAIT_S" ]; do
@@ -1064,9 +1121,14 @@ case "${1:-}" in
                   # Usage: setup_backends.sh --pi-fix-runtime <lang>
                   shift; fix_lang="$1"
                   fix_dir="$BT/$fix_lang"; fix_log="$WORKSPACE/loop-backend-$fix_lang.log"
-                  case "$fix_lang" in
-                    rust|c|fish|zsh) export WORKER_ROTATE_WORKER="$fix_lang" ;;
-                  esac
+                  # Rotation bypass (operator, 2026-10-10): see --run-backend-worker.
+                  if [ -z "${WORKER_ROTATE_OFF:-}" ]; then
+                    case "$fix_lang" in
+                      rust|c|fish|zsh) export WORKER_ROTATE_WORKER="$fix_lang" ;;
+                    esac
+                  else
+                    export WORKER_ROTATE_WORKER=""
+                  fi
                   # Re-read the metric AT PROMPT TIME so the number the model
                   # is told is the number that is true now.
                   rt_total=""; rt_files=""; rt_seam=""
@@ -1112,9 +1174,14 @@ case "${1:-}" in
                   # sh2-native backends; routing here sends the fix through
                   # harness/ai_invoke.py, which picks the phase's model, applies
                   # the Laguna daily-quota fallback, and records token usage.
-                  case "$fix_lang" in
-                    rust|c|fish|zsh) export WORKER_ROTATE_WORKER="$fix_lang" ;;
-                  esac
+                  # Rotation bypass (operator, 2026-10-10): see --run-backend-worker.
+                  if [ -z "${WORKER_ROTATE_OFF:-}" ]; then
+                    case "$fix_lang" in
+                      rust|c|fish|zsh) export WORKER_ROTATE_WORKER="$fix_lang" ;;
+                    esac
+                  else
+                    export WORKER_ROTATE_WORKER=""
+                  fi
                   # ── IDIOMATICITY: the REAL progress metric ──────────────
                   # The sentence below used to say "the stub/TODO count is
                   # the progress metric". That is a VACUOUS metric for this
