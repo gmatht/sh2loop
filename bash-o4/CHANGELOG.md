@@ -37,6 +37,23 @@ Vulkan device (Lavapipe-pinned).
 Verified 2026-10-12: `cargo test --offline --test fb_dispatch` 2/2 ok,
 `--fb-proof=64x64` rc=0 12301-byte P6, `--emit-shader fb-blocks` rc=0.
 
+### Fixed
+
+- **Grass (and every) texture rendered one row + black**
+  (`MIMEcroft_fb.sh` `rb_tex_load`, mirrored in
+  `src/sh/rb-raster.sh`): the loop ran `N` times where the
+  `fb_texture` contract (`sh2perl/runtime/fbdev.c`: `total = n*n`)
+  loads `N*N` texels, so a 32×32 texture uploaded 32 texels and
+  every sample past the first row read unset (black) slots.
+- **Textured surfaces ~2× overbright** (same files, `rb_cube` +
+  `rb_frag`): the tint ran at 0..255 with a 255 clamp, but the
+  canonical fragment shader (`examples/mimecroft-frag.sh`:
+  `vcolor = int(vColor*127)`, `out = vcolor*tex/128`, max 253, no
+  upper clamp) quantizes tint×shade to 0..127. Grass (white tint)
+  blew out to 255; now byte-exact vs the shader chain on 1120/1120
+  probed (tint, shade, texel) combinations, and the grass band
+  shares its palette with the oracle frame.
+
 ### Still open (unchanged)
 
 - The `_sh_gpu_*` host split in generated C; the proof scene is not a

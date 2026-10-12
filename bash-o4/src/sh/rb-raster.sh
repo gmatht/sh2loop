@@ -407,7 +407,9 @@ rb_frag_view() {
 # ── textures ───────────────────────────────────────────────────────────
 # rb_tex_load IDX RPLANE GPLANE BPLANE N SIZE RGBA — the fb_texture
 # signature verbatim: three space-separated int planes walked in
-# parallel (this plane's cursor MOVES ON, like the C), N texels.
+# parallel (this plane's cursor MOVES ON, like the C). N is the SIDE
+# length (fb_texture's `n`: `total = n * n`); SIZE is the device slot
+# size (same value here). Loads N*N texels.
 #   in: rbx_*   out: none (RBTEX_* store + RBTEX_OFF/SZ/RGBA)
 rb_tex_load() {
   rbx_idx=$1
@@ -421,8 +423,9 @@ rb_tex_load() {
   RBTEX_OFF[$rbx_idx]=$rbx_off
   RBTEX_SZ[$rbx_idx]=$rbx_sz
   RBTEX_RGBA[$rbx_idx]=$rbx_rgba
+  rbx_total=$((rbx_n * rbx_n))
   rbx_k=0
-  while [ "$rbx_k" -lt "$rbx_n" ]; do
+  while [ "$rbx_k" -lt "$rbx_total" ]; do
     case $rbx_rp in
       *" "*) rbx_rv=${rbx_rp%% *}; rbx_rp=${rbx_rp#* } ;;
       *) rbx_rv=$rbx_rp; rbx_rp="" ;;
@@ -556,12 +559,19 @@ rb_cube() {
   rbc_sz=$((rbv_v / 1000))
   rbv_s=$7
   rb_vdec
+  # 1000-scale truncate (the vertex shader's ublk = int(dec*1000)):
+  # the fragment bridge quantizes tint*shade to 0..127, so the
+  # textured path needs the TRUNCATED 1000-scale tint, not the
+  # rounded 255-scale below (which is off by one on ~6% of inputs).
+  rbc_ur=$((rbv_v / 1000))
   rbc_tr=$(( (rbv_v * 255 + 500000) / 1000000 ))
   rbv_s=$8
   rb_vdec
+  rbc_ug=$((rbv_v / 1000))
   rbc_tg=$(( (rbv_v * 255 + 500000) / 1000000 ))
   rbv_s=$9
   rb_vdec
+  rbc_ub=$((rbv_v / 1000))
   rbc_tb=$(( (rbv_v * 255 + 500000) / 1000000 ))
   if [ "$rbc_tr" -lt 0 ]; then rbc_tr=0; fi
   if [ "$rbc_tr" -gt 255 ]; then rbc_tr=255; fi
@@ -1019,6 +1029,11 @@ rb_tri() {
 #       rbp_ftx (texture slot), rbp_fdam, rbp_fx/fy (device px),
 #       rbp_fu/fv (milli-uv)
 #   out: rbp_fr/fg/fb
+# The tint enters at the shader's 0..127 vcolor scale
+# (mimecroft-frag.sh: vcolor = int(vColor*127), out = vcolor*tex/128,
+# max 253): the vertex quantize (shade*ublk/1000) and the bridge
+# (*127/1000) are replicated exactly from the 1000-scale rbc_u*
+# (see rb_cube), NOT from the rounded 255-scale rbp_f*.
 # Order = emit_fragment_shader: texture -> CRT scanline -> crack ->
 # corruption -> vignette -> clamp. The scanline/vignette exist only
 # when RBF_CRT=1, the streaks only when RBF_CORRUPT=1, and the vignette
@@ -1028,15 +1043,15 @@ rb_frag() {
   rbx_uu=$rbp_fu
   rbx_vv=$rbp_fv
   rb_tex_sample $rbx_s $rbx_uu $rbx_vv
-  rbp_tr=$((rbp_ftr * rbp_fsh / 1000))
-  rbp_tg=$((rbp_ftg * rbp_fsh / 1000))
-  rbp_tb=$((rbp_ftb * rbp_fsh / 1000))
+  rbp_tr=$((rbp_fsh * rbc_ur / 1000))
+  rbp_tr=$((rbp_tr * 127 / 1000))
+  rbp_tg=$((rbp_fsh * rbc_ug / 1000))
+  rbp_tg=$((rbp_tg * 127 / 1000))
+  rbp_tb=$((rbp_fsh * rbc_ub / 1000))
+  rbp_tb=$((rbp_tb * 127 / 1000))
   if [ "$rbp_tr" -lt 0 ]; then rbp_tr=0; fi
-  if [ "$rbp_tr" -gt 255 ]; then rbp_tr=255; fi
   if [ "$rbp_tg" -lt 0 ]; then rbp_tg=0; fi
-  if [ "$rbp_tg" -gt 255 ]; then rbp_tg=255; fi
   if [ "$rbp_tb" -lt 0 ]; then rbp_tb=0; fi
-  if [ "$rbp_tb" -gt 255 ]; then rbp_tb=255; fi
   rbp_fr=$((rbp_tr * rbx_r / 128))
   rbp_fg=$((rbp_tg * rbx_g / 128))
   rbp_fb=$((rbp_tb * rbx_b / 128))
@@ -1090,9 +1105,6 @@ rb_frag() {
   if [ "$rbp_fr" -lt 0 ]; then rbp_fr=0; fi
   if [ "$rbp_fg" -lt 0 ]; then rbp_fg=0; fi
   if [ "$rbp_fb" -lt 0 ]; then rbp_fb=0; fi
-  if [ "$rbp_fr" -gt 255 ]; then rbp_fr=255; fi
-  if [ "$rbp_fg" -gt 255 ]; then rbp_fg=255; fi
-  if [ "$rbp_fb" -gt 255 ]; then rbp_fb=255; fi
 }
 
 # rb_trig_selftest: trig errors (VSC units) at cardinal angles.
