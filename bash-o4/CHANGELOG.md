@@ -59,6 +59,21 @@ Verified 2026-10-12: `cargo test --offline --test fb_dispatch` 2/2 ok,
 - The `_sh_gpu_*` host split in generated C; the proof scene is not a
   program payload.
 
+### Performance (offered, sh2perl 22e354c33 — int-element array homing)
+
+- **Transpiled-C game frame: 462ms → 181ms (scene 428ms → 158ms)**
+  measured `MIMEcroft_fb --demo` (`#stats avg`, two runs 194/181ms).
+  New C-local pass (`SH2_NO_INT_ELEM=1` kills it, C backend only):
+  int-store + dense + join-free arrays home as native `long long[]`
+  (polygon/texture-index buffers that the shared analysis kept
+  `char*`), element-readers and pure-arith temps seed `Int`.
+  Frame pixels 99.9987% identical (1 adjacent-texel edge pixel);
+  oracle agreement unchanged within tree drift. Unit tests: zero new
+  failures. Offered per §11 marketplace (workspace gitlink not bumped
+  here — see PLAN.md §11.14). Remaining gap to the ~7ms JS oracle:
+  per-pixel argv marshal (int-param ABI), RBTEX texel-parse modeling +
+  per-triangle slot-load LICM, row-buffer accumulation.
+
 ## 0.1.1 — 2026-09-14
 
 Transpiled GPU (CUDA) reaches parity with hand-written kernels, and the
