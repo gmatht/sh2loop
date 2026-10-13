@@ -1,4 +1,9 @@
 # bench/ — bash-O4 vs pure C (gcc -O3)
+#
+# THE POINT OF THIS DIRECTORY: bash transpiled through bash-O4 runs at
+# (and on some shapes above) handwritten-C speed — the tables below are
+# the receipts (bo4-gcc at 1.0-6.4x of the gcc-O3 ceiling). Speed is the
+# claim; every row gates byte-exact stdout AND exit code first.
 
 Driver: [`bench.sh`](bench.sh) (`--runs N`, `--save FILE`,
 `--problem NAME`; `RUNS`/`TIMEOUT` env). Methodology borrowed from
@@ -66,8 +71,9 @@ leg, ~1s scale) is the separate table below.)
 
 ## Optimised-only (`bench-opt.sh`)
 
-`bench/bench-opt.sh` drops the bash leg (too slow to run at
-steady-state scale) and compares only optimised implementations at N
+`bench/bench-opt.sh` omits the bash leg (at steady-state scale the
+untranspiled interpreter cannot finish in the measurement window —
+that is WHY the transpiler exists) and compares only optimised implementations at N
 calibrated so the slower leg lands ~1s:
 
 | leg | what it is |

@@ -1723,9 +1723,11 @@ FACE_N=(
 #   9.2e18 ceiling.
 #
 # THE SURFACE
-#   Fixed 320x240 (RFBW/RFBH). The rasterizer is demo-speed, not
-#   interactive, and 320x240 is the geometry it was measured at; the game
-#   pins disp_w/disp_h to it on the simple-fb path. Rows are ASCII HEX
+#   Fixed 320x240 (RFBW/RFBH). The rasterizer is a PERFORMANCE
+#   PROJECT: bash that transpiles (via bash-O4) to C fast enough to
+#   stand next to the JS oracle frame-for-frame AND millisecond-for-
+#   millisecond — 320x240 is the geometry it is measured at, and the
+#   game pins disp_w/disp_h to it on the simple-fb path. Rows are ASCII HEX
 #   (8 chars/px, BGRX order) because bash variables cannot hold a NUL
 #   byte and nearly every cleared pixel IS one; rb_present pipes the
 #   whole frame through one `xxd -r -p` into the node. That pipe is the

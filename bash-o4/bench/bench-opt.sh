@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # bench-opt.sh — optimised-only benchmarks at ~1s scale (NO bash leg).
 #
-# bash is too slow to run at the sizes where steady-state throughput is
-# measurable (and ms-scale rows are startup noise), so this suite compares
-# only optimised implementations at N calibrated so the SLOWER leg takes
-# about a second:
+# The untranspiled interpreter cannot finish at the sizes where
+# steady-state throughput is measurable (and ms-scale rows are startup
+# noise) — closing that gap is the transpiler's whole job — so this
+# suite compares only optimised implementations at N calibrated so the
+# SLOWER leg takes about a second:
 #   gcc-O3  — handwritten C + gcc -O3 (the CPU ceiling)
 #   bo4-gcc — bash-O4 --emit-c recompiled with gcc -O3 (backend quality;
 #             all three problems run: counter-dynamic fills route to
