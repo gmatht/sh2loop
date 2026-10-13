@@ -1466,14 +1466,21 @@ rb_o_ndc() {
 
 # rb_o_wh WDEC HDEC: NDC fractions -> half-extents in MILLI-px
 # (rbov_hwm/hhm). w/h are FULL extents (the radar is 16 cells at 0.040
-# = 0.64 of the width — measured against the game, not guessed).
+# on a 44-milli pitch = 0.704 NDC = 112px on 320 — measured against
+# the game, not guessed). NDC -1..1 maps to the canvas, so a fraction
+# f covers f/2*S px across and the half-extent is f*S/4: an earlier
+# revision used f*S/2 (the full width as the half-extent) and painted
+# every overlay quad twice as wide AND tall — 13px text cells on a 5px
+# pitch (digits bold), a 50px gun barrel against the oracle's 22. The
+# oracle's canvas fills (w/2 halves of the full px width) agree with
+# the /4 form; the C device had the same doubling in ov_corners.
 rb_o_wh() {
   rbv_s=$1
   rb_vdec
-  rbov_hwm=$((rbv_v * RFBW / 2000))
+  rbov_hwm=$((rbv_v * RFBW / 4000))
   rbv_s=$2
   rb_vdec
-  rbov_hhm=$((rbv_v * RFBH / 2000))
+  rbov_hhm=$((rbv_v * RFBH / 4000))
 }
 
 # rb_o_corners DEGDEC: the 4 rotated corners about (rbov_px,rbov_py)
@@ -1657,11 +1664,76 @@ rb_o_blend() {
   rbov_og=$(( (rbov_fg * rbov_fa + rbov_dg * rbov_ia) / 255 ))
   rbov_ob=$(( (rbov_fb * rbov_fa + rbov_db * rbov_ia) / 255 ))
   rb_mkhex $rbov_or $rbov_og $rbov_ob
-  rb_putrun $rbov_bx $rbov_by 1 "$rb_pxhex"
+  # putrun takes (Y, X0, N): row first. (An earlier revision passed
+  # (bx, by) — transposed — which no opaque path ever exercised, so
+  # every translucent pixel landed mirrored across the diagonal.)
+  rb_putrun $rbov_by $rbov_bx 1 "$rb_pxhex"
 }
 
 # rb_o_rect CX CY W H R G B [A] — the bare quad + erase target...
 # (erase callers were removed: full redraw needs no erases).
+rb_text_cell() {
+  rbv_s=$1
+  rb_vdec
+  rbt_cx=$rbv_v
+  rbv_s=$2
+  rb_vdec
+  rbt_cy=$rbv_v
+  rbv_s=$3
+  rb_vdec
+  rbt_hw=$((rbv_v * RFBW / 4000))
+  rbv_s=$4
+  rb_vdec
+  rbt_hh=$((rbv_v * RFBH / 4000))
+  rb_o_col $5 $6 $7
+  # centre in milli-px (same mapping as rb_o_ndc, unrounded)
+  rbt_cxm=$(( (rbt_cx * RFBW + RFBW / 2 * 2000000) / 2000 ))
+  rbt_cym=$(( (RFBH / 2 * 2000000 - rbt_cy * RFBH) / 2000 ))
+  rbt_x0=$((rbt_cxm - rbt_hw))
+  rbt_x1=$((rbt_cxm + rbt_hw))
+  rbt_y0=$((rbt_cym - rbt_hh))
+  rbt_y1=$((rbt_cym + rbt_hh))
+  # pixel bbox (floor division; values here are non-negative — text
+  # never leaves the canvas — so truncation is floor)
+  rbt_px0=$((rbt_x0 / 1000))
+  rbt_px1=$((rbt_x1 / 1000))
+  rbt_py0=$((rbt_y0 / 1000))
+  rbt_py1=$((rbt_y1 / 1000))
+  rbt_y=$rbt_py0
+  while [ "$rbt_y" -le "$rbt_py1" ]; do
+    if [ "$rbt_y" -ge 0 ] && [ "$rbt_y" -lt "$RFBH" ]; then
+      rbt_ylo=$((rbt_y * 1000))
+      rbt_yhi=$((rbt_ylo + 1000))
+      rbt_x=$rbt_px0
+      while [ "$rbt_x" -le "$rbt_px1" ]; do
+        if [ "$rbt_x" -ge 0 ] && [ "$rbt_x" -lt "$RFBW" ]; then
+          rbt_xlo=$((rbt_x * 1000))
+          rbt_xhi=$((rbt_xlo + 1000))
+          # overlap of [xlo,xhi) with [x0,x1), clamped to 0..1000
+          if [ "$rbt_xlo" -gt "$rbt_x0" ]; then rbt_ox0=$rbt_xlo; else rbt_ox0=$rbt_x0; fi
+          if [ "$rbt_xhi" -lt "$rbt_x1" ]; then rbt_ox1=$rbt_xhi; else rbt_ox1=$rbt_x1; fi
+          rbt_ox=$((rbt_ox1 - rbt_ox0))
+          if [ "$rbt_ylo" -gt "$rbt_y0" ]; then rbt_oy0=$rbt_ylo; else rbt_oy0=$rbt_y0; fi
+          if [ "$rbt_yhi" -lt "$rbt_y1" ]; then rbt_oy1=$rbt_yhi; else rbt_oy1=$rbt_y1; fi
+          rbt_oy=$((rbt_oy1 - rbt_oy0))
+          if [ "$rbt_ox" -lt 0 ]; then rbt_ox=0; fi
+          if [ "$rbt_ox" -gt 1000 ]; then rbt_ox=1000; fi
+          if [ "$rbt_oy" -lt 0 ]; then rbt_oy=0; fi
+          if [ "$rbt_oy" -gt 1000 ]; then rbt_oy=1000; fi
+          rbt_cov=$((rbt_ox * rbt_oy))
+          if [ "$rbt_cov" -gt 0 ]; then
+            rbov_fa=$((rbt_cov * 255 / 1000000))
+            if [ "$rbov_fa" -gt 0 ]; then
+              rb_o_blend $rbt_x $rbt_y
+            fi
+          fi
+        fi
+        rbt_x=$((rbt_x + 1))
+      done
+    fi
+    rbt_y=$((rbt_y + 1))
+  done
+}
 rb_o_rect() {
   rbov_qcx=$1
   rbov_qcy=$2
