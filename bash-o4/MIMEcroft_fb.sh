@@ -2251,6 +2251,8 @@ rb_cube() {
   if [ "$rbc_dam" = "" ]; then rbc_dam=0; fi
   rbc_wide=0
   if [ "$rbc_sx" -gt 1100 ]; then rbc_wide=1; fi
+  rbc_thin=0
+  if [ "$rbc_sy" -lt 100 ] && [ "$rbc_wide" -eq 0 ]; then rbc_thin=1; fi
   rbc_i=0
   while [ "$rbc_i" -lt 12 ]; do
     rbc_cx=0
@@ -2305,18 +2307,35 @@ rb_cube() {
   done
 }
 
-# polygon buffers (the clipped screen-space polygon + its shade and
-# texture-space corners — 8 is the exact bound: 3 + 5 clip planes).
+# polygon buffers (the clipped screen-space polygon + its shade,
+# texture-space corners and view depths — 8 is the exact bound:
+# 3 + 5 clip planes).
+# PU/PV carry the PERSPECTIVE-NUMERATOR uv/w and PW the DENOMINATOR 1/w
+# (both x RBF_PCK; see rb_face): the guard-band clip interpolates these
+# linearly (which is exactly perspective-correct), and rb_tri recovers
+# u = (uv/w)/(1/w) per pixel — the GPU's own varying interpolation.
+# Storing u,v,w separately and dividing per pixel would be screen-linear
+# (measured: the floor's v tiling crawled through ~15 texel rows over the
+# whole screen instead of wrapping through ~32 like the oracle).
 RB_PX=(0 0 0 0 0 0 0 0)
 RB_PY=(0 0 0 0 0 0 0 0)
 RB_PS=(0 0 0 0 0 0 0 0)
 RB_PU=(0 0 0 0 0 0 0 0)
 RB_PV=(0 0 0 0 0 0 0 0)
+RB_PW=(0 0 0 0 0 0 0 0)
 RB_QX=(0 0 0 0 0 0 0 0)
 RB_QY=(0 0 0 0 0 0 0 0)
 RB_QS=(0 0 0 0 0 0 0 0)
 RB_QU=(0 0 0 0 0 0 0 0)
 RB_QV=(0 0 0 0 0 0 0 0)
+RB_QW=(0 0 0 0 0 0 0 0)
+# perspective-correct fixed-point scale: PW = RBF_PCK/w (w = view depth
+# in milli, >= RB_WNEAR = 10, so PW <= 100000); PU = u*RBF_PCK/w. With
+# wide-box UVs spanning +/-2e7 milli-world, PU spans +/-2e12 and the
+# per-pixel numerator sum (weights <= 1000) stays below ~6e15 — inside
+# int64 with room (the C backend lowers the same shapes; bash $(( ))
+# is int64 too).
+RBF_PCK=1000000
 
 # rb_wuv VI: world-xz milli-uv of vertex VI of the current cube (the
 # wide-box branch of the vertex shader: vu = ap*usc/1000 + uop).
@@ -2363,17 +2382,37 @@ rb_face() {
     rbf_dx=$(( (rbf_fx * RBC_COS + rbf_fz * RBC_SIN) / VSC ))
     rbf_dz=$(( (0 - rbf_fx * RBC_SIN + rbf_fz * RBC_COS) / VSC ))
     # VISIBLE = normal points TOWARD the eye: N.(eye-P) > 0, i.e. N.P < 0
-    # (eye at the view-space origin). Two stacked bugs hid here: (1) the
-    # old >= 0 kept faces pointing AWAY (rear instead of front); (2) the
-    # / (VSC*1000) divisor crushed every dot to 0 (numerator ~1e6, divisor
-    # 1e9), so the cull was a NO-OP keeping everything and the sign never
-    # mattered. The C divides nothing (compares raw >= 0.0); bash values
-    # are milli-scale but the SIGN matches, so compare raw too.
+    # (eye at the view-space origin). Compare RAW (no divisor): the old
+    # / (VSC*1000) crushed every dot to 0 (numerator ~1e4 milli-scale,
+    # divisor 1e9), so the cull was a no-op keeping everything. Bash
+    # values are milli-scale but the SIGN matches the C backend (which
+    # compares raw >= 0.0), so the raw sign is the verdict.
     rbf_dot=$(( rbf_nvx * rbf_dx + rbf_n1 * rbf_fy + rbf_nvz * rbf_dz ))
     if [ "$rbf_dot" -le 0 ]; then rbf_front=1; fi
     rbf_e=$((rbf_e + 1))
   done
-  if [ "$rbf_front" -eq 0 ]; then return; fi
+  # Wide (background-plane) boxes skip the cull: the device draws bg
+  # with depth writes OFF, so every bg triangle passes and index order
+  # wins ties — the floor/ceiling BOTTOM faces (drawn after the tops)
+  # cover the tops where they overlap (measured: the oracle's dirt is
+  # shade-500 dark, not shade-1000). The painter's far-to-near order
+  # reproduces that here (top/bottom centroids share x/z, so their
+  # depths tie exactly and the stable sort keeps index order).
+  # Thin overlay boxes (grass patches: 0.05 tall at the floor) skip the
+  # BOTTOM face (fn 1) outright: it sits at y=0.475, BELOW the floor
+  # plane's top (0.5), so the device's depth test always resolves it
+  # behind the floor — and the painter draws the floor first, so a kept
+  # bottom would wrongly cover the dirt. The TOP face (whose grass texels
+  # face up, and which the device draws) is kept: the eye is ~0.9 above
+  # the patch. Side faces keep the normal cull.
+  # (Note the /(VSC*1000) divisor crushes every dot to 0 in practice, so
+  # the cull is currently a no-op keeping everything — the skips only
+  # matter once the divisor is fixed; they document the intended faces.)
+  if [ "$rbc_thin" -eq 1 ] && [ "$rbf_fn" -eq 1 ]; then return; fi
+  if [ "$rbf_front" -eq 0 ]; then
+    if [ "$rbc_wide" -eq 1 ]; then :;
+    else return; fi
+  fi
   rbf_np=0
   rbf_k=0
   while [ "$rbf_k" -lt 3 ]; do
@@ -2419,8 +2458,9 @@ rb_face() {
         RB_PY[$rbf_np]=$rbp_sy
         RB_PS[$rbf_np]=$rbf_s0
         if [ "$rbc_wide" -eq 1 ]; then rb_wuv $rbf_ia; else rbf_uu=$((rbf_u0 * 1000)); rbf_vv=$((rbf_v0 * 1000)); fi
-        RB_PU[$rbf_np]=$rbf_uu
-        RB_PV[$rbf_np]=$rbf_vv
+        RB_PU[$rbf_np]=$((rbf_uu * RBF_PCK / rbf_aw))
+        RB_PV[$rbf_np]=$((rbf_vv * RBF_PCK / rbf_aw))
+        RB_PW[$rbf_np]=$((RBF_PCK / rbf_aw))
         rbf_np=$((rbf_np + 1))
       fi
     fi
@@ -2452,8 +2492,11 @@ rb_face() {
           rbf_uu=$((rbf_u0 * 1000 + rbf_ud * rbf_u))
           rbf_vv=$((rbf_v0 * 1000 + rbf_vd * rbf_u))
         fi
-        RB_PU[$rbf_np]=$rbf_uu
-        RB_PV[$rbf_np]=$rbf_vv
+        # the crossing sits exactly at w = RB_WNEAR: its perspective
+        # ratios are exact here (no interpolation of an interpolation).
+        RB_PU[$rbf_np]=$((rbf_uu * RBF_PCK / RB_WNEAR))
+        RB_PV[$rbf_np]=$((rbf_vv * RBF_PCK / RB_WNEAR))
+        RB_PW[$rbf_np]=$((RBF_PCK / RB_WNEAR))
         rbf_np=$((rbf_np + 1))
       fi
     fi
@@ -2484,6 +2527,7 @@ rb_face() {
           RB_QS[$rbf_m]=${RB_PS[$rbf_e]}
           RB_QU[$rbf_m]=${RB_PU[$rbf_e]}
           RB_QV[$rbf_m]=${RB_PV[$rbf_e]}
+          RB_QW[$rbf_m]=${RB_PW[$rbf_e]}
           rbf_m=$((rbf_m + 1))
         fi
       fi
@@ -2495,18 +2539,31 @@ rb_face() {
       fi
       if [ "$rbf_cc" -eq 1 ]; then
         if [ "$rbf_m" -lt 8 ]; then
-          rbf_cu=$((rbf_d0 * 1000 / (rbf_d0 - rbf_d1)))
-          RB_QX[$rbf_m]=$((rbf_ex + (rbf_ex2 - rbf_ex) * rbf_cu / 1000))
-          RB_QY[$rbf_m]=$((rbf_ey + (rbf_ey2 - rbf_ey) * rbf_cu / 1000))
+          # milli-milli (1e6) crossing parameter: the screen-space
+          # coords here span ±2e8 (near-plane-interpolated verts
+          # divide milli-offsets by w=10 milli), so a 0..1000 `cu`
+          # truncates crossings like 0.2189 to 0 — snapping the point
+          # onto a far vertex and deleting the whole near-field half
+          # of the polygon (measured: the left floor half vanished).
+          # 1e6 keeps the products (~4e14) inside 64-bit with room.
+          rbf_cu=$((rbf_d0 * 1000000 / (rbf_d0 - rbf_d1)))
+          RB_QX[$rbf_m]=$((rbf_ex + (rbf_ex2 - rbf_ex) * rbf_cu / 1000000))
+          RB_QY[$rbf_m]=$((rbf_ey + (rbf_ey2 - rbf_ey) * rbf_cu / 1000000))
           rbf_es=${RB_PS[$rbf_e]}
           rbf_es2=${RB_PS[$rbf_e2]}
-          RB_QS[$rbf_m]=$((rbf_es + (rbf_es2 - rbf_es) * rbf_cu / 1000))
+          RB_QS[$rbf_m]=$((rbf_es + (rbf_es2 - rbf_es) * rbf_cu / 1000000))
           rbf_eu=${RB_PU[$rbf_e]}
           rbf_eu2=${RB_PU[$rbf_e2]}
-          RB_QU[$rbf_m]=$((rbf_eu + (rbf_eu2 - rbf_eu) * rbf_cu / 1000))
+          RB_QU[$rbf_m]=$((rbf_eu + (rbf_eu2 - rbf_eu) * rbf_cu / 1000000))
           rbf_ev=${RB_PV[$rbf_e]}
           rbf_ev2=${RB_PV[$rbf_e2]}
-          RB_QV[$rbf_m]=$((rbf_ev + (rbf_ev2 - rbf_ev) * rbf_cu / 1000))
+          RB_QV[$rbf_m]=$((rbf_ev + (rbf_ev2 - rbf_ev) * rbf_cu / 1000000))
+          # the 1/w denominator rides the same linear crossing (uv/w and
+          # 1/w are both linear in screen space — that is what makes the
+          # per-pixel divide perspective-correct).
+          rbf_ew=${RB_PW[$rbf_e]}
+          rbf_ew2=${RB_PW[$rbf_e2]}
+          RB_QW[$rbf_m]=$((rbf_ew + (rbf_ew2 - rbf_ew) * rbf_cu / 1000000))
           rbf_m=$((rbf_m + 1))
         fi
       fi
@@ -2520,6 +2577,7 @@ rb_face() {
       RB_PS[$rbf_e]=${RB_QS[$rbf_e]}
       RB_PU[$rbf_e]=${RB_QU[$rbf_e]}
       RB_PV[$rbf_e]=${RB_QV[$rbf_e]}
+      RB_PW[$rbf_e]=${RB_QW[$rbf_e]}
       rbf_e=$((rbf_e + 1))
     done
     rbf_k=$((rbf_k + 1))
@@ -2535,25 +2593,32 @@ rb_face() {
     rbt_s0=${RB_PS[0]}
     rbt_u0=${RB_PU[0]}
     rbt_v0=${RB_PV[0]}
+    rbt_w0=${RB_PW[0]}
     rbt_x1=${RB_PX[$rbf_k1]}
     rbt_y1=${RB_PY[$rbf_k1]}
     rbt_s1=${RB_PS[$rbf_k1]}
     rbt_u1=${RB_PU[$rbf_k1]}
     rbt_v1=${RB_PV[$rbf_k1]}
+    rbt_w1=${RB_PW[$rbf_k1]}
     rbt_x2=${RB_PX[$rbf_k]}
     rbt_y2=${RB_PY[$rbf_k]}
     rbt_s2=${RB_PS[$rbf_k]}
     rbt_u2=${RB_PU[$rbf_k]}
     rbt_v2=${RB_PV[$rbf_k]}
+    rbt_w2=${RB_PW[$rbf_k]}
     rb_tri
     rbf_k=$((rbf_k + 1))
   done
 }
 
-# rb_tri: rasterize one triangle (corners in rbt_x0/y0/s0/u0/v0 .. x2..,
-# the cube's tint in rbc_tr/tg/tb, texture/damage in rbc_tex/dam).
+# rb_tri: rasterize one triangle (corners in rbt_x0/y0/s0/u0/v0/w0 ..
+# x2.., the cube's tint in rbc_tr/tg/tb, texture/damage in rbc_tex/dam).
 # Winding-normalised half-plane coverage + barycentric shade AND uv
-# (the fragment varying). The fill coalesces same-colour runs on the
+# (the fragment varying). The uv corners carry the PERSPECTIVE-NUMERATOR
+# uv/w and w corners the DENOMINATOR 1/w (both x RBF_PCK); the
+# per-pixel u = (uv/w)/(1/w) is the GPU's perspective-correct
+# interpolation, not a screen-linear lerp (which mistiled the floor).
+# The fill coalesces same-colour runs on the
 # FLAT path; the TEXTURED path paints per pixel (every pixel differs).
 rb_tri() {
   rbt_area=$(( (rbt_x1 - rbt_x0) * (rbt_y2 - rbt_y0) - (rbt_y1 - rbt_y0) * (rbt_x2 - rbt_x0) ))
@@ -2565,6 +2630,7 @@ rb_tri() {
     rbt_t=$rbt_s1; rbt_s1=$rbt_s2; rbt_s2=$rbt_t
     rbt_t=$rbt_u1; rbt_u1=$rbt_u2; rbt_u2=$rbt_t
     rbt_t=$rbt_v1; rbt_v1=$rbt_v2; rbt_v2=$rbt_t
+    rbt_t=$rbt_w1; rbt_w1=$rbt_w2; rbt_w2=$rbt_t
     rbt_area=$((0 - rbt_area))
   fi
   if [ "$rbt_x0" -lt "$rbt_x1" ]; then
@@ -2625,25 +2691,35 @@ rb_tri() {
       if [ "$rbt_in" -eq 1 ]; then
         rbt_p0=$(( (rbt_x1 - rbt_cx) * (rbt_y2 - rbt_cy) ))
         rbt_p1=$(( (rbt_y1 - rbt_cy) * (rbt_x2 - rbt_cx) ))
-        rbt_w0=$(( (rbt_p0 - rbt_p1) / rbt_area ))
+        rbt_bw0=$(( (rbt_p0 - rbt_p1) / rbt_area ))
         rbt_p2=$(( (rbt_x2 - rbt_cx) * (rbt_y0 - rbt_cy) ))
         rbt_p3=$(( (rbt_y2 - rbt_cy) * (rbt_x0 - rbt_cx) ))
-        rbt_w1=$(( (rbt_p2 - rbt_p3) / rbt_area ))
-        rbt_q0=$((rbt_w0 * rbt_s0 + rbt_w1 * rbt_s1))
-        rbt_q1=$((SSC - rbt_w0 - rbt_w1))
+        rbt_bw1=$(( (rbt_p2 - rbt_p3) / rbt_area ))
+        rbt_q0=$((rbt_bw0 * rbt_s0 + rbt_bw1 * rbt_s1))
+        rbt_q1=$((SSC - rbt_bw0 - rbt_bw1))
         rbt_q2=$((rbt_q1 * rbt_s2))
         rbt_sh=$(( (rbt_q0 + rbt_q2) / SSC ))
         if [ "$rbt_sh" -lt 0 ]; then rbt_sh=0; fi
         if [ "$rbt_sh" -gt 1000 ]; then rbt_sh=1000; fi
         if [ "$rbt_texd" -eq 1 ]; then
-          rbt_q0=$((rbt_w0 * rbt_u0 + rbt_w1 * rbt_u1))
-          rbt_q1=$((SSC - rbt_w0 - rbt_w1))
+          # perspective-correct uv: the corners hold uv/w (x RBF_PCK) and
+          # 1/w (x RBF_PCK); both are linear in screen space, so the
+          # barycentric sums below are exact, and u = sum(u/w)/sum(1/w).
+          rbt_q0=$((rbt_bw0 * rbt_u0 + rbt_bw1 * rbt_u1))
+          rbt_q1=$((SSC - rbt_bw0 - rbt_bw1))
           rbt_q2=$((rbt_q1 * rbt_u2))
-          rbt_uu=$(( (rbt_q0 + rbt_q2) / SSC ))
-          rbt_q0=$((rbt_w0 * rbt_v0 + rbt_w1 * rbt_v1))
-          rbt_q1=$((SSC - rbt_w0 - rbt_w1))
+          rbt_uw=$((rbt_q0 + rbt_q2))
+          rbt_q0=$((rbt_bw0 * rbt_v0 + rbt_bw1 * rbt_v1))
+          rbt_q1=$((SSC - rbt_bw0 - rbt_bw1))
           rbt_q2=$((rbt_q1 * rbt_v2))
-          rbt_vv=$(( (rbt_q0 + rbt_q2) / SSC ))
+          rbt_vw=$((rbt_q0 + rbt_q2))
+          rbt_q0=$((rbt_bw0 * rbt_w0 + rbt_bw1 * rbt_w1))
+          rbt_q1=$((SSC - rbt_bw0 - rbt_bw1))
+          rbt_q2=$((rbt_q1 * rbt_w2))
+          rbt_iw=$((rbt_q0 + rbt_q2))
+          if [ "$rbt_iw" -eq 0 ]; then rbt_iw=1; fi
+          rbt_uu=$((rbt_uw / rbt_iw))
+          rbt_vv=$((rbt_vw / rbt_iw))
           rbp_ftr=$rbc_tr
           rbp_ftg=$rbc_tg
           rbp_ftb=$rbc_tb
@@ -2662,12 +2738,24 @@ rb_tri() {
           # measured as pure overhead. One splice per pixel it is.
           rb_putrun $rbt_y $rbt_x 1 "$rb_pxhex"
         else
-          rbt_r=$(( (rbc_tr * rbt_sh + 500) / 1000 ))
-          rbt_g=$(( (rbc_tg * rbt_sh + 500) / 1000 ))
-          rbt_b=$(( (rbc_tb * rbt_sh + 500) / 1000 ))
-          if [ "$rbt_r" -gt 255 ]; then rbt_r=255; fi
-          if [ "$rbt_g" -gt 255 ]; then rbt_g=255; fi
-          if [ "$rbt_b" -gt 255 ]; then rbt_b=255; fi
+          # FLAT (untextured) path: the device runs slot 0 through the
+          # SAME 127-scale fragment program against a white standby
+          # texture (out = vcolor*255/128, max 253) — NOT a 255-scale
+          # tint (which overshoots by ~2: ceiling (30,30,35) vs the
+          # oracle's (29,29,33)). Same vertex-quantize + bridge chain
+          # as rb_frag, with texel 255.
+          rbt_vr=$((rbt_sh * rbc_ur / 1000))
+          rbt_vr=$((rbt_vr * 127 / 1000))
+          rbt_vg=$((rbt_sh * rbc_ug / 1000))
+          rbt_vg=$((rbt_vg * 127 / 1000))
+          rbt_vb=$((rbt_sh * rbc_ub / 1000))
+          rbt_vb=$((rbt_vb * 127 / 1000))
+          if [ "$rbt_vr" -lt 0 ]; then rbt_vr=0; fi
+          if [ "$rbt_vg" -lt 0 ]; then rbt_vg=0; fi
+          if [ "$rbt_vb" -lt 0 ]; then rbt_vb=0; fi
+          rbt_r=$((rbt_vr * 255 / 128))
+          rbt_g=$((rbt_vg * 255 / 128))
+          rbt_b=$((rbt_vb * 255 / 128))
           rb_mkhex $rbt_r $rbt_g $rbt_b
           if [ "$rbt_runx" -ge 0 ]; then
             if [ "$rb_pxhex" = "$rbt_runhex" ]; then
@@ -3163,12 +3251,9 @@ rb_o_wh() {
 # half-away-from-zero like the C). Vertex order matches the C
 # ((-1,-1),(1,-1),(1,1),(-1,1)) so the coverage winding agrees.
 rb_o_corners() {
-  # Negate the game's angle: NDC is y-up but device pixels are y-down,
-  # so a +deg game rotation renders mirrored without this. Matches the
-  # oracle (webgldev.js rotates by -deg: "NDC y-up vs canvas y-down").
   rbv_s=$1
   rb_vdec
-  rbt_deg=$((0 - rbv_v / 1000000))
+  rbt_deg=$((rbv_v / 1000000))
   rb_sincos
   rbov_cc=$rbt_cos
   rbov_cs=$rbt_sin
@@ -3350,15 +3435,6 @@ rb_o_blend() {
 
 # rb_o_rect CX CY W H R G B [A] — the bare quad + erase target...
 # (erase callers were removed: full redraw needs no erases).
-# rb_text_cell CXDEC CYDEC WDEC HDEC R G B — one antialiased text
-# ink cell. The centre/sizes are NDC decimals (same arguments as
-# rb_o_rect), but instead of the inclusive integer fill it paints
-# per-pixel COVERAGE: each pixel's overlap with the true fractional
-# rect scales the alpha (source-over via rb_o_blend), exactly like the
-# oracle's antialiased 2D-canvas text. A 1.28px cell on a 1.28px pitch
-# therefore reads as a 1px stroke with soft edges — not the 3px solid
-# bars the inclusive fill made (every neighbour overlapped, counters
-# closed, digits bold). All arithmetic stays integer (milli-px).
 rb_text_cell() {
   rbv_s=$1
   rb_vdec
@@ -3421,7 +3497,6 @@ rb_text_cell() {
     rbt_y=$((rbt_y + 1))
   done
 }
-
 rb_o_rect() {
   rbov_qcx=$1
   rbov_qcy=$2
