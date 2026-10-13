@@ -101,19 +101,19 @@ fn main() {
             // 8-byte answer — transfer-bound by construction.
             let glsl = block_template(&sumred_op(), n);
             let spv = shader::compile_spv(&cc, &glsl, &root).expect("spv");
-            let groups = ((n + 256 * BLOCK - 1) / (256 * BLOCK)) as u32;
+            let groups = n.div_ceil(256 * BLOCK) as u32;
             (spv, groups, vec![groups as usize], Finish::PartialsSumMod)
         }
         "sumred" => {
             let glsl = block_template(&sumred_op(), n);
             let spv = shader::compile_spv(&cc, &glsl, &root).expect("spv");
-            let groups = ((n + 256 * BLOCK - 1) / (256 * BLOCK)) as u32;
+            let groups = n.div_ceil(256 * BLOCK) as u32;
             (spv, groups, vec![groups as usize], Finish::PartialsSumMod)
         }
         "collatz" => {
             let glsl = collatz_glsl(n);
             let spv = shader::compile_spv(&cc, &glsl, &root).expect("spv");
-            let groups = ((n + 256 * BLOCK - 1) / (256 * BLOCK)) as u32;
+            let groups = n.div_ceil(256 * BLOCK) as u32;
             (spv, groups, vec![groups as usize], Finish::PartialsSumRaw)
         }
         _ => {

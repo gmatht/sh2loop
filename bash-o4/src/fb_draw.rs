@@ -1336,7 +1336,7 @@ impl RasterRunner {
     }
 
     fn make_module(&self, spv: &[u8]) -> Result<VkShaderModule, String> {
-        if spv.len() % 4 != 0 {
+        if !spv.len().is_multiple_of(4) {
             return Err("SPIR-V length not a multiple of 4".to_string());
         }
         let smci = VkShaderModuleCreateInfo {
@@ -1701,7 +1701,7 @@ impl RasterRunner {
         push: &PushConstants,
         atlas_view: VkImageView,
     ) -> Result<(), String> {
-        if records.len() % CUBE_REC_WORDS != 0 {
+        if !records.len().is_multiple_of(CUBE_REC_WORDS) {
             return Err(format!("blocks records {} not a multiple of {CUBE_REC_WORDS}", records.len()));
         }
         let n = (records.len() / CUBE_REC_WORDS) as u32;
@@ -1745,7 +1745,7 @@ impl RasterRunner {
         push: &PushConstants,
         atlas_view: VkImageView,
     ) -> Result<(), String> {
-        if records.len() % OV_REC_WORDS != 0 {
+        if !records.len().is_multiple_of(OV_REC_WORDS) {
             return Err(format!("overlay records {} not a multiple of {OV_REC_WORDS}", records.len()));
         }
         let n = (records.len() / OV_REC_WORDS) as u32;

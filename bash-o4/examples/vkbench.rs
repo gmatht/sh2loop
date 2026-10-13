@@ -91,7 +91,7 @@ fn main() {
             let glsl = debashl::vulkan_backend::shir_to_vk_compute(&squares(n, u));
             let spv = shader::compile_spv(&cc, &glsl, &root).expect("spv");
             let lanes = if u == 4 { n / 4 } else { n };
-            let groups = ((lanes + ls - 1) / ls) as u32;
+            let groups = lanes.div_ceil(ls) as u32;
             let out = runner.run(&spv, None, &[n as usize], groups).expect("warmup");
             assert_eq!(out[0][(n as usize) - 1], ((n - 1) as i64) * ((n - 1) as i64));
             let idx = if u == 1 { 0 } else { 1 };

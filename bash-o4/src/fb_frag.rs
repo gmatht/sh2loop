@@ -52,7 +52,7 @@
 //! ## Transcription notes (fbdev.c → GLSL, every deviation documented)
 //!
 //! - Tables are byte-identical transcriptions: CUBE_P (`:830`),
-//! CUBE_SHADE (`:841`), CUBE_I (`:846`), CUBE_UV (`:204`).
+//!   CUBE_SHADE (`:841`), CUBE_I (`:846`), CUBE_UV (`:204`).
 //! - View math mirrors `to_view`/`draw_cube` (`:1379`): milli corner ×
 //!   world scale, recenter (eye is `C_y + 0.5`), yaw rotate
 //!   (`dx = fx·cos + fz·sin`, `dz = -fx·sin + fz·cos`), project

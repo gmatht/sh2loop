@@ -191,7 +191,7 @@ fn run_map(
         .collect();
     let mut scalars = evals;
     scalars.push(trips as i64);
-    let groups = ((trips + m.threads as u64 - 1) / m.threads as u64) as u32;
+    let groups = trips.div_ceil(m.threads as u64) as u32;
     let mut m_fast = m.clone();
     if let Some(t) = m.mask_thresh {
         if t == i128::MAX || (t >= 0 && (n as u128) <= (t as u128)) {
@@ -228,8 +228,7 @@ fn run_reduce(
     if trips == 0 {
         return Ok(r.acc_init);
     }
-    let groups =
-        ((trips + r.threads as u64 * r.block_items - 1) / (r.threads as u64 * r.block_items)) as u32;
+    let groups = trips.div_ceil(r.threads as u64 * r.block_items) as u32;
     let mut r_fast = r.clone();
     if let Some(t) = r.mask_thresh {
         if t == i128::MAX || (t >= 0 && (n as u128) <= (t as u128)) {
@@ -340,7 +339,7 @@ fn run_fused(
     }
     let mut scalars = evals;
     scalars.push(trips as i64);
-    let groups = ((trips + m.threads as u64 - 1) / m.threads as u64) as u32;
+    let groups = trips.div_ceil(m.threads as u64) as u32;
     let map_ptx = shir_to_cu_compute(m);
     {
         let bufs: Vec<cudaffi::CUdeviceptr> = handles.iter().map(|(_, h)| *h).collect();

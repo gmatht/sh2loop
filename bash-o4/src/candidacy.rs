@@ -60,7 +60,7 @@ impl std::fmt::Display for LoopVerdict {
 /// (`While`/`DoWhile` are not counted shapes — skipped silently.)
 pub fn analyze(prog: &IrProgram) -> Vec<LoopVerdict> {
     let types: BTreeMap<String, IrType> =
-        prog.var_types.iter().map(|(n, t)| (n.clone(), t.clone())).collect();
+        prog.var_types.iter().map(|(n, t)| (n.clone(), *t)).collect();
     let mut out = Vec::new();
     let mut scope = Scope::new("main".to_string(), &types);
     walk_stmts(&prog.stmts, "main", &mut scope, &mut out);

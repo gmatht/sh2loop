@@ -8,6 +8,7 @@
 //!     mere paths-list misses edits to already-dirty files),
 //!   - untracked files as (path, size, mtime) (mtime catches content
 //!     change cheaply; same basis as cargo/make themselves).
+//!
 //! Untracked misses direction: a change always alters the key (miss,
 //! never stale-hit). `BAZO4_REV_FALLBACK` ("nogit") covers gitless
 //! environments; the manual `RENDERER_REV` in cache.rs remains as a

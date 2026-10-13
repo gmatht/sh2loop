@@ -91,7 +91,7 @@ impl std::fmt::Display for CuReduceVerdict {
 /// Analyze a program; one verdict per `ForInit` loop, in order.
 pub fn analyze(prog: &IrProgram) -> Vec<CuVerdict> {
     let types: BTreeMap<String, IrType> =
-        prog.var_types.iter().map(|(n, t)| (n.clone(), t.clone())).collect();
+        prog.var_types.iter().map(|(n, t)| (n.clone(), *t)).collect();
     let mut out = Vec::new();
     let mut scope = Scope::new("main".to_string(), &types);
     walk_stmts(&prog.stmts, "main", &mut scope, &mut out);
@@ -341,6 +341,7 @@ fn cond_dyn_bound(cond: &IrExpr, var: &str) -> Option<(String, bool)> {
 }
 
 /// Shared body analysis + spec construction (mirror of the Vk finish).
+#[allow(clippy::too_many_arguments)]
 fn finish(
     scope: &mut Scope,
     path: &str,
@@ -583,7 +584,7 @@ enum AccInit {
 /// analysis.
 pub fn analyze_seq(prog: &IrProgram) -> Vec<CuReduceVerdict> {
     let types: BTreeMap<String, IrType> =
-        prog.var_types.iter().map(|(n, t)| (n.clone(), t.clone())).collect();
+        prog.var_types.iter().map(|(n, t)| (n.clone(), *t)).collect();
     let mut out = Vec::new();
     let mut scope = Scope::new("main".to_string(), &types);
     walk_seq(&prog.stmts, "main", &mut scope, &mut out, &types, prog);
@@ -603,11 +604,8 @@ fn walk_seq(
 ) {
     for (i, s) in stmts.iter().enumerate() {
         let here = format!("{path}[{i}]");
-        match s {
-            IrStmt::ForInit { init, cond, step, body } => {
-                out.push(analyze_seq_init(scope, &here, init, cond, step, body, types, prog, i));
-            }
-            _ => {}
+        if let IrStmt::ForInit { init, cond, step, body } = s {
+            out.push(analyze_seq_init(scope, &here, init, cond, step, body, types, prog, i));
         }
     }
 }
@@ -699,6 +697,7 @@ fn seq_counted_header(
     Ok((var, lo, bound_var, inclusive, st))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn analyze_seq_init(
     scope: &mut Scope,
     path: &str,
@@ -1204,7 +1203,7 @@ fn seq_scope_ok(
 /// refusal, never silent).
 pub fn analyze_reduce(prog: &IrProgram) -> Vec<CuReduceVerdict> {
     let types: BTreeMap<String, IrType> =
-        prog.var_types.iter().map(|(n, t)| (n.clone(), t.clone())).collect();
+        prog.var_types.iter().map(|(n, t)| (n.clone(), *t)).collect();
     let mut out = Vec::new();
     let mut scope = Scope::new("main".to_string(), &types);
     walk_reduce(&prog.stmts, "main", &mut scope, &mut out, &types, prog);
@@ -1326,9 +1325,7 @@ fn acc_init_rule(
                         match lit_of(expr) {
                             Some(n) => {
                                 found.count += 1;
-                                if conditional {
-                                    found.bad = true;
-                                } else if found.lit.replace(n).is_some() {
+                                if conditional || found.lit.replace(n).is_some() {
                                     found.bad = true;
                                 }
                             }
@@ -1413,6 +1410,7 @@ fn acc_init_rule(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn analyze_reduce_init(
     scope: &mut Scope,
     path: &str,
@@ -2113,17 +2111,11 @@ fn cu_mask_plan_map(
     // Discipline: body must not write counter (step's own write is
     // expected machinery, checked separately below); nothing anywhere
     // may write the bound (stale need).
-    let wb = match cu_written(body) {
-        Some(w) => w,
-        None => return None,
-    };
+    let wb = cu_written(body)?;
     if wb.contains(var) || wb.contains(boundvar) {
         return None;
     }
-    let ws = match cu_written(step) {
-        Some(w) => w,
-        None => return None,
-    };
+    let ws = cu_written(step)?;
     if ws.contains(boundvar) {
         return None;
     }
@@ -2199,10 +2191,12 @@ fn ast_mentions(a: &ArithAst, name: &str) -> bool {
 }
 
 /// Mask threshold for a REDUCE loop. Two cases:
+///
 /// - outer accum mod with POW2 modulus: the outer site itself masks
 ///   (needs X threshold + acc-init gate), plus any inner pow2 sites.
 /// - otherwise (Add/Mul, non-pow2 outer): inner pow2 sites only; the
 ///   outer stays rem/div regardless (never kills the flag).
+///
 /// All-or-nothing per participating site; None = render signed.
 #[allow(clippy::too_many_arguments)]
 fn cu_mask_plan_reduce_side(
@@ -2222,17 +2216,11 @@ fn cu_mask_plan_reduce_side(
     if lo < 0 || boundvar == var {
         return None;
     }
-    let wb = match cu_written(body) {
-        Some(w) => w,
-        None => return None,
-    };
+    let wb = cu_written(body)?;
     if wb.contains(var) || wb.contains(boundvar) {
         return None;
     }
-    let ws = match cu_written(step) {
-        Some(w) => w,
-        None => return None,
-    };
+    let ws = cu_written(step)?;
     if ws.contains(boundvar) {
         return None;
     }
@@ -2251,15 +2239,12 @@ fn cu_mask_plan_reduce_side(
             let outer_ok = *modulus >= 1
                 && (0 <= acc_init && (acc_init as u64) < (*modulus as u64))
                 && !ast_mentions(x_ast, acc);
-            match (
+            if let (true, Some(t)) = (
                 outer_ok,
                 M::mask_threshold(x_ast, *modulus, var, lt, true),
             ) {
-                (true, Some(t)) => {
-                    thresh.push(t);
-                    will_mask_outer = true;
-                }
-                _ => {}
+                thresh.push(t);
+                will_mask_outer = true;
             }
         }
     }

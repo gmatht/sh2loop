@@ -382,8 +382,12 @@ where
 
 pub struct Vk {
     pub(crate) handle: *mut c_void,
-    get_proc: unsafe extern "C" fn(VkInstance, *const c_char) -> *mut c_void,
+    get_proc: GetProc,
 }
+
+/// `vkGetInstanceProcAddr` signature (see `Vk::load`): the loader
+/// hands it back as an untyped pointer and the struct keeps it typed.
+type GetProc = unsafe extern "C" fn(VkInstance, *const c_char) -> *mut c_void;
 
 impl Vk {
     /// dlopen the loader. Err on any failure (callers degrade to CPU).
@@ -399,7 +403,12 @@ impl Vk {
             unsafe { dlclose(handle) };
             return Err("vkGetInstanceProcAddr missing".to_string());
         }
-        Ok(Vk { handle, get_proc: unsafe { std::mem::transmute(get_proc) } })
+        Ok(Vk {
+            handle,
+            get_proc: unsafe {
+                std::mem::transmute::<*mut c_void, GetProc>(get_proc)
+            },
+        })
     }
 
     pub(crate) fn proc(&self, name: &str) -> *mut c_void {
@@ -597,11 +606,11 @@ fn pick_queue_device(
     let mut inst: VkInstance = ptr::null_mut();
     vk_ok("create-instance", vk.vkCreateInstance(&ci, ptr::null(), &mut inst))?;
     let enum_devs: unsafe extern "C" fn(VkInstance, *mut u32, *mut VkPhysicalDevice) -> VkResult =
-        ifn(&vk, inst, "vkEnumeratePhysicalDevices");
+        ifn(vk, inst, "vkEnumeratePhysicalDevices");
     let qfam_props: unsafe extern "C" fn(VkPhysicalDevice, *mut u32, *mut VkQueueFamilyProps) -> () =
-        ifn(&vk, inst, "vkGetPhysicalDeviceQueueFamilyProperties");
+        ifn(vk, inst, "vkGetPhysicalDeviceQueueFamilyProperties");
     let destroy: unsafe extern "C" fn(VkInstance, *const c_void) -> () =
-        ifn(&vk, inst, "vkDestroyInstance");
+        ifn(vk, inst, "vkDestroyInstance");
     let result = (|| {
         let mut n: u32 = 0;
         vk_ok("enum-devices", unsafe { enum_devs(inst, &mut n, ptr::null_mut()) })?;
@@ -1058,7 +1067,7 @@ impl ComputeRunner {
         out_lens: &[usize],
         groups: u32,
     ) -> Result<Vec<Vec<i64>>, String> {
-        if spv.len() % 4 != 0 {
+        if !spv.len().is_multiple_of(4) {
             return Err("SPIR-V length not a multiple of 4".to_string());
         }
         if out_lens.is_empty() {

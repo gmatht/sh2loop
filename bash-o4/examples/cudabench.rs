@@ -170,12 +170,12 @@ fn main() {
         "squares-map" | "sumred" => {
             // Identical math (masked squares accumulate) — GPU fuses both.
             let ptx = block_ptx(&sumred_op(), n);
-            let groups = ((n + 256 * BLOCK as u64 - 1) / (256 * BLOCK as u64)) as u32;
+            let groups = n.div_ceil(256 * BLOCK) as u32;
             (ptx, groups, vec![groups as usize], Finish::PartialsSumMod)
         }
         "collatz" => {
             let ptx = block_ptx(&collatz_op(), n);
-            let groups = ((n + 256 * BLOCK as u64 - 1) / (256 * BLOCK as u64)) as u32;
+            let groups = n.div_ceil(256 * BLOCK) as u32;
             (ptx, groups, vec![groups as usize], Finish::PartialsSumRaw)
         }
         _ => {

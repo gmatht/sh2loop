@@ -3,13 +3,14 @@
 //! Principle: reproducible, consented, cached, auditable. Layout:
 //! `<cache>/bash-o4-fetch/<name>/<version>/<file>`, lockfile-guarded,
 //! content-addressed (SHA-256 pin; mismatch ⇒ delete + refuse, exit 4,
-//! never fall forward). Policy: `--fetch-libs=` flag > `$BASH_O4_FETCH_LIBS`
-//! > default `ask`; `$BASH_O4_OFFLINE=1` forces `off`. `ask` on a non-TTY
-//! refuses with the `--fetch-libs=auto` incantation.
+//! never fall forward). Policy: `--fetch-libs=` flag >
+//! `$BASH_O4_FETCH_LIBS` > default `ask`; `$BASH_O4_OFFLINE=1` forces
+//! `off`. `ask` on a non-TTY refuses with the `--fetch-libs=auto`
+//! incantation.
 //!
 //! Transports: `file://` (copy — hermetic tests) and `https://` (via the
 //! `curl` binary, `--fail`, no `curl|sh`). Unpinned entries (`sha256`
-/// absent) are always refused: an unpinned upstream cannot be verified.
+//! absent) are always refused: an unpinned upstream cannot be verified.
 
 use std::path::{Path, PathBuf};
 
@@ -288,10 +289,9 @@ pub fn ensure(
     }
     let tmp = dir.join("artifact.tmp");
     let _ = std::fs::create_dir_all(&dir);
-    download(&entry.url, &tmp).map_err(|e| {
+    download(&entry.url, &tmp).inspect_err(|_| {
         let _ = std::fs::remove_file(&tmp);
         let _ = std::fs::remove_dir_all(&_lock);
-        e
     })?;
     if let Err(e) = verify(&tmp, &want, entry.size) {
         let _ = std::fs::remove_file(&tmp);

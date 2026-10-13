@@ -72,8 +72,10 @@ pub fn parse_to_shir_cached(source: &str, cache_root: &std::path::Path) -> (Stri
 /// v1 profile mapping (behavior firewall: levels never change stdout or
 /// exit codes; the level only selects the CLI's documented preset and is
 /// recorded in the cache key):
+///
 /// - `O0` → faithful preset; `O3`/`O4` → speed preset (dual loops,
 ///   slots, split-sets); everything else → the CLI no-flag default.
+///
 /// Arithmetic is true-64-bit by DEFAULT (safe): `set_true64(true)`
 /// unless explicitly opted out (`--no-true64` / `$SH2_TRUE64=0`). The
 /// `false` setting is an unsafe optimisation (silently wrong past

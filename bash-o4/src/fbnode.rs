@@ -150,6 +150,13 @@ impl Geom {
         self.w as usize * self.h as usize * BPP
     }
 
+    /// A geometry is never empty (the constructor refuses zero w/h),
+    /// so `is_empty` would always return false; the lint wants the
+    /// method to exist alongside `len` anyway.
+    pub fn is_empty(self) -> bool {
+        false
+    }
+
     /// Resolve the geometry: `$FB0_GEOM` (`WxH`) > [`Geom::DEFAULT`].
     ///
     /// This is what makes the node self-describing: `fbdev.c`'s RAM path

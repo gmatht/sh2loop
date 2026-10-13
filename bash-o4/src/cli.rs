@@ -40,6 +40,7 @@ fn usage() -> String {
 
 pub use crate::flags::{CommonFlags, GpuMode};
 
+#[derive(Default)]
 pub struct Options {
     /// Everything both `-O4` drivers parse identically (see `crate::flags`).
     pub common: CommonFlags,
@@ -62,21 +63,6 @@ pub struct Options {
     /// frame: the device dumps pixels as PPM, and this writes them where
     /// the node (and therefore a shell or a viewer) can read them.
     pub dump_fb0: Option<String>,
-}
-
-impl Default for Options {
-    fn default() -> Self {
-        Options {
-            common: CommonFlags::default(),
-            emit_shader: None,
-            fetch_libs: None,
-            prefetch: false,
-            audit_fetch: false,
-            publish_fb0: None,
-            dump_fb0: None,
-            fb_proof: None,
-        }
-    }
 }
 
 fn usage_err(msg: &str) -> i32 {
