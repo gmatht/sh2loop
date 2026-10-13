@@ -1582,10 +1582,18 @@ rb_o_wh() {
 # with half-extents (rbov_hwm/hhm milli) -> rbov_x0..y3 (ints, rounded
 # half-away-from-zero like the C). Vertex order matches the C
 # ((-1,-1),(1,-1),(1,1),(-1,1)) so the coverage winding agrees.
+# The angle is NEGATED before the trig: the oracle device rotates a
+# record by -deg in canvas space (webgldev.js: ctx.rotate(-deg) —
+# NDC y-up vs canvas y-down), so the gun's +30 record renders as a
+# canvas -30 with the muzzle LEFT toward the crosshair (measured:
+# oracle barrel lean -26px). Rotating by +deg here leaned it RIGHT,
+# +39px away into the corner — matching fbdev.c's ov_corners exactly,
+# but fbdev.c has the sign wrong vs the oracle, and the oracle wins.
 rb_o_corners() {
   rbv_s=$1
   rb_vdec
   rbt_deg=$((rbv_v / 1000000))
+  rbt_deg=$((0 - rbt_deg))
   rb_sincos
   rbov_cc=$rbt_cos
   rbov_cs=$rbt_sin

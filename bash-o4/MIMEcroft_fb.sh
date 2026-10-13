@@ -3250,10 +3250,18 @@ rb_o_wh() {
 # with half-extents (rbov_hwm/hhm milli) -> rbov_x0..y3 (ints, rounded
 # half-away-from-zero like the C). Vertex order matches the C
 # ((-1,-1),(1,-1),(1,1),(-1,1)) so the coverage winding agrees.
+# The angle is NEGATED before the trig: the oracle device rotates a
+# record by -deg in canvas space (webgldev.js: ctx.rotate(-deg) —
+# NDC y-up vs canvas y-down), so the gun's +30 record renders as a
+# canvas -30 with the muzzle LEFT toward the crosshair (measured:
+# oracle barrel lean -26px). Rotating by +deg here leaned it RIGHT,
+# +39px away into the corner — matching fbdev.c's ov_corners exactly,
+# but fbdev.c has the sign wrong vs the oracle, and the oracle wins.
 rb_o_corners() {
   rbv_s=$1
   rb_vdec
   rbt_deg=$((rbv_v / 1000000))
+  rbt_deg=$((0 - rbt_deg))
   rb_sincos
   rbov_cc=$rbt_cos
   rbov_cs=$rbt_sin
@@ -4750,16 +4758,20 @@ erase_rect() { er_cx=$1; er_cy=$2; er_w=$3; er_h=$4
 # rendered by the device; the muzzle flash appears at the barrel tip
 # after a shot.
 #
-# THE TILT AIMS THE MUZZLE AT THE SCREEN CENTRE. The device rotates a
-# record's rectangle about its centre by `deg` degrees CCW in NDC (+y
-# UP): a POSITIVE angle takes the barrel's top (local (0,+h/2)) to
-# (-sin30·h/2, +cos30·h/2) — LEFT, in toward the middle of the screen
-# where the crosshair is. (The old comment had the sign backwards: it
-# claimed +30 swung the top RIGHT and "fixed" it to -30, which mirrored
-# the muzzle away into the bottom-right corner — measured: fb0 gun
-# centroid drifted -23.4px vs the oracle's +29.5px.) The barrel is
-# already on the LEFT of the receiver (cx 0.70 vs 0.85), so the lean is
-# what decides the aim.
+# THE TILT AIMS THE MUZZLE AT THE SCREEN CENTRE. The oracle device
+# rotates a record's rectangle about its centre by -deg in CANVAS
+# space (webgldev.js: ctx.rotate(-deg) — NDC y-up vs canvas y-down),
+# so the game's +30 record renders as a canvas -30: the barrel's top
+# lands LEFT, in toward the middle of the screen where the crosshair
+# is (measured: oracle barrel lean -26px). rb_o_corners negates the
+# angle before the trig for exactly this reason. (An earlier revision
+# rotated by +deg here — matching fbdev.c's ov_corners exactly, but
+# fbdev.c has the sign wrong vs the oracle — and leaned the muzzle
+# RIGHT +39px away into the corner. The old comment ALSO had NDC
+# backwards: it claimed +30 swung the top RIGHT and "fixed" it to -30
+# in the record; the record was never wrong.) The barrel is already on
+# the LEFT of the receiver (cx 0.70 vs 0.85), so the lean is what
+# decides the aim.
 draw_gun() {
   # receiver body (partially off the bottom/right edge) + top highlight
   # + barrel — STATIC, drawn once into the static layer (the muzzle
