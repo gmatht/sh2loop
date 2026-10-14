@@ -12,6 +12,50 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v52: **Perl gate: seven examples fixed by root cause, zero regressions
+>   (measured 472 → 479 / 560).** A perl-gate session triaged the failures
+>   with an instrument that does not depend on the harness surviving the
+>   box's external killer: `gate_chunk.sh` (per-example verdicts, resumable,
+>   byte-equal stdout AND matching exit code, no bash-wrapper fallback,
+>   perl compiles), run against a binary built from the PRISTINE `bc7a88028`
+>   worktree versus one built from the fixed tree — the only honest way to
+>   read a gate on a box at loadavg 26 where `./fail` dies every ~100
+>   examples. Fixes, each with the root cause:
+>   (a) **`__sh_fn_status` was injected before `our $CHILD_ERROR`** — the
+>   injector walks past `use`/`my $main_exit_code`/`our $CHILD_ERROR`, but
+>   the renderer emits `our @__sh_args` + `use feature` FIRST, so the helper's
+>   bare `$CHILD_ERROR` was a `use strict` COMPILE error (051_primes emitted
+>   nothing). The helper now re-declares the package global itself.
+>   (b) **`fix_array_slice_bounds` never fired**: it gates on `array_var_pub`,
+>   a thread-local census the shared renderer only populates during
+>   `shir_to_perl` — AFTER our fixups. `${primes[@]: -10}` fell through to
+>   `@primes[0..$#primes]` (051 primed every prime after "Last 10"). The
+>   generator now populates the census from its own input first.
+>   (c) **`local NAME=$(…)` dropped its value**: the glued
+>   `Array([Str("name="), capture…])` word is skipped by the renderer's
+>   `local` arm (`call_arg_str` is None on an Array). Split into the
+>   `NAME=` + value shape the arm joins, and lower the one pipeline shape
+>   that arm still drops (`echo … | sed …`, where every native path refuses
+>   a stage reading caller variables) natively. Also covers `local -a`/`-A`
+>   (`setArray` glued to a flag word).
+>   (d) **Single quotes were invisible to `tokenize_test`** and unstripped by
+>   `render_test_operand`, so `[[ -z '' ]]` became `!length('\'\'')` — a
+>   TWO-character operand, inverting every emptiness test on a
+>   single-quoted value (070's `empty: 0` printed `1`). Both now handle
+>   both quote styles, and an empty quoted run still yields a token.
+>   (e) **bc results were emitted as bare number literals**, so Perl numified
+>   them: `scale=2; 5/2` printed `2.5` not `2.50`, and `0.5+0.25` printed
+>   `0.75` not `.75`. Now quoted.
+>   (f) **Interpolated `eval` payloads were refused**, falling to a `bash -c`
+>   payload that names a command literally called `eval` (unesecutable) —
+>   `075_eval_complex` printed nothing. The payload is now reconstructed as
+>   shell text; `Arith` RHS admitted.
+>   (g) **`while read … done < FILE | head -3` died on the redirect-in-pipeline
+>   refusal** (091_while_pipe_var produced no output). The existing
+>   capture-then-consume fold (sort) now also accepts `head`.
+>   Filed `core-requests/pir-20261014-arith-nested-expansion-dropped.md` for
+>   the one cluster that needs the parser: `$(( ${a:-0} + ${b[${i:-0}]:-0} ))`
+>   loses its whole assignment silently (063_12).
 > - v51: **The fb0 device NODE (the run-time half of the fb0 mechanism).**
 >   bash-O4's fb0 "device" was a build artefact only — `src/devices.rs`
 >   materialises the device's C *sources* into a content-addressed cache
@@ -2491,5 +2535,29 @@ ignores-alpha are the same frame; a colour with a nonzero low byte is
 visibly wrong. Hex literals now parse as hex
 (`sh2perl` dacf1d585), pinned by
 `fb_clear_hex_literal_lowers_as_a_number`, which fails without the hunk.
+
+**Offer (2026-10-14, fb0 workstream → §11 marketplace): int-element
+array homing in the C backend.** The transpiled-C game ran
+462ms/frame against the JS oracle's ~7ms; gprof showed the `rb_tri`
+per-pixel loop dominated (`atoll`/`strdup`/`_sh_capture`/`_sh_vgrow`
+per pixel). Root cause: `analyze_int_arrays` marks EVERY `arrayIndex`
+read as a string read, so polygon/texture buffers stayed `char*` and
+every corner/reader var stayed a string. New C-local pass
+(`sh2perl` 22e354c33, `SH2_NO_INT_ELEM=1` kills it, C backend only —
+other backends keep the shared verdict exactly): arrays with all-int
+stores, dense init (literal cover + guarded/bounded keys, or
+append-only growth) and no whole-array string reads home as native
+`long long[]`; element-readers and pure-arith temps seed `Int`
+(`demote_stringy_ints` re-validates every seed). Measured on
+`MIMEcroft_fb --demo`: 287ms/frame → **194ms/frame (scene 170ms)**;
+frame pixels 99.9987% identical (1 adjacent-texel edge pixel).
+Unit tests: zero new failures (11 pre-existing tree-state failures
+fail identically with and without; `p1_array_append_capacity_checked`
+now passes). The workspace gitlink is deliberately NOT bumped here —
+the submodule worktree sits ahead of the pinned `fae7274bb` on other
+workstreams' commits; the pin move is the owning session's call.
+Still open toward parity (in order): int-param call ABI (per-pixel
+argv marshal remains), RBTEX texel-parse modeling + LICM of the
+per-triangle slot loads, row-buffer accumulation for the splice.
 
 
