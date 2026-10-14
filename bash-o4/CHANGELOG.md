@@ -73,6 +73,17 @@ Verified 2026-10-12: `cargo test --offline --test fb_dispatch` 2/2 ok,
   recovery. A 1Hz re-read tick now re-presents whenever the pixels
   actually differ (Exposes feed the same pixel-compare path).
 
+### Added
+
+- **`./play.sh`: one-command interactive play** (2026-10-14): builds
+  the game if stale (`--build` forces, `--no-build` skips), opens the
+  fbview window, runs the game against it (frames via a temp BGRX
+  file, window keys back through the queue), and cleans up both plus
+  all temp files on exit. ` -- --demo` auto-plays for a smoke test;
+  `--scale N` sizes the window. Verified live: menu card over the 3D
+  in the window, SPACE in the window dismisses into the game, q quits
+  cleanly (game + launcher exit 0, no stray processes or temp files).
+
 ### Still open (unchanged)
 
 - The `_sh_gpu_*` host split in generated C; the proof scene is not a
