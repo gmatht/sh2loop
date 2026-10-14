@@ -3123,14 +3123,27 @@ captureSync(fn) {
   // listExtend(dst, src) — append ALL of src's items onto dst
   // (Go `append(dst, src...)` variadic spread over a list value);
   // returns the dst id so objSet chains.
+  //
+  // A NON-list src is a ONE-ELEMENT splice, not a no-op: the
+  // go-sh frontend's `return []map[string]any{stmt}` echoes a
+  // single-statement list through the value channel, which
+  // resolveTempResult freezes to the statement OBJECT (not a
+  // list-of-one). Treating that as empty silently dropped every
+  // single-statement body (self-host: `x := 1` vanished from
+  // parseStmt's result while multi-statement bodies survived).
   listExtend(dst, src) {
     const d = this._objStore.get(String(dst));
     if (!d || d.kind !== 'list') return dst;
-    let s = this._objStore.get(String(src));
-    if (!s || s.kind !== 'list') {
-      s = { items: [] };
+    const s = this._objStore.get(String(src));
+    if (s && s.kind === 'list') {
+      for (const it of s.items) d.items.push(it);
+      return dst;
     }
-    for (const it of s.items) d.items.push(it);
+    // one-element splice: a resolved statement object (or any single
+    // value) appends as one item; a genuinely empty/absent src appends
+    // nothing (Go's nil-slice spread).
+    if (src === undefined || src === null || src === '' || src === dst) return dst;
+    d.items.push(src);
     return dst;
   },
   mapNew() {
