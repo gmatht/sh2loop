@@ -108,7 +108,21 @@ while [ "$i" -lt 100 ]; do
 done
 tail -n 2 "$VIEW_LOG"
 
-echo "play.sh: starting the game (window keys: WASD move · arrows turn · SPACE shoot · q quit)…"
+# Keys only reach the game when its window has X focus — typing in the
+# terminal never forwards (the viewer only sees KeyPress events on its
+# own window). Raise + focus the window now so the first keypress lands;
+# if focus is lost later, click the window (the viewer logs every key it
+# forwards as `fbview: key [x]`, so the log tells focus apart from a
+# stuck game).
+if command -v xdotool >/dev/null 2>&1; then
+  WIN_ID=$(xdotool search --name "MIMEcroft (fb0 viewer)" 2>/dev/null | head -n 1)
+  if [ "${WIN_ID:-}" != "" ]; then
+    xdotool windowactivate "$WIN_ID" 2>/dev/null || true
+  fi
+fi
+
+echo "play.sh: starting the game — CLICK THE GAME WINDOW first, then keys go to the game."
+echo "play.sh: menu keys: arrows/WASD change settings · SPACE (not Enter) starts · q quits."
 FB0_DEV="$FB" MIMECROFT_KEYS="$KEYS" "$GAME_BIN" "$@" &
 GAME_PID=$!
 
