@@ -863,6 +863,16 @@ export const sh2 = {
     return store && store.has(normAssocKey(key)) ? String(store.get(normAssocKey(key))) : '';
   },
 
+  // assocDel(name, key) — Go builtin delete(m, k): remove one assoc key
+  // (the go-sh frontend's delete lowering; mirrors the assocSet write
+  // path including key normalization). Missing map/key is a no-op
+  // (Go semantics — no error, no output).
+  assocDel(name, key) {
+    const store = this.assocStore.get(String(name ?? ''));
+    if (store) store.delete(normAssocKey(key));
+    return true;
+  },
+
   assocKeys(name) {
     const store = this.assocStore.get(name);
     return store ? [...store.keys()] : [];
