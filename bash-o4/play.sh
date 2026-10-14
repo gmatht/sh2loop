@@ -6,8 +6,15 @@
 # the window flow back through the key queue. Ctrl-C (or q / Escape in
 # the window) stops both.
 #
-# Usage: ./play.sh [--scale N] [--build] [--no-build] [-- <game args...>]
+# The game runs under a 4 GiB address-space cap (GAME_MEM_MIB), so the
+# known residual growth in the transpiled runtime cannot wedge the box:
+# an allocation past the cap fails and the game exits, instead of
+# climbing until the OOM killer takes the machine down. Override with
+# --mem MB, or --mem 0 to disable the cap.
+#
+# Usage: ./play.sh [--scale N] [--mem MB] [--build] [--no-build] [-- <game args...>]
 #   --scale N   window scale (default 2 => 640x480)
+#   --mem MB    address-space cap for the game (default 4096; 0 = no cap)
 #   --build     force a rebuild of the game binary first
 #   --no-build  skip the build even if the binary is stale
 #   -- ARGS     extra args forwarded to the game (e.g. -- --demo)
@@ -20,20 +27,26 @@ GAME_BIN="$HERE/target/mimecroft-fb-play"
 VIEWER="$HERE/tools/fbview.py"
 SCALE=2
 BUILD_MODE=auto
+GAME_MEM_MIB=4096
 
 while [ $# -gt 0 ]; do
   case $1 in
     --scale) SCALE=$2; shift 2 ;;
     --scale=*) SCALE=${1#--scale=}; shift ;;
+    --mem) GAME_MEM_MIB=$2; shift 2 ;;
+    --mem=*) GAME_MEM_MIB=${1#--mem=}; shift ;;
     --build) BUILD_MODE=force; shift ;;
     --no-build) BUILD_MODE=skip; shift ;;
     --) shift; break ;;
     -h|--help)
-      echo "usage: $0 [--scale N] [--build|--no-build] [-- <game args...>]"
+      echo "usage: $0 [--scale N] [--mem MB] [--build|--no-build] [-- <game args...>]"
       exit 0 ;;
     *) break ;;
   esac
 done
+case $GAME_MEM_MIB in
+  ''|*[!0-9]*) echo "play.sh: --mem wants a whole number of MiB" 1>&2; exit 2 ;;
+esac
 
 # python viewer deps (fail fast with a useful message, not a traceback)
 if ! python3 -c "import Xlib, PIL" 2>/dev/null; then
@@ -123,13 +136,34 @@ fi
 
 echo "play.sh: starting the game — CLICK THE GAME WINDOW first, then keys go to the game."
 echo "play.sh: menu keys: arrows/WASD change settings · SPACE (not Enter) starts · q quits."
-FB0_DEV="$FB" MIMECROFT_KEYS="$KEYS" "$GAME_BIN" "$@" &
+if [ "$GAME_MEM_MIB" -gt 0 ]; then
+  echo "play.sh: game memory capped at ${GAME_MEM_MIB} MiB (--mem 0 disables)."
+  # ulimit -v is a per-process address-space cap, applied in a subshell
+  # so it cannot affect this script or the viewer. The cap makes the
+  # residual leak fail loudly (the game's checked allocation helpers
+  # exit) instead of growing until the box wedges.
+  (
+    ulimit -v $((GAME_MEM_MIB * 1024)) 2>/dev/null || {
+      echo "play.sh: warning: ulimit -v unavailable; running uncapped" 1>&2
+    }
+    exec env FB0_DEV="$FB" MIMECROFT_KEYS="$KEYS" "$GAME_BIN" "$@"
+  ) &
+else
+  FB0_DEV="$FB" MIMECROFT_KEYS="$KEYS" "$GAME_BIN" "$@" &
+fi
 GAME_PID=$!
 
 # stay until the game exits (quit from the window/terminal); the viewer
 # follows via the trap. Forward nothing — Ctrl-C hits the trap too.
 wait "$GAME_PID"
 GAME_RC=$?
-echo "play.sh: game exited ($GAME_RC)."
+if [ "$GAME_RC" -eq 127 ] && [ "$GAME_MEM_MIB" -gt 0 ]; then
+  echo "play.sh: game exited 127 after hitting its ${GAME_MEM_MIB} MiB cap." 1>&2
+  echo "play.sh: that is the known residual growth in the transpiled runtime —" 1>&2
+  echo "play.sh: the cap stopped it before the box ran out of memory. Re-launch" 1>&2
+  echo "play.sh: with a larger --mem (or --mem 0 to run uncapped)." 1>&2
+else
+  echo "play.sh: game exited ($GAME_RC)."
+fi
 trap - INT TERM EXIT
 cleanup
