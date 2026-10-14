@@ -1033,10 +1033,21 @@ export const sh2 = {
     // same processed arguments as builtins/externals (GLOB_MAGIC patterns
     // expanded or kept literal, PS_MAGIC materialized, array-literal
     // placeholders dropped).
+    //
+    // NON-SCALARS RIDE RAW: an array or plain object argument is an A1
+    // builder value (`echo [jsonObject(...)]` — the go-sh frontend's
+    // `return []map[string]any{stmt}`), NOT shell text. String() would
+    // freeze it as "[object Object]" and the statement would be lost
+    // (self-host: single-statement bodies vanished). Scalars are
+    // unchanged, so shell behaviour is identical.
     const flat = [];
+    const flattenOne = (v) => {
+      if (v !== null && typeof v === 'object') flat.push(v);
+      else flat.push(String(v));
+    };
     for (const a of args) {
-      if (Array.isArray(a)) flat.push(...a.map(String));
-      else flat.push(String(a));
+      if (Array.isArray(a)) { for (const x of a) flattenOne(x); }
+      else flattenOne(a);
     }
     for (let i = 0; i < flat.length; i++) {
       if (flat[i] === ARRAY_LIT_MAGIC) {
@@ -1633,7 +1644,13 @@ export const sh2 = {
     try {
       await fn();
       // bash command substitution strips NUL bytes from the captured output.
-      const out = this.fdTargets[1].buf.replace(/\u0000/g, '').replace(/\n+$/, '');
+      // A raw builder value (see captureAppend/captureFinish) bypasses the
+      // text strips — it is a value, not output text.
+      const raw = captureFinish(this.fdTargets[1].buf);
+      if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
+        return raw;
+      }
+      const out = String(raw).replace(/\u0000/g, '').replace(/\n+$/, '');
       return this.resolveTempResult(out);
     } finally {
       this.fdTargets[1] = saved;
@@ -1689,7 +1706,13 @@ captureSync(fn) {
     this.captureStart = Date.now();
     try {
       fn();
-      const out = this.fdTargets[1].buf.replace(/\u0000/g, '').replace(/\n+$/, '');
+      const raw = captureFinish(this.fdTargets[1].buf);
+      if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
+        // a raw builder value: no text strips apply — hand it straight
+        // through (resolveTempResult only handles temp names).
+        return raw;
+      }
+      const out = String(raw).replace(/\u0000/g, '').replace(/\n+$/, '');
       return this.resolveTempResult(out);
     } finally {
       this.fdTargets[1] = saved;
@@ -4952,6 +4975,15 @@ function isSignal(e, kind) { return e instanceof Signal && e.kind === kind; }
 const builtins = {};
 
 builtins.echo = function (args) {
+  // A non-scalar argument is an A1 builder value (`echo [jsonObject(…)]`
+  // — the go-sh frontend's statement-list return), not shell text:
+  // `join(' ')` would freeze it as "[object Object]". Emit it as-is.
+  const nonscalar = args.filter((a) => a !== null && typeof a === 'object');
+  if (nonscalar.length === 1 && args.length === 1) {
+    this.lastExit = 0;
+    emit(this, nonscalar[0]);
+    return true;
+  }
   let text;
   if (args[0] === '-n') text = args.slice(1).join(' ');
   else if (args[0] === '-e') text = args.slice(1).join(' ').replace(/\\n/g, '\n').replace(/\\t/g, '\t');
@@ -8483,9 +8515,45 @@ function decodeRawBytes(text) {
   return Buffer.concat(parts);
 }
 
+// captureAppend(buf, text) — append one emitted chunk to a capture
+// buffer. A capture holds a STRING (the shell value channel); a
+// non-scalar chunk is an A1 builder value (`return []map[string]any{stmt}`
+// echoed through the value channel by the go-sh frontend), which must
+// ride RAW. `buf += obj` would freeze it as "[object Object]" and the
+// statement list would be lost. A raw value is stored on the buffer's
+// `vals` side-list; the capture boundary joins strings and returns the
+// single raw value when that is all there was.
+function captureAppend(buf, text) {
+  if (text !== null && typeof text === 'object') {
+    if (typeof buf === 'string') {
+      const carrier = { __captureRaw: true, parts: buf === '' ? [] : [buf], vals: [text] };
+      return carrier;
+    }
+    buf.vals.push(text);
+    return buf;
+  }
+  if (buf !== null && typeof buf === 'object' && buf.__captureRaw) {
+    buf.parts.push(String(text));
+    return buf;
+  }
+  return buf + text;
+}
+
+// captureFinish(v) — the capture boundary: collapse a raw-carrying
+// buffer. A buffer whose ONLY content is a single raw value yields that
+// value (the frontend's single-statement return); anything mixed with
+// text stringifies (shell semantics), so ordinary output is unchanged.
+function captureFinish(v) {
+  if (v !== null && typeof v === 'object' && v.__captureRaw) {
+    if (v.parts.length === 0 && v.vals.length === 1) return v.vals[0];
+    return v.parts.join('') + v.vals.map(String).join('');
+  }
+  return v;
+}
+
 function emit(sh, text) {
   const t = sh.fdTargets[1];
-  if (t.kind === 'capture') t.buf += text;
+  if (t.kind === 'capture') t.buf = captureAppend(t.buf, text);
   else if (t.kind === 'discard') { /* >/dev/null — nothing to write */ }
   else if (t.kind === 'file') writeFileSync(t.target, decodeRawBytes(text) ?? Buffer.from(text, 'utf8'), t.mode);
   else if (t.kind === 'stderr') process.stderr.write(decodeRawBytes(text) ?? text);
