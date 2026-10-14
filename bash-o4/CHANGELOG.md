@@ -72,6 +72,23 @@ Verified 2026-10-12: `cargo test --offline --test fb_dispatch` 2/2 ok,
   timestamp or a stalled-then-resumed game left a stale window with no
   recovery. A 1Hz re-read tick now re-presents whenever the pixels
   actually differ (Exposes feed the same pixel-compare path).
+- **Transpiled code leaked every reassigned heap string** (sh2perl
+  `a5b871f93`, `src/c_backend.rs`): ownership was honoured only for
+  file-scope reassignments and a few custom store sites, so
+  `_sh_arr_set`, the string-vec indexed store, `_sh_assoc_set`'s
+  replace arm, the non-top-level branch of the main assign path, and
+  nested `declare x=...` all overwrote the pointer without freeing the
+  old value. All six now copy first, then free (the RHS may alias the
+  slot); `_sh_grow_str` also zeroes the grown region so the new
+  free-on-store can never hit an uninitialized slot. A 12-line
+  array-reassignment reproducer went from 25 GB in 60 s to 2.4 MB flat;
+  a function-scope growing string from 1.35 GB to 2.2 MB flat;
+  `MIMEcroft_fb`'s menu loop from ~26 GB + a D-state wedge at 10 min to
+  26 MB at 5 min (game heap row-string copies 28,741 → 251). Output
+  byte-identical vs bash on the array corpus; `c_backend` unit-test
+  failure set unchanged; `bash-o4` tests green. A residual ~30-60 KB/s
+  growth remains and is documented, with the evidence trail, in
+  `core-requests/bash-o4-20261014-174500-heap-ownership-landed-residual.md`.
 
 ### Added
 
