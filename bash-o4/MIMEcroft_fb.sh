@@ -5957,7 +5957,19 @@ draw_settings_menu() {
   esac
   if [ "$sm_sel" -eq 12 ]; then sm_mark=">"; else sm_mark=" "; fi
   echo "  $sm_mark  difficulty  : $sm_diff_s"
-  # canvas card
+  # canvas card — the card draw lives in draw_settings_card (below),
+  # which the menu loop calls every frame AFTER the 3D render/clear
+  # and before the single present. The terminal echoes above run once
+  # per call (not per frame), so they stay here.
+  draw_settings_card
+}
+
+# the menu's canvas card, drawn over the current rows (the 3D preview
+# or the clear). No terminal echoes — safe to call every frame. Split
+# out of draw_settings_menu: the loop's render_frame/rb_clear wipes the
+# rows every iteration, so a card drawn once (at menu entry) never
+# survived to a present; it must be redrawn after every wipe.
+draw_settings_card() {
   # canvas card — the leading C must be on its OWN line (a real
   # newline) or the device never clears the layer and old rects stay
   sm_shift_s=$fv
@@ -6103,8 +6115,11 @@ preview_start() {
 }
 
 # one AI frame: advance the glide, apply the patrol, render the 3D
-# (render_frame — no game HUD) and present. The menu card stays on the
-# persistent HUD layer, composited over the 3D at swap.
+# (render_frame — no game HUD). The menu card is composited AFTER this
+# returns (draw_settings_card) and presented once by the caller — so
+# this must NOT present: render_frame starts with rb_clear, and any
+# present here would show the bare 3D with the card wiped (which is
+# exactly the "menu never displays" bug this split fixes).
 preview_frame() {
   sm_ai_frame=$((sm_ai_frame + 1))
   gtick
@@ -6189,9 +6204,9 @@ preview_frame() {
     esac
   fi
   compute_display
-  # the 3D view + the mimes (static during the preview)
+  # the 3D view + the mimes (static during the preview). No present:
+  # the caller draws the menu card over these rows, then presents once.
   render_frame
-  rb_present
 }
 
 settings_menu() {
@@ -6205,8 +6220,9 @@ settings_menu() {
     tex_bg_submit ${sm_tex_name[$sm_bg_i]}
     sm_bg_i=$((sm_bg_i + 1))
   done
-  rb_clear 4278190080
-  rb_present
+  # the first loop iteration draws the card over the fresh rows and
+  # presents it (draw_settings_menu echoes the terminal copy once here;
+  # the per-frame card redraw + present is the loop tail below).
   draw_settings_menu
   # the PRE-GAME menu runs the 3D AI preview in the background (the
   # mid-game "live" menu is over the real game, so no preview there)
@@ -6304,15 +6320,18 @@ settings_menu() {
         sm_tex_n=$((sm_tex_n + 1))
       fi
     fi
-    # wipe the back buffer before presenting (see above) — or, in the
-    # pre-game AI preview, render the 3D behind the menu card instead
-    # (render_frame does its own clear; the swap composites the card)
+    # composite + present, once per iteration: the 3D preview (or the
+    # clear when there is no preview) wipes the rows, so the card is
+    # redrawn AFTER the wipe and before the single present. Drawing the
+    # card anywhere earlier (menu entry, the key-change redraw) never
+    # reaches the screen — the next wipe erases it.
     if [ "$sm_ai_active" -eq 1 ]; then
       preview_frame
     else
       rb_clear 4278190080
-      rb_present
     fi
+    draw_settings_card
+    rb_present
     sleep 0.05
   done
   # the preview is done — restore the full brightness; the real game

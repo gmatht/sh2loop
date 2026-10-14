@@ -156,19 +156,26 @@ def main(argv):
     print("fbview: WASD move, arrows turn, SPACE shoot, q quit",
           flush=True)
 
-    def present():
-        data = read_frame(fb_path)
-        if data is None:
-            return
+    def present_data(data):
         img = Image.frombytes("RGB", (W, H), data, "raw", "BGRX", 0, 1)
         if scale != 1:
             img = img.resize((ww, wh), Image.NEAREST)
         win.put_pil_image(gc, 0, 0, img)
         disp.flush()
 
+    def present():
+        data = read_frame(fb_path)
+        if data is None:
+            return
+        present_data(data)
+        return data
+
+    last_data = None
+
     mapped = False
     last_mtime = -1.0
     frames = 0
+    last_poll = 0.0
     try:
         last_mtime = os.stat(fb_path).st_mtime
     except OSError:
@@ -178,17 +185,30 @@ def main(argv):
             mt = os.stat(fb_path).st_mtime
         except OSError:
             mt = last_mtime
-        if mapped and mt != last_mtime:
-            present()
+        now = time.monotonic()
+        # the mtime gate catches every real frame, but a missed mtime
+        # (coarse timestamp on some filesystems, or a stalled game that
+        # resumes) must not freeze the window forever: re-read at 1Hz
+        # regardless, and present when the pixels actually changed.
+        if mapped and (mt != last_mtime or now - last_poll >= 1.0):
+            last_poll = now
+            data = read_frame(fb_path)
+            if data is not None and data != last_data:
+                present_data(data)
+                last_data = data
+                frames += 1
             last_mtime = mt
-            frames += 1
         while disp.pending_events():
             ev = disp.next_event()
             if ev.type == X.Expose:
-                present()
+                d = present()
+                if d is not None:
+                    last_data = d
             elif ev.type == X.MapNotify:
                 mapped = True
-                present()
+                d = present()
+                if d is not None:
+                    last_data = d
                 try:
                     last_mtime = os.stat(fb_path).st_mtime
                 except OSError:

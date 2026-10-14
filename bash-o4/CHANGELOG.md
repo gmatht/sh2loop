@@ -53,6 +53,25 @@ Verified 2026-10-12: `cargo test --offline --test fb_dispatch` 2/2 ok,
   blew out to 255; now byte-exact vs the shader chain on 1120/1120
   probed (tint, shade, texel) combinations, and the grass band
   shares its palette with the oracle frame.
+- **Settings menu never displayed in fbview** (`MIMEcroft_fb.sh`
+  `settings_menu`/`preview_frame`, 2026-10-14): `draw_settings_menu`
+  drew the card into the rows with no present, and every loop iteration
+  then wiped it — `preview_frame` ends in `render_frame` (whose first
+  op is `rb_clear`) + `rb_present`, the no-preview branch in
+  `rb_clear` + `rb_present` — so the file and the window showed the
+  bare 3D scene while the menu existed only as terminal echoes.
+  `preview_frame` now renders without presenting; the loop tail
+  composites once per iteration (3D-or-clear → `draw_settings_card` →
+  single `rb_present`). The card draw is split out of
+  `draw_settings_menu` (terminal echoes stay once-per-call, safe from
+  the 20Hz loop). Verified live: window shows the SETTINGS card over
+  the AI preview, SPACE dismisses into the game, in-game frames keep
+  presenting (fb hash changes frame to frame).
+- **fbview froze on any missed mtime** (`tools/fbview.py`): the window
+  repainted only when the fb file's mtime changed, so a coarse
+  timestamp or a stalled-then-resumed game left a stale window with no
+  recovery. A 1Hz re-read tick now re-presents whenever the pixels
+  actually differ (Exposes feed the same pixel-compare path).
 
 ### Still open (unchanged)
 
