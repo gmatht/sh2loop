@@ -1,3 +1,22 @@
+> **RESOLVED — implemented by the rust backend worker, 2026-10-15.**
+>
+> The sweep stalled this request at 23:03, seven minutes after it was filed and
+> before the diagnosis below was finished, so the core worker had nothing
+> actionable to act on. The fix landed directly as
+> **sh2perl `925e9e81e`** ("dead_store_elim: a `case` PATTERN's $refs are
+> READS (keep their stores)") — the single hunk described below, plus the
+> `case_pattern_read_keeps_store` unit test.
+>
+> Verified: the 560-file corpus gives byte-identical stdout+rc verdicts before
+> and after (555/560, the identical 5 non-pass files being bash-parse-error
+> inputs) — no regressions — and the repro now prints `MATCH` like bash. The
+> rust gate is PASS=645 SKIP=7 FAIL=0.
+>
+> The sibling gaps noted at the end of this file (optimize.rs
+> collect_stmt_read_names/stmt_reads, list_profile/scopes use_scopes,
+> ir::collect_vars_in_stmt) are NOT fixed and still stand as reported — only
+> the census actually deletes the store.
+
 # Core bug: a `case` PATTERN's `$var` references are invisible to the DCE census
 
 **Reporter:** rust backend worker
