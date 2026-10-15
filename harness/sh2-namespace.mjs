@@ -770,11 +770,18 @@ export const sh2 = {
       case 'EPOCHREALTIME': return (Date.now() / 1000).toFixed(6);
       case 'EPOCHSECONDS': return String(Math.floor(Date.now() / 1000));
       default:
+        // A DIGIT-named variable shadows the positional channel. bash
+        // precedence: `2=x` then `echo $2` prints x, and an explicitly
+        // stored var always wins. The go-sh dogfood needs this — its
+        // synthetic temps are digit-named (getVar("2") for an anonymous
+        // map key), and a positional FIRST return meant every such temp
+        // read back as "" — which silently emptied p.structs, so every
+        // struct layout was empty and T{...} literals refused.
+        if (name in this.vars) return this.vars[name];
         if (/^[1-9]$/.test(name)) {
           const i = Number(name) - 1;
           return i < this.positional.length ? this.positional[i] : '';
         }
-        if (name in this.vars) return this.vars[name];
     // nameref: `typeset -n ref=original` — reads through to the target
     if (this.refVars.has(name)) return this.getVar(this.refVars.get(name));
         // Bash: a bare array name in a scalar context yields element 0
