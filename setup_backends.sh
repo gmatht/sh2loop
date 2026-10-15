@@ -1282,6 +1282,29 @@ case "${1:-}" in
                   # Usage: setup_backends.sh --pi-fix-frontend <name>
                   shift; fix_name="$1"
                   fix_dir="$FT/$fix_name"; fix_log="$WORKSPACE/loop-frontend-$fix_name.log"
+                  # NO SUCH FRONTEND → NO SUCH BUILD. The dispatch prompt
+                  # names $fix_dir without ever checking it exists, and the
+                  # prompt's own output is tee'd into $fix_log — the file the
+                  # prompt hands the model as "the build log". For a name
+                  # with no directory (the sh2perl row: the shared sh corpus
+                  # driven through the core otranspilerl-cli, escalated on a
+                  # core emit refusal) the prompt describes a build that has
+                  # never run, the model writes that finding into the log,
+                  # and the next session is handed the previous sessions'
+                  # transcript as gate diagnostics. Measured 2026-10-12:
+                  # loop-frontend-sh2perl.log = 9.5 MB / 835 session banners
+                  # / 830 pir-debug lines and zero gate diagnostics. Refuse
+                  # at the source; a real core defect reaches the core
+                  # through the documented channels, not this prompt.
+                  if [ ! -d "$fix_dir" ]; then
+                    {
+                      echo "[$(date +%FT%T)] --pi-fix-frontend $fix_name: REFUSED — $fix_dir does not exist."
+                      echo "  This name is not a buildable frontend (no frontends/$fix_name/ dir, no run_frontend_worker.sh)."
+                      echo "  A core emit refusal on a shared corpus is a core/contract signal, not a frontend build failure."
+                      echo "  No AI session started; nothing was written to $fix_log."
+                    } >> "$WORKSPACE/loop-frontend-dispatch-refused.log" 2>/dev/null || true
+                    exit 0
+                  fi
                   {
                     printf 'The %s frontend in %s is failing to build.\n\n' "$fix_name" "$fix_dir"
                     printf 'Tail of the build log (%s):\n' "$fix_log"
@@ -2024,13 +2047,19 @@ EOF
                                 # wrapper additionally sweeps the SESSION.
                                 # Keep the 15s bound; only the blast radius changes.
                                 "$KS" timeout -k 2 15 sh -c '. /dev/fd/3' "$f" 3< /tmp/eq_$$.sh > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
-                           fish) # fish runs scripts directly. argv0 is not
-                                # meaningful (fish has no $0) — the corpus
-                                # files that reference $0 are handled below via
-                                # the perl/sh scratch convention; for fish the
-                                # reference runs from the same CWD. Loose
-                                # exit-code contract (eq_exit=0 && bash_rc=0).
-                                "$KS" timeout -k 2 15 fish /tmp/eq_$$.fish > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
+                           fish) # fish runs scripts directly and has no `$0`;
+                                # the render learns the script's own path from
+                                # `status filename`, which only matches bash when
+                                # fish is handed the SAME path string bash was —
+                                # and this arm runs the render from a scratch
+                                # file. Exporting SH2_ARGV0="$f" (the exact
+                                # string `bash "$f"` sees) makes `$0`,
+                                # `dirname "$0"` and usage lines agree on both
+                                # sides; the render falls back to
+                                # `status filename` when it is unset, so a
+                                # standalone run stays correct. Loose exit-code
+                                # contract (eq_exit=0 && bash_rc=0).
+                                SH2_ARGV0="$f" "$KS" timeout -k 2 15 fish /tmp/eq_$$.fish > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
                            java) javac -d /tmp /tmp/Sh2Program.java 2>/dev/null && "$KS" timeout 15 java -cp /tmp Sh2Program > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           perl) # argv0 = the source path (what `bash "$f"` sees) so
                                 # $0-dependent stdout agrees with bash — the exact
