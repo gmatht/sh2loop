@@ -74,7 +74,7 @@ why)
   sc=$(mktemp -d "$ROOT/.perlwhy.XXXXXX"); cd "$sc" || exit 2
   cp "$TMPD.why.pl" "$sc/prog.pl"
   bash_out=$("$KS" timeout -k 2 "$TIMEOUT_S" bash "$f" 2>/dev/null | perl "$CAP" "$CAPBYTES" out); bash_rc=${PIPESTATUS[0]}
-  pl_out=$("$KS" timeout -k 2 "$TIMEOUT_S" perl -x "$sc/prog.pl" 2>/dev/null | perl "$CAP" "$CAPBYTES" out); pl_rc=${PIPESTATUS[0]}
+  pl_out=$("$KS" timeout -k 2 "$TIMEOUT_S" perl -M5.010 -e '$0 = shift @ARGV; my $__f = shift @ARGV; do $__f' "$f" "$sc/prog.pl" 2>/dev/null | perl "$CAP" "$CAPBYTES" out); pl_rc=${PIPESTATUS[0]}
   echo "### bash (rc=$bash_rc):"; printf '%s\n' "$bash_out"
   echo "### perl (rc=$pl_rc):"; printf '%s\n' "$pl_out"
   if [ "$bash_out" = "$pl_out" ] && [ "$bash_rc" = "$pl_rc" ]; then echo "### EQUIV PASS"; else echo "### FAIL: equivalence (bash_rc=$bash_rc perl_rc=$pl_rc)"; diff <(printf '%s\n' "$bash_out") <(printf '%s\n' "$pl_out") | head -40; fi
@@ -137,7 +137,7 @@ for f in $CORPUS; do
   # other way round — "$KS" timeout ... — so the sweep runs after the bound
   # fires and the pipe closes. Mirror the fleet order on BOTH sides.
   bash_out=$(cd "$sc" && "$KS" timeout -k 2 "$TIMEOUT_S" bash "$f" 2>/dev/null | perl "$CAP" "$CAPBYTES" out); bash_rc=${PIPESTATUS[0]}
-  pl_out=$(cd "$sc" && "$KS" timeout -k 2 "$TIMEOUT_S" perl -x "$sc/prog.pl" 2>/dev/null | perl "$CAP" "$CAPBYTES" out); pl_rc=${PIPESTATUS[0]}
+  pl_out=$(cd "$sc" && "$KS" timeout -k 2 "$TIMEOUT_S" perl -M5.010 -e '$0 = shift @ARGV; my $__f = shift @ARGV; do $__f' "$f" "$sc/prog.pl" 2>/dev/null | perl "$CAP" "$CAPBYTES" out); pl_rc=${PIPESTATUS[0]}
   rm -rf "$sc"
   if [ "$bash_out" = "$pl_out" ]; then
     pass=$((pass+1)); [ $VERBOSE = 1 ] && echo "PASS $b"
