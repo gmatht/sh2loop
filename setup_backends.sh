@@ -1953,7 +1953,17 @@ EOF
                                 # unpassable; the sh/perl arms adopted equality
                                 # first). A 124 (timeout) is caught below.
                                 rustc /tmp/eq_$$.rs -o /tmp/eq_$$_bin 2>/dev/null && { if [ -n "$eq_scratch" ]; then (cd "$eq_scratch" && "$KS" timeout -k 2 15 bash -c 'exec -a "$0" "$1"' "$f" /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null); else "$KS" timeout -k 2 15 bash -c 'exec -a "$0" "$1"' "$f" /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null; fi; } && eq_exit=0 || eq_exit=$?;;
-                          zig)  "$KS" timeout 30 "$eq_tool" run /tmp/eq_$$.zig > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
+                          zig)  # the REAL exit code is captured (not collapsed to
+                                # 0/1): `zig run` propagates the program's status
+                                # (main() reaches `std.process.exit(N)` for a
+                                # lowered `exit N`), so the equality verdict below
+                                # compares it to bash's — scripts that exit nonzero
+                                # BY DESIGN (t83_exit.sh exits 3) were unpassable
+                                # under the old rc=0-on-both-sides rule. Verified
+                                # rc-faithful on 92/92 stub-free, bash-parseable
+                                # corpus files (stdout AND exit code both match),
+                                # the same evidence that admitted rust/zsh/c.
+                                "$KS" timeout 30 "$eq_tool" run /tmp/eq_$$.zig > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
                           zsh)  # argv0 = the source path (what `bash "$f"` sees),
                                # mirroring the perl/sh arms. The REAL exit
                                # code is captured (not collapsed to 0/1): the
@@ -2038,9 +2048,19 @@ EOF
                         # scripts that exit nonzero BY DESIGN unpassable
                         # (057_case.sh exits 1 for its usage error, and the
                         # renderer reproduces that exactly).
+                        # zig joined the equality group when its arm began
+                        # capturing the TRUE rc (same session): the renderer was
+                        # ALREADY rc-faithful — verified 92/92 stub-free,
+                        # bash-parseable corpus files reproduce bash's stdout AND
+                        # exit code — but the old rc=0-on-both-sides rule made
+                        # scripts that exit nonzero BY DESIGN unpassable
+                        # (t83_exit.sh exits 3; the render emits
+                        # `std.process.exit(@intCast(3))` and `zig run` returns
+                        # it). That single file was the gate's only equivalence
+                        # fail.
                         if [ "$sa_fail" = 0 ] && [ "$eq_exit" != 124 ] && [ "$bash_rc" != 124 ] \
-                           && { { { [ "$g_lang" = "perl" ] || [ "$g_lang" = "sh" ] || [ "$g_lang" = "rust" ] || [ "$g_lang" = "zsh" ] || [ "$g_lang" = "c" ]; } && [ "$eq_exit" = "$bash_rc" ]; } \
-                                || { { [ "$g_lang" != "perl" ] && [ "$g_lang" != "sh" ] && [ "$g_lang" != "rust" ] && [ "$g_lang" != "zsh" ] && [ "$g_lang" != "c" ]; } && [ "$eq_exit" = 0 ] && [ "$bash_rc" = 0 ]; }; } \
+                           && { { { [ "$g_lang" = "perl" ] || [ "$g_lang" = "sh" ] || [ "$g_lang" = "rust" ] || [ "$g_lang" = "zsh" ] || [ "$g_lang" = "c" ] || [ "$g_lang" = "zig" ]; } && [ "$eq_exit" = "$bash_rc" ]; } \
+                                || { { [ "$g_lang" != "perl" ] && [ "$g_lang" != "sh" ] && [ "$g_lang" != "rust" ] && [ "$g_lang" != "zsh" ] && [ "$g_lang" != "c" ] && [ "$g_lang" != "zig" ]; } && [ "$eq_exit" = 0 ] && [ "$bash_rc" = 0 ]; }; } \
                            && diff -q /tmp/eq_$$_out /tmp/eq_$$_ref >/dev/null 2>&1; then
                           pass=$((pass+1)); eq_pass=$((eq_pass+1))
                         else
