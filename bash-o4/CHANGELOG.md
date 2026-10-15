@@ -5,6 +5,66 @@ ends over one pipeline (`ShIR` → C via tcc, or → PTX via the CUDA candidacy)
 sharing one flag surface (`bash-o4/src/flags.rs`) and one dispatch vehicle
 (`bash_o4::cu_run`).
 
+## Unreleased — MIMEcroft_fb leaks fixed (heap `setenv` + capped string arrays)
+
+Two independent leak classes found by running MIMEcroft_fb under LSan and by
+`mallinfo2()` probes at each step of the menu loop. Both are **codegen**
+defects, so every transpiled program benefits; MIMEcroft_fb is just the
+program big enough to make them visible.
+
+### Fixed — `_sh_export` leaked the whole exported value on every export
+
+`_sh_export(name, val)` was `setenv(name, val, 1)`. glibc allocates a fresh
+`name=value` block per call and does not reuse it at a stable address, so a
+variable re-exported with a **large** value per frame grows the parent heap
+without bound. Measured `MIMEcroft_fb` (`rb_present` exports its 41 KB
+`rbp_chunk` 15× per presented frame):
+
+| build | menu-loop heap |
+|---|---|
+| `setenv` (before) | `uordblks` **324 MB** and climbing at f=1420; RSS 55 MB rising |
+| value capped at 1 KiB (control) | **flat** 21 MB — growth is O(exported value), not the program's own allocs |
+| `putenv` (after) | **flat 5.5 MB**, RSS 14.6 MB |
+
+`_sh_export` now keeps ONE parent-owned `name=value` block per name (a
+64-slot table, `realloc`'d only when the value grows) and hands the child
+that block with `putenv()`, so a re-export is a `memcpy` into a stable buffer
+instead of a fresh glibc copy. The block is intentionally never freed — the
+environment outlives every call and `putenv` keeps the pointer. Past 64
+distinct names it falls back to `setenv`.
+
+End-to-end: MIMEcroft_fb sat in the game loop at a **flat 34.5 MB over
+10 minutes**, where the pre-fix build reached 329 MB in the same window.
+
+### Fixed — a string array's elements leaked on every re-literal
+
+`arr=(...)`/`declare -a arr=(...)` reset `arr_len = 0` and re-`strdup`'d the
+slots, but the free-before-reset loop was emitted for **vec** (growable)
+string arrays only. A **capped** array (`static char *a[cap] = {0}`)
+re-literalized per call dropped the old strings forever — the source comment
+said so outright ("fixed arrays leak them — pre-existing"). LSan pointed
+straight at it: `_sh_xstrdup -> label_glyphs -> gen_label_tex -> load_labels`
+(`lgi=(...)` runs once per glyph). The same omission existed at
+`unset arr`, `unset arr[i]` and `declare -a arr=(...)`.
+
+All four now free the dropped slots first (`is_string_array` decides — not
+int, not assoc, not the `mpz_t[]` array-return arrays). LSan on the demo path
+went from `EXIT=23`/96 leaked allocations to **`EXIT=0`, no leak report**.
+
+Verified: C corpus gate `598 PASS / 652` **byte-identical verdicts per file**
+with and without the change (`harness/c-gate-run.sh`, baseline vs patched);
+`bash-o4` test suite green. Output byte-identical vs bash on the export-path
+probes (shrink, grow, one-shot, heredoc, multi-var).
+
+### Known, not fixed here
+
+- **Background `&` jobs are only reaped by an explicit `wait`.** Nothing
+  `waitpid`s `_sh_bg_pids` otherwise, so MIMEcroft_fb's `tex_bg_submit`
+  leaves ~30 zombies per menu session. Separate defect, no heap growth
+  attributable to it (the flat 1 KiB control accumulates the same zombies).
+- The ~30–60 KB/s residual the previous session documented is gone with the
+  two fixes above.
+
 ## Unreleased — fb0 fragment dispatch loop (PLAN v52)
 
 Closes the emit-half §11.14 called "remains": the `fb_frag` static
