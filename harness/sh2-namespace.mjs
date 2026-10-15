@@ -960,6 +960,19 @@ export const sh2 = {
       return true;
     }
     if (value === ARITH_BAD_MAGIC) return true; // `x=$((bad))`: the expansion aborted — bash skips the assignment
+    // An ARRAY value riding the value channel (a map[string][]string
+    // read: `layout, ok := p.structs[t.text]`) must survive as a SHELL
+    // ARRAY, not a space-joined string. The old join destroyed it, so
+    // arrayToList(name) — which reads this.arrays — saw an empty array
+    // and the slice crossed every call boundary as []; parseStructLit's
+    // listLen then read 0 and every keyed T{...} field failed as
+    // "unknown field". Scalars keep the join/coerce (shell `${arr}`
+    // parity).
+    if (Array.isArray(value)) {
+      this.arrays.set(name, value.map(x => (x === null || x === undefined) ? '' : (typeof x === 'object' ? x : String(x))));
+      this.vars[name] = value.join(' ');
+      return true;
+    }
     // Plain (non-array) objects store RAW (the dogfood's jsonObject maps
     // and range loop vars — a write-time String() would freeze them as
     // "[object Object]"). Arrays keep the join (shell `${arr}` parity);
