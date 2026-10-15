@@ -1963,7 +1963,29 @@ EOF
                                 # rc-faithful on 92/92 stub-free, bash-parseable
                                 # corpus files (stdout AND exit code both match),
                                 # the same evidence that admitted rust/zsh/c.
-                                "$KS" timeout 30 "$eq_tool" run /tmp/eq_$$.zig > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
+                                #
+                                # UU-FFI (UU-FFI.md): link libcoreutils_ffi.so
+                                # when it is built so the renderer's in-process
+                                # arm is exercised, otherwise render the
+                                # fork/exec fallback (exactly the C gate's rule).
+                                # `-lc` is REQUIRED: a Rust cdylib does not
+                                # initialise without libc and uu_run segfaults
+                                # (measured — the identical zig printed
+                                # correctly with -lc and crashed without it).
+                                uu_lib="$SUB/runtime/lib/libcoreutils_ffi.so"
+                                if [ -f "$uu_lib" ]; then
+                                  export SH2_UU_FFI=1
+                                  # zig spells rpath as a first-class flag;
+                                  # `-Wl,-rpath,...` is rejected with
+                                  # "unrecognized parameter" (which failed
+                                  # every single file before this was fixed).
+                                  uu_zig_flags="-lc -L$SUB/runtime/lib -lcoreutils_ffi -rpath $SUB/runtime/lib"
+                                else
+                                  export SH2_UU_FFI=0
+                                  uu_zig_flags=""
+                                fi
+                                # shellcheck disable=SC2086
+                                "$KS" timeout 30 "$eq_tool" run /tmp/eq_$$.zig $uu_zig_flags > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
                           zsh)  # argv0 = the source path (what `bash "$f"` sees),
                                # mirroring the perl/sh arms. The REAL exit
                                # code is captured (not collapsed to 0/1): the
