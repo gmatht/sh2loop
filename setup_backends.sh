@@ -1960,7 +1960,13 @@ EOF
                                 # vs "Usage: /tmp/eq_$$_bin ...").
                                 cc /tmp/eq_$$.c -o /tmp/eq_$$_bin 2>/dev/null && { if [ -n "$eq_scratch" ]; then (cd "$eq_scratch" && "$KS" timeout -k 2 15 bash -c 'exec -a "$0" "$1"' "$f" /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null); else "$KS" timeout -k 2 15 bash -c 'exec -a "$0" "$1"' "$f" /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null; fi; } && eq_exit=0 || eq_exit=$?;;
                           go)   "$KS" timeout 30 "$eq_tool" run /tmp/eq_$$.go > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
-                          python) "$KS" timeout 15 python3 /tmp/eq_$$.py > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
+                          python) # argv0 = the source path (what `bash "$f"` sees):
+                                # the render reads $0 from $SH2_ARGV0 (the exact
+                                # string bash sees, fish-arm precedent), falling
+                                # back to its own path standalone. Without this,
+                                # $0-dependent stdout FALSE-FAILs (057_case.sh:
+                                # "Usage: .../057_case.sh ..." vs "/tmp/eq_$$...").
+                                SH2_ARGV0="$f" "$KS" timeout 15 python3 /tmp/eq_$$.py > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           rust) # argv0 = the source path (what `bash "$f"` sees),
                                 # mirroring the sh/perl arms — the rust renderer
                                 # reads $0 via std::env::args (self-location,
@@ -2109,9 +2115,19 @@ EOF
                         # `std.process.exit(@intCast(3))` and `zig run` returns
                         # it). That single file was the gate's only equivalence
                         # fail.
+                        # python joined the equality group when its renderer
+                        # became rc-faithful: every statement records its rc
+                        # in __sh_rc (externals/captures/pipelines record the
+                        # real code, native statements reset to 0, compound
+                        # statements own it via their last command) and the
+                        # program ends with `sys.exit(__sh_rc)` — verified
+                        # rc-equal on the nonzero-by-design corpus (057_case
+                        # exits 1, the echo-backtick usage errors exit 1,
+                        # parse-bracket-subshell-pipe's failed && chain
+                        # exits 1).
                         if [ "$sa_fail" = 0 ] && [ "$eq_exit" != 124 ] && [ "$bash_rc" != 124 ] \
-                           && { { { [ "$g_lang" = "perl" ] || [ "$g_lang" = "sh" ] || [ "$g_lang" = "rust" ] || [ "$g_lang" = "zsh" ] || [ "$g_lang" = "c" ] || [ "$g_lang" = "zig" ]; } && [ "$eq_exit" = "$bash_rc" ]; } \
-                                || { { [ "$g_lang" != "perl" ] && [ "$g_lang" != "sh" ] && [ "$g_lang" != "rust" ] && [ "$g_lang" != "zsh" ] && [ "$g_lang" != "c" ] && [ "$g_lang" != "zig" ]; } && [ "$eq_exit" = 0 ] && [ "$bash_rc" = 0 ]; }; } \
+                           && { { { [ "$g_lang" = "perl" ] || [ "$g_lang" = "sh" ] || [ "$g_lang" = "rust" ] || [ "$g_lang" = "zsh" ] || [ "$g_lang" = "c" ] || [ "$g_lang" = "zig" ] || [ "$g_lang" = "python" ]; } && [ "$eq_exit" = "$bash_rc" ]; } \
+                                || { { [ "$g_lang" != "perl" ] && [ "$g_lang" != "sh" ] && [ "$g_lang" != "rust" ] && [ "$g_lang" != "zsh" ] && [ "$g_lang" != "c" ] && [ "$g_lang" != "zig" ] && [ "$g_lang" != "python" ]; } && [ "$eq_exit" = 0 ] && [ "$bash_rc" = 0 ]; }; } \
                            && diff -q /tmp/eq_$$_out /tmp/eq_$$_ref >/dev/null 2>&1; then
                           pass=$((pass+1)); eq_pass=$((eq_pass+1))
                         else
