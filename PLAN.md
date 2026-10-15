@@ -12,6 +12,41 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v53: **The rust-frontend dogfoods the transpiler's own Rust source —
+>   and the measurement says why that is hard.** The v0.2 goal of
+>   `frontends/rust-frontend` is to lower ALL of `sh2perl/src` (208 `.rs`
+>   files). New workspace scoreboard `harness/rust-dogfood.sh` measures
+>   it reproducibly: run the frontend over every file from a
+>   content-hashed snapshot, report the lowered/refused split plus a
+>   first-blocker histogram, `--min` as a regression tripwire.
+>   **Baseline 14/208 (6.7%) lower end-to-end; 194 refused.**
+>   The decisive finding is structural, not a number: an instrumented
+>   probe (catch_unwind at the per-function funnel) shows **~8460 blocked
+>   functions across ~24 blocker classes, long-tailed** (match pattern
+>   1821, nested item 795, unknown call 754, non-identifier `let` 704,
+>   method-on-receiver 682, method-on-string 529, for-iterator 374, match
+>   guard 322), and **each refused file carries 10–49 of them**.
+>   Consequence: no single fix moves the whole-file count, so a fix must
+>   be judged by the blocker CLASS it removes, not by files gained — the
+>   histogram is the progress metric and `--min` is only a tripwire.
+>   Measured on the four lowerings landed with this revision (v0.20):
+>   `condition expression` fell **13 → 5** in the histogram while the
+>   pass count stayed 14/208 and the function count stayed 693/9153.
+>   Landed (each pinned t62–t65, each verified stdout-exact vs native
+>   `rustc` by `harness/frontend-stdout.sh`): **`if let`**
+>   (`Some(x)`/`None`/`_`, in statement, condition, else-if AND
+>   value-returning-tail position — `if_value_node` gained an `out` slot
+>   so the binding hoists where both branches see it), **`matches!(v, PAT)`**
+>   in value AND condition position (sharing the match lowering's
+>   `arm_cond`/`unit_variant_pat` so they cannot disagree), **`push` /
+>   `push_str`** (setArrayAppend / str-concat), and **`Some(v)`/`None`
+>   typing** in `infer_ty`. Two exactness bugs surfaced and were fixed:
+>   bare `None` lowered to `getVar("None")` (reading an unrelated
+>   variable by accident), and the `if-let` test was written UNQUOTED —
+>   an unquoted empty expansion vanishes under word-splitting, so the
+>   branch never fired; the oracle caught it, not inspection.
+>   Refusal boundary kept (t64/t65): destructuring `Some(<non-name>)` and
+>   `matches!` on a compound subject both refuse loudly.
 > - v52: **Perl gate: seven examples fixed by root cause, zero regressions
 >   (measured 472 → 479 / 560).** A perl-gate session triaged the failures
 >   with an instrument that does not depend on the harness surviving the

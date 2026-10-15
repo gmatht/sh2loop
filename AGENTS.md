@@ -226,6 +226,22 @@ children, so after editing `setup_backends.sh` check for orphaned
   regression and is not one. `sh2gates` is now at 0/1024 with its refusal
   count flat, and `init.scope` is bounded at 8192 (see **Box-health
   guards**), but an ad-hoc run is still not wrapped by either.
+- `harness/repair-workers.sh` — restart fleet supervisors that died (core,
+  triage, c, perl, go, estree). Installed in root's crontab every 5 min,
+  logging restarts to `loop-repair.log` (quiet when all are alive).
+  **Same reinstall rule as above** — machine state, not in git:
+
+  ```
+  */5 * * * * /mnt/wsl/projects/sh2loop/harness/repair-workers.sh >>/mnt/wsl/projects/sh2loop/loop-repair.log 2>&1
+  ```
+
+  (Added 2026-10-10: supervisors were being SIGKILLed every ~30-60 min by an
+  unidentified external killer — no OOM, no exit traces, stale locks left
+  behind — and each outage lasted until a human noticed. The loop never
+  starts a duplicate: `start-worker.sh` refuses live supervisors,
+  `supervise.sh` lockdirs refuse doubles, and a live-but-unsupervised worker
+  body is logged ORPHAN and left alone. Re-run
+  `harness/repair-workers.sh --install-cron` if the path ever moves.)
 - **`grep` is a shell function wrapping ripgrep.** `type grep` → function. It
   forwards most flags to `rg`, so `grep -qF` and `grep -qi` **fail on every
   input** (`rg: unrecognized flag --qF`) — including text that *does* contain
@@ -246,6 +262,17 @@ children, so after editing `setup_backends.sh` check for orphaned
 - `./fail-coreutils` — red regression tests from the GNU coreutils suite
   probe (`tests/coreutils/`; each documents a known parser/transpiler gap
   and goes green as the fix lands — never bless them)
+- `harness/rust-dogfood.sh` — **the rust-frontend dogfooding scoreboard.**
+  Runs `frontends/rust-frontend` over every `.rs` under `sh2perl/src` from
+  a content-hashed snapshot and reports the lowered/refused split plus a
+  first-blocker histogram (`--quiet` one line, `--json`, `--list`,
+  `--min N` = regression tripwire). Baseline **14/208 (6.7%)**.
+  **The pass count is NOT the progress metric**: an instrumented probe
+  showed ~8460 blocked functions over ~24 long-tailed blocker classes and
+  **10–49 blockers per refused file**, so no single fix moves the count —
+  judge a fix by the blocker class it removes from the histogram (the
+  v0.20 lowerings took `condition expression` 13 → 5 while the count
+  stayed 14). Point it at a candidate binary with `FE=<path>`.
 - `./tests/coreutils/gate` — objective gate over the full 650-script
   corpus: a test passes only on its own verdict, never vs bash. Current
   rule: "if init.sh doesn't start, the test fails" (source not inlined →
