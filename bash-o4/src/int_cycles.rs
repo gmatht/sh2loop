@@ -716,6 +716,103 @@ fn test_refs(t: &str) -> (Vec<String>, bool) {
     (all, has_str)
 }
 
+/// Redirect-target text marking (mirror of the backend's
+/// mark_redirect_text): scalar reads always mark `str_use`, element
+/// reads mark a whole-array `str_read`.
+fn mark_redirect_text(
+    e: &IrExpr,
+    str_use: &mut HashSet<String>,
+    str_read: &mut HashSet<String>,
+    arrs: &HashSet<String>,
+) {
+    match e {
+        IrExpr::Arith(_) | IrExpr::Int(_) => {}
+        IrExpr::Var(n, _) | IrExpr::Ident(n) => {
+            str_use.insert(n.clone());
+        }
+        IrExpr::Index { key, .. } => {
+            walk_uses_expr(key, true, str_use);
+        }
+        IrExpr::Call { func, args } => {
+            if func == "arrayIndex" || func == "arrayItems" {
+                if let Some(IrExpr::Str(name, _)) = args.first() {
+                    str_read.insert(name.clone());
+                }
+                for a in args.iter().skip(1) {
+                    walk_uses_expr(a, true, str_use);
+                }
+                return;
+            }
+            if matches!(func.as_str(), "min" | "max" | "sum") {
+                if let Some(IrExpr::Str(name, _)) = args.first() {
+                    str_read.insert(name.clone());
+                }
+                return;
+            }
+            if func == "arrayLen" {
+                return;
+            }
+            if func == "getVar" {
+                if let Some(IrExpr::Str(name, _)) = args.first() {
+                    if arrs.contains(name) {
+                        str_read.insert(name.clone());
+                    } else {
+                        str_use.insert(name.clone());
+                    }
+                }
+                return;
+            }
+            if func == "test" {
+                if let Some(IrExpr::Str(t, _)) = args.first() {
+                    let (refs, has_str) = test_refs(t);
+                    if has_str {
+                        for r in &refs {
+                            str_use.insert(r.clone());
+                        }
+                    }
+                }
+                return;
+            }
+            for a in args {
+                if let IrExpr::Str(nm, _) = a {
+                    if func == "slice" || func == "arrayItems" || func == "listVar" {
+                        str_read.insert(nm.clone());
+                    }
+                    if func == "sortedBigintJoin" {
+                        str_read.insert(nm.clone());
+                    }
+                }
+                mark_redirect_text(a, str_use, str_read, arrs);
+            }
+        }
+        IrExpr::Array(items) => {
+            for it in items {
+                mark_redirect_text(it, str_use, str_read, arrs);
+            }
+        }
+        IrExpr::Interpolate(parts) => {
+            for p in parts {
+                if let debashl::ir::InterpPart::Expr(x) = p {
+                    mark_redirect_text(x, str_use, str_read, arrs);
+                }
+            }
+        }
+        IrExpr::BinOp { lhs, rhs, .. } => {
+            mark_redirect_text(lhs, str_use, str_read, arrs);
+            mark_redirect_text(rhs, str_use, str_read, arrs);
+        }
+        IrExpr::Arrow(stmts) => walk_uses_list(
+            stmts,
+            str_use,
+            str_read,
+            &mut HashSet::new(),
+            &HashSet::new(),
+        ),
+        IrExpr::Capture { expr, .. } => mark_redirect_text(expr, str_use, str_read, arrs),
+        _ => {}
+    }
+}
+
 /// Mirror of the backend's uses walk, collecting only `str_use` (direct
 /// string observations), `str_read` (whole-array string operations) and
 /// `iterated` (by-value array iteration). `int_use` is not needed: the
@@ -923,7 +1020,16 @@ fn walk_uses_stmt(
         IrStmt::Subshell(body) | IrStmt::Background(body) | IrStmt::Block(body) => {
             walk_uses_list(body, str_use, str_read, iterated, arrs)
         }
-        IrStmt::Redirect { inner, .. } => walk_uses_list(inner, str_use, str_read, iterated, arrs),
+        IrStmt::Redirect { inner, redirects } => {
+            walk_uses_list(inner, str_use, str_read, iterated, arrs);
+            // Redirect targets are genuine text observations (mirror
+            // of the backend's mark_redirect_text): even a `getVar`
+            // marks here — `> $p` with `p="007"` vs `p=7` are
+            // different files.
+            for r in redirects {
+                mark_redirect_text(&r.target, str_use, str_read, arrs);
+            }
+        }
         IrStmt::Pipeline { stages, .. } => {
             for st in stages {
                 walk_uses_list(st, str_use, str_read, iterated, arrs);
@@ -1297,7 +1403,14 @@ fn lit_int_arrays(
                 if seeded.contains(n) {
                     return true;
                 }
-                if !scalars.contains(n) || visiting.contains(n) {
+                // Coinductive cycle reading (mirrors the backend's
+                // assigns_numeric): revisit assumes int; the
+                // removal-only fixpoint + str_use gate + demote keep
+                // it sound.
+                if visiting.contains(n) {
+                    return true;
+                }
+                if !scalars.contains(n) {
                     return false;
                 }
                 let Some(a) = assigns.get(n) else {
@@ -1322,7 +1435,10 @@ fn lit_int_arrays(
                     if seeded.contains(n) {
                         return true;
                     }
-                    if !scalars.contains(n) || visiting.contains(&n.to_string()) {
+                    if visiting.contains(&n.to_string()) {
+                        return true;
+                    }
+                    if !scalars.contains(n) {
                         return false;
                     }
                     let Some(a) = assigns.get(n) else {

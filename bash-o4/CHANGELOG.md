@@ -5,6 +5,50 @@ ends over one pipeline (`ShIR` → C via tcc, or → PTX via the CUDA candidacy)
 sharing one flag surface (`bash-o4/src/flags.rs`) and one dispatch vehicle
 (`bash_o4::cu_run`).
 
+## Unreleased — redirect-text marking + coinductive copy-cycle reads (C backend)
+
+Two follow-ups to the Class-F homes (`sh2perl@d510030f2`,
+`src/c_backend.rs` +106/−2; mirror in `bash-o4/src/int_cycles.rs`):
+
+- Redirect targets are genuine text observations. The uses walk
+  ignored them (`Redirect { inner, .. }`), so a path var only ever
+  written by `> $p` could home `Int` — `p="007"` vs `p=7` are
+  different files. New `mark_redirect_text`: scalar reads mark
+  `str_use`, element reads mark whole-array `str_read`; even
+  `getVar` marks here (transparent in value position, text through
+  a redirect). `rbd_p` is `char*` again.
+- `assigns_numeric` reads copy cycles coinductively (revisit
+  assumes int, was refuse). Sound via the existing three gates:
+  the `str_use` seed exclusion, the removal-only fixpoint, and
+  demote re-validation. `proven_nonneg`/`bound_of` stay
+  conservative (a wrong bound is a miscompile, a missed seed is
+  just slower).
+
+Measured on `MIMEcroft_fb.sh` (`--emit-c` counts, HEAD vs patched):
+
+| scope | `atoll` | `_sh_xstrdup` |
+|---|---|---|
+| whole render | 449 → 430 | 1316 → 1135 |
+
+~30 more vars home `long long` (`um_*` mime-update nest, `mx`/`mz`,
+`rmx`/`rmz`, `RBTEX_OFF`, `dm_*`/`ka_*`/`mb_*`/`ru_*` radar caches).
+Same-condition `--demo`: render **72 vs 70–76 ms/frame** — inside
+box noise (load ~11, demo frame counts differ run to run), i.e. no
+measurable render change; the win is static (−14% `xstrdup`). The
+render bottleneck is the scene phase's 768 `try_draw` argv-swaps +
+remaining per-cell `atoll`s — void-lifting `try_draw`/`rb_cube` is
+the designed next step, not yet implemented.
+
+Correctness: frame-1 PPM 4-way byte-identical (two archived + two
+fresh builds); the older archived `base-frame.ppm` differs but is
+stale (predates the change under different inputs/code) — the
+HEAD-vs-patched C diff is free-ordering noise only, so no codegen
+behavior changed. `--demo` clean (rc=0) on both builds. Full C corpus gate
+**499/8/53 with a failure set byte-identical to unmodified HEAD**
+(all 8 pre-existing — param-heavy/stringy corners); `bash-o4`
+suite green (115); `c_backend` unit tests 143/10, identical set to
+HEAD.
+
 ## Unreleased — Class-F int arrays: positionals + full-cover homes (C backend)
 
 `MIMEcroft_fb.sh`'s per-frame cost was dominated by string round-trips
