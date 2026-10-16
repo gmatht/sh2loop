@@ -5,6 +5,66 @@ ends over one pipeline (`ShIR` → C via tcc, or → PTX via the CUDA candidacy)
 sharing one flag surface (`bash-o4/src/flags.rs`) and one dispatch vehicle
 (`bash_o4::cu_run`).
 
+## Unreleased — void calling-convention lift: bare calls become plain C calls (C backend)
+
+The step the entry below named as designed-next: every bare
+shell-function call — `try_draw` ×768/frame, plus `rb_cube`/
+`draw_rect`/`draw_char`/`get_cell`/… — used to build an argv array,
+swap `_sh_argv`/`_sh_argc` around the call and restore them, with
+bounds-checked `_sh_argv[k]` reads in the callee. `scan_void_lifts`
+(`sh2perl/src/c_backend.rs`, the dual of `scan_fn_lifts`) makes those
+plain C calls:
+
+- **eligible** when the fn's only uses are bare statements (its
+  observable channels are `_sh_rc` + globals), its body reads only
+  `$1..$9` (no `$@`/`$*`/`$#`/`$0`, no `shift`/`set --`), it has no
+  nested defs of unknown shape, and it does not call itself. `return N`
+  and stdout writers are allowed — nothing captures a bare call, so
+  body stdout *is* process stdout either way. Arity 0 lifts too (a
+  zero-arg bare call paid the argv swap as well).
+- **signature**: `static void f(char *_pN)`, or `long long _pN` when
+  `analyze_native_num_fns` proves the params integral and every call
+  site passes a small non-bigint arg (phase 2 — that analysis now
+  counts void-lifted fns alongside value-lifted ones).
+- **`LiftScan::child` veto (correctness)**: a positional read inside a
+  capture/pipeline/Arrow body refuses the lift, because the renderer
+  hoists those bodies into `_cap_N`/`_sh_site_N` builders that have no
+  `_pN` in scope. Measured both ways it fails: `v=$(echo "$1")` →
+  ‘_p1’ undeclared (this is `examples/087_function_cmd_sub.sh`, which
+  regressed to a gate skip until the veto landed), and the silent kind
+  — `v=$(echo "$v-$1")` compiled and dropped the value, and
+  `echo $(($1+1)) | tr` compiled and printed 1 where bash prints 6. The
+  same veto closes the identical hole in the pre-existing *value* lift
+  (a `$(…)`-captured fn with a positional body read failed to compile
+  on HEAD too).
+
+Measured on `MIMEcroft_fb.sh` (`--emit-c`, same-tree A/B — both
+binaries built from one checkout, only `src/c_backend.rs` stashed):
+
+| metric | HEAD | void-lift |
+|---|---|---|
+| argv swap/restore sites | 645 | 20 |
+| C bytes · lines | 1,423,253 · 32,159 | 1,211,983 · 27,861 |
+| lifted `static void f(char *)` defs | 14 | 124 |
+| `atoll(` · `_sh_xstrdup(` sites | 430 · 1135 | 430 · 1135 |
+
+Correctness: frame-1 PPM **byte-identical** (same-tree pair); `--demo`
+rc=0 on both. Full C corpus gate **497/10/53 for BOTH builds with an
+identical failure set** (all 10 pre-existing — param-heavy/stringy
+corners); `c_backend` unit tests **157/10** (143/10 on HEAD + 14 new
+void-lift tests), failure set byte-identical to HEAD; `bash-o4` suite
+green (131).
+
+Timing, stated honestly: 4 paired `--demo` runs give scene render
+**71.0 vs 68.3 ms/frame** (ranges 68–78 vs 64–73, box load 4 → 10 over
+the sweep) — directionally positive but inside box noise, and consistent
+with the transport never being the frame cost: the argv swap costs
+sub-1% of a 70 ms frame even at 768 calls. The wall-clock levers are
+the rasterizer and the remaining per-cell `atoll`s/`strdup`s (both
+untouched here — the last two columns above), not call plumbing; what
+this change buys is a **14.8% smaller render** and call sites the
+optimiser can actually see through.
+
 ## Unreleased — redirect-text marking + coinductive copy-cycle reads (C backend)
 
 Two follow-ups to the Class-F homes (`sh2perl@d510030f2`,
