@@ -5,6 +5,93 @@ ends over one pipeline (`ShIR` → C via tcc, or → PTX via the CUDA candidacy)
 sharing one flag surface (`bash-o4/src/flags.rs`) and one dispatch vehicle
 (`bash_o4::cu_run`).
 
+## Unreleased — Class-F int arrays: positionals + full-cover homes (C backend)
+
+`MIMEcroft_fb.sh`'s per-frame cost was dominated by string round-trips
+on the game-board arrays: every cell read did `_sh_arr_get` + `strdup`
++ `atoll`, because `map`/`bhp`/`mime_lookup`/`mtype` stayed `char*`.
+Two conservative refusals in `int_element_verdict`
+(`sh2perl/src/c_backend.rs`) blocked them, and both are unnecessary
+for full-cover fixed arrays:
+
+- Positional-sourced stores (`set_cell`'s `v=$4` → `map[$idx]=$v`)
+  failed the int-writes fixpoint (`assigns.get("4")` is `None`).
+  `getVar`/`Var` of a positional (all digits, except `$0`) is now
+  int-valued: one `atoll` at the copy observes exactly what every
+  per-use `atoll` observes, and seeds still require int-use-only
+  while demote re-validates.
+- Dynamic keys needed a `[ $k -lt N ]` guard + proven-nonneg proof.
+  Dropped for arrays with a full literal cover (Class F): no holes
+  can form, fixed-array stores render the exact `_sh_arr_set` guard
+  in both representations (negative stores nothing, past-cap exits
+  127), and reads render the len guard per context (`""` vs `0`).
+  The old guard calls stay behind `SH2_DEBUG_INT_ELEM=6` logging.
+
+The worktree mirror (`bash-o4/src/int_cycles.rs`) accepts the same
+two shapes so its scalar/array fixpoint proposes through them
+(demote re-validates as before). Ablation: with the backend fix,
+`SH2_NO_INT_CYCLES=1` and `SH2_NO_INT_ELEM=1` change nothing — the
+`int_arrays_for_c` path (which calls `int_element_verdict` directly,
+past the wrapper's kill-switch) carries the win alone.
+
+Measured on `MIMEcroft_fb.sh` (`-O4 --emit-c` counts):
+
+| scope | `atoll` | `_sh_xstrdup` |
+|---|---|---|
+| whole render | 1285 → 589 | 3332 → 1326 |
+
+`map`/`bhp`/`mime_lookup`/`mtype` now emit `static long long …[1024]`;
+`gv`/`td_mi` read as direct guarded loads (`gv == AIR`, no `atoll`).
+Same-condition `--demo`: render **83 → 61 ms/frame** (1.36×), avg
+108 → 88 ms/frame. Frame-1 PPM byte-identical across runs.
+
+Verified: full C corpus gate **642/3/7 byte-identical vs baseline**
+(the 3 fails — 2 `cc`, 1 `stub` — fail identically on unmodified
+HEAD); `bash-o4` suite green (131); `c_backend` unit tests 143/10,
+identical set to HEAD (pre-existing failures).
+
+## Unreleased — int-cycles: scalar copy-cycle Int seeding (O3/O4)
+
+Worktree-local ShIR→ShIR pass (`bash-o4/src/int_cycles.rs`, wired into
+`render_c_with` beside the loop-opt hoist): pushes `Int` verdicts for the
+greatest fixpoint of scalars whose every assign is int-valued under
+transparent-copy semantics — `Arith`/`Int`, canonical-numeric text (no
+leading zeros, `i64`-parseable), `Var`/`getVar` of a member, and
+`arrayIndex`/`min`/`max`/`sum` over literally-dense int-domain arrays
+(literal cover + guarded cursor stores + int-valued RHS, joint scalar/array
+fixpoint mirroring the backend's intwrites rules). Closes the gap the
+shared backend deliberately leaves: mixed-form assigns (an `arrayIndex`
+read here, a plain `v=$w` copy there) are pushed by neither of its two
+seeders, so the whole per-pixel nest (`rbt_x2` → `rbt_t` swap hub →
+bounds/shade/bridge) cascaded back to `char*`.
+
+Only proposes — `demote_stringy_ints` re-validates every verdict at C
+ingest, so a wrong proposal is a missed optimisation, never a
+miscompile. O3/O4 only (`SH2_NO_INT_CYCLES=1` kills it); O0/Og never
+invoke it. String-observed vars, subshell-written vars, `for`-iteration
+vars, hex/row/capture text and `${v#pat}` strips are never proposed.
+
+Measured on `MIMEcroft_fb.sh` (`--emit-c` counts, hoist-only vs +cycles):
+
+| scope | `atoll` | `_sh_xstrdup` |
+|---|---|---|
+| `rb_tri` (per-pixel nest) | 67 → 3 | 53 → 7 |
+| whole render | 1285 → 716 | 3332 → 3241 |
+
+88 scalar decls flip `char*`/`char[21]` → `long long` (300 pushes;
+`pl_secs`, hex rows, `rbx_s=$1`, `RFB_ROWS`/`RBTEX_*` correctly refused).
+Frame-1 oracle score (`tools/oracle-vs-fb0.sh` recipe vs archived
+`frame1-A.png`): **33.17%** — the documented walkthrough baseline —
+vs 33.05–33.06% without the pass, deterministic across 8+3+2 runs.
+Same-condition `--demo`: render **86 → 44 ms/frame**, movement-frame
+render 1533 → 761 ms. CUDA: no dispatchable loop in this program
+(`--check`: 0 GLSL/CUDA candidates — the rasterizer is `while`-based;
+`--gpu=force` correctly refuses), so the CUDA leg is unchanged.
+
+Verified: full `bash-o4` suite green (131 passed / 0 failed);
+`ground-regress.sh` PASS; kill-switch (`SH2_NO_INT_CYCLES=1`) frame
+matches the no-pass render; `--check` output unchanged.
+
 ## Unreleased — MIMEcroft_fb leaks fixed (heap `setenv` + capped string arrays)
 
 Two independent leak classes found by running MIMEcroft_fb under LSan and by
