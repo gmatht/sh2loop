@@ -26,6 +26,7 @@ set -u
 HERE=$(dirname "$0")
 GAME_SRC="$HERE/MIMEcroft_fb.sh"
 GAME_BIN="$HERE/target/mimecroft-fb-play"
+DRIVER="$HERE/target/debug/bash-O4"
 VIEWER="$HERE/tools/fbview.py"
 SCALE=2
 BUILD_MODE=auto
@@ -61,15 +62,20 @@ if [ "${DISPLAY:-}" = "" ]; then
   exit 2
 fi
 
-# build the game binary unless skipped (auto = rebuild when the source
-# is newer than the binary, so the window always runs this tree)
-if [ "$BUILD_MODE" = "force" ] || { [ "$BUILD_MODE" = "auto" ] && [ ! -x "$GAME_BIN" -o "$GAME_SRC" -nt "$GAME_BIN" ]; }; then
+# build the game binary unless skipped (auto = rebuild when the game
+# source OR the driver is newer than the binary, so the window always
+# runs this tree — a renderer fix with an untouched game source must
+# not keep shipping the old binary, which is how the pre-fix binary
+# survived the export-table fix). The driver itself is always
+# refreshed first: it embeds the sh2perl renderer, so a renderer-side
+# fix with no driver-source change is still picked up.
+if [ "$BUILD_MODE" = "force" ] || { [ "$BUILD_MODE" = "auto" ] && [ ! -x "$GAME_BIN" -o ! -x "$DRIVER" -o "$GAME_SRC" -nt "$GAME_BIN" -o "$DRIVER" -nt "$GAME_BIN" ]; }; then
   echo "play.sh: building the game…"
   (cd "$HERE" && cargo build --offline --bin bash-O4) || {
     echo "play.sh: driver build failed" 1>&2
     exit 1
   }
-  "$HERE/target/debug/bash-O4" -o "$GAME_BIN" "$GAME_SRC" || {
+  "$DRIVER" -o "$GAME_BIN" "$GAME_SRC" || {
     echo "play.sh: game build failed" 1>&2
     exit 1
   }
