@@ -2208,7 +2208,7 @@ EOF
                       fi
                     fi
                   fi
-                  if [ "$fail" -gt 0 ]; then echo "  fails: $fails" | head -c 200; echo; exit 1; fi
+                  if [ "$fail" -gt 0 ]; then echo "  fails:"; echo "$fails" | tr ' ' '\n' | grep -v '^$'; echo; exit 1; fi
                   # valgrind memory gate (the C worker): the generated C
                   # must run without memory errors — a bounded sample (the
                   # full 531 under valgrind is too slow for the gate loop)
