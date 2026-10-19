@@ -61,7 +61,11 @@ impl std::fmt::Display for CuVerdict {
                 self.step
             ),
             CuVerdictKind::Veto { reason } => {
-                write!(f, "veto {} ({}: {}): {reason}", self.id, self.path, self.var)
+                write!(
+                    f,
+                    "veto {} ({}: {}): {reason}",
+                    self.id, self.path, self.var
+                )
             }
         }
     }
@@ -82,7 +86,11 @@ impl std::fmt::Display for CuReduceVerdict {
                 self.step
             ),
             CuVerdictKind::Veto { reason } => {
-                write!(f, "veto {} ({}: {}): {reason}", self.id, self.path, self.var)
+                write!(
+                    f,
+                    "veto {} ({}: {}): {reason}",
+                    self.id, self.path, self.var
+                )
             }
         }
     }
@@ -90,8 +98,11 @@ impl std::fmt::Display for CuReduceVerdict {
 
 /// Analyze a program; one verdict per `ForInit` loop, in order.
 pub fn analyze(prog: &IrProgram) -> Vec<CuVerdict> {
-    let types: BTreeMap<String, IrType> =
-        prog.var_types.iter().map(|(n, t)| (n.clone(), *t)).collect();
+    let types: BTreeMap<String, IrType> = prog
+        .var_types
+        .iter()
+        .map(|(n, t)| (n.clone(), *t))
+        .collect();
     let mut out = Vec::new();
     let mut scope = Scope::new("main".to_string(), &types);
     walk_stmts(&prog.stmts, "main", &mut scope, &mut out);
@@ -123,7 +134,12 @@ fn walk_stmts(stmts: &[IrStmt], path: &str, scope: &mut Scope, out: &mut Vec<CuV
     for (i, s) in stmts.iter().enumerate() {
         let here = format!("{path}[{i}]");
         match s {
-            IrStmt::ForInit { init, cond, step, body } => {
+            IrStmt::ForInit {
+                init,
+                cond,
+                step,
+                body,
+            } => {
                 out.push(analyze_for_init(scope, &here, init, cond, step, body));
             }
             // A loop inside a FUNCTION body is not offloadable by this
@@ -135,7 +151,12 @@ fn walk_stmts(stmts: &[IrStmt], path: &str, scope: &mut Scope, out: &mut Vec<CuV
             // it (092_for_arith_func.sh: checksum 0 vs bash's 120720).
             // Top-level loops only (the same v1 scope `walk_seq` states).
             IrStmt::Function { .. } => {}
-            IrStmt::If { then, elsifs, else_, .. } => {
+            IrStmt::If {
+                then,
+                elsifs,
+                else_,
+                ..
+            } => {
                 walk_stmts(then, &here, scope, out);
                 for (_, b) in elsifs {
                     walk_stmts(b, &here, scope, out);
@@ -191,9 +212,7 @@ fn analyze_for_init(
                         Some(n)
                     } else {
                         match a.as_ref() {
-                            ArithAst::Assign { var: v, op, rhs }
-                                if v == &t.var && op == "=" =>
-                            {
+                            ArithAst::Assign { var: v, op, rhs } if v == &t.var && op == "=" => {
                                 arith_num(rhs)
                             }
                             _ => None,
@@ -354,7 +373,11 @@ fn finish(
     step_stmts: &[IrStmt],
 ) -> CuVerdict {
     use crate::candidacy;
-    let mut cx = BodyCx { var, types: scope.types, externs: BTreeSet::new() };
+    let mut cx = BodyCx {
+        var,
+        types: scope.types,
+        externs: BTreeSet::new(),
+    };
     let mut stores: Vec<CuStore> = Vec::new();
     let mut seen_arrays: BTreeSet<String> = BTreeSet::new();
     for s in body {
@@ -395,12 +418,10 @@ fn finish(
         let IrExpr::Arith(ast) = expr else {
             let scalar = match expr {
                 IrExpr::Var(name, _) | IrExpr::Ident(name) => read_scalar(&mut cx, var, name),
-                IrExpr::Call { func, args } if func == "getVar" => {
-                    match args.first() {
-                        Some(IrExpr::Str(name, _)) => read_scalar(&mut cx, var, name),
-                        _ => None,
-                    }
-                }
+                IrExpr::Call { func, args } if func == "getVar" => match args.first() {
+                    Some(IrExpr::Str(name, _)) => read_scalar(&mut cx, var, name),
+                    _ => None,
+                },
                 IrExpr::Int(n) => Some(CuArith::Num(*n)),
                 IrExpr::Str(s, _) => s.parse::<i64>().ok().map(CuArith::Num),
                 _ => None,
@@ -408,14 +429,24 @@ fn finish(
             let Some(value) = scalar else {
                 return veto(scope, path, var, "non-arith-value");
             };
-            stores.push(CuStore { array: arr.to_string(), index_a: a, index_b: b, value });
+            stores.push(CuStore {
+                array: arr.to_string(),
+                index_a: a,
+                index_b: b,
+                value,
+            });
             continue;
         };
         let value = match lower_arith(ast, &mut cx, None) {
             Ok(v) => v,
             Err(r) => return veto(scope, path, var, r),
         };
-        stores.push(CuStore { array: arr.to_string(), index_a: a, index_b: b, value });
+        stores.push(CuStore {
+            array: arr.to_string(),
+            index_a: a,
+            index_b: b,
+            value,
+        });
     }
     if stores.is_empty() {
         return veto(scope, path, var, "empty-body");
@@ -583,8 +614,11 @@ enum AccInit {
 /// except the acc literal init) is enforced here, not just in the
 /// analysis.
 pub fn analyze_seq(prog: &IrProgram) -> Vec<CuReduceVerdict> {
-    let types: BTreeMap<String, IrType> =
-        prog.var_types.iter().map(|(n, t)| (n.clone(), *t)).collect();
+    let types: BTreeMap<String, IrType> = prog
+        .var_types
+        .iter()
+        .map(|(n, t)| (n.clone(), *t))
+        .collect();
     let mut out = Vec::new();
     let mut scope = Scope::new("main".to_string(), &types);
     walk_seq(&prog.stmts, "main", &mut scope, &mut out, &types, prog);
@@ -604,8 +638,16 @@ fn walk_seq(
 ) {
     for (i, s) in stmts.iter().enumerate() {
         let here = format!("{path}[{i}]");
-        if let IrStmt::ForInit { init, cond, step, body } = s {
-            out.push(analyze_seq_init(scope, &here, init, cond, step, body, types, prog, i));
+        if let IrStmt::ForInit {
+            init,
+            cond,
+            step,
+            body,
+        } = s
+        {
+            out.push(analyze_seq_init(
+                scope, &here, init, cond, step, body, types, prog, i,
+            ));
         }
     }
 }
@@ -634,9 +676,7 @@ fn seq_counted_header(
                         Some(n)
                     } else {
                         match a.as_ref() {
-                            ArithAst::Assign { var: v, op, rhs }
-                                if v == &t.var && op == "=" =>
-                            {
+                            ArithAst::Assign { var: v, op, rhs } if v == &t.var && op == "=" => {
                                 arith_num(rhs)
                             }
                             _ => None,
@@ -735,7 +775,11 @@ fn analyze_seq_init(
         return rveto(scope, path, &var, "seq-scope");
     }
     // Lower.
-    let mut cx = BodyCx { var: &var, types, externs: BTreeSet::new() };
+    let mut cx = BodyCx {
+        var: &var,
+        types,
+        externs: BTreeSet::new(),
+    };
     let lanes: BTreeSet<String> = chain.private.iter().cloned().collect();
     let mut prelude: Vec<debashl::cuda_backend::CuSeqStmt> = Vec::new();
     for (name, rhs) in &chain.inits {
@@ -746,9 +790,16 @@ fn analyze_seq_init(
                 Err(r) => return rveto(scope, path, &var, r),
             },
         };
-        prelude.push(debashl::cuda_backend::CuSeqStmt::Assign { var: name.clone(), expr: v });
+        prelude.push(debashl::cuda_backend::CuSeqStmt::Assign {
+            var: name.clone(),
+            expr: v,
+        });
     }
-    let IrStmt::While { cond: wcond, body: wbody } = &body[chain.while_idx] else {
+    let IrStmt::While {
+        cond: wcond,
+        body: wbody,
+    } = &body[chain.while_idx]
+    else {
         return rveto(scope, path, &var, "seq-chain-shape");
     };
     let wtest = match lower_seq_test(wcond, &mut cx, &lanes) {
@@ -770,7 +821,10 @@ fn analyze_seq_init(
             and_nonneg_stmt(q, &v);
         }
     }
-    prelude.push(debashl::cuda_backend::CuSeqStmt::While { test: wtest, body: wblock });
+    prelude.push(debashl::cuda_backend::CuSeqStmt::While {
+        test: wtest,
+        body: wblock,
+    });
     // Externs follow the reduce convention (bound EXCLUDED — the
     // vehicle binds it from N/trips; the kernel never reads it).
     // Privates and counter never externs (lane/counter regs).
@@ -823,7 +877,8 @@ fn even_guard_var(t: &debashl::cuda_backend::CuTest) -> Option<String> {
     }
     let lane_mod = |a: &C, b: &C| -> Option<String> {
         match (a, b) {
-            (C::Mod(x, y), C::Num(0)) | (C::Num(0), C::Mod(x, y)) => match (x.as_ref(), y.as_ref()) {
+            (C::Mod(x, y), C::Num(0)) | (C::Num(0), C::Mod(x, y)) => match (x.as_ref(), y.as_ref())
+            {
                 (C::Lane(v), C::Num(2)) => Some(v.clone()),
                 _ => None,
             },
@@ -839,8 +894,7 @@ fn shr_even_expr(e: &mut debashl::cuda_backend::CuArith, var: &str) {
     use debashl::cuda_backend::CuArith as C;
     match e {
         C::Div(a, b)
-            if matches!(a.as_ref(), C::Lane(v) if v == var)
-                && matches!(b.as_ref(), C::Num(2)) =>
+            if matches!(a.as_ref(), C::Lane(v) if v == var) && matches!(b.as_ref(), C::Num(2)) =>
         {
             *e = C::Shr(Box::new(C::Lane(var.to_string())), 1);
         }
@@ -912,10 +966,7 @@ fn and_nonneg_expr(e: &mut debashl::cuda_backend::CuArith, var: &str) {
                     C::Num(d) => *d,
                     _ => 0,
                 };
-                *e = C::And(
-                    Box::new(C::Lane(var.to_string())),
-                    Box::new(C::Num(d - 1)),
-                );
+                *e = C::And(Box::new(C::Lane(var.to_string())), Box::new(C::Num(d - 1)));
             } else {
                 and_nonneg_expr(a, var);
                 and_nonneg_expr(b, var);
@@ -981,9 +1032,18 @@ fn lower_seq_stmt(
                 return None;
             };
             let v = lower_arith(a, cx, Some(lanes)).ok()?;
-            Some(Q::Assign { var: t.var.clone(), expr: v })
+            Some(Q::Assign {
+                var: t.var.clone(),
+                expr: v,
+            })
         }
-        IrStmt::If { cond, then, elsifs, else_, .. } => {
+        IrStmt::If {
+            cond,
+            then,
+            elsifs,
+            else_,
+            ..
+        } => {
             let test = lower_seq_test(cond, cx, lanes)?;
             // Even-guard peephole: `(v%2)==0` proves v even on the then
             // path, so `v/2` renders as `shr` (exact for all even s64 —
@@ -1011,9 +1071,17 @@ fn lower_seq_stmt(
                 for x in b.iter() {
                     tq2.push(lower_seq_stmt_flat(x, cx, lanes)?);
                 }
-                else_q = vec![Q::If { test: t, then: tq2, else_: else_q }];
+                else_q = vec![Q::If {
+                    test: t,
+                    then: tq2,
+                    else_: else_q,
+                }];
             }
-            Some(Q::If { test, then: tq, else_: else_q })
+            Some(Q::If {
+                test,
+                then: tq,
+                else_: else_q,
+            })
         }
         _ => None,
     }
@@ -1036,7 +1104,10 @@ fn lower_seq_stmt_flat(
         return None;
     };
     let v = lower_arith(a, cx, Some(lanes)).ok()?;
-    Some(Q::Assign { var: t.var.clone(), expr: v })
+    Some(Q::Assign {
+        var: t.var.clone(),
+        expr: v,
+    })
 }
 
 /// Lower a chain test: let-text comparison or Arith comparison, sides
@@ -1082,7 +1153,11 @@ fn lower_seq_test(
             ArithAst::Bin { op, lhs, rhs }
                 if matches!(op.as_str(), "<" | ">" | "<=" | ">=" | "==" | "!=") =>
             {
-                (op.clone(), Side::Arith((**lhs).clone()), Side::Arith((**rhs).clone()))
+                (
+                    op.clone(),
+                    Side::Arith((**lhs).clone()),
+                    Side::Arith((**rhs).clone()),
+                )
             }
             _ => return None,
         },
@@ -1202,8 +1277,11 @@ fn seq_scope_ok(
 /// the analysis guarantees the shape; anything else is an internal
 /// refusal, never silent).
 pub fn analyze_reduce(prog: &IrProgram) -> Vec<CuReduceVerdict> {
-    let types: BTreeMap<String, IrType> =
-        prog.var_types.iter().map(|(n, t)| (n.clone(), *t)).collect();
+    let types: BTreeMap<String, IrType> = prog
+        .var_types
+        .iter()
+        .map(|(n, t)| (n.clone(), *t))
+        .collect();
     let mut out = Vec::new();
     let mut scope = Scope::new("main".to_string(), &types);
     walk_reduce(&prog.stmts, "main", &mut scope, &mut out, &types, prog);
@@ -1221,7 +1299,12 @@ fn walk_reduce(
     for (i, s) in stmts.iter().enumerate() {
         let here = format!("{path}[{i}]");
         match s {
-            IrStmt::ForInit { init, cond, step, body } => {
+            IrStmt::ForInit {
+                init,
+                cond,
+                step,
+                body,
+            } => {
                 out.push(analyze_reduce_init(
                     scope, &here, init, cond, step, body, types, prog,
                 ));
@@ -1235,7 +1318,12 @@ fn walk_reduce(
             // it (092_for_arith_func.sh: checksum 0 vs bash's 120720).
             // Top-level loops only (the same v1 scope `walk_seq` states).
             IrStmt::Function { .. } => {}
-            IrStmt::If { then, elsifs, else_, .. } => {
+            IrStmt::If {
+                then,
+                elsifs,
+                else_,
+                ..
+            } => {
                 walk_reduce(then, &here, scope, out, types, prog);
                 for (_, b) in elsifs {
                     walk_reduce(b, &here, scope, out, types, prog);
@@ -1273,11 +1361,7 @@ fn rveto(scope: &mut Scope, path: &str, var: &str, reason: &'static str) -> CuRe
 /// else naming acc disqualify. Zero hits means bash-unset (reads 0).
 /// `skip_body` is this loop's own body slice (its accum assign is
 /// structural, never an init — skipped by pointer range).
-fn acc_init_rule(
-    prog: &IrProgram,
-    acc: &str,
-    skip_body: &[IrStmt],
-) -> Option<AccInit> {
+fn acc_init_rule(prog: &IrProgram, acc: &str, skip_body: &[IrStmt]) -> Option<AccInit> {
     let skip = skip_body.as_ptr_range();
     let in_skip = |s: &IrStmt| {
         let p = s as *const IrStmt;
@@ -1336,7 +1420,9 @@ fn acc_init_rule(
                     }
                 }
                 IrStmt::Block(b) => scan(b, acc, in_skip, conditional, found),
-                IrStmt::ForInit { init, step, body, .. } => {
+                IrStmt::ForInit {
+                    init, step, body, ..
+                } => {
                     // init runs once (literal inits count); step/body
                     // repeat (any acc write there disqualifies — except
                     // this loop's own body, skipped by range above).
@@ -1345,7 +1431,12 @@ fn acc_init_rule(
                         found.bad = true;
                     }
                 }
-                IrStmt::If { then, elsifs, else_, .. } => {
+                IrStmt::If {
+                    then,
+                    elsifs,
+                    else_,
+                    ..
+                } => {
                     scan(then, acc, in_skip, true, found);
                     for (_, b) in elsifs {
                         scan(b, acc, in_skip, true, found);
@@ -1367,12 +1458,17 @@ fn acc_init_rule(
                 return false;
             }
             match s {
-                IrStmt::Assign { targets, .. } => targets.iter().any(|t| {
-                    t.var.split('[').next().unwrap_or(&t.var) == acc
-                }),
+                IrStmt::Assign { targets, .. } => targets
+                    .iter()
+                    .any(|t| t.var.split('[').next().unwrap_or(&t.var) == acc),
                 IrStmt::Declare { vars, .. } => vars.iter().any(|d| d.name == acc),
                 IrStmt::DeclareArray { var, .. } => var == acc,
-                IrStmt::If { then, elsifs, else_, .. } => {
+                IrStmt::If {
+                    then,
+                    elsifs,
+                    else_,
+                    ..
+                } => {
                     writes_acc(then, acc, in_skip)
                         || elsifs.iter().any(|(_, b)| writes_acc(b, acc, in_skip))
                         || writes_acc(else_, acc, in_skip)
@@ -1381,7 +1477,9 @@ fn acc_init_rule(
                     writes_acc(body, acc, in_skip)
                 }
                 IrStmt::For { body, .. } => writes_acc(body, acc, in_skip),
-                IrStmt::ForInit { init, step, body, .. } => {
+                IrStmt::ForInit {
+                    init, step, body, ..
+                } => {
                     writes_acc(init, acc, in_skip)
                         || writes_acc(step, acc, in_skip)
                         || writes_acc(body, acc, in_skip)
@@ -1391,7 +1489,11 @@ fn acc_init_rule(
             }
         })
     }
-    let mut found = Found { count: 0, lit: None, bad: false };
+    let mut found = Found {
+        count: 0,
+        lit: None,
+        bad: false,
+    };
     scan(&prog.stmts, acc, &in_skip, false, &mut found);
     for sub in &prog.subs {
         // Function bodies may run inside loops (dynamic scope) — any
@@ -1438,9 +1540,7 @@ fn analyze_reduce_init(
                         Some(n)
                     } else {
                         match a.as_ref() {
-                            ArithAst::Assign { var: v, op, rhs }
-                                if v == &t.var && op == "=" =>
-                            {
+                            ArithAst::Assign { var: v, op, rhs } if v == &t.var && op == "=" => {
                                 arith_num(rhs)
                             }
                             _ => None,
@@ -1510,7 +1610,12 @@ fn analyze_reduce_init(
     if targets.len() != 1 {
         return rveto(scope, path, &var, "multi-target");
     }
-    let acc = targets[0].var.split('[').next().unwrap_or(&targets[0].var).to_string();
+    let acc = targets[0]
+        .var
+        .split('[')
+        .next()
+        .unwrap_or(&targets[0].var)
+        .to_string();
     if acc.is_empty() || acc == var {
         return rveto(scope, path, &var, "bad-accum-target");
     }
@@ -1527,7 +1632,11 @@ fn analyze_reduce_init(
         None => return rveto(scope, path, &var, "non-literal-init"),
     };
     // Op classification over (acc-side, other-side).
-    let mut cx = BodyCx { var: &var, types, externs: BTreeSet::new() };
+    let mut cx = BodyCx {
+        var: &var,
+        types,
+        externs: BTreeSet::new(),
+    };
     // Returns (op, X-subtree) with X lowered after.
     // Owned X subtrees (flat arms clone the borrow; nested-spine
     // arms rebuild via peel_accum) — downstream borrows the owned X.
@@ -1556,14 +1665,10 @@ fn analyze_reduce_init(
                 ArithAst::Cond { test, then, else_ } => {
                     count_acc(test, acc) + count_acc(then, acc) + count_acc(else_, acc)
                 }
-                ArithAst::Assign { var, rhs, .. } => {
-                    usize::from(var == acc) + count_acc(rhs, acc)
-                }
+                ArithAst::Assign { var, rhs, .. } => usize::from(var == acc) + count_acc(rhs, acc),
                 ArithAst::IncDec { var, .. } => usize::from(var == acc),
                 ArithAst::Cast { arg, .. } => count_acc(arg, acc),
-                ArithAst::Index { var, key } => {
-                    usize::from(var == acc) + count_acc(key, acc)
-                }
+                ArithAst::Index { var, key } => usize::from(var == acc) + count_acc(key, acc),
                 _ => 0,
             }
         }
@@ -1612,14 +1717,24 @@ fn analyze_reduce_init(
             return None;
         }
         let m3 = arith_num(rhs)?;
-        let ArithAst::Bin { op: op2, lhs: l2, rhs: r2 } = strip_cast(lhs) else {
+        let ArithAst::Bin {
+            op: op2,
+            lhs: l2,
+            rhs: r2,
+        } = strip_cast(lhs)
+        else {
             return None;
         };
         if op2 != "+" {
             return None;
         }
         let m2 = arith_num(r2)?;
-        let ArithAst::Bin { op: op3, lhs: inner, rhs: r3 } = strip_cast(l2) else {
+        let ArithAst::Bin {
+            op: op3,
+            lhs: inner,
+            rhs: r3,
+        } = strip_cast(l2)
+        else {
             return None;
         };
         if op3 != "%" {
@@ -1642,68 +1757,76 @@ fn analyze_reduce_init(
         }
     } else {
         match strip_cast(ast.as_ref()) {
-        ArithAst::Bin { op, lhs, rhs } if op == "+" || op == "*" => {
-            // Flat (`acc+X`) or nested-spine (`(acc+X1)+X2`, …) accumulate.
-            let x = if is_acc(lhs, &acc) {
-                Some((**rhs).clone())
-            } else if is_acc(rhs, &acc) {
-                Some((**lhs).clone())
-            } else {
-                peel_accum(strip_cast(ast.as_ref()), &acc, op)
-            };
-            x.map(|x| {
-                if op == "+" {
-                    Shape::Add(x)
+            ArithAst::Bin { op, lhs, rhs } if op == "+" || op == "*" => {
+                // Flat (`acc+X`) or nested-spine (`(acc+X1)+X2`, …) accumulate.
+                let x = if is_acc(lhs, &acc) {
+                    Some((**rhs).clone())
+                } else if is_acc(rhs, &acc) {
+                    Some((**lhs).clone())
                 } else {
-                    Shape::Mul(x)
-                }
-            })
-        }
-        ArithAst::Bin { op, lhs, rhs } if op == "%" => {
-            // `(acc+X) % m` / `(X+acc) % m`, m literal in 1..=2^32
-            // (2^32 needs u64 compare — u32::MAX excludes it).
-            let Some(m) = arith_num(rhs).filter(|m| *m >= 1 && (*m as u64) <= (1u64 << 32))
-            else {
-                return rveto(scope, path, &var, "non-accum-op");
-            };
-            let inner = strip_cast(lhs);
-            match inner {
-                ArithAst::Bin { op: op2, lhs: l2, rhs: r2 } if op2 == "+" => {
-                    if is_acc(l2, &acc) {
-                        Some(Shape::Mod((**r2).clone(), m))
-                    } else if is_acc(r2, &acc) {
-                        Some(Shape::Mod((**l2).clone(), m))
+                    peel_accum(strip_cast(ast.as_ref()), &acc, op)
+                };
+                x.map(|x| {
+                    if op == "+" {
+                        Shape::Add(x)
                     } else {
-                        // Nested spine (`(acc+X1)+X2`, …) — peel to flat.
-                        peel_accum(inner, &acc, "+").map(|x| Shape::Mod(x, m))
+                        Shape::Mul(x)
                     }
-                }
-                _ => peel_accum(inner, &acc, "+").map(|x| Shape::Mod(x, m)),
+                })
             }
-        }
-        ArithAst::Bin { op, lhs, rhs } if op == "&" => {
-            // `(acc+X) & mask` / `(X+acc) & mask`, mask+1 pow2 <= 2^32.
-            let Some(mask) = arith_num(rhs).filter(|m| {
-                *m >= 0 && ((*m as u64) + 1).is_power_of_two() && (*m as u64) < (1u64 << 32)
-            }) else {
-                return rveto(scope, path, &var, "non-accum-op");
-            };
-            let inner = strip_cast(lhs);
-            match inner {
-                ArithAst::Bin { op: op2, lhs: l2, rhs: r2 } if op2 == "+" => {
-                    if is_acc(l2, &acc) {
-                        Some(Shape::Mask((**r2).clone(), mask))
-                    } else if is_acc(r2, &acc) {
-                        Some(Shape::Mask((**l2).clone(), mask))
-                    } else {
-                        peel_accum(inner, &acc, "+").map(|x| Shape::Mask(x, mask))
+            ArithAst::Bin { op, lhs, rhs } if op == "%" => {
+                // `(acc+X) % m` / `(X+acc) % m`, m literal in 1..=2^32
+                // (2^32 needs u64 compare — u32::MAX excludes it).
+                let Some(m) = arith_num(rhs).filter(|m| *m >= 1 && (*m as u64) <= (1u64 << 32))
+                else {
+                    return rveto(scope, path, &var, "non-accum-op");
+                };
+                let inner = strip_cast(lhs);
+                match inner {
+                    ArithAst::Bin {
+                        op: op2,
+                        lhs: l2,
+                        rhs: r2,
+                    } if op2 == "+" => {
+                        if is_acc(l2, &acc) {
+                            Some(Shape::Mod((**r2).clone(), m))
+                        } else if is_acc(r2, &acc) {
+                            Some(Shape::Mod((**l2).clone(), m))
+                        } else {
+                            // Nested spine (`(acc+X1)+X2`, …) — peel to flat.
+                            peel_accum(inner, &acc, "+").map(|x| Shape::Mod(x, m))
+                        }
                     }
+                    _ => peel_accum(inner, &acc, "+").map(|x| Shape::Mod(x, m)),
                 }
-                _ => peel_accum(inner, &acc, "+").map(|x| Shape::Mask(x, mask)),
             }
+            ArithAst::Bin { op, lhs, rhs } if op == "&" => {
+                // `(acc+X) & mask` / `(X+acc) & mask`, mask+1 pow2 <= 2^32.
+                let Some(mask) = arith_num(rhs).filter(|m| {
+                    *m >= 0 && ((*m as u64) + 1).is_power_of_two() && (*m as u64) < (1u64 << 32)
+                }) else {
+                    return rveto(scope, path, &var, "non-accum-op");
+                };
+                let inner = strip_cast(lhs);
+                match inner {
+                    ArithAst::Bin {
+                        op: op2,
+                        lhs: l2,
+                        rhs: r2,
+                    } if op2 == "+" => {
+                        if is_acc(l2, &acc) {
+                            Some(Shape::Mask((**r2).clone(), mask))
+                        } else if is_acc(r2, &acc) {
+                            Some(Shape::Mask((**l2).clone(), mask))
+                        } else {
+                            peel_accum(inner, &acc, "+").map(|x| Shape::Mask(x, mask))
+                        }
+                    }
+                    _ => peel_accum(inner, &acc, "+").map(|x| Shape::Mask(x, mask)),
+                }
+            }
+            _ => None,
         }
-        _ => None,
-    }
     };
     // (X must mention acc for Min/Max? No — Min/Max aren't matched here
     // at all in v1 (call-shaped, not arith). Add/Mul/Mod/Mask above.)
@@ -1731,7 +1854,10 @@ fn analyze_reduce_init(
             ArithAst::Index { var: arr, key } => {
                 // Array element read (lengths trusted — dense coverage).
                 let k = lower_value(key, cx, var)?;
-                Ok(CuArith::ArrRead { array: arr.clone(), index: Box::new(k) })
+                Ok(CuArith::ArrRead {
+                    array: arr.clone(),
+                    index: Box::new(k),
+                })
             }
             ArithAst::Cast { arg, .. } => lower_value(arg, cx, var),
             _ => Err("non-arith-expr"),
@@ -1835,9 +1961,17 @@ mod reduce_tests {
         let vs = analyze_reduce(&prog);
         assert_eq!(vs.len(), 1, "one verdict: {vs:?}");
         let v = &vs[0];
-        assert!(matches!(v.verdict, CuVerdictKind::Candidate), "expected candidate: {v}");
+        assert!(
+            matches!(v.verdict, CuVerdictKind::Candidate),
+            "expected candidate: {v}"
+        );
         let spec = v.spec.as_ref().expect("spec");
-        assert!(matches!(spec.op, debashl::cuda_backend::CuReduceOp::ModAdd { modulus: 4294967296 }));
+        assert!(matches!(
+            spec.op,
+            debashl::cuda_backend::CuReduceOp::ModAdd {
+                modulus: 4294967296
+            }
+        ));
         assert_eq!(spec.acc_init, 0);
     }
 
@@ -1846,26 +1980,41 @@ mod reduce_tests {
         let prog = prog_of("#!/bin/bash\nn=$1\ns=0\nfor ((i=0;i<n;i++)); do s=$((s+i)); done\n");
         let vs = analyze_reduce(&prog);
         assert_eq!(vs.len(), 1);
-        assert!(matches!(vs[0].verdict, CuVerdictKind::Candidate), "{}", vs[0]);
+        assert!(
+            matches!(vs[0].verdict, CuVerdictKind::Candidate),
+            "{}",
+            vs[0]
+        );
     }
 
     #[test]
     fn mask_accumulate_is_candidate() {
         // squares-map loop2 shape: `s=$(((s + a[i]) & 0xFFFFFFFF))`.
         // (Array reads need the array; here with a plain var for shape.)
-        let prog = prog_of("#!/bin/bash\nn=$1\ns=0\nfor ((i=0;i<n;i++)); do s=$(((s + i) & 255)); done\n");
+        let prog =
+            prog_of("#!/bin/bash\nn=$1\ns=0\nfor ((i=0;i<n;i++)); do s=$(((s + i) & 255)); done\n");
         let vs = analyze_reduce(&prog);
         assert_eq!(vs.len(), 1);
-        assert!(matches!(vs[0].verdict, CuVerdictKind::Candidate), "{}", vs[0]);
+        assert!(
+            matches!(vs[0].verdict, CuVerdictKind::Candidate),
+            "{}",
+            vs[0]
+        );
     }
 
     #[test]
     fn multi_assign_vetoes() {
         // Two accumulates in one body: not a single reduction.
-        let prog = prog_of("#!/bin/bash\nn=$1\ns=0\nt=0\nfor ((i=0;i<n;i++)); do s=$((s+i)); t=$((t+1)); done\n");
+        let prog = prog_of(
+            "#!/bin/bash\nn=$1\ns=0\nt=0\nfor ((i=0;i<n;i++)); do s=$((s+i)); t=$((t+1)); done\n",
+        );
         let vs = analyze_reduce(&prog);
         assert_eq!(vs.len(), 1);
-        assert!(!matches!(vs[0].verdict, CuVerdictKind::Candidate), "{}", vs[0]);
+        assert!(
+            !matches!(vs[0].verdict, CuVerdictKind::Candidate),
+            "{}",
+            vs[0]
+        );
     }
 
     #[test]
@@ -1874,7 +2023,11 @@ mod reduce_tests {
         let prog = prog_of("#!/bin/bash\nn=$1\ns=0\nfor ((i=0;i<n;i++)); do s=$(((s + (i*i)%4294967296) % 4294967296)); done\n");
         let vs = analyze_reduce(&prog);
         assert_eq!(vs.len(), 1);
-        assert!(matches!(vs[0].verdict, CuVerdictKind::Candidate), "{}", vs[0]);
+        assert!(
+            matches!(vs[0].verdict, CuVerdictKind::Candidate),
+            "{}",
+            vs[0]
+        );
         let spec = vs[0].spec.as_ref().expect("spec");
         assert_eq!(spec.mask_thresh, Some(3037000500), "threshold");
         assert!(!spec.mask_fast, "flag unset by candidacy");
@@ -1885,10 +2038,16 @@ mod reduce_tests {
         // `(s+(i*i)%251)%251`: outer non-pow2 never masks, but the spec
         // still classifies (inner is literal-bound... here dynamic, so
         // inner unversionable too → no flag, but candidate stands).
-        let prog = prog_of("#!/bin/bash\nn=$1\ns=0\nfor ((i=0;i<n;i++)); do s=$(((s + (i*i)%251) % 251)); done\n");
+        let prog = prog_of(
+            "#!/bin/bash\nn=$1\ns=0\nfor ((i=0;i<n;i++)); do s=$(((s + (i*i)%251) % 251)); done\n",
+        );
         let vs = analyze_reduce(&prog);
         assert_eq!(vs.len(), 1);
-        assert!(matches!(vs[0].verdict, CuVerdictKind::Candidate), "{}", vs[0]);
+        assert!(
+            matches!(vs[0].verdict, CuVerdictKind::Candidate),
+            "{}",
+            vs[0]
+        );
         let spec = vs[0].spec.as_ref().expect("spec");
         assert_eq!(spec.mask_thresh, None, "no maskable pow2 site");
     }
@@ -1899,7 +2058,11 @@ mod reduce_tests {
         let prog = prog_of("#!/bin/bash\nn=$1\ns=$2\nfor ((i=0;i<n;i++)); do s=$((s+i)); done\n");
         let vs = analyze_reduce(&prog);
         assert_eq!(vs.len(), 1);
-        assert!(!matches!(vs[0].verdict, CuVerdictKind::Candidate), "{}", vs[0]);
+        assert!(
+            !matches!(vs[0].verdict, CuVerdictKind::Candidate),
+            "{}",
+            vs[0]
+        );
     }
 }
 
@@ -1950,14 +2113,12 @@ fn cu_written(stmts: &[IrStmt]) -> Option<BTreeSet<String>> {
         match e {
             IrExpr::Arith(a) => warith(a, out),
             IrExpr::Array(items) => items.iter().all(|x| wexpr(x, out)),
-            IrExpr::Call { func, args } => {
-                match func.as_str() {
-                    "test" | "arith" | "getVar" | "param" | "echo" | "true" | "false" | ":" => {
-                        args.iter().all(|a| wexpr(a, out))
-                    }
-                    _ => false,
+            IrExpr::Call { func, args } => match func.as_str() {
+                "test" | "arith" | "getVar" | "param" | "echo" | "true" | "false" | ":" => {
+                    args.iter().all(|a| wexpr(a, out))
                 }
-            }
+                _ => false,
+            },
             IrExpr::BinOp { lhs, rhs, .. } => wexpr(lhs, out) && wexpr(rhs, out),
             IrExpr::Ternary { cond, then, else_ } => {
                 wexpr(cond, out) && wexpr(then, out) && wexpr(else_, out)
@@ -1967,9 +2128,7 @@ fn cu_written(stmts: &[IrStmt]) -> Option<BTreeSet<String>> {
                 debashl::ir::InterpPart::Expr(x) => wexpr(x, out),
                 _ => true,
             }),
-            IrExpr::Capture { .. }
-            | IrExpr::MethodCall { .. }
-            | IrExpr::RawExpr(_) => false,
+            IrExpr::Capture { .. } | IrExpr::MethodCall { .. } | IrExpr::RawExpr(_) => false,
             IrExpr::Index { key, .. } => wexpr(key, out),
             IrExpr::Splice(x) => wexpr(x, out),
             IrExpr::Lambda { .. }
@@ -2037,10 +2196,18 @@ fn cu_written(stmts: &[IrStmt]) -> Option<BTreeSet<String>> {
             // expression was never scanned for writes (unreachable-pattern
             // warning was the tell).
             IrStmt::WriteFile { path, content, .. } => wexpr(path, out) && wexpr(content, out),
-            IrStmt::If { cond, then, elsifs, else_, .. } => {
+            IrStmt::If {
+                cond,
+                then,
+                elsifs,
+                else_,
+                ..
+            } => {
                 wexpr(cond, out)
                     && then.iter().all(|x| wstmt(x, out))
-                    && elsifs.iter().all(|(c, b)| wexpr(c, out) && b.iter().all(|x| wstmt(x, out)))
+                    && elsifs
+                        .iter()
+                        .all(|(c, b)| wexpr(c, out) && b.iter().all(|x| wstmt(x, out)))
                     && else_.iter().all(|x| wstmt(x, out))
             }
             IrStmt::While { cond, body } | IrStmt::DoWhile { body, cond, .. } => {
@@ -2050,7 +2217,12 @@ fn cu_written(stmts: &[IrStmt]) -> Option<BTreeSet<String>> {
                 out.insert(var.clone());
                 wexpr(iter, out) && body.iter().all(|x| wstmt(x, out))
             }
-            IrStmt::ForInit { init, cond, step, body } => {
+            IrStmt::ForInit {
+                init,
+                cond,
+                step,
+                body,
+            } => {
                 init.iter().all(|x| wstmt(x, out))
                     && wexpr(cond, out)
                     && step.iter().all(|x| wstmt(x, out))
@@ -2061,11 +2233,20 @@ fn cu_written(stmts: &[IrStmt]) -> Option<BTreeSet<String>> {
                 redirects.iter().all(|r| wexpr(&r.target, out))
                     && inner.iter().all(|x| wstmt(x, out))
             }
-            IrStmt::Case { discriminant, clauses, .. } => {
+            IrStmt::Case {
+                discriminant,
+                clauses,
+                ..
+            } => {
                 wexpr(discriminant, out)
                     && clauses.iter().all(|c| c.body.iter().all(|x| wstmt(x, out)))
             }
-            IrStmt::Try { body, excepts, else_body, finally_body } => {
+            IrStmt::Try {
+                body,
+                excepts,
+                else_body,
+                finally_body,
+            } => {
                 body.iter().all(|x| wstmt(x, out))
                     && excepts.iter().all(|e| {
                         e.match_expr.as_ref().is_none_or(|m| wexpr(m, out))
@@ -2139,12 +2320,7 @@ fn cu_mask_plan_map(
 /// X acc-free with threshold T(X) plus acc entry literal in [0,m).
 /// Other pow2 sites inside X join via the uniform walk. Non-pow2 outer
 /// moduli stay rem (never kill the flag — only pow2 sites participate).
-fn ast_pow2_sites(
-    ast: &ArithAst,
-    counter: &str,
-    lt: bool,
-    out: &mut Vec<i128>,
-) -> bool {
+fn ast_pow2_sites(ast: &ArithAst, counter: &str, lt: bool, out: &mut Vec<i128>) -> bool {
     use debashl::shir_passes::maskable as M;
     match ast {
         ArithAst::Bin { op, lhs, rhs } if op == "%" || op == "/" => {
@@ -2239,10 +2415,7 @@ fn cu_mask_plan_reduce_side(
             let outer_ok = *modulus >= 1
                 && (0 <= acc_init && (acc_init as u64) < (*modulus as u64))
                 && !ast_mentions(x_ast, acc);
-            if let (true, Some(t)) = (
-                outer_ok,
-                M::mask_threshold(x_ast, *modulus, var, lt, true),
-            ) {
+            if let (true, Some(t)) = (outer_ok, M::mask_threshold(x_ast, *modulus, var, lt, true)) {
                 thresh.push(t);
                 will_mask_outer = true;
             }
@@ -2321,11 +2494,18 @@ mod seq_tests {
         let vs = analyze_seq(&prog);
         assert_eq!(vs.len(), 1, "one loop verdict: {vs:?}");
         let v = &vs[0];
-        assert!(matches!(v.verdict, CuVerdictKind::Candidate), "expected candidate: {v}");
+        assert!(
+            matches!(v.verdict, CuVerdictKind::Candidate),
+            "expected candidate: {v}"
+        );
         assert!(v.id.starts_with("cu_seq_"), "seq id: {}", v.id);
         let spec = v.spec.as_ref().expect("spec");
         assert!(spec.arrays.is_empty());
-        assert!(spec.externs.is_empty(), "bound excluded: {:?}", spec.externs);
+        assert!(
+            spec.externs.is_empty(),
+            "bound excluded: {:?}",
+            spec.externs
+        );
         assert!(!spec.seq_prelude.is_empty(), "prelude present");
         assert!(matches!(
             spec.value,
@@ -2339,7 +2519,11 @@ mod seq_tests {
         let prog = prog_of("#!/bin/bash\nn=$1\nfor ((i=0;i<n;i++)); do a[$i]=$((i*i)); done\n");
         let vs = analyze_seq(&prog);
         assert_eq!(vs.len(), 1);
-        assert!(matches!(vs[0].verdict, CuVerdictKind::Veto { .. }), "map must veto: {}", vs[0]);
+        assert!(
+            matches!(vs[0].verdict, CuVerdictKind::Veto { .. }),
+            "map must veto: {}",
+            vs[0]
+        );
     }
 
     #[test]
@@ -2374,7 +2558,11 @@ mod seq_tests {
         let prog = prog_of("#!/bin/bash\nn=$1\ns=0\nfor ((i=0;i<n;i++)); do s=$((s+i)); done\n");
         let vs = analyze_seq(&prog);
         assert_eq!(vs.len(), 1);
-        assert!(matches!(vs[0].verdict, CuVerdictKind::Veto { .. }), "plain sum must veto: {}", vs[0]);
+        assert!(
+            matches!(vs[0].verdict, CuVerdictKind::Veto { .. }),
+            "plain sum must veto: {}",
+            vs[0]
+        );
     }
 
     const HASH: &str = "#!/bin/bash\nn=$1\ns=0\nfor ((i=0;i<n;i++)); do a=$(( (i*53) % 256 )); b=$(( (i*89) % 256 )); s=$(( (s + a*31 + b*17) % 256 )); done\n";
@@ -2388,7 +2576,10 @@ mod seq_tests {
         let vs = analyze_reduce(&prog);
         assert_eq!(vs.len(), 1, "one loop verdict: {vs:?}");
         let v = &vs[0];
-        assert!(matches!(v.verdict, CuVerdictKind::Candidate), "expected candidate: {v}");
+        assert!(
+            matches!(v.verdict, CuVerdictKind::Candidate),
+            "expected candidate: {v}"
+        );
         let spec = v.spec.as_ref().expect("spec");
         assert!(spec.mask_thresh.is_some(), "inners covered");
         assert!(!spec.mask_outer, "outer demoted");
@@ -2436,7 +2627,11 @@ mod tests {
         let prog = prog_of("#!/bin/bash\nfor ((i=0;i<100;i++)); do a[$i]=$i; done\n");
         let vs = analyze(&prog);
         assert_eq!(vs.len(), 1);
-        assert!(!vs[0].is_candidate(), "literal bound must refuse: {}", vs[0]);
+        assert!(
+            !vs[0].is_candidate(),
+            "literal bound must refuse: {}",
+            vs[0]
+        );
     }
 
     #[test]

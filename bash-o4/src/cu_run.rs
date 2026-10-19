@@ -70,16 +70,22 @@ pub fn run(
     if !cudaffi::has_cuda_device() {
         return Err(Skip::NoDevice);
     }
-    let map_spec = cu_candidacy::analyze(prog_flat)
-        .into_iter()
-        .find_map(|v| if v.is_candidate() { v.spec.clone() } else { None });
-    let red_spec = cu_candidacy::analyze_reduce(prog_flat).into_iter().find_map(|v| {
-        if matches!(v.verdict, cu_candidacy::CuVerdictKind::Candidate) {
+    let map_spec = cu_candidacy::analyze(prog_flat).into_iter().find_map(|v| {
+        if v.is_candidate() {
             v.spec.clone()
         } else {
             None
         }
     });
+    let red_spec = cu_candidacy::analyze_reduce(prog_flat)
+        .into_iter()
+        .find_map(|v| {
+            if matches!(v.verdict, cu_candidacy::CuVerdictKind::Candidate) {
+                v.spec.clone()
+            } else {
+                None
+            }
+        });
     // Sequential-lane reductions (collatz chains): array-free specs with
     // a seq_prelude — the Reduce vehicle dispatches them unchanged.
     let seq_spec = cu_candidacy::analyze_seq(prog).into_iter().find_map(|v| {
@@ -92,7 +98,9 @@ pub fn run(
     let red_spec = seq_spec.or(red_spec);
     let mode: Mode = match (map_spec, red_spec) {
         (Some(m), Some(r))
-            if r.arrays.iter().any(|a| m.stores.iter().any(|s| &s.array == a))
+            if r.arrays
+                .iter()
+                .any(|a| m.stores.iter().any(|s| &s.array == a))
                 && same_space(&m, &r) =>
         {
             Mode::Fused(m, r)
@@ -100,7 +108,9 @@ pub fn run(
         (_, Some(r)) if r.arrays.is_empty() => Mode::Reduce(r),
         (Some(m), _) => Mode::Map(m),
         (_, Some(_)) => {
-            return Err(Skip::NoCandidate("reduce reads arrays with no fusable map".into()));
+            return Err(Skip::NoCandidate(
+                "reduce reads arrays with no fusable map".into(),
+            ));
         }
         (None, None) => return Err(Skip::NoCandidate("no candidate loop".into())),
     };
@@ -335,7 +345,10 @@ fn run_fused(
             st.index_b as i128 + 1
         };
         let len = need.clamp(1, i128::from(usize::MAX as u64)) as usize;
-        handles.push((st.array.clone(), runner.alloc_array(len).map_err(Skip::Runtime)?));
+        handles.push((
+            st.array.clone(),
+            runner.alloc_array(len).map_err(Skip::Runtime)?,
+        ));
     }
     let mut scalars = evals;
     scalars.push(trips as i64);

@@ -17,7 +17,10 @@ pub fn emit_shader(prog: &IrProgram, id: &str) -> Result<String, String> {
             if !v.is_candidate() {
                 return Err(format!("{id} is not a candidate: {v}"));
             }
-            let spec = v.spec.as_ref().ok_or_else(|| format!("{id}: no lowered spec"))?;
+            let spec = v
+                .spec
+                .as_ref()
+                .ok_or_else(|| format!("{id}: no lowered spec"))?;
             return Ok(debashl::vulkan_backend::shir_to_vk_compute(spec));
         }
     }

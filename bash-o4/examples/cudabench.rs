@@ -166,7 +166,8 @@ fn main() {
         PartialsSumMod,
         PartialsSumRaw,
     }
-    let (ptx, groups, out_lens, finish): (String, u32, Vec<usize>, Finish) = match problem.as_str() {
+    let (ptx, groups, out_lens, finish): (String, u32, Vec<usize>, Finish) = match problem.as_str()
+    {
         "squares-map" | "sumred" => {
             // Identical math (masked squares accumulate) — GPU fuses both.
             let ptx = block_ptx(&sumred_op(), n);

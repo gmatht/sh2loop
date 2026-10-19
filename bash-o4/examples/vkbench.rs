@@ -49,7 +49,9 @@ fn main() {
     let sizes: Vec<u64> = if args.is_empty() {
         vec![1024, 16384, 65536, 262144, 1048576]
     } else {
-        args.iter().map(|a| a.parse().expect("trips must be integers")).collect()
+        args.iter()
+            .map(|a| a.parse().expect("trips must be integers"))
+            .collect()
     };
 
     if !vkffi::has_compute_device() {
@@ -92,12 +94,19 @@ fn main() {
             let spv = shader::compile_spv(&cc, &glsl, &root).expect("spv");
             let lanes = if u == 4 { n / 4 } else { n };
             let groups = lanes.div_ceil(ls) as u32;
-            let out = runner.run(&spv, None, &[n as usize], groups).expect("warmup");
-            assert_eq!(out[0][(n as usize) - 1], ((n - 1) as i64) * ((n - 1) as i64));
+            let out = runner
+                .run(&spv, None, &[n as usize], groups)
+                .expect("warmup");
+            assert_eq!(
+                out[0][(n as usize) - 1],
+                ((n - 1) as i64) * ((n - 1) as i64)
+            );
             let idx = if u == 1 { 0 } else { 1 };
             for _ in 0..7 {
                 let t = std::time::Instant::now();
-                let _ = runner.run(&spv, None, &[n as usize], groups).expect("dispatch");
+                let _ = runner
+                    .run(&spv, None, &[n as usize], groups)
+                    .expect("dispatch");
                 let ms = t.elapsed().as_secs_f64() * 1000.0;
                 if ms < best[idx].0 {
                     best[idx].0 = ms;

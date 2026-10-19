@@ -59,8 +59,11 @@ impl std::fmt::Display for LoopVerdict {
 /// Analyze a program; one verdict per `For`/`ForInit` loop, in order.
 /// (`While`/`DoWhile` are not counted shapes — skipped silently.)
 pub fn analyze(prog: &IrProgram) -> Vec<LoopVerdict> {
-    let types: BTreeMap<String, IrType> =
-        prog.var_types.iter().map(|(n, t)| (n.clone(), *t)).collect();
+    let types: BTreeMap<String, IrType> = prog
+        .var_types
+        .iter()
+        .map(|(n, t)| (n.clone(), *t))
+        .collect();
     let mut out = Vec::new();
     let mut scope = Scope::new("main".to_string(), &types);
     walk_stmts(&prog.stmts, "main", &mut scope, &mut out);
@@ -95,14 +98,24 @@ fn walk_stmts(stmts: &[IrStmt], path: &str, scope: &mut Scope, out: &mut Vec<Loo
             IrStmt::For { var, iter, body } => {
                 out.push(analyze_for(scope, &here, var, iter, body));
             }
-            IrStmt::ForInit { init, cond, step, body } => {
+            IrStmt::ForInit {
+                init,
+                cond,
+                step,
+                body,
+            } => {
                 out.push(analyze_for_init(scope, &here, init, cond, step, body));
             }
             IrStmt::Function { name, body, .. } => {
                 let mut inner = Scope::new(name.clone(), scope.types);
                 walk_stmts(body, &format!("{name}/body"), &mut inner, out);
             }
-            IrStmt::If { then, elsifs, else_, .. } => {
+            IrStmt::If {
+                then,
+                elsifs,
+                else_,
+                ..
+            } => {
                 walk_stmts(then, &here, scope, out);
                 for (_, b) in elsifs {
                     walk_stmts(b, &here, scope, out);
@@ -226,7 +239,10 @@ pub(crate) fn affine_index(text: &str, var: &str) -> Option<(i64, i64)> {
         return Some((1, 0));
     }
     if let Some((l, r)) = t.split_once('*') {
-        let (l, r) = (l.strip_prefix('$').unwrap_or(l), r.strip_prefix('$').unwrap_or(r));
+        let (l, r) = (
+            l.strip_prefix('$').unwrap_or(l),
+            r.strip_prefix('$').unwrap_or(r),
+        );
         if l == var {
             if let Ok(n) = r.parse::<i64>() {
                 return Some((n, 0));
@@ -324,12 +340,7 @@ pub(crate) fn trips(lo: i64, hi: i64, step: i64, inclusive: bool) -> Option<u64>
     u64::try_from(t).ok()
 }
 
-fn veto(
-    scope: &mut Scope,
-    path: &str,
-    var: &str,
-    reason: &'static str,
-) -> LoopVerdict {
+fn veto(scope: &mut Scope, path: &str, var: &str, reason: &'static str) -> LoopVerdict {
     LoopVerdict {
         id: scope.next_id(),
         path: path.to_string(),
@@ -384,9 +395,7 @@ fn analyze_for_init(
             let n = match expr {
                 IrExpr::Arith(a) => match a.as_ref() {
                     ArithAst::Num(n) => Some(*n),
-                    ArithAst::Assign { var: v, op, rhs }
-                        if v == &t.var && op == "=" =>
-                    {
+                    ArithAst::Assign { var: v, op, rhs } if v == &t.var && op == "=" => {
                         match rhs.as_ref() {
                             ArithAst::Num(n) => Some(*n),
                             _ => None,
@@ -497,7 +506,11 @@ fn finish(
     if trips == 0 {
         return veto(scope, path, var, "empty-range");
     }
-    let mut cx = BodyCx { var, types: scope.types, externs: BTreeSet::new() };
+    let mut cx = BodyCx {
+        var,
+        types: scope.types,
+        externs: BTreeSet::new(),
+    };
     let mut stores: Vec<VkStore> = Vec::new();
     let mut seen_arrays: BTreeSet<String> = BTreeSet::new();
     for s in body {
@@ -522,12 +535,10 @@ fn finish(
             // else (captures, interpolations, calls) is not i64-plain.
             let scalar = match expr {
                 IrExpr::Var(name, _) | IrExpr::Ident(name) => read_scalar(&mut cx, var, name),
-                IrExpr::Call { func, args } if func == "getVar" => {
-                    match args.first() {
-                        Some(IrExpr::Str(name, _)) => read_scalar(&mut cx, var, name),
-                        _ => None,
-                    }
-                }
+                IrExpr::Call { func, args } if func == "getVar" => match args.first() {
+                    Some(IrExpr::Str(name, _)) => read_scalar(&mut cx, var, name),
+                    _ => None,
+                },
                 IrExpr::Int(n) => Some(VkArith::Num(*n)),
                 IrExpr::Str(s, _) => s.parse::<i64>().ok().map(VkArith::Num),
                 _ => None,
@@ -535,14 +546,24 @@ fn finish(
             let Some(value) = scalar else {
                 return veto(scope, path, var, "non-arith-value");
             };
-            stores.push(VkStore { array: arr.to_string(), index_a: a, index_b: b, value });
+            stores.push(VkStore {
+                array: arr.to_string(),
+                index_a: a,
+                index_b: b,
+                value,
+            });
             continue;
         };
         let value = match lower_arith(ast, &mut cx) {
             Ok(v) => v,
             Err(r) => return veto(scope, path, var, r),
         };
-        stores.push(VkStore { array: arr.to_string(), index_a: a, index_b: b, value });
+        stores.push(VkStore {
+            array: arr.to_string(),
+            index_a: a,
+            index_b: b,
+            value,
+        });
     }
     if stores.is_empty() {
         return veto(scope, path, var, "empty-body");
@@ -661,11 +682,29 @@ mod tests {
         // accumulate → scalar-carry (needs reduction, M5)
         let p = prog_of("#!/bin/bash\ns=0\nfor i in {1..10}; do s=$((s+i)); done\n");
         let v = analyze(&p);
-        assert!(matches!(v[0].verdict, Verdict::Veto { reason: "scalar-carry" }), "{}", v[0]);
+        assert!(
+            matches!(
+                v[0].verdict,
+                Verdict::Veto {
+                    reason: "scalar-carry"
+                }
+            ),
+            "{}",
+            v[0]
+        );
         // echo in body → host-io
         let p = prog_of("#!/bin/bash\nfor i in {1..10}; do echo $i; done\n");
         let v = analyze(&p);
-        assert!(matches!(v[0].verdict, Verdict::Veto { reason: "body-host-io" }), "{}", v[0]);
+        assert!(
+            matches!(
+                v[0].verdict,
+                Verdict::Veto {
+                    reason: "body-host-io"
+                }
+            ),
+            "{}",
+            v[0]
+        );
         // pipeline in body → veto
         let p = prog_of("#!/bin/bash\nfor i in 1 2 3; do echo hi | grep h; done\n");
         let v = analyze(&p);
@@ -678,8 +717,14 @@ mod tests {
     #[test]
     fn ids_are_stable() {
         let p = prog_of("#!/bin/bash\nfor ((i=0;i<3;i++)); do a[$i]=$i; done\n");
-        let a = analyze(&p).into_iter().map(|v| v.to_string()).collect::<Vec<_>>();
-        let b = analyze(&p).into_iter().map(|v| v.to_string()).collect::<Vec<_>>();
+        let a = analyze(&p)
+            .into_iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>();
+        let b = analyze(&p)
+            .into_iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>();
         assert_eq!(a, b);
         assert!(a[0].starts_with("candidate sh_loop_main_0"), "{}", a[0]);
     }

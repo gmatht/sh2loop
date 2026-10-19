@@ -21,10 +21,7 @@ fn squares_spec() -> CuLoopSpec {
             array: "a".to_string(),
             index_a: 1,
             index_b: 0,
-            value: CuArith::Mul(
-                Box::new(CuArith::LoopVar),
-                Box::new(CuArith::LoopVar),
-            ),
+            value: CuArith::Mul(Box::new(CuArith::LoopVar), Box::new(CuArith::LoopVar)),
         }],
     }
 }

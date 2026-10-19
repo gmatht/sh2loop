@@ -105,7 +105,10 @@ fn version_is_reported_in_both_spellings() {
             "{d}: version line should name the driver, got {sout:?}"
         );
         assert!(
-            sout.trim().split(' ').nth(1).is_some_and(|v| v.contains('.')),
+            sout.trim()
+                .split(' ')
+                .nth(1)
+                .is_some_and(|v| v.contains('.')),
             "{d}: version line should carry a version, got {sout:?}"
         );
     }

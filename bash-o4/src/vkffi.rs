@@ -182,7 +182,12 @@ pub(crate) struct VkMemoryReq {
 
 impl VkMemoryReq {
     pub(crate) fn zero() -> Self {
-        VkMemoryReq { size: 0, alignment: 0, type_bits: 0, _pad: 0 }
+        VkMemoryReq {
+            size: 0,
+            alignment: 0,
+            type_bits: 0,
+            _pad: 0,
+        }
     }
 }
 
@@ -197,7 +202,13 @@ pub(crate) struct VkMemoryAllocInfo {
 
 impl VkMemoryAllocInfo {
     pub(crate) fn for_type(s_type: u32, size: u64, type_index: u32) -> Self {
-        VkMemoryAllocInfo { s_type, p_next: ptr::null(), size, type_index, _pad: 0 }
+        VkMemoryAllocInfo {
+            s_type,
+            p_next: ptr::null(),
+            size,
+            type_index,
+            _pad: 0,
+        }
     }
 }
 
@@ -405,9 +416,7 @@ impl Vk {
         }
         Ok(Vk {
             handle,
-            get_proc: unsafe {
-                std::mem::transmute::<*mut c_void, GetProc>(get_proc)
-            },
+            get_proc: unsafe { std::mem::transmute::<*mut c_void, GetProc>(get_proc) },
         })
     }
 
@@ -459,31 +468,31 @@ pub(crate) fn vk_ok(what: &str, rc: VkResult) -> Result<(), String> {
 /// True when a loader + ≥1 physical device with a compute queue exists.
 /// Any failure ⇒ false (callers take the CPU path — doc §4.4 firewall).
 ///
-/// NOTE: the probe instance is intentionally NOT destroyed here.
-/// Destroying a probe instance while the process later creates + tears
-/// down a second instance segfaults lavapipe (its instance teardown
-/// races its own loader refcount — same class as the RasterRunner
-/// pool/framebuffer teardown faults). One leaked probe instance per
-/// process is the v1 cost (the `--check` path exits immediately, and
-/// tests create a handful at most).
+/// The probe instance is destroyed before returning (and the loader
+/// dlclosed via `Vk::drop`): an earlier revision leaked both to dodge a
+/// lavapipe teardown race, but `ComputeRunner::drop` already destroys
+/// device + instance on the same driver without faulting, and a leaked
+/// probe per `--check`/test process is a real host-memory leak under
+/// LSan. If lavapipe ever regresses here, the failure will be loud
+/// (segfault) rather than a silent leak — see `RasterRunner::drop`.
 pub fn has_compute_device() -> bool {
-    let Ok(vk) = Vk::load() else { return false };
-    // Keep the loader AND the instance alive: dropping `vk` would
-    // dlclose the loader under the leaked instance.
-    std::mem::forget(vk);
-    match pick_probe_instance() {
-        Ok(()) => true,
+    match Vk::load() {
+        Ok(vk) => match pick_probe_instance(&vk) {
+            Ok(()) => true,
+            Err(_) => false,
+        },
         Err(_) => false,
     }
 }
 
-/// Probe body: open + close nothing, leak everything. Split from
-/// `has_compute_device` so the leak is explicit.
-fn pick_probe_instance() -> Result<(), String> {
-    let vk = Vk::load()?;
-    let (inst, _, _) = pick_compute_device(&vk)?;
-    let _ = inst;
-    std::mem::forget(vk);
+/// Probe body: create an instance, find a compute device, destroy the
+/// instance. Takes the loaded `Vk` by reference so the caller owns the
+/// loader lifetime (it drops — dlclose — on return).
+fn pick_probe_instance(vk: &Vk) -> Result<(), String> {
+    let (inst, _, _) = pick_queue_device(vk, QUEUE_COMPUTE_BIT, "compute")?;
+    let destroy: unsafe extern "C" fn(VkInstance, *const c_void) -> () =
+        ifn(vk, inst, "vkDestroyInstance");
+    unsafe { destroy(inst, ptr::null()) };
     Ok(())
 }
 
@@ -554,8 +563,12 @@ pub(crate) fn open_queue_device(
         p_enabled_features: ptr::null(),
     };
     let mut dev: VkDevice = ptr::null_mut();
-    let create_dev: unsafe extern "C" fn(VkPhysicalDevice, *const VkDeviceCreateInfo, *const c_void, *mut VkDevice) -> VkResult =
-        ifn(&vk, inst, "vkCreateDevice");
+    let create_dev: unsafe extern "C" fn(
+        VkPhysicalDevice,
+        *const VkDeviceCreateInfo,
+        *const c_void,
+        *mut VkDevice,
+    ) -> VkResult = ifn(&vk, inst, "vkCreateDevice");
     let r = unsafe { create_dev(phys, &dci, ptr::null(), &mut dev) };
     if r != VK_SUCCESS {
         let destroy: unsafe extern "C" fn(VkInstance, *const c_void) -> () =
@@ -569,14 +582,28 @@ pub(crate) fn open_queue_device(
     unsafe { get_queue(dev, family, 0, &mut queue) };
     let mut mem_props = VkMemoryProps {
         type_count: 0,
-        types: [VkMemoryType { property_flags: 0, heap_index: 0 }; 32],
+        types: [VkMemoryType {
+            property_flags: 0,
+            heap_index: 0,
+        }; 32],
         heap_count: 0,
-        heaps: [VkMemoryHeap { size: 0, flags: 0, _pad: 0 }; 16],
+        heaps: [VkMemoryHeap {
+            size: 0,
+            flags: 0,
+            _pad: 0,
+        }; 16],
     };
     let get_mem_props: unsafe extern "C" fn(VkPhysicalDevice, *mut VkMemoryProps) -> () =
         ifn(&vk, inst, "vkGetPhysicalDeviceMemoryProperties");
     unsafe { get_mem_props(phys, &mut mem_props) };
-    Ok(OpenDevice { vk, inst, dev, queue, family, mem_props })
+    Ok(OpenDevice {
+        vk,
+        inst,
+        dev,
+        queue,
+        family,
+        mem_props,
+    })
 }
 
 fn pick_queue_device(
@@ -604,26 +631,41 @@ fn pick_queue_device(
         pp_enabled_extension_names: ptr::null(),
     };
     let mut inst: VkInstance = ptr::null_mut();
-    vk_ok("create-instance", vk.vkCreateInstance(&ci, ptr::null(), &mut inst))?;
+    vk_ok(
+        "create-instance",
+        vk.vkCreateInstance(&ci, ptr::null(), &mut inst),
+    )?;
     let enum_devs: unsafe extern "C" fn(VkInstance, *mut u32, *mut VkPhysicalDevice) -> VkResult =
         ifn(vk, inst, "vkEnumeratePhysicalDevices");
-    let qfam_props: unsafe extern "C" fn(VkPhysicalDevice, *mut u32, *mut VkQueueFamilyProps) -> () =
-        ifn(vk, inst, "vkGetPhysicalDeviceQueueFamilyProperties");
+    let qfam_props: unsafe extern "C" fn(
+        VkPhysicalDevice,
+        *mut u32,
+        *mut VkQueueFamilyProps,
+    ) -> () = ifn(vk, inst, "vkGetPhysicalDeviceQueueFamilyProperties");
     let destroy: unsafe extern "C" fn(VkInstance, *const c_void) -> () =
         ifn(vk, inst, "vkDestroyInstance");
     let result = (|| {
         let mut n: u32 = 0;
-        vk_ok("enum-devices", unsafe { enum_devs(inst, &mut n, ptr::null_mut()) })?;
+        vk_ok("enum-devices", unsafe {
+            enum_devs(inst, &mut n, ptr::null_mut())
+        })?;
         if n == 0 {
             return Err("no physical devices".to_string());
         }
         let mut devs = vec![ptr::null_mut(); n as usize];
-        vk_ok("enum-devices", unsafe { enum_devs(inst, &mut n, devs.as_mut_ptr()) })?;
+        vk_ok("enum-devices", unsafe {
+            enum_devs(inst, &mut n, devs.as_mut_ptr())
+        })?;
         for d in devs {
             let mut m: u32 = 0;
             unsafe { qfam_props(d, &mut m, ptr::null_mut()) };
             let mut fams = vec![
-                VkQueueFamilyProps { flags: 0, count: 0, _timestamp_bits: 0, _granularity: [0; 3] };
+                VkQueueFamilyProps {
+                    flags: 0,
+                    count: 0,
+                    _timestamp_bits: 0,
+                    _granularity: [0; 3]
+                };
                 m as usize
             ];
             unsafe { qfam_props(d, &mut m, fams.as_mut_ptr()) };
@@ -676,47 +718,98 @@ struct CachedPipe {
 
 #[derive(Clone, Copy)]
 struct DevFns {
-    create_buffer: unsafe extern "C" fn(VkDevice, *const VkBufferCreateInfo, *const c_void, *mut VkBuffer) -> VkResult,
+    create_buffer: unsafe extern "C" fn(
+        VkDevice,
+        *const VkBufferCreateInfo,
+        *const c_void,
+        *mut VkBuffer,
+    ) -> VkResult,
     get_buffer_memory_requirements:
         unsafe extern "C" fn(VkDevice, VkBuffer, *mut VkMemoryReq) -> (),
-    allocate_memory: unsafe extern "C" fn(VkDevice, *const VkMemoryAllocInfo, *const c_void, *mut VkDeviceMemory) -> VkResult,
+    allocate_memory: unsafe extern "C" fn(
+        VkDevice,
+        *const VkMemoryAllocInfo,
+        *const c_void,
+        *mut VkDeviceMemory,
+    ) -> VkResult,
     bind_buffer_memory: unsafe extern "C" fn(VkDevice, VkBuffer, VkDeviceMemory, u64) -> VkResult,
-    map_memory: unsafe extern "C" fn(VkDevice, VkDeviceMemory, u64, u64, u32, *mut *mut c_void) -> VkResult,
+    map_memory:
+        unsafe extern "C" fn(VkDevice, VkDeviceMemory, u64, u64, u32, *mut *mut c_void) -> VkResult,
     unmap_memory: unsafe extern "C" fn(VkDevice, VkDeviceMemory) -> (),
     free_memory: unsafe extern "C" fn(VkDevice, VkDeviceMemory, *const c_void) -> (),
     destroy_buffer: unsafe extern "C" fn(VkDevice, VkBuffer, *const c_void) -> (),
-    create_descriptor_set_layout:
-        unsafe extern "C" fn(VkDevice, *const VkSetLayoutCreateInfo, *const c_void, *mut VkDescriptorSetLayout) -> VkResult,
-    destroy_descriptor_set_layout: unsafe extern "C" fn(VkDevice, VkDescriptorSetLayout, *const c_void) -> (),
-    create_pipeline_layout:
-        unsafe extern "C" fn(VkDevice, *const VkPipelineLayoutCreateInfo, *const c_void, *mut VkPipelineLayout) -> VkResult,
+    create_descriptor_set_layout: unsafe extern "C" fn(
+        VkDevice,
+        *const VkSetLayoutCreateInfo,
+        *const c_void,
+        *mut VkDescriptorSetLayout,
+    ) -> VkResult,
+    destroy_descriptor_set_layout:
+        unsafe extern "C" fn(VkDevice, VkDescriptorSetLayout, *const c_void) -> (),
+    create_pipeline_layout: unsafe extern "C" fn(
+        VkDevice,
+        *const VkPipelineLayoutCreateInfo,
+        *const c_void,
+        *mut VkPipelineLayout,
+    ) -> VkResult,
     destroy_pipeline_layout: unsafe extern "C" fn(VkDevice, VkPipelineLayout, *const c_void) -> (),
-    create_shader_module:
-        unsafe extern "C" fn(VkDevice, *const VkShaderModuleCreateInfo, *const c_void, *mut VkShaderModule) -> VkResult,
+    create_shader_module: unsafe extern "C" fn(
+        VkDevice,
+        *const VkShaderModuleCreateInfo,
+        *const c_void,
+        *mut VkShaderModule,
+    ) -> VkResult,
     destroy_shader_module: unsafe extern "C" fn(VkDevice, VkShaderModule, *const c_void) -> (),
-    create_compute_pipelines:
-        unsafe extern "C" fn(VkDevice, VkPipeline, u32, *const VkComputePipelineCreateInfo, *const c_void, *mut VkPipeline) -> VkResult,
+    create_compute_pipelines: unsafe extern "C" fn(
+        VkDevice,
+        VkPipeline,
+        u32,
+        *const VkComputePipelineCreateInfo,
+        *const c_void,
+        *mut VkPipeline,
+    ) -> VkResult,
     destroy_pipeline: unsafe extern "C" fn(VkDevice, VkPipeline, *const c_void) -> (),
-    create_descriptor_pool:
-        unsafe extern "C" fn(VkDevice, *const VkPoolCreateInfo, *const c_void, *mut VkDescriptorPool) -> VkResult,
+    create_descriptor_pool: unsafe extern "C" fn(
+        VkDevice,
+        *const VkPoolCreateInfo,
+        *const c_void,
+        *mut VkDescriptorPool,
+    ) -> VkResult,
     destroy_descriptor_pool: unsafe extern "C" fn(VkDevice, VkDescriptorPool, *const c_void) -> (),
     allocate_descriptor_sets:
         unsafe extern "C" fn(VkDevice, *const VkSetAllocInfo, *mut VkDescriptorSet) -> VkResult,
     update_descriptor_sets:
         unsafe extern "C" fn(VkDevice, u32, *const VkWriteSet, u32, *const c_void) -> (),
-    create_command_pool:
-        unsafe extern "C" fn(VkDevice, *const VkCmdPoolCreateInfo, *const c_void, *mut VkCommandPool) -> VkResult,
+    create_command_pool: unsafe extern "C" fn(
+        VkDevice,
+        *const VkCmdPoolCreateInfo,
+        *const c_void,
+        *mut VkCommandPool,
+    ) -> VkResult,
     destroy_command_pool: unsafe extern "C" fn(VkDevice, VkCommandPool, *const c_void) -> (),
     allocate_command_buffers:
         unsafe extern "C" fn(VkDevice, *const VkCmdAllocInfo, *mut VkCommandBuffer) -> VkResult,
     begin_command_buffer: unsafe extern "C" fn(VkCommandBuffer, *const VkCmdBeginInfo) -> VkResult,
     cmd_bind_pipeline: unsafe extern "C" fn(VkCommandBuffer, u32, VkPipeline) -> (),
-    cmd_bind_descriptor_sets:
-        unsafe extern "C" fn(VkCommandBuffer, u32, VkPipelineLayout, u32, u32, *const VkDescriptorSet, u32, *const u32) -> (),
+    cmd_bind_descriptor_sets: unsafe extern "C" fn(
+        VkCommandBuffer,
+        u32,
+        VkPipelineLayout,
+        u32,
+        u32,
+        *const VkDescriptorSet,
+        u32,
+        *const u32,
+    ) -> (),
     cmd_dispatch: unsafe extern "C" fn(VkCommandBuffer, u32, u32, u32) -> (),
     end_command_buffer: unsafe extern "C" fn(VkCommandBuffer) -> VkResult,
     reset_command_buffer: unsafe extern "C" fn(VkCommandBuffer, u32) -> VkResult,
-    create_fence: unsafe extern "C" fn(VkDevice, *const VkFenceCreateInfo, *const c_void, *mut VkFence) -> VkResult,
+    create_fence: unsafe extern "C" fn(
+        VkDevice,
+        *const VkFenceCreateInfo,
+        *const c_void,
+        *mut VkFence,
+    ) -> VkResult,
     destroy_fence: unsafe extern "C" fn(VkDevice, VkFence, *const c_void) -> (),
     queue_submit: unsafe extern "C" fn(VkQueue, u32, *const VkSubmitInfo, VkFence) -> VkResult,
     wait_for_fences: unsafe extern "C" fn(VkDevice, u32, *const VkFence, u32, u64) -> VkResult,
@@ -749,8 +842,12 @@ impl ComputeRunner {
             p_enabled_features: ptr::null(),
         };
         let mut dev: VkDevice = ptr::null_mut();
-        let create_dev: unsafe extern "C" fn(VkPhysicalDevice, *const VkDeviceCreateInfo, *const c_void, *mut VkDevice) -> VkResult =
-            ifn(&vk, inst, "vkCreateDevice");
+        let create_dev: unsafe extern "C" fn(
+            VkPhysicalDevice,
+            *const VkDeviceCreateInfo,
+            *const c_void,
+            *mut VkDevice,
+        ) -> VkResult = ifn(&vk, inst, "vkCreateDevice");
         let destroy_inst: unsafe extern "C" fn(VkInstance, *const c_void) -> () =
             ifn(&vk, inst, "vkDestroyInstance");
         let r = unsafe { create_dev(phys, &dci, ptr::null(), &mut dev) };
@@ -766,9 +863,16 @@ impl ComputeRunner {
         unsafe { get_queue(dev, family, 0, &mut queue) };
         let mut mem_props = VkMemoryProps {
             type_count: 0,
-            types: [VkMemoryType { property_flags: 0, heap_index: 0 }; 32],
+            types: [VkMemoryType {
+                property_flags: 0,
+                heap_index: 0,
+            }; 32],
             heap_count: 0,
-            heaps: [VkMemoryHeap { size: 0, flags: 0, _pad: 0 }; 16],
+            heaps: [VkMemoryHeap {
+                size: 0,
+                flags: 0,
+                _pad: 0,
+            }; 16],
         };
         let get_mem_props: unsafe extern "C" fn(VkPhysicalDevice, *mut VkMemoryProps) -> () =
             ifn(&vk, inst, "vkGetPhysicalDeviceMemoryProperties");
@@ -814,7 +918,16 @@ impl ComputeRunner {
             wait_for_fences: d!("vkWaitForFences"),
             destroy_device: d!("vkDestroyDevice"),
         };
-        Ok(ComputeRunner { vk, inst, dev, queue, family, mem_props, dev_fns, pipe_cache: std::cell::RefCell::new(None) })
+        Ok(ComputeRunner {
+            vk,
+            inst,
+            dev,
+            queue,
+            family,
+            mem_props,
+            dev_fns,
+            pipe_cache: std::cell::RefCell::new(None),
+        })
     }
 
     fn mem_type(&self, bits: u32) -> Result<u32, String> {
@@ -843,8 +956,15 @@ impl ComputeRunner {
             p_queue_family_indices: ptr::null(),
         };
         let mut buf: VkBuffer = 0;
-        vk_ok("create-buffer", unsafe { (f.create_buffer)(self.dev, &bci, ptr::null(), &mut buf) })?;
-        let mut req = VkMemoryReq { size: 0, alignment: 0, type_bits: 0, _pad: 0 };
+        vk_ok("create-buffer", unsafe {
+            (f.create_buffer)(self.dev, &bci, ptr::null(), &mut buf)
+        })?;
+        let mut req = VkMemoryReq {
+            size: 0,
+            alignment: 0,
+            type_bits: 0,
+            _pad: 0,
+        };
         unsafe { (f.get_buffer_memory_requirements)(self.dev, buf, &mut req) };
         let ai = VkMemoryAllocInfo {
             s_type: STYPE_MEMORY_ALLOCATE_INFO,
@@ -980,7 +1100,10 @@ impl ComputeRunner {
         vk_ok("compute-pipeline", unsafe {
             (f.create_compute_pipelines)(self.dev, 0, 1, &pci, ptr::null(), &mut pipeline)
         })?;
-        let pool_size = VkPoolSize { ty: DESC_STORAGE_BUFFER, count: n_bindings };
+        let pool_size = VkPoolSize {
+            ty: DESC_STORAGE_BUFFER,
+            count: n_bindings,
+        };
         let poolci = VkPoolCreateInfo {
             s_type: STYPE_DESCRIPTOR_POOL_CREATE_INFO,
             p_next: ptr::null(),
@@ -1093,14 +1216,22 @@ impl ComputeRunner {
                 }
                 v
             })?;
-            infos.push(VkDescriptorBufferInfo { buffer: b, offset: 0, range: bytes });
+            infos.push(VkDescriptorBufferInfo {
+                buffer: b,
+                offset: 0,
+                range: bytes,
+            });
         }
         for &len in out_lens {
             let bytes = (len.max(1) * 8) as u64;
             let (b, m) = self.make_buffer(bytes)?;
             bufs.push((b, m));
             self.write_mem(m, &vec![0i64; len.max(1)])?;
-            infos.push(VkDescriptorBufferInfo { buffer: b, offset: 0, range: bytes });
+            infos.push(VkDescriptorBufferInfo {
+                buffer: b,
+                offset: 0,
+                range: bytes,
+            });
         }
         let result = (|| {
             let cache = self.pipe_cache.borrow();
@@ -1120,7 +1251,15 @@ impl ComputeRunner {
                     p_texel_view: ptr::null(),
                 });
             }
-            unsafe { (f.update_descriptor_sets)(self.dev, writes.len() as u32, writes.as_ptr(), 0, ptr::null()) };
+            unsafe {
+                (f.update_descriptor_sets)(
+                    self.dev,
+                    writes.len() as u32,
+                    writes.as_ptr(),
+                    0,
+                    ptr::null(),
+                )
+            };
             vk_ok("reset-cmd", unsafe { (f.reset_command_buffer)(c.cmd, 0) })?;
             let bi = VkCmdBeginInfo {
                 s_type: STYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -1131,13 +1270,28 @@ impl ComputeRunner {
             vk_ok("begin-cmd", unsafe { (f.begin_command_buffer)(c.cmd, &bi) })?;
             unsafe { (f.cmd_bind_pipeline)(c.cmd, BIND_COMPUTE, c.pipeline) };
             unsafe {
-                (f.cmd_bind_descriptor_sets)(c.cmd, BIND_COMPUTE, c.pipe_layout, 0, 1, &c.set, 0, ptr::null())
+                (f.cmd_bind_descriptor_sets)(
+                    c.cmd,
+                    BIND_COMPUTE,
+                    c.pipe_layout,
+                    0,
+                    1,
+                    &c.set,
+                    0,
+                    ptr::null(),
+                )
             };
             unsafe { (f.cmd_dispatch)(c.cmd, groups, 1, 1) };
             vk_ok("end-cmd", unsafe { (f.end_command_buffer)(c.cmd) })?;
-            let fci = VkFenceCreateInfo { s_type: STYPE_FENCE_CREATE_INFO, p_next: ptr::null(), flags: 0 };
+            let fci = VkFenceCreateInfo {
+                s_type: STYPE_FENCE_CREATE_INFO,
+                p_next: ptr::null(),
+                flags: 0,
+            };
             let mut fence: VkFence = 0;
-            vk_ok("fence", unsafe { (f.create_fence)(self.dev, &fci, ptr::null(), &mut fence) })?;
+            vk_ok("fence", unsafe {
+                (f.create_fence)(self.dev, &fci, ptr::null(), &mut fence)
+            })?;
             let si = VkSubmitInfo {
                 s_type: STYPE_SUBMIT_INFO,
                 p_next: ptr::null(),
@@ -1149,7 +1303,9 @@ impl ComputeRunner {
                 signal_count: 0,
                 p_signal_sems: ptr::null(),
             };
-            vk_ok("submit", unsafe { (f.queue_submit)(self.queue, 1, &si, fence) })?;
+            vk_ok("submit", unsafe {
+                (f.queue_submit)(self.queue, 1, &si, fence)
+            })?;
             // 30 s fence (lavapipe software rendering can be slow).
             vk_ok("wait-fence", unsafe {
                 (f.wait_for_fences)(self.dev, 1, &fence, 1, 30_000_000_000)

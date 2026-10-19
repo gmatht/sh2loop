@@ -151,10 +151,19 @@ mod tests {
     fn embedded_sources_are_the_device() {
         assert!(FBDEV_C.contains("fb_open"), "fbdev.c lost its entry point");
         assert!(FBDEV_C.contains("#include \"fbdev.h\""));
-        assert!(FBINPUT_C.contains("fb_input_line"), "fbinput.c lost its reader");
+        assert!(
+            FBINPUT_C.contains("fb_input_line"),
+            "fbinput.c lost its reader"
+        );
         assert!(FBINPUT_C.contains("#include \"fbinput.h\""));
-        assert!(FBDEV_H.contains("FBDEV_H"), "fbdev.h lost its include guard");
-        assert!(FBINPUT_H.contains("FBINPUT_H"), "fbinput.h lost its include guard");
+        assert!(
+            FBDEV_H.contains("FBDEV_H"),
+            "fbdev.h lost its include guard"
+        );
+        assert!(
+            FBINPUT_H.contains("FBINPUT_H"),
+            "fbinput.h lost its include guard"
+        );
     }
 
     /// A C compiler must find BOTH spellings of the include. The render
@@ -167,7 +176,11 @@ mod tests {
         let dir = materialize(&root).expect("materialize");
         for (name, text) in ALL {
             let p = source_in(&dir, name);
-            assert!(p.is_file(), "{name} was not materialised at {}", p.display());
+            assert!(
+                p.is_file(),
+                "{name} was not materialised at {}",
+                p.display()
+            );
             assert_eq!(std::fs::read_to_string(&p).unwrap(), text);
         }
         let _ = std::fs::remove_dir_all(&root);
@@ -179,11 +192,20 @@ mod tests {
     fn materialise_is_idempotent_and_quiet() {
         let root = tmp("idem");
         let dir = materialize(&root).expect("first");
-        let mtime = std::fs::metadata(dir.join("fbdev.c")).unwrap().modified().unwrap();
+        let mtime = std::fs::metadata(dir.join("fbdev.c"))
+            .unwrap()
+            .modified()
+            .unwrap();
         std::thread::sleep(std::time::Duration::from_millis(20));
         let again = materialize(&root).expect("second");
-        assert_eq!(dir, again, "the directory name must be stable for one build");
-        let mtime2 = std::fs::metadata(dir.join("fbdev.c")).unwrap().modified().unwrap();
+        assert_eq!(
+            dir, again,
+            "the directory name must be stable for one build"
+        );
+        let mtime2 = std::fs::metadata(dir.join("fbdev.c"))
+            .unwrap()
+            .modified()
+            .unwrap();
         assert_eq!(mtime, mtime2, "an unchanged device file was rewritten");
         let _ = std::fs::remove_dir_all(&root);
     }

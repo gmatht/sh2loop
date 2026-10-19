@@ -57,20 +57,14 @@ fn test_push() -> fb_draw::PushConstants {
 /// CubeRec (x,y,z,sx)(sy,sz,r,g)(b,tx,dam,pad).
 fn red_cube() -> Vec<f32> {
     vec![
-        0.0, 0.5, 2.0, 2000.0,
-        2000.0, 2000.0, 1.0, 0.0,
-        0.0, 0.0, 0.0, 0.0,
+        0.0, 0.5, 2.0, 2000.0, 2000.0, 2000.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0,
     ]
 }
 
 /// Full-screen opaque green quad (fractions: centre 0,0 extent 2,2).
 /// OvRec (cx,cy,wfrac,hfrac)(r,g,b,a)(rot,0,0,0).
 fn green_quad() -> Vec<f32> {
-    vec![
-        0.0, 0.0, 2.0, 2.0,
-        0.0, 1.0, 0.0, 1.0,
-        0.0, 0.0, 0.0, 0.0,
-    ]
+    vec![0.0, 0.0, 2.0, 2.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
 }
 
 /// `frag_pixel` transcribed (fbdev.c:278): grey-128 atlas, red tint,
@@ -135,7 +129,6 @@ fn blocks_dispatch_matches_oracle() {
     let pixels = runner.readback().expect("readback");
     assert_eq!(pixels.len(), (W * H * 4) as usize);
 
-
     // Centre (32,32): inside the front face. Red tint (255,0,0);
     // the camera-facing (+z, near) face carries shade 800, so the
     // oracle value is 255*800/1000 = 204, g = b = 0.
@@ -148,7 +141,11 @@ fn blocks_dispatch_matches_oracle() {
         "centre pixel is exactly the CPU oracle"
     );
     // Corner (0,0): outside the cube — the CLEAR colour (0,0,0,1).
-    assert_eq!(px(&pixels, 0, 0), (0, 0, 0, 255), "clear colour outside the cube");
+    assert_eq!(
+        px(&pixels, 0, 0),
+        (0, 0, 0, 255),
+        "clear colour outside the cube"
+    );
     assert_eq!(px(&pixels, W - 1, H - 1), (0, 0, 0, 255));
 
     // Determinism: a second identical dispatch reads back identical.
@@ -208,7 +205,11 @@ fn overlay_dispatch_blends_over_blocks() {
 
     // Opaque green quad covers everything: every pixel is (0,255,0).
     for (x, y) in [(0, 0), (32, 32), (W - 1, H - 1), (5, 60)] {
-        assert_eq!(px(&pixels, x, y), (0, 255, 0, 255), "opaque green at ({x},{y})");
+        assert_eq!(
+            px(&pixels, x, y),
+            (0, 255, 0, 255),
+            "opaque green at ({x},{y})"
+        );
     }
 
     let _ = std::fs::remove_dir_all(&root);

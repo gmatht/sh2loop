@@ -5,6 +5,160 @@ ends over one pipeline (`ShIR` → C via tcc, or → PTX via the CUDA candidacy)
 sharing one flag surface (`bash-o4/src/flags.rs`) and one dispatch vehicle
 (`bash_o4::cu_run`).
 
+## Unreleased — shared `split_fold` pass + native-int store arms (MIMEcroft C: −46% `atoll`, −48% `snprintf`)
+
+The remaining text round trips on MIMEcroft's frame path were `split[e]` in
+NUMERIC position (word-split result stringified and re-parsed) plus the
+`snprintf`/`atoll` conversions at integer call and store sites. Three
+layered changes, one shared and two C-side:
+
+- **`sh2perl/src/shir_passes/split_fold.rs` (shared, offered to all
+  backends).** `split[e]` → `e` when `e` is provably free of IFS
+  whitespace: the `analyze_var_nospace` per-var fixpoint or the A2 `Int`
+  verdict (canonical decimal text), with literals/arith/templates/`${#x}`
+  whitespace-free by shape; never when the program may set a CUSTOM IFS
+  (`program_may_custom_ifs`). That is a fact about shell semantics, so
+  every renderer inherits the fold; the ESTree render-time fold becomes
+  redundant (stays harmlessly idempotent). A split in ARRAY-ELEMENT
+  position (`setArray`/`setArrayAppend` values, array-literal declares,
+  indexed-assign RHS) folds only when the target array is already
+  A2-`Int`-homed: the rewrite is value-preserving either way, but it
+  removes the string-store evidence the C ingest homes arrays on, and
+  the flip to `long long*` crashes the string-array-only slice path
+  (found the hard way — `051_primes` died at `${primes[@]:0:10}`;
+  2 tests pin both sides of the carve-out). Wired at the O3/O4
+  pre-render stage next to `loop_opt`/`int_cycles`;
+  `$SH2_NO_SPLIT_FOLD=1` disables pass + arms (the A/B and rollback
+  switch).
+- **C backend: split-strip in the native-int paths.** `value_ll` and
+  `store_int_item_c` now see through a `split[...]` wrapper to the inner
+  expression (`expr_as_num`), so numeric reads and indexed stores reach
+  the native `long long` form instead of `atoll(sh_split_word(...))`.
+  Two new tests (scalar read, array-indexed store).
+- **Artifact cache key: include the `SH2_NO_*` validation switches.**
+  The `--emit-c` cache key (`opt=… t64 gpu=…`) ignored them, so a gated
+  A/B run was a cache hit on the other side and the feature appeared
+  dead (it cost a 54 KB emission delta to discover); the key now folds
+  every `SH2_NO_*` env switch in (worktree-local).
+
+Measured on MIMEcroft (`MIMEcroft_fb.sh`, deterministic 400-frame build,
+same-tree A/B through the gate): `atoll` calls −45.9%, `snprintf` calls
+−47.9%, wall −5.4%, emission −54 KB (1,105,261 vs 1,159,299 B). `--demo`
+stdout is identical except the timing-stats lines. The first-frame PPM
+differs by 4,049 bytes between the two binaries, but a layout-only
+control (base C + one unused global) reproduces the exact same delta —
+the runtime's paint order depends on addresses (pointer-hashed map
+iteration), so cross-binary PPM equality is not a correctness
+instrument; within one binary it is deterministic.
+
+Gates (`/tmp/csweep4.sh`, feature on vs `SH2_NO_SPLIT_FOLD=1`, full
+examples corpus): emit-leg rc sets identical AND JIT-run-leg rc sets
+identical; `cargo test --lib` 1298/3 (the 3 are the pre-existing
+strdup/GMP helper shapes; split_fold module 9/9). One harness lesson
+recorded: bpaf stops option parsing at the first positional, so
+`bash-O4 script.sh --emit-c` silently JIT-*runs* the program with the
+flags as program args — gate invocations must put flags BEFORE the
+script (that accident is how the run leg, and the `051_primes` crash,
+were discovered).
+
+## Unreleased — per-position native ABI (mixed `long long | char*` params) + dead-caller param rows
+
+Two layered changes, one in the shared analysis and one in its C
+consumption, both aimed at the remaining text round trips on MIMEcroft's
+draw path:
+
+- **numstr: a site row's CALLER liveness gates the param leg.** A
+  defined fn with no observed call site never executes (the walk's
+  statement-enum exhaustiveness is already assumed), so rows recorded
+  FROM such a caller no longer disqualify a callee position — a dead
+  helper must not poison a position every live caller passes canonically.
+  The var leg is untouched (an uncalled fn's `v=$N` copies still key on
+  its absent param set). 2 new tests; module 9/9.
+- **C backend: `native_positions`.** `analyze_native_num_fns` also
+  returns the per-position Int-typed set (equal to the shared numstr
+  params verdict by construction), and a partial set now emits a MIXED
+  signature — `static void rb_putrun(long long _p1, long long _p2,
+  long long _p3, char *_p4)` — with per-position call-site conversion
+  (`value_ll`/`value_c`) and a per-position `cur_native_pos` in the
+  positional read/string paths. Bigint-param and array-return fns are
+  excluded and keep their whole-fn convention; `param_copy_alias` stays
+  whole-fn-gated. Previously one text position forced ALL positions
+  through the stringify→atoll detour (the old all-or-nothing rule).
+
+Measured on `MIMEcroft_fb.sh` (deterministic 400-frame A/B, one gcc -O2
+each, identical patches; emitted C −1,830 bytes):
+
+| metric (whole run) | baseline | this change |
+|---|---|---|
+| strtoll | 120,625,982 | 112,863,848 (**−6.4%**) |
+| wall, 400 frames | 33.98 s (84 ms/f) | **31.53 s (78 ms/f, −7.2%)** |
+| snprintf / snprintf_chk | 3,542,449 / 104,525,113 | flat (text-typed actuals merely move the atoll to the call site) |
+| malloc / free / realloc | 147.1M / 147.1M / 4.49M | flat |
+
+Correctness: `--first-frame` / `--first-frame-3d` PPMs byte-identical;
+demo stdout byte-identical (both stock and 400-frame); gcc warning
+multiset identical (line numbers aside); `harness/c_gate_main.sh`
+**641/4/7** with each of the 4 failures inspected — none carries a
+mixed-ABI fingerprint (pre-existing frontend/stub bugs); `c_backend`
+tests **stash A/B: HEAD 157/10 vs this change 161/10, failure sets
+byte-identical**; full lib 1271/18 = the documented baseline. Next
+levers (recorded in PLAN): numstr payload modeling for `rb_mkhex`'s
+`RBTEX_*` tables, a fractional ABI for `rb_cube`, and caller-side var
+typing so `value_ll` stops paying atoll at text-actual call sites.
+
+## Unreleased — slice splice without stabilizing copies + native numeric index (C backend)
+
+Two provable no-ops on the row-splice path (`rb_putrun`, ~1.7M calls per
+400-frame demo), both consuming verdicts the shared pipeline already
+carries (Int-homed vars from A2/numstr/`demote_stringy_ints`):
+
+- **Slice OFF/LEN `$ident` text reads the C slot directly.**
+  `value_num_dollar` (which intercepted before the expansion fallback)
+  and `value_num`'s Str arm now resolve a whole `$i` / `${i}` naming an
+  Int-homed var (also bigint/tiered via the Var arm's verdicts) to the
+  native `long long` — killing the getVar → stringify-to-temp → vbuf
+  copy → `atoll` chain per index. Mixed text (`"x$i"`, unbalanced
+  braces) falls through unchanged (`dollar_ref` = whole refs only).
+- **The slice subject's stabilizing copy accepts the stable-store
+  vocabulary.** `_sh_substr` only reads its input, so a bare ident, the
+  null-guard `(id ? id : "")` store read, or `_sh_mstr_get(&id)` is
+  passed in place (`stable_store_read`) — no full-row vbuf copy. The
+  guard keeps unset-is-empty semantics; anything else (calls, other
+  ternaries) keeps its copy.
+
+Measured on `MIMEcroft_fb.sh` (deterministic A/B: BOTH emitted C sources
+patched identically to quit at exactly 400 demo frames — the stock
+`--demo` quits on wall-clock and is not frame-comparable — one
+gcc -O2 build each, same-tree renderer):
+
+| metric (whole run, all processes) | HEAD (no edits) | this change |
+|---|---|---|
+| snprintf | 22,164,596 | 3,542,449 (**−84%**) |
+| snprintf_chk (fortified) | 123,150,494 | 104,526,435 (−15%) |
+| strtoll (+`__isoc23_`) | 139,252,609 | 120,626,090 (−13%) |
+| malloc / free / realloc | 359.6M / 392.9M / 4.60M | flat (copies were steady-state static-vbuf memcpys, not allocs) |
+| wall time (400 frames) | 43.2 s (108 ms/f) | 37.9 s (94 ms/f) |
+
+`rb_putrun`'s splice goes from 2 full-row subject copies + 2 index
+snprintf+copy+atoll chains to
+`_sh_substr(&_v909, (rbp_row ? rbp_row : ""), 0, rbp_o)` twice;
+emitted C −4,437 bytes. Correctness: `--first-frame` +
+`--first-frame-3d` PPMs byte-identical; gcc warning multiset identical;
+demo stdout byte-identical (minus `#stats` timing lines); C corpus gate
+**641/4/7 with the failure set byte-identical to a stashed-baseline run
+of the same tree** (4 pre-existing); `c_backend` tests **161/10** (4 new:
+`dollar_ref` shapes, `stable_store_read` vocabulary, `num_text_read`
+verdicts, native-index emit) with the 10-failure set byte-identical to
+baseline; full lib 1253/18 (the documented pre-existing 18).
+
+Limit: only the C renderer consumes this. The shareable half is an
+ingress transform lifting whole-`$ident` text args in text-op slots to
+`Var` nodes (every backend's value path handles `Var` natively; the
+parser hands them raw `Str` text today). Also still open: `rb_putrun`'s
+own y/x0/n params cross the call as text (caller stringifies into the
+callee's `char*` slots) — a numstr-style rule looking THROUGH
+`num_temp` stringifications would close that round trip.
+
 ## Unreleased — void calling-convention lift: bare calls become plain C calls (C backend)
 
 The step the entry below named as designed-next: every bare

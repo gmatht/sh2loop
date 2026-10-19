@@ -156,9 +156,12 @@ pub fn cached_text(
     let c_file = dir.join(file);
     let meta = dir.join("meta.json");
     if c_file.is_file() && meta.is_file() {
-        let text =
-            std::fs::read_to_string(&c_file).map_err(|e| format!("cache read: {e}"))?;
-        return Ok(CachedText { text, hit: true, dir });
+        let text = std::fs::read_to_string(&c_file).map_err(|e| format!("cache read: {e}"))?;
+        return Ok(CachedText {
+            text,
+            hit: true,
+            dir,
+        });
     }
     let text = build()?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("cache mkdir: {e}"))?;
@@ -167,7 +170,11 @@ pub fn cached_text(
     if let Err(e) = std::fs::rename(&tmp, &c_file) {
         let _ = std::fs::remove_file(&tmp);
         return match std::fs::read_to_string(&c_file) {
-            Ok(text) => Ok(CachedText { text, hit: true, dir }),
+            Ok(text) => Ok(CachedText {
+                text,
+                hit: true,
+                dir,
+            }),
             Err(_) => Err(format!("cache commit: {e}")),
         };
     }
@@ -184,7 +191,11 @@ pub fn cached_text(
     if std::fs::rename(&meta_tmp, &meta).is_err() {
         let _ = std::fs::remove_file(&meta_tmp);
     }
-    Ok(CachedText { text, hit: false, dir })
+    Ok(CachedText {
+        text,
+        hit: false,
+        dir,
+    })
 }
 
 /// Fetch-or-store the rendered C for `shir`. `render` runs only on a miss.
@@ -198,9 +209,12 @@ pub fn cached_c(
     let c_file = dir.join("prog.c");
     let meta = dir.join("meta.json");
     if c_file.is_file() && meta.is_file() {
-        let c_src =
-            std::fs::read_to_string(&c_file).map_err(|e| format!("cache read: {e}"))?;
-        return Ok(Cached { c_src, hit: true, dir });
+        let c_src = std::fs::read_to_string(&c_file).map_err(|e| format!("cache read: {e}"))?;
+        return Ok(Cached {
+            c_src,
+            hit: true,
+            dir,
+        });
     }
     let c_src = render()?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("cache mkdir: {e}"))?;
@@ -218,7 +232,11 @@ pub fn cached_c(
         // Lost the race, or a filesystem without rename semantics: fall
         // back to whatever is now committed — never to an error.
         return match std::fs::read_to_string(&c_file) {
-            Ok(c_src) => Ok(Cached { c_src, hit: true, dir }),
+            Ok(c_src) => Ok(Cached {
+                c_src,
+                hit: true,
+                dir,
+            }),
             Err(_) => Err(format!("cache commit: {e}")),
         };
     }
@@ -238,7 +256,11 @@ pub fn cached_c(
     if std::fs::rename(&meta_tmp, &meta).is_err() {
         let _ = std::fs::remove_file(&meta_tmp);
     }
-    Ok(Cached { c_src, hit: false, dir })
+    Ok(Cached {
+        c_src,
+        hit: false,
+        dir,
+    })
 }
 
 /// A temp path in `dir` that no other writer can be using: pid + a
@@ -285,13 +307,22 @@ fn is_valid_exe(p: &Path) -> bool {
 /// disabled (`BASH_O4_NO_EXE_CACHE=1`) or the build/commit fails — the
 /// caller then takes the uncached path (compile to a temp exe and run),
 /// so a cache problem can never fail a run that would otherwise work.
-pub fn cached_exe(dir: &Path, build: impl FnOnce(&Path) -> Result<(), String>) -> Result<ExeHit, String> {
-    if std::env::var("BASH_O4_NO_EXE_CACHE").map(|v| v == "1").unwrap_or(false) {
+pub fn cached_exe(
+    dir: &Path,
+    build: impl FnOnce(&Path) -> Result<(), String>,
+) -> Result<ExeHit, String> {
+    if std::env::var("BASH_O4_NO_EXE_CACHE")
+        .map(|v| v == "1")
+        .unwrap_or(false)
+    {
         return Err("exe cache disabled".into());
     }
     let exe = dir.join("prog.exe");
     if is_valid_exe(&exe) {
-        return Ok(ExeHit { path: exe, hit: true });
+        return Ok(ExeHit {
+            path: exe,
+            hit: true,
+        });
     }
     let tmp = unique_tmp(dir, "prog.exe");
     build(&tmp)?;
@@ -303,11 +334,17 @@ pub fn cached_exe(dir: &Path, build: impl FnOnce(&Path) -> Result<(), String>) -
         let _ = std::fs::remove_file(&tmp);
         // Lost the race: serve the winner's bytes when valid.
         if is_valid_exe(&exe) {
-            return Ok(ExeHit { path: exe, hit: true });
+            return Ok(ExeHit {
+                path: exe,
+                hit: true,
+            });
         }
         return Err(format!("exe cache commit: {e}"));
     }
-    Ok(ExeHit { path: exe, hit: false })
+    Ok(ExeHit {
+        path: exe,
+        hit: false,
+    })
 }
 
 #[cfg(test)]
@@ -330,8 +367,7 @@ mod tests {
             hs.push(std::thread::spawn(move || {
                 // Distinct render bodies would be a key collision; all 16
                 // threads share one key on purpose, so they race.
-                cached_c(&root, "deadbeef", "shir", || Ok(want.to_string()))
-                    .map(|c| c.c_src)
+                cached_c(&root, "deadbeef", "shir", || Ok(want.to_string())).map(|c| c.c_src)
             }));
         }
         for h in hs {
@@ -339,10 +375,8 @@ mod tests {
             assert_eq!(got.expect("cached_c must never fail on a race"), want);
         }
         // And a subsequent read is a clean hit with identical bytes.
-        let again = cached_c(&root, "deadbeef", "shir", || {
-            panic!("must be a cache hit")
-        })
-        .expect("hit");
+        let again =
+            cached_c(&root, "deadbeef", "shir", || panic!("must be a cache hit")).expect("hit");
         assert!(again.hit);
         assert_eq!(again.c_src, want);
         let _ = std::fs::remove_dir_all(&root);

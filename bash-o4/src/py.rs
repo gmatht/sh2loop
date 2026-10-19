@@ -12,7 +12,6 @@
 //! python-O4 calls on its candidacy view. This module owns only the
 //! frontend invocation and the cast-stripped i64 candidacy view.
 
-
 /// Locate the py-sh-go frontend binary.
 /// Precedence: `$PY_SH_GO` → workspace root's `frontends/py-sh-go/py-sh-go`
 /// (found exe-relative / via `$BASH_O4_SH2PERL`).
@@ -59,9 +58,11 @@ pub fn find_frontend() -> Result<std::path::PathBuf, String> {
             dir = d.parent().map(|p| p.to_path_buf());
         }
     }
-    Err("cannot locate the py-sh-go frontend (set $PY_SH_GO, or build it: \
+    Err(
+        "cannot locate the py-sh-go frontend (set $PY_SH_GO, or build it: \
          make -C sh2perl/frontends/py-sh-go)"
-        .to_string())
+            .to_string(),
+    )
 }
 
 /// Run the frontend on `path` and return its A1 shIR JSON.
@@ -194,10 +195,8 @@ mod tests {
     /// A mod-bounded accumulator must remain native.
     #[test]
     fn unbounded_loop_accumulator_is_exact_bounded_stays_native() {
-        let fac = a1_for_source(
-            "f = 1\nfor i in range(1, 30):\n    f = f * i\nprint(f)\n",
-        )
-        .expect("frontend");
+        let fac = a1_for_source("f = 1\nfor i in range(1, 30):\n    f = f * i\nprint(f)\n")
+            .expect("frontend");
         assert!(
             fac.contains("\"Int64\""),
             "unbounded loop accumulator was narrowed to i64:\n{fac}"
@@ -288,7 +287,8 @@ mod tests {
 
         #[test]
         fn map_fill_is_map_candidate() {
-            let (m, _, _) = cand("N = 100\na = []\nfor i in range(N):\n    a[i] = i * i\nprint(a[3])\n");
+            let (m, _, _) =
+                cand("N = 100\na = []\nfor i in range(N):\n    a[i] = i * i\nprint(a[3])\n");
             assert!(m, "indexed fill must be a map candidate");
         }
 
@@ -329,7 +329,11 @@ mod tests {
                 "pow2 floor-mod must mask, got {:?}",
                 spec.op
             );
-            assert_eq!(spec.arrays, vec!["a".to_string()], "must read the map array");
+            assert_eq!(
+                spec.arrays,
+                vec!["a".to_string()],
+                "must read the map array"
+            );
         }
 
         #[test]
@@ -341,7 +345,11 @@ mod tests {
                 .into_iter()
                 .find_map(|v| v.spec)
                 .expect("reduce spec");
-            assert!(spec.mask_thresh.is_some(), "mask plan must fire: {:?}", spec.mask_thresh);
+            assert!(
+                spec.mask_thresh.is_some(),
+                "mask plan must fire: {:?}",
+                spec.mask_thresh
+            );
         }
 
         #[test]
@@ -353,7 +361,11 @@ mod tests {
             let src = "N = 1000\ntotal = 0\nfor k in range(N):\n    v = (k * 37 + 3) % 251\n    s = 0\n    while v > 1:\n        if v % 2 == 0:\n            v = v // 2\n        else:\n            v = 3 * v + 1\n        s = s + 1\n    total = total + s\nprint(total)\n";
             let mut p = prog(src);
             normalize(&mut p);
-            let forinits = p.stmts.iter().filter(|s| matches!(s, IrStmt::ForInit { .. })).count();
+            let forinits = p
+                .stmts
+                .iter()
+                .filter(|s| matches!(s, IrStmt::ForInit { .. }))
+                .count();
             assert_eq!(forinits, 1, "only the outer range loop: {:?}", p.stmts);
             let (_, _, seq) = cand(src);
             assert!(seq, "collatz must remain a sequential-lane candidate");

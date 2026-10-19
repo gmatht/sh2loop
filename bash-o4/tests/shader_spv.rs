@@ -9,7 +9,8 @@
 use bash_o4::{pipeline, shader};
 
 fn squares_prog() -> debashl::ir::IrProgram {
-    let a1 = pipeline::parse_to_shir("#!/bin/bash\nfor ((i=0;i<64;i++)); do a[$i]=$((i*i)); done\n");
+    let a1 =
+        pipeline::parse_to_shir("#!/bin/bash\nfor ((i=0;i<64;i++)); do a[$i]=$((i*i)); done\n");
     pipeline::parse_program(&a1).expect("ingress")
 }
 
@@ -48,9 +49,13 @@ fn spv_compiles_with_magic() {
 #[test]
 fn extern_const_flows_to_in_data() {
     // Outer Int vars read in the body become host-provided slots.
-    let a1 = pipeline::parse_to_shir("#!/bin/bash\nk=5\nfor ((i=0;i<8;i++)); do a[$i]=$((i*k)); done\n");
+    let a1 =
+        pipeline::parse_to_shir("#!/bin/bash\nk=5\nfor ((i=0;i<8;i++)); do a[$i]=$((i*k)); done\n");
     let prog = pipeline::parse_program(&a1).expect("ingress");
     let glsl = shader::emit_shader(&prog, "sh_loop_main_0").expect("emit");
     assert!(glsl.contains("//   in_data[0] = k"), "{glsl}");
-    assert!(glsl.contains("data_a[uint(idx)] = (i_ * in_data[0]);"), "{glsl}");
+    assert!(
+        glsl.contains("data_a[uint(idx)] = (i_ * in_data[0]);"),
+        "{glsl}"
+    );
 }

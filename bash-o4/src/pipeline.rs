@@ -115,7 +115,61 @@ pub fn render_c_with(a1: &str, opt_level: &str, true64: Option<bool>) -> Result<
     if let Some(t) = true64 {
         debashl::shir::set_true64(t);
     }
-    otranspilerl::render(a1, "c")
+    // Worktree-local shIR->shIR speed win (no shared-core edits):
+    // generalise the JS-only `compile()` LICM-lite to the C path.
+    // `shir_passes::loop_opt::hoist_loop_invariants` (leading pure +
+    // invariant run -> loop prologue; renderer-agnostic, fixpoint,
+    // idempotent) runs for JS via `otranspilerl::compile` but nothing
+    // on the C path calls it (`ingest` runs restructure/strip/fold only;
+    // the older `hoist-loop-invariants` registry transform fires only on
+    // top-level loops, missing the function-internal `rb_tri` x/y nest
+    // where the game burns per-pixel slot-loads). Run it here on the A1
+    // before render. O3/O4 only, so Og/O0 stay byte-identical to the CLI
+    // (the `emit_c_matches_otranspilerl_cli` contract); `SH2_NO_LOOP_OPT=1`
+    // kills it (validation, like `SH2_NO_INT_ELEM=1`); ingress failure
+    // falls back to the unmodified A1 so a transform problem can never
+    // fail a render that would otherwise work.
+    let hoisted: Option<String> = if (opt_level == "O3" || opt_level == "O4")
+        && std::env::var("SH2_NO_LOOP_OPT").as_deref() != Ok("1")
+    {
+        match debashl::shir_json_in::shir_json_to_ir(a1) {
+            Ok(mut prog) => {
+                let hoisted = debashl::shir_passes::loop_opt::hoist_loop_invariants(&mut prog);
+                // Scalar copy-cycle Int seeding (worktree-local): vars
+                // whose assigns are all int-valued under transparent-copy
+                // semantics (the rb_tri swap cycle rbt_x1=$rbt_x2/$rbt_t,
+                // the loop bounds, the shade, the fragment bridge) home as
+                // `long long` so the per-pixel nest does direct integer
+                // loads instead of snprintf/strdup/atoll per access. Only
+                // proposes (demote_stringy_ints re-validates at C ingest),
+                // same O3/O4 gate and graceful-degradation contract as the
+                // hoist above.
+                let seeded = crate::int_cycles::seed_int_cycles(&mut prog);
+                // Trivial word-split elimination (shared shIR→shIR,
+                // `shir_passes::split_fold`): `split[e] → e` when `e` is
+                // provably IFS-whitespace-free (Int-typed / no-space-
+                // tagged vars, numeric exprs, spaceless literals) and the
+                // program may not set a custom IFS. The C renderer then
+                // reads such args natively through its ordinary arms
+                // instead of stringifying them and parsing the buffer
+                // back (the atoll round trips in value_ll). Off with
+                // SH2_NO_SPLIT_FOLD=1 (validation, like the hoist's
+                // SH2_NO_LOOP_OPT), same graceful-degradation contract.
+                let folded = std::env::var("SH2_NO_SPLIT_FOLD").as_deref() != Ok("1")
+                    && debashl::shir_passes::split_fold::fold_trivial_splits(&mut prog);
+                if hoisted || seeded || folded {
+                    Some(debashl::shir_json::shir_to_shir_json(&prog))
+                } else {
+                    None
+                }
+            }
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+    let a1_ref = hoisted.as_deref().unwrap_or(a1);
+    otranspilerl::render(a1_ref, "c")
 }
 
 /// Full M1 codegen: file → C source. Returns (a1_json, c_source).

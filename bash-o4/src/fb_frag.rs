@@ -400,9 +400,7 @@ fn fb_call_verb(cmd: &str) -> Option<&'static str> {
 fn find_device_write_stmt(st: &IrStmt, verb: &str) -> Option<String> {
     match st {
         IrStmt::Ext(n) if n.tag() == "GpuOp" => {
-            let op = n
-                .as_any()
-                .downcast_ref::<debashl::shir_nodes::GpuOp>()?;
+            let op = n.as_any().downcast_ref::<debashl::shir_nodes::GpuOp>()?;
             if (op.device == "/dev/fb0" || op.device == "/dev/webgl") && op.verb == verb {
                 return Some(op.id.clone());
             }
@@ -424,16 +422,21 @@ fn find_device_write_stmt(st: &IrStmt, verb: &str) -> Option<String> {
         | IrStmt::ForInit { body: b, .. }
         | IrStmt::DoWhile { body: b, .. } => find_device_write(b, verb),
         IrStmt::Subshell(b) | IrStmt::Background(b) => find_device_write(b, verb),
-        IrStmt::If { then: b, elsifs, else_, .. } => {
-            find_device_write(b, verb).or_else(|| {
+        IrStmt::If {
+            then: b,
+            elsifs,
+            else_,
+            ..
+        } => find_device_write(b, verb)
+            .or_else(|| {
                 elsifs
                     .iter()
                     .find_map(|(_, eb)| find_device_write(eb, verb))
-            }).or_else(|| find_device_write(else_, verb))
-        }
-        IrStmt::Pipeline { stages, .. } => {
-            stages.iter().find_map(|stage| find_device_write(stage, verb))
-        }
+            })
+            .or_else(|| find_device_write(else_, verb)),
+        IrStmt::Pipeline { stages, .. } => stages
+            .iter()
+            .find_map(|stage| find_device_write(stage, verb)),
         _ => None,
     }
 }
@@ -522,7 +525,10 @@ mod tests {
         assert!(f.contains("450"), "vignette threshold");
         assert!(f.contains("gl_FragCoord"), "pixel coords");
         assert!(f.contains("0xFFu"), "pack parity mask");
-        assert!(f.contains("layout(location = 0) out vec4 o"), "color output");
+        assert!(
+            f.contains("layout(location = 0) out vec4 o"),
+            "color output"
+        );
     }
 
     #[test]
@@ -564,15 +570,18 @@ mod tests {
     #[test]
     fn emit_finds_gpu_op_and_call_spellings() {
         // GpuOp spelling (echo … > /dev/fb0/blocks, pre-calls-transform)
-        let (v, f) = emit_fb_shader(&gpu_op_prog("/dev/fb0", "blocks"), "blocks")
-            .expect("blocks must emit");
+        let (v, f) =
+            emit_fb_shader(&gpu_op_prog("/dev/fb0", "blocks"), "blocks").expect("blocks must emit");
         assert!(v.contains("gl_InstanceIndex") && f.contains("sampler2DArray"));
         // fb_* call spelling (post-calls-transform IR)
         let mut prog = gpu_op_prog("/dev/fb0", "overlay");
         prog.stmts = vec![IrStmt::Expr(IrExpr::Call {
             func: "exec".to_string(),
             args: vec![
-                IrExpr::Str("fb_overlay".to_string(), debashl::ir::StrStyle::DoubleQuoted),
+                IrExpr::Str(
+                    "fb_overlay".to_string(),
+                    debashl::ir::StrStyle::DoubleQuoted,
+                ),
                 IrExpr::Array(vec![IrExpr::Str(
                     "x".to_string(),
                     debashl::ir::StrStyle::DoubleQuoted,
@@ -602,9 +611,7 @@ mod tests {
 
     #[test]
     fn spirv_validates_when_toolchain_present() {
-        let Some(cc) = crate::shader::find_spirv_compiler(
-            &crate::cache::cache_root(None),
-        ) else {
+        let Some(cc) = crate::shader::find_spirv_compiler(&crate::cache::cache_root(None)) else {
             eprintln!("SKIP: no SPIR-V compiler; GLSL structure asserted above");
             return;
         };
@@ -616,8 +623,7 @@ mod tests {
             (overlay_vertex(), "vert"),
             (overlay_fragment(), "frag"),
         ] {
-            let spv =
-                compile_stage(&cc, &src, &dir, ext).expect("emitted GLSL must compile");
+            let spv = compile_stage(&cc, &src, &dir, ext).expect("emitted GLSL must compile");
             assert!(spv.len() > 4, "empty SPIR-V for {ext}");
             assert_eq!(
                 &spv[..4],

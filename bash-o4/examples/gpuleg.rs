@@ -94,7 +94,8 @@ fn main() {
         PartialsSumMod,
         PartialsSumRaw,
     }
-    let (spv, groups, out_lens, finish): (Vec<u8>, u32, Vec<usize>, Finish) = match problem.as_str() {
+    let (spv, groups, out_lens, finish): (Vec<u8>, u32, Vec<usize>, Finish) = match problem.as_str()
+    {
         "squares-map" => {
             // Fused: identical math to sumred (per-lane masked squares
             // accumulate + tree). Full readback would move 800MB for an
@@ -131,9 +132,7 @@ fn main() {
     let mut ts = Vec::new();
     for _ in 0..runs {
         let t = std::time::Instant::now();
-        let out = runner
-            .run(&spv, None, &out_lens, groups)
-            .expect("dispatch");
+        let out = runner.run(&spv, None, &out_lens, groups).expect("dispatch");
         let _ = finish_all(&finish, &out);
         ts.push(t.elapsed().as_secs_f64() * 1000.0);
     }

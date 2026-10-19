@@ -251,7 +251,10 @@ pub fn run(args: &[String]) -> i32 {
         }
     };
     let (a1, shir_hit) = crate::pipeline::parse_to_shir_cached(&src, &cache_root);
-    verbose(&o, &format!("shir cache {}", if shir_hit { "hit" } else { "miss" }));
+    verbose(
+        &o,
+        &format!("shir cache {}", if shir_hit { "hit" } else { "miss" }),
+    );
     if o.common.dump_shir {
         println!("{a1}");
         return 0;
@@ -281,7 +284,13 @@ pub fn run(args: &[String]) -> i32 {
         };
         // The shell front end emits no `Cast` markers, so the flat view the
         // mask plan wants is the same program (see `cu_run::run`).
-        match crate::cu_run::run(&prog_ir, &prog_ir, o.common.n, &o.common.binds, o.common.runs) {
+        match crate::cu_run::run(
+            &prog_ir,
+            &prog_ir,
+            o.common.n,
+            &o.common.binds,
+            o.common.runs,
+        ) {
             Ok((ms, checksum)) => {
                 println!("{ms:.3} {checksum}");
                 return 0;
@@ -310,7 +319,22 @@ pub fn run(args: &[String]) -> i32 {
         Some(false) => "t64=0",
         None => "t64=env",
     };
-    let opts_key = format!("opt={} {t64key} gpu={:?}", o.common.opt_level, o.common.gpu);
+    let mut opts_key = format!("opt={} {t64key} gpu={:?}", o.common.opt_level, o.common.gpu);
+    // The SH2_* validation switches change the render (they disable
+    // pre-render passes / renderer arms), so they MUST bust the artifact
+    // cache — otherwise a `SH2_NO_SPLIT_FOLD=1` "baseline" run is served
+    // from the cache the optimized run just wrote and the A/B silently
+    // compares the optimized emission with itself.
+    for v in [
+        "SH2_NO_SPLIT_FOLD",
+        "SH2_NO_LOOP_OPT",
+        "SH2_NO_INT_ELEM",
+        "SH2_TRUE64",
+    ] {
+        if let Ok(x) = std::env::var(v) {
+            opts_key.push_str(&format!(" {v}={x}"));
+        }
+    }
     let key = crate::cache::artifact_key(&a1, &opts_key, &tc_id);
     let opt_level = o.common.opt_level.clone();
     let true64 = o.common.true64;
@@ -323,7 +347,10 @@ pub fn run(args: &[String]) -> i32 {
             return 1;
         }
     };
-    verbose(&o, &format!("cache {} {}", if cached.hit { "hit" } else { "miss" }, key));
+    verbose(
+        &o,
+        &format!("cache {} {}", if cached.hit { "hit" } else { "miss" }, key),
+    );
     let c_file = cached.dir.join("prog.c");
 
     if o.common.emit_c {
@@ -343,7 +370,10 @@ pub fn run(args: &[String]) -> i32 {
             crate::tcc::build_aot(&tc, &c_file, dst, &cached.c_src, &cache_root).map(|_| ())
         }) {
             Ok(hit) => {
-                verbose(&o, &format!("exe cache {}", if hit.hit { "hit" } else { "miss" }));
+                verbose(
+                    &o,
+                    &format!("exe cache {}", if hit.hit { "hit" } else { "miss" }),
+                );
                 match std::fs::copy(&hit.path, &out)
                     .map_err(|e| format!("copy cached exe: {e}"))
                     .and_then(|_| chmod_x(&out))
@@ -370,14 +400,24 @@ pub fn run(args: &[String]) -> i32 {
         // so it is the one mode where a device path it opens has to name
         // something. Best-effort — a program that never touches the path
         // must not fail because `/dev` is not writable.
-        if let Err(e) = publish_fb0_for_run() {
-            verbose(&o, &format!("fb0 node not published ({e})"));
-        }
+        // The node handle is held in this scope (across the exec below)
+        // so the path keeps the same inode for the whole run; it drops
+        // (no leak) when this function returns.
+        let _fb0_node = match publish_fb0_for_run() {
+            Ok(node) => Some(node),
+            Err(e) => {
+                verbose(&o, &format!("fb0 node not published ({e})"));
+                None
+            }
+        };
         match crate::cache::cached_exe(&cached.dir, |dst| {
             crate::tcc::build_aot(&tc, &c_file, dst, &cached.c_src, &cache_root).map(|_| ())
         }) {
             Ok(hit) => {
-                verbose(&o, &format!("exe cache {}", if hit.hit { "hit" } else { "miss" }));
+                verbose(
+                    &o,
+                    &format!("exe cache {}", if hit.hit { "hit" } else { "miss" }),
+                );
                 match crate::tcc::exec_compiled(&hit.path, &prog_path, &o.common.prog_args) {
                     Ok(rc) => rc,
                     Err(e) => {
@@ -386,7 +426,14 @@ pub fn run(args: &[String]) -> i32 {
                     }
                 }
             }
-            Err(_) => match crate::tcc::run_jit(&tc, &c_file, &cached.c_src, &prog_path, &o.common.prog_args, &cache_root) {
+            Err(_) => match crate::tcc::run_jit(
+                &tc,
+                &c_file,
+                &cached.c_src,
+                &prog_path,
+                &o.common.prog_args,
+                &cache_root,
+            ) {
                 Ok(rc) => rc,
                 Err(e) => {
                     eprintln!("bash-O4: {e}");
@@ -456,7 +503,8 @@ fn fb_proof_ppm(w: u32, h: u32) -> Result<Vec<u8>, String> {
     let bv = crate::fb_frag::compile_stage(&cc, &crate::fb_frag::blocks_vertex(), &dir, "vert")?;
     let bf = crate::fb_frag::compile_stage(&cc, &crate::fb_frag::blocks_fragment(), &dir, "frag")?;
     let ov = crate::fb_frag::compile_stage(&cc, &crate::fb_frag::overlay_vertex(), &dir, "vert")?;
-    let of_ = crate::fb_frag::compile_stage(&cc, &crate::fb_frag::overlay_fragment(), &dir, "frag")?;
+    let of_ =
+        crate::fb_frag::compile_stage(&cc, &crate::fb_frag::overlay_fragment(), &dir, "frag")?;
     let mut runner = crate::fb_draw::RasterRunner::new(w, h)?;
     // Grey atlas (128 — tint identity) + crack layer 9, same as the test.
     let mut atlas = Vec::new();
@@ -621,18 +669,13 @@ fn cmd_publish_fb0(arg: &str) -> i32 {
 /// anything that is not a regular file: on a box with a real `/dev/fb0` that
 /// node is the display, and it is the thing this emulation exists to be
 /// compatible with.
-fn publish_fb0_for_run() -> Result<(), String> {
+///
+/// The returned handle is held by the caller across the run (so the path
+/// keeps the same inode while the child executes) and drops normally at
+/// scope end — no `Box::leak`, no `OnceLock`, no process-lifetime leak.
+fn publish_fb0_for_run() -> Result<crate::fbnode::Node, String> {
     let path = crate::fbnode::path_from_env();
-    let node = crate::fbnode::publish(&path)?;
-    // One node per process, for the process's lifetime: the handle must
-    // outlive this call, and the node is a single file rather than the
-    // per-verb read ends an earlier design needed. `Box::leak` is the honest
-    // spelling — the alternative is a `OnceLock` whose destructor runs at
-    // exit, which is the one moment where dropping it is harmless but the
-    // type then misstates how long the node is readable.
-    let leaked: &'static crate::fbnode::Node = Box::leak(Box::new(node));
-    let _ = leaked;
-    Ok(())
+    crate::fbnode::publish(&path)
 }
 
 /// `--check`: candidacy verdicts over the typed program.
@@ -747,10 +790,9 @@ fn cmd_emit_fb_shader(o: &Options, prog: &debashl::ir::IrProgram, id: &str) -> i
                 let _ = std::fs::create_dir_all(&dir);
                 for (src, ext) in [(&vertex, "vert"), (&fragment, "frag")] {
                     match crate::fb_frag::compile_stage(&cc, src, &dir, ext) {
-                        Ok(spv) => verbose(
-                            o,
-                            &format!("shader {id}.{ext}: SPIR-V {} bytes", spv.len()),
-                        ),
+                        Ok(spv) => {
+                            verbose(o, &format!("shader {id}.{ext}: SPIR-V {} bytes", spv.len()))
+                        }
                         Err(e) => verbose(o, &format!("shader {id}.{ext}: SPIR-V check: {e}")),
                     }
                 }
@@ -775,9 +817,7 @@ fn fetch_policy(o: &Options) -> FetchPolicy {
     if let Some(f) = o.fetch_libs.clone() {
         return FetchPolicy::parse(&f);
     }
-    FetchPolicy::parse(
-        &std::env::var("BASH_O4_FETCH_LIBS").unwrap_or_else(|_| "ask".to_string()),
-    )
+    FetchPolicy::parse(&std::env::var("BASH_O4_FETCH_LIBS").unwrap_or_else(|_| "ask".to_string()))
 }
 
 #[cfg(test)]
@@ -795,14 +835,17 @@ mod tests {
         let o = parse_args(&["-o".into(), "a".into(), "p.sh".into()]).unwrap();
         assert_eq!(o.common.out_exe.as_deref(), Some("a"));
         assert_eq!(o.common.prog.as_deref(), Some("p.sh"));
-        let o = parse_args(&["--gpu=force".into(), "p.sh".into(), "--".into(), "x".into()])
-            .unwrap();
+        let o =
+            parse_args(&["--gpu=force".into(), "p.sh".into(), "--".into(), "x".into()]).unwrap();
         assert_eq!(o.common.gpu, GpuMode::Force);
         assert_eq!(o.common.prog_args, vec!["x".to_string()]);
         // Bash convention: bare trailing words are program args.
         let o = parse_args(&["p.sh".into(), "a".into(), "--verbose".into()]).unwrap();
         assert_eq!(o.common.prog.as_deref(), Some("p.sh"));
-        assert_eq!(o.common.prog_args, vec!["a".to_string(), "--verbose".to_string()]);
+        assert_eq!(
+            o.common.prog_args,
+            vec!["a".to_string(), "--verbose".to_string()]
+        );
         assert!(!o.common.verbose);
         // Double dash after program: first eaten, second is data.
         let o = parse_args(&["p.sh".into(), "--".into(), "--".into()]).unwrap();

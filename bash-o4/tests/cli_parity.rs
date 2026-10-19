@@ -32,7 +32,11 @@ fn write_script(dir: &std::path::Path, body: &str) -> PathBuf {
 }
 
 fn bash_ref(script: &std::path::Path, args: &[&str]) -> (String, i32) {
-    let out = Command::new("bash").arg(script).args(args).output().unwrap();
+    let out = Command::new("bash")
+        .arg(script)
+        .args(args)
+        .output()
+        .unwrap();
     (
         String::from_utf8_lossy(&out.stdout).into_owned(),
         out.status.code().unwrap_or(1),
@@ -147,7 +151,13 @@ fn cache_hit_on_second_run() {
     let d = tmpdir("e");
     let cache = d.join("cache");
     let s = write_script(&d, "#!/bin/bash\necho cached\n");
-    let args = |c: &str| vec!["--verbose".to_string(), "--cache-dir".to_string(), c.to_string()];
+    let args = |c: &str| {
+        vec![
+            "--verbose".to_string(),
+            "--cache-dir".to_string(),
+            c.to_string(),
+        ]
+    };
     let a1: Vec<String> = args(cache.to_str().unwrap());
     let a1r: Vec<&str> = a1.iter().map(|s| s.as_str()).collect();
     let (_o1, e1, rc1) = run_bo4(&s, &a1r, &[]);
@@ -161,7 +171,7 @@ fn cache_hit_on_second_run() {
 
 #[test]
 fn usage_and_force_codes() {
-    let ( _o, _e, rc) = run_bo4(PathBuf::from("/nonexistent.sh").as_path(), &[], &[]);
+    let (_o, _e, rc) = run_bo4(PathBuf::from("/nonexistent.sh").as_path(), &[], &[]);
     assert_eq!(rc, 1);
     let d = tmpdir("f");
     let s = write_script(&d, "#!/bin/bash\necho x\n");

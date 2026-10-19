@@ -36,9 +36,9 @@ use std::ffi::{c_void, CString};
 use std::ptr;
 
 use crate::vkffi::{
-    self, OpenDevice, VkBuffer, VkCommandBuffer, VkCommandPool, VkDescriptorPool,
-    VkDescriptorSet, VkDescriptorSetLayout, VkDevice, VkDeviceMemory, VkFence,
-    VkPipeline, VkPipelineLayout, VkQueue, VkResult, VkShaderModule, VkShaderModuleCreateInfo,
+    self, OpenDevice, VkBuffer, VkCommandBuffer, VkCommandPool, VkDescriptorPool, VkDescriptorSet,
+    VkDescriptorSetLayout, VkDevice, VkDeviceMemory, VkFence, VkPipeline, VkPipelineLayout,
+    VkQueue, VkResult, VkShaderModule, VkShaderModuleCreateInfo,
 };
 
 // ---- local handles ----------------------------------------------------
@@ -551,56 +551,179 @@ fn vk_ok(what: &str, rc: VkResult) -> Result<(), String> {
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
 struct GfxFns {
-    create_shader_module: unsafe extern "C" fn(VkDevice, *const VkShaderModuleCreateInfo, *const c_void, *mut VkShaderModule) -> VkResult,
+    create_shader_module: unsafe extern "C" fn(
+        VkDevice,
+        *const VkShaderModuleCreateInfo,
+        *const c_void,
+        *mut VkShaderModule,
+    ) -> VkResult,
     destroy_shader_module: unsafe extern "C" fn(VkDevice, VkShaderModule, *const c_void) -> (),
-    create_descriptor_set_layout: unsafe extern "C" fn(VkDevice, *const vkffi::VkSetLayoutCreateInfo, *const c_void, *mut VkDescriptorSetLayout) -> VkResult,
-    destroy_descriptor_set_layout: unsafe extern "C" fn(VkDevice, VkDescriptorSetLayout, *const c_void) -> (),
-    create_pipeline_layout: unsafe extern "C" fn(VkDevice, *const vkffi::VkPipelineLayoutCreateInfo, *const c_void, *mut VkPipelineLayout) -> VkResult,
+    create_descriptor_set_layout: unsafe extern "C" fn(
+        VkDevice,
+        *const vkffi::VkSetLayoutCreateInfo,
+        *const c_void,
+        *mut VkDescriptorSetLayout,
+    ) -> VkResult,
+    destroy_descriptor_set_layout:
+        unsafe extern "C" fn(VkDevice, VkDescriptorSetLayout, *const c_void) -> (),
+    create_pipeline_layout: unsafe extern "C" fn(
+        VkDevice,
+        *const vkffi::VkPipelineLayoutCreateInfo,
+        *const c_void,
+        *mut VkPipelineLayout,
+    ) -> VkResult,
     destroy_pipeline_layout: unsafe extern "C" fn(VkDevice, VkPipelineLayout, *const c_void) -> (),
-    create_graphics_pipelines: unsafe extern "C" fn(VkDevice, VkPipeline, u32, *const VkGraphicsPipelineCreateInfo, *const c_void, *mut VkPipeline) -> VkResult,
+    create_graphics_pipelines: unsafe extern "C" fn(
+        VkDevice,
+        VkPipeline,
+        u32,
+        *const VkGraphicsPipelineCreateInfo,
+        *const c_void,
+        *mut VkPipeline,
+    ) -> VkResult,
     destroy_pipeline: unsafe extern "C" fn(VkDevice, VkPipeline, *const c_void) -> (),
-    create_render_pass: unsafe extern "C" fn(VkDevice, *const VkRenderPassCreateInfo, *const c_void, *mut VkRenderPass) -> VkResult,
+    create_render_pass: unsafe extern "C" fn(
+        VkDevice,
+        *const VkRenderPassCreateInfo,
+        *const c_void,
+        *mut VkRenderPass,
+    ) -> VkResult,
     destroy_render_pass: unsafe extern "C" fn(VkDevice, VkRenderPass, *const c_void) -> (),
-    create_framebuffer: unsafe extern "C" fn(VkDevice, *const VkFramebufferCreateInfo, *const c_void, *mut VkFramebuffer) -> VkResult,
+    create_framebuffer: unsafe extern "C" fn(
+        VkDevice,
+        *const VkFramebufferCreateInfo,
+        *const c_void,
+        *mut VkFramebuffer,
+    ) -> VkResult,
     destroy_framebuffer: unsafe extern "C" fn(VkDevice, VkFramebuffer, *const c_void) -> (),
-    create_image: unsafe extern "C" fn(VkDevice, *const VkImageCreateInfo, *const c_void, *mut VkImage) -> VkResult,
+    create_image: unsafe extern "C" fn(
+        VkDevice,
+        *const VkImageCreateInfo,
+        *const c_void,
+        *mut VkImage,
+    ) -> VkResult,
     destroy_image: unsafe extern "C" fn(VkDevice, VkImage, *const c_void) -> (),
-    get_image_memory_requirements: unsafe extern "C" fn(VkDevice, VkImage, *mut vkffi::VkMemoryReq) -> (),
-    create_image_view: unsafe extern "C" fn(VkDevice, *const VkImageViewCreateInfo, *const c_void, *mut VkImageView) -> VkResult,
+    get_image_memory_requirements:
+        unsafe extern "C" fn(VkDevice, VkImage, *mut vkffi::VkMemoryReq) -> (),
+    create_image_view: unsafe extern "C" fn(
+        VkDevice,
+        *const VkImageViewCreateInfo,
+        *const c_void,
+        *mut VkImageView,
+    ) -> VkResult,
     destroy_image_view: unsafe extern "C" fn(VkDevice, VkImageView, *const c_void) -> (),
-    create_sampler: unsafe extern "C" fn(VkDevice, *const VkSamplerCreateInfo, *const c_void, *mut VkSampler) -> VkResult,
+    create_sampler: unsafe extern "C" fn(
+        VkDevice,
+        *const VkSamplerCreateInfo,
+        *const c_void,
+        *mut VkSampler,
+    ) -> VkResult,
     destroy_sampler: unsafe extern "C" fn(VkDevice, VkSampler, *const c_void) -> (),
-    create_buffer: unsafe extern "C" fn(VkDevice, *const vkffi::VkBufferCreateInfo, *const c_void, *mut VkBuffer) -> VkResult,
-    get_buffer_memory_requirements: unsafe extern "C" fn(VkDevice, VkBuffer, *mut vkffi::VkMemoryReq) -> (),
-    allocate_memory: unsafe extern "C" fn(VkDevice, *const vkffi::VkMemoryAllocInfo, *const c_void, *mut VkDeviceMemory) -> VkResult,
+    create_buffer: unsafe extern "C" fn(
+        VkDevice,
+        *const vkffi::VkBufferCreateInfo,
+        *const c_void,
+        *mut VkBuffer,
+    ) -> VkResult,
+    get_buffer_memory_requirements:
+        unsafe extern "C" fn(VkDevice, VkBuffer, *mut vkffi::VkMemoryReq) -> (),
+    allocate_memory: unsafe extern "C" fn(
+        VkDevice,
+        *const vkffi::VkMemoryAllocInfo,
+        *const c_void,
+        *mut VkDeviceMemory,
+    ) -> VkResult,
     bind_buffer_memory: unsafe extern "C" fn(VkDevice, VkBuffer, VkDeviceMemory, u64) -> VkResult,
     bind_image_memory: unsafe extern "C" fn(VkDevice, VkImage, VkDeviceMemory, u64) -> VkResult,
-    map_memory: unsafe extern "C" fn(VkDevice, VkDeviceMemory, u64, u64, u32, *mut *mut c_void) -> VkResult,
+    map_memory:
+        unsafe extern "C" fn(VkDevice, VkDeviceMemory, u64, u64, u32, *mut *mut c_void) -> VkResult,
     unmap_memory: unsafe extern "C" fn(VkDevice, VkDeviceMemory) -> (),
     free_memory: unsafe extern "C" fn(VkDevice, VkDeviceMemory, *const c_void) -> (),
     destroy_buffer: unsafe extern "C" fn(VkDevice, VkBuffer, *const c_void) -> (),
-    create_descriptor_pool: unsafe extern "C" fn(VkDevice, *const vkffi::VkPoolCreateInfo, *const c_void, *mut VkDescriptorPool) -> VkResult,
+    create_descriptor_pool: unsafe extern "C" fn(
+        VkDevice,
+        *const vkffi::VkPoolCreateInfo,
+        *const c_void,
+        *mut VkDescriptorPool,
+    ) -> VkResult,
     destroy_descriptor_pool: unsafe extern "C" fn(VkDevice, VkDescriptorPool, *const c_void) -> (),
-    allocate_descriptor_sets: unsafe extern "C" fn(VkDevice, *const vkffi::VkSetAllocInfo, *mut VkDescriptorSet) -> VkResult,
-    update_descriptor_sets: unsafe extern "C" fn(VkDevice, u32, *const vkffi::VkWriteSet, u32, *const c_void) -> (),
-    create_command_pool: unsafe extern "C" fn(VkDevice, *const vkffi::VkCmdPoolCreateInfo, *const c_void, *mut VkCommandPool) -> VkResult,
+    allocate_descriptor_sets: unsafe extern "C" fn(
+        VkDevice,
+        *const vkffi::VkSetAllocInfo,
+        *mut VkDescriptorSet,
+    ) -> VkResult,
+    update_descriptor_sets:
+        unsafe extern "C" fn(VkDevice, u32, *const vkffi::VkWriteSet, u32, *const c_void) -> (),
+    create_command_pool: unsafe extern "C" fn(
+        VkDevice,
+        *const vkffi::VkCmdPoolCreateInfo,
+        *const c_void,
+        *mut VkCommandPool,
+    ) -> VkResult,
     destroy_command_pool: unsafe extern "C" fn(VkDevice, VkCommandPool, *const c_void) -> (),
-    allocate_command_buffers: unsafe extern "C" fn(VkDevice, *const vkffi::VkCmdAllocInfo, *mut VkCommandBuffer) -> VkResult,
-    begin_command_buffer: unsafe extern "C" fn(VkCommandBuffer, *const vkffi::VkCmdBeginInfo) -> VkResult,
-    cmd_begin_render_pass: unsafe extern "C" fn(VkCommandBuffer, *const VkRenderPassBeginInfo, u32) -> (),
+    allocate_command_buffers: unsafe extern "C" fn(
+        VkDevice,
+        *const vkffi::VkCmdAllocInfo,
+        *mut VkCommandBuffer,
+    ) -> VkResult,
+    begin_command_buffer:
+        unsafe extern "C" fn(VkCommandBuffer, *const vkffi::VkCmdBeginInfo) -> VkResult,
+    cmd_begin_render_pass:
+        unsafe extern "C" fn(VkCommandBuffer, *const VkRenderPassBeginInfo, u32) -> (),
     cmd_end_render_pass: unsafe extern "C" fn(VkCommandBuffer) -> (),
     cmd_bind_pipeline: unsafe extern "C" fn(VkCommandBuffer, u32, VkPipeline) -> (),
-    cmd_bind_descriptor_sets: unsafe extern "C" fn(VkCommandBuffer, u32, VkPipelineLayout, u32, u32, *const VkDescriptorSet, u32, *const u32) -> (),
-    cmd_push_constants: unsafe extern "C" fn(VkCommandBuffer, VkPipelineLayout, u32, u32, u32, *const c_void) -> (),
+    cmd_bind_descriptor_sets: unsafe extern "C" fn(
+        VkCommandBuffer,
+        u32,
+        VkPipelineLayout,
+        u32,
+        u32,
+        *const VkDescriptorSet,
+        u32,
+        *const u32,
+    ) -> (),
+    cmd_push_constants:
+        unsafe extern "C" fn(VkCommandBuffer, VkPipelineLayout, u32, u32, u32, *const c_void) -> (),
     cmd_draw: unsafe extern "C" fn(VkCommandBuffer, u32, u32, u32, u32) -> (),
-    cmd_pipeline_barrier: unsafe extern "C" fn(VkCommandBuffer, u32, u32, u32, u32, *const c_void, u32, *const c_void, u32, *const VkImageBarrier) -> (),
-    cmd_copy_image_to_buffer: unsafe extern "C" fn(VkCommandBuffer, VkImage, u32, VkBuffer, u32, *const VkBufferImageCopy) -> (),
-    cmd_copy_buffer_to_image: unsafe extern "C" fn(VkCommandBuffer, VkBuffer, VkImage, u32, u32, *const VkBufferImageCopy) -> (),
+    cmd_pipeline_barrier: unsafe extern "C" fn(
+        VkCommandBuffer,
+        u32,
+        u32,
+        u32,
+        u32,
+        *const c_void,
+        u32,
+        *const c_void,
+        u32,
+        *const VkImageBarrier,
+    ) -> (),
+    cmd_copy_image_to_buffer: unsafe extern "C" fn(
+        VkCommandBuffer,
+        VkImage,
+        u32,
+        VkBuffer,
+        u32,
+        *const VkBufferImageCopy,
+    ) -> (),
+    cmd_copy_buffer_to_image: unsafe extern "C" fn(
+        VkCommandBuffer,
+        VkBuffer,
+        VkImage,
+        u32,
+        u32,
+        *const VkBufferImageCopy,
+    ) -> (),
     end_command_buffer: unsafe extern "C" fn(VkCommandBuffer) -> VkResult,
     reset_command_buffer: unsafe extern "C" fn(VkCommandBuffer, u32) -> VkResult,
-    create_fence: unsafe extern "C" fn(VkDevice, *const vkffi::VkFenceCreateInfo, *const c_void, *mut VkFence) -> VkResult,
+    create_fence: unsafe extern "C" fn(
+        VkDevice,
+        *const vkffi::VkFenceCreateInfo,
+        *const c_void,
+        *mut VkFence,
+    ) -> VkResult,
     destroy_fence: unsafe extern "C" fn(VkDevice, VkFence, *const c_void) -> (),
-    queue_submit: unsafe extern "C" fn(VkQueue, u32, *const vkffi::VkSubmitInfo, VkFence) -> VkResult,
+    queue_submit:
+        unsafe extern "C" fn(VkQueue, u32, *const vkffi::VkSubmitInfo, VkFence) -> VkResult,
     wait_for_fences: unsafe extern "C" fn(VkDevice, u32, *const VkFence, u32, u64) -> VkResult,
     destroy_device: unsafe extern "C" fn(VkDevice, *const c_void) -> (),
 }
@@ -799,11 +922,8 @@ impl RasterRunner {
             ASPECT_COLOR,
         )?;
         // Depth image: D32, depth-attach.
-        let (depth_img, depth_mem) = self.make_image(
-            FORMAT_D32,
-            USAGE_DEPTH_ATTACH,
-            ASPECT_DEPTH,
-        )?;
+        let (depth_img, depth_mem) =
+            self.make_image(FORMAT_D32, USAGE_DEPTH_ATTACH, ASPECT_DEPTH)?;
         self.color_img = color_img;
         self.color_mem = color_mem;
         self.depth_img = depth_img;
@@ -862,8 +982,14 @@ impl RasterRunner {
             final_layout: LAYOUT_DEPTH_OPTIMAL,
         };
         let atts = [color_att, depth_att];
-        let color_ref = VkAttachmentRef { attachment: 0, layout: LAYOUT_COLOR_OPTIMAL };
-        let depth_ref = VkAttachmentRef { attachment: 1, layout: LAYOUT_DEPTH_OPTIMAL };
+        let color_ref = VkAttachmentRef {
+            attachment: 0,
+            layout: LAYOUT_COLOR_OPTIMAL,
+        };
+        let depth_ref = VkAttachmentRef {
+            attachment: 1,
+            layout: LAYOUT_DEPTH_OPTIMAL,
+        };
         let subpass = VkSubpassDesc {
             flags: 0,
             pipeline_bind_point: BIND_GRAPHICS,
@@ -960,7 +1086,11 @@ impl RasterRunner {
             flags: 0,
             image_type: IMAGE_TYPE_2D,
             format,
-            extent: VkExtent3D { width: self.width, height: self.height, depth: 1 },
+            extent: VkExtent3D {
+                width: self.width,
+                height: self.height,
+                depth: 1,
+            },
             mip_levels: 1,
             array_layers: 1,
             samples: 1,
@@ -1134,7 +1264,11 @@ impl RasterRunner {
             flags: 0,
             image_type: IMAGE_TYPE_2D,
             format: FORMAT_RGBA8,
-            extent: VkExtent3D { width: size, height: size, depth: 1 },
+            extent: VkExtent3D {
+                width: size,
+                height: size,
+                depth: 1,
+            },
             mip_levels: 1,
             array_layers: nlayers,
             samples: 1,
@@ -1189,7 +1323,18 @@ impl RasterRunner {
             subresource_range: range,
         };
         unsafe {
-            (f.cmd_pipeline_barrier)(cmd, STAGE_TOP, STAGE_TRANSFER, 0, 0, ptr::null(), 0, ptr::null(), 1, &to_dst);
+            (f.cmd_pipeline_barrier)(
+                cmd,
+                STAGE_TOP,
+                STAGE_TRANSFER,
+                0,
+                0,
+                ptr::null(),
+                0,
+                ptr::null(),
+                1,
+                &to_dst,
+            );
         }
         let copy = VkBufferImageCopy {
             buffer_offset: 0,
@@ -1202,7 +1347,11 @@ impl RasterRunner {
                 layer_count: nlayers,
             },
             image_offset: VkOffset3D { x: 0, y: 0, z: 0 },
-            image_extent: VkExtent3D { width: size, height: size, depth: 1 },
+            image_extent: VkExtent3D {
+                width: size,
+                height: size,
+                depth: 1,
+            },
         };
         unsafe {
             (f.cmd_copy_buffer_to_image)(cmd, stg_buf, img, LAYOUT_TRANSFER_DST, 1, &copy);
@@ -1220,7 +1369,18 @@ impl RasterRunner {
             subresource_range: range,
         };
         unsafe {
-            (f.cmd_pipeline_barrier)(cmd, STAGE_TRANSFER, STAGE_FRAG_SHADER, 0, 0, ptr::null(), 0, ptr::null(), 1, &to_read);
+            (f.cmd_pipeline_barrier)(
+                cmd,
+                STAGE_TRANSFER,
+                STAGE_FRAG_SHADER,
+                0,
+                0,
+                ptr::null(),
+                0,
+                ptr::null(),
+                1,
+                &to_read,
+            );
         }
         self.submit_transient(pool, cmd)?;
         unsafe { (f.destroy_buffer)(dev, stg_buf, ptr::null()) };
@@ -1232,7 +1392,10 @@ impl RasterRunner {
 
     /// A staging buffer is TRANSFER_SRC + host-visible; the readback
     /// helper makes TRANSFER_DST. Same memory, different usage bit.
-    fn make_readback_buffer_staged(&self, bytes: u64) -> Result<(VkBuffer, VkDeviceMemory), String> {
+    fn make_readback_buffer_staged(
+        &self,
+        bytes: u64,
+    ) -> Result<(VkBuffer, VkDeviceMemory), String> {
         let f = &self.gf;
         let dev = self.dev();
         let bci = vkffi::VkBufferCreateInfo {
@@ -1279,12 +1442,23 @@ impl RasterRunner {
         vk_ok("transient-pool", unsafe {
             (f.create_command_pool)(dev, &cpci, ptr::null(), &mut pool)
         })?;
-        let cai = vkffi::VkCmdAllocInfo { s_type: 40, p_next: ptr::null(), pool, level: 0, count: 1 };
+        let cai = vkffi::VkCmdAllocInfo {
+            s_type: 40,
+            p_next: ptr::null(),
+            pool,
+            level: 0,
+            count: 1,
+        };
         let mut cmd: VkCommandBuffer = ptr::null_mut();
         vk_ok("transient-cmd", unsafe {
             (f.allocate_command_buffers)(dev, &cai, &mut cmd)
         })?;
-        let bi = vkffi::VkCmdBeginInfo { s_type: 42, p_next: ptr::null(), flags: CMD_ONE_TIME, p_inheritance_info: ptr::null() };
+        let bi = vkffi::VkCmdBeginInfo {
+            s_type: 42,
+            p_next: ptr::null(),
+            flags: CMD_ONE_TIME,
+            p_inheritance_info: ptr::null(),
+        };
         vk_ok("transient-begin", unsafe {
             (f.begin_command_buffer)(cmd, &bi)
         })?;
@@ -1295,7 +1469,11 @@ impl RasterRunner {
         let f = &self.gf;
         let dev = self.dev();
         vk_ok("transient-end", unsafe { (f.end_command_buffer)(cmd) })?;
-        let fci = vkffi::VkFenceCreateInfo { s_type: 8, p_next: ptr::null(), flags: 0 };
+        let fci = vkffi::VkFenceCreateInfo {
+            s_type: 8,
+            p_next: ptr::null(),
+            flags: 0,
+        };
         let mut fence: VkFence = 0;
         vk_ok("transient-fence", unsafe {
             (f.create_fence)(dev, &fci, ptr::null(), &mut fence)
@@ -1368,7 +1546,9 @@ impl RasterRunner {
     ) -> Result<CompiledPipe, String> {
         let f = &self.gf;
         let dev = self.dev();
-        let hash = Self::spv_hash(vert_spv).wrapping_mul(31).wrapping_add(Self::spv_hash(frag_spv));
+        let hash = Self::spv_hash(vert_spv)
+            .wrapping_mul(31)
+            .wrapping_add(Self::spv_hash(frag_spv));
         let vert = self.make_module(vert_spv)?;
         let frag = self.make_module(frag_spv)?;
         // Set layout: 0 = SSBO (vertex), 1 = combined sampler (fragment).
@@ -1416,7 +1596,11 @@ impl RasterRunner {
         vk_ok("gfx-set-layout", unsafe {
             (f.create_descriptor_set_layout)(dev, &slci, ptr::null(), &mut set_layout)
         })?;
-        let push = VkPushRange { stage_flags: STAGE_VERTEX | STAGE_FRAGMENT, offset: 0, size: 48 };
+        let push = VkPushRange {
+            stage_flags: STAGE_VERTEX | STAGE_FRAGMENT,
+            offset: 0,
+            size: 48,
+        };
         let plci = vkffi::VkPipelineLayoutCreateInfo {
             s_type: 30,
             p_next: ptr::null(),
@@ -1480,7 +1664,10 @@ impl RasterRunner {
         };
         let sc = VkRect2D {
             offset: VkOffset2D { x: 0, y: 0 },
-            extent: VkExtent2D { width: self.width, height: self.height },
+            extent: VkExtent2D {
+                width: self.width,
+                height: self.height,
+            },
         };
         let vps = VkViewportCreateInfo {
             s_type: STYPE_VIEWPORT_CREATE_INFO,
@@ -1602,8 +1789,14 @@ impl RasterRunner {
         })?;
         // Pool: 1 SSBO + 1 sampler.
         let sizes = [
-            vkffi::VkPoolSize { ty: DESC_STORAGE_BUFFER, count: 2 },
-            vkffi::VkPoolSize { ty: DESC_COMBINED_SAMPLER, count: 1 },
+            vkffi::VkPoolSize {
+                ty: DESC_STORAGE_BUFFER,
+                count: 2,
+            },
+            vkffi::VkPoolSize {
+                ty: DESC_COMBINED_SAMPLER,
+                count: 1,
+            },
         ];
         let poolci = vkffi::VkPoolCreateInfo {
             s_type: 33,
@@ -1628,7 +1821,16 @@ impl RasterRunner {
         vk_ok("gfx-alloc-set", unsafe {
             (f.allocate_descriptor_sets)(dev, &alloc, &mut set)
         })?;
-        Ok(CompiledPipe { hash, vert, frag, set_layout, pipe_layout, pipeline, pool, set })
+        Ok(CompiledPipe {
+            hash,
+            vert,
+            frag,
+            set_layout,
+            pipe_layout,
+            pipeline,
+            pool,
+            set,
+        })
     }
 }
 
@@ -1649,7 +1851,11 @@ impl RasterRunner {
         atlas_view: VkImageView,
     ) -> Result<(), String> {
         let f = &self.gf;
-        let buf_info = vkffi::VkDescriptorBufferInfo { buffer: ssbo, offset: 0, range: ssbo_bytes };
+        let buf_info = vkffi::VkDescriptorBufferInfo {
+            buffer: ssbo,
+            offset: 0,
+            range: ssbo_bytes,
+        };
         let img_info = VkDescriptorImageInfo {
             sampler: self.sampler,
             image_view: atlas_view,
@@ -1684,7 +1890,13 @@ impl RasterRunner {
             },
         ];
         unsafe {
-            (f.update_descriptor_sets)(self.dev(), writes.len() as u32, writes.as_ptr(), 0, ptr::null());
+            (f.update_descriptor_sets)(
+                self.dev(),
+                writes.len() as u32,
+                writes.as_ptr(),
+                0,
+                ptr::null(),
+            );
         }
         Ok(())
     }
@@ -1702,13 +1914,18 @@ impl RasterRunner {
         atlas_view: VkImageView,
     ) -> Result<(), String> {
         if !records.len().is_multiple_of(CUBE_REC_WORDS) {
-            return Err(format!("blocks records {} not a multiple of {CUBE_REC_WORDS}", records.len()));
+            return Err(format!(
+                "blocks records {} not a multiple of {CUBE_REC_WORDS}",
+                records.len()
+            ));
         }
         let n = (records.len() / CUBE_REC_WORDS) as u32;
         if n == 0 {
             return Err("blocks: no records".to_string());
         }
-        let hash = Self::spv_hash(vert_spv).wrapping_mul(31).wrapping_add(Self::spv_hash(frag_spv));
+        let hash = Self::spv_hash(vert_spv)
+            .wrapping_mul(31)
+            .wrapping_add(Self::spv_hash(frag_spv));
         let replace = match &self.blocks_pipe {
             Some(p) => p.hash != hash,
             None => true,
@@ -1746,13 +1963,18 @@ impl RasterRunner {
         atlas_view: VkImageView,
     ) -> Result<(), String> {
         if !records.len().is_multiple_of(OV_REC_WORDS) {
-            return Err(format!("overlay records {} not a multiple of {OV_REC_WORDS}", records.len()));
+            return Err(format!(
+                "overlay records {} not a multiple of {OV_REC_WORDS}",
+                records.len()
+            ));
         }
         let n = (records.len() / OV_REC_WORDS) as u32;
         if n == 0 {
             return Err("overlay: no records".to_string());
         }
-        let hash = Self::spv_hash(vert_spv).wrapping_mul(31).wrapping_add(Self::spv_hash(frag_spv));
+        let hash = Self::spv_hash(vert_spv)
+            .wrapping_mul(31)
+            .wrapping_add(Self::spv_hash(frag_spv));
         let replace = match &self.overlay_pipe {
             Some(p) => p.hash != hash,
             None => true,
@@ -1769,9 +1991,21 @@ impl RasterRunner {
         self.write_bytes(mem, unsafe {
             std::slice::from_raw_parts(records.as_ptr() as *const u8, bytes)
         })?;
-        let pipe_layout = self.overlay_pipe.as_ref().ok_or("overlay pipe missing")?.pipe_layout;
-        let pipe_set = self.overlay_pipe.as_ref().ok_or("overlay pipe missing")?.set;
-        let pipe_handle = self.overlay_pipe.as_ref().ok_or("overlay pipe missing")?.pipeline;
+        let pipe_layout = self
+            .overlay_pipe
+            .as_ref()
+            .ok_or("overlay pipe missing")?
+            .pipe_layout;
+        let pipe_set = self
+            .overlay_pipe
+            .as_ref()
+            .ok_or("overlay pipe missing")?
+            .set;
+        let pipe_handle = self
+            .overlay_pipe
+            .as_ref()
+            .ok_or("overlay pipe missing")?
+            .pipeline;
         self.bind_pipe_descriptors(pipe_set, 2, ssbo, bytes as u64, atlas_view)?;
         self.record_overlay_pass(pipe_handle, pipe_layout, pipe_set, push, n)?;
         let f = &self.gf;
@@ -1788,12 +2022,25 @@ impl RasterRunner {
         n_instances: u32,
     ) -> Result<(), String> {
         let f = &self.gf;
-        vk_ok("reset-cmd", unsafe { (f.reset_command_buffer)(self.cmd, 0) })?;
-        let bi = vkffi::VkCmdBeginInfo { s_type: 42, p_next: ptr::null(), flags: CMD_ONE_TIME, p_inheritance_info: ptr::null() };
-        vk_ok("begin-cmd", unsafe { (f.begin_command_buffer)(self.cmd, &bi) })?;
+        vk_ok("reset-cmd", unsafe {
+            (f.reset_command_buffer)(self.cmd, 0)
+        })?;
+        let bi = vkffi::VkCmdBeginInfo {
+            s_type: 42,
+            p_next: ptr::null(),
+            flags: CMD_ONE_TIME,
+            p_inheritance_info: ptr::null(),
+        };
+        vk_ok("begin-cmd", unsafe {
+            (f.begin_command_buffer)(self.cmd, &bi)
+        })?;
         let clears = [
-            VkClearValue { color: [0.0, 0.0, 0.0, 1.0] },
-            VkClearValue { color: [1.0, 0.0, 0.0, 0.0] }, // depth=1.0 (first float)
+            VkClearValue {
+                color: [0.0, 0.0, 0.0, 1.0],
+            },
+            VkClearValue {
+                color: [1.0, 0.0, 0.0, 0.0],
+            }, // depth=1.0 (first float)
         ];
         let rpbi = VkRenderPassBeginInfo {
             s_type: STYPE_RENDER_PASS_BEGIN_INFO,
@@ -1802,7 +2049,10 @@ impl RasterRunner {
             framebuffer: self.framebuffer,
             render_area: VkRect2D {
                 offset: VkOffset2D { x: 0, y: 0 },
-                extent: VkExtent2D { width: self.width, height: self.height },
+                extent: VkExtent2D {
+                    width: self.width,
+                    height: self.height,
+                },
             },
             clear_value_count: 2,
             p_clear_values: clears.as_ptr(),
@@ -1810,10 +2060,26 @@ impl RasterRunner {
         unsafe { (f.cmd_begin_render_pass)(self.cmd, &rpbi, CONTENTS_INLINE) };
         unsafe { (f.cmd_bind_pipeline)(self.cmd, BIND_GRAPHICS, pipe.pipeline) };
         unsafe {
-            (f.cmd_bind_descriptor_sets)(self.cmd, BIND_GRAPHICS, pipe.pipe_layout, 0, 1, &pipe.set, 0, ptr::null());
+            (f.cmd_bind_descriptor_sets)(
+                self.cmd,
+                BIND_GRAPHICS,
+                pipe.pipe_layout,
+                0,
+                1,
+                &pipe.set,
+                0,
+                ptr::null(),
+            );
         }
         unsafe {
-            (f.cmd_push_constants)(self.cmd, pipe.pipe_layout, STAGE_VERTEX | STAGE_FRAGMENT, 0, 48, push as *const PushConstants as *const c_void);
+            (f.cmd_push_constants)(
+                self.cmd,
+                pipe.pipe_layout,
+                STAGE_VERTEX | STAGE_FRAGMENT,
+                0,
+                48,
+                push as *const PushConstants as *const c_void,
+            );
         }
         unsafe { (f.cmd_draw)(self.cmd, 36, n_instances, 0, 0) };
         unsafe { (f.cmd_end_render_pass)(self.cmd) };
@@ -1896,8 +2162,14 @@ impl RasterRunner {
             final_layout: LAYOUT_DEPTH_OPTIMAL,
         };
         let atts = [color_att, depth_att];
-        let color_ref = VkAttachmentRef { attachment: 0, layout: LAYOUT_COLOR_OPTIMAL };
-        let depth_ref = VkAttachmentRef { attachment: 1, layout: LAYOUT_DEPTH_OPTIMAL };
+        let color_ref = VkAttachmentRef {
+            attachment: 0,
+            layout: LAYOUT_COLOR_OPTIMAL,
+        };
+        let depth_ref = VkAttachmentRef {
+            attachment: 1,
+            layout: LAYOUT_DEPTH_OPTIMAL,
+        };
         let subpass = VkSubpassDesc {
             flags: 0,
             pipeline_bind_point: BIND_GRAPHICS,
@@ -1958,7 +2230,12 @@ impl RasterRunner {
             }
         };
         vk_ok("reset-cmd", unsafe { (gf.reset_command_buffer)(cmd, 0) })?;
-        let bi = vkffi::VkCmdBeginInfo { s_type: 42, p_next: ptr::null(), flags: CMD_ONE_TIME, p_inheritance_info: ptr::null() };
+        let bi = vkffi::VkCmdBeginInfo {
+            s_type: 42,
+            p_next: ptr::null(),
+            flags: CMD_ONE_TIME,
+            p_inheritance_info: ptr::null(),
+        };
         vk_ok("begin-cmd", unsafe { (gf.begin_command_buffer)(cmd, &bi) })?;
         let rpbi = VkRenderPassBeginInfo {
             s_type: STYPE_RENDER_PASS_BEGIN_INFO,
@@ -1967,7 +2244,10 @@ impl RasterRunner {
             framebuffer: load_fb,
             render_area: VkRect2D {
                 offset: VkOffset2D { x: 0, y: 0 },
-                extent: VkExtent2D { width: w, height: h },
+                extent: VkExtent2D {
+                    width: w,
+                    height: h,
+                },
             },
             clear_value_count: 0,
             p_clear_values: ptr::null(),
@@ -1975,10 +2255,26 @@ impl RasterRunner {
         unsafe { (gf.cmd_begin_render_pass)(cmd, &rpbi, CONTENTS_INLINE) };
         unsafe { (gf.cmd_bind_pipeline)(cmd, BIND_GRAPHICS, pipe) };
         unsafe {
-            (gf.cmd_bind_descriptor_sets)(cmd, BIND_GRAPHICS, pipe_layout, 0, 1, &pipe_set, 0, ptr::null());
+            (gf.cmd_bind_descriptor_sets)(
+                cmd,
+                BIND_GRAPHICS,
+                pipe_layout,
+                0,
+                1,
+                &pipe_set,
+                0,
+                ptr::null(),
+            );
         }
         unsafe {
-            (gf.cmd_push_constants)(cmd, pipe_layout, STAGE_VERTEX | STAGE_FRAGMENT, 0, 48, push as *const PushConstants as *const c_void);
+            (gf.cmd_push_constants)(
+                cmd,
+                pipe_layout,
+                STAGE_VERTEX | STAGE_FRAGMENT,
+                0,
+                48,
+                push as *const PushConstants as *const c_void,
+            );
         }
         // 6 verts: two explicit triangles (TL,TR,BR)+(TL,BR,BL) —
         // the vertex stage folds k=4,5 back to corners 2,3 (see
@@ -1989,7 +2285,11 @@ impl RasterRunner {
         vk_ok("end-cmd", unsafe { (gf.end_command_buffer)(cmd) })?;
         // Submit inline (not via submit_cmd): that helper takes
         // &self, whose shared borrow would span the cache stores.
-        let fci = vkffi::VkFenceCreateInfo { s_type: 8, p_next: ptr::null(), flags: 0 };
+        let fci = vkffi::VkFenceCreateInfo {
+            s_type: 8,
+            p_next: ptr::null(),
+            flags: 0,
+        };
         let mut fence: VkFence = 0;
         vk_ok("fence", unsafe {
             (gf.create_fence)(dev, &fci, ptr::null(), &mut fence)
@@ -2005,9 +2305,7 @@ impl RasterRunner {
             signal_count: 0,
             p_signal_sems: ptr::null(),
         };
-        vk_ok("submit", unsafe {
-            (gf.queue_submit)(queue, 1, &si, fence)
-        })?;
+        vk_ok("submit", unsafe { (gf.queue_submit)(queue, 1, &si, fence) })?;
         vk_ok("wait-fence", unsafe {
             (gf.wait_for_fences)(dev, 1, &fence, 1, 30_000_000_000)
         })?;
@@ -2018,7 +2316,11 @@ impl RasterRunner {
     fn submit_cmd(&self) -> Result<(), String> {
         let f = &self.gf;
         let dev = self.dev();
-        let fci = vkffi::VkFenceCreateInfo { s_type: 8, p_next: ptr::null(), flags: 0 };
+        let fci = vkffi::VkFenceCreateInfo {
+            s_type: 8,
+            p_next: ptr::null(),
+            flags: 0,
+        };
         let mut fence: VkFence = 0;
         vk_ok("fence", unsafe {
             (f.create_fence)(dev, &fci, ptr::null(), &mut fence)
@@ -2076,7 +2378,18 @@ impl RasterRunner {
             subresource_range: range,
         };
         unsafe {
-            (f.cmd_pipeline_barrier)(cmd, STAGE_COLOR_OUTPUT, STAGE_TRANSFER, 0, 0, ptr::null(), 0, ptr::null(), 1, &to_src);
+            (f.cmd_pipeline_barrier)(
+                cmd,
+                STAGE_COLOR_OUTPUT,
+                STAGE_TRANSFER,
+                0,
+                0,
+                ptr::null(),
+                0,
+                ptr::null(),
+                1,
+                &to_src,
+            );
         }
         let copy = VkBufferImageCopy {
             buffer_offset: 0,
@@ -2089,7 +2402,11 @@ impl RasterRunner {
                 layer_count: 1,
             },
             image_offset: VkOffset3D { x: 0, y: 0, z: 0 },
-            image_extent: VkExtent3D { width: self.width, height: self.height, depth: 1 },
+            image_extent: VkExtent3D {
+                width: self.width,
+                height: self.height,
+                depth: 1,
+            },
         };
         unsafe {
             (f.cmd_copy_image_to_buffer)(cmd, self.color_img, LAYOUT_TRANSFER_SRC, buf, 1, &copy);
@@ -2109,7 +2426,18 @@ impl RasterRunner {
             subresource_range: range,
         };
         unsafe {
-            (f.cmd_pipeline_barrier)(cmd, STAGE_TRANSFER, STAGE_COLOR_OUTPUT, 0, 0, ptr::null(), 0, ptr::null(), 1, &back);
+            (f.cmd_pipeline_barrier)(
+                cmd,
+                STAGE_TRANSFER,
+                STAGE_COLOR_OUTPUT,
+                0,
+                0,
+                ptr::null(),
+                0,
+                ptr::null(),
+                1,
+                &back,
+            );
         }
         self.submit_transient(pool, cmd)?;
         // Map + copy out.
@@ -2128,10 +2456,11 @@ impl RasterRunner {
     fn destroy_pipe(&self, p: CompiledPipe) {
         // Destroy in dependency order: the command pool owns the
         // descriptor set, the pipeline references layout + modules.
-        // Destroying the POOL first (which frees the set while the
-        // pipeline still references the layout) segfaults lavapipe
-        // on the SECOND runner teardown in the process — pipeline
-        // first, pool last (found by the 4-iteration leak probe).
+        // Pipeline first, pool last — destroying the pool while the
+        // pipeline still references the layout faulted lavapipe on the
+        // second runner teardown in the process (found by the
+        // 4-iteration probe). Same order as the compute runner's
+        // `evict_pipe`, which destroys its pool without faulting.
         let f = &self.gf;
         let dev = self.dev();
         unsafe { (f.destroy_pipeline)(dev, p.pipeline, ptr::null()) };
@@ -2139,14 +2468,8 @@ impl RasterRunner {
         unsafe { (f.destroy_shader_module)(dev, p.frag, ptr::null()) };
         unsafe { (f.destroy_pipeline_layout)(dev, p.pipe_layout, ptr::null()) };
         unsafe { (f.destroy_descriptor_set_layout)(dev, p.set_layout, ptr::null()) };
-        // NOTE: the descriptor POOL is intentionally NOT destroyed
-        // here. Destroying it (which frees the set while lavapipe
-        // still has the pipeline's layout reference queued) segfaults
-        // the SECOND runner teardown in the process — the pool dies
-        // with the device instead. One pool per compiled pipeline is
-        // the v1 cost (measured: no growth across frames — pipelines
-        // are cached per SPIR-V hash, not rebuilt).
-        let _ = (p.pool, p.set);
+        unsafe { (f.destroy_descriptor_pool)(dev, p.pool, ptr::null()) };
+        let _ = p.set;
     }
 }
 
@@ -2221,9 +2544,18 @@ impl Drop for RasterRunner {
                 unsafe { (f.free_memory)(dev, mem, ptr::null()) };
             }
         }
-        // NO destroy_device / destroy_instance here (see header): the
-        // loader closes when `od.vk` drops; destroying the device
-        // first segfaults lavapipe at process teardown.
+        // Destroy the device + instance like the compute runner does
+        // (`ComputeRunner::drop`): the loader (`od.vk`) dlcloses on its
+        // own `Drop` after this, so device-then-instance-then-dlclose is
+        // the correct order. An earlier revision skipped both to dodge
+        // a lavapipe teardown fault and leaked the whole device per
+        // runner; the fault was the pool/layout ordering above, now
+        // fixed. If lavapipe ever regresses, it fails loud (segfault),
+        // not as a silent per-runner device leak.
+        unsafe { (f.destroy_device)(dev, ptr::null()) };
+        let destroy: unsafe extern "C" fn(vkffi::VkInstance, *const c_void) -> () =
+            vkffi::ifn(&self.od.vk, self.od.inst, "vkDestroyInstance");
+        unsafe { destroy(self.od.inst, ptr::null()) };
     }
 }
 

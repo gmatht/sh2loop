@@ -230,7 +230,11 @@ impl CudaRunner {
         if rc != CUDA_SUCCESS {
             return Err(cu.err(rc));
         }
-        Ok(CudaRunner { cu, ctx, modules: std::cell::RefCell::new(std::collections::HashMap::new()) })
+        Ok(CudaRunner {
+            cu,
+            ctx,
+            modules: std::cell::RefCell::new(std::collections::HashMap::new()),
+        })
     }
 
     /// Load (or fetch cached) module for PTX text.
@@ -247,7 +251,10 @@ impl CudaRunner {
             if std::env::var("BASH_O4_CUDA_DUMPPTX").is_ok() {
                 let _ = std::fs::write("/tmp/cudabench-last.ptx", ptx);
             }
-            return Err(format!("ptx jit: {} (set BASH_O4_CUDA_DUMPPTX=1 to dump)", err(rc)));
+            return Err(format!(
+                "ptx jit: {} (set BASH_O4_CUDA_DUMPPTX=1 to dump)",
+                err(rc)
+            ));
         }
         self.modules.borrow_mut().insert(ptx.to_string(), module);
         Ok((module, false))
@@ -284,9 +291,7 @@ impl CudaRunner {
     pub fn read_array(&self, p: CUdeviceptr, len: usize) -> Result<Vec<i64>, String> {
         let len = len.max(1);
         let mut host = vec![0i64; len];
-        let rc = unsafe {
-            (self.cu.f.dtoh)(host.as_mut_ptr() as *mut c_void, p, len * 8)
-        };
+        let rc = unsafe { (self.cu.f.dtoh)(host.as_mut_ptr() as *mut c_void, p, len * 8) };
         if rc != CUDA_SUCCESS {
             return Err(format!("read_array: {}", self.cu.err(rc)));
         }
@@ -329,8 +334,17 @@ impl CudaRunner {
         }
         let rc = unsafe {
             (f.launch)(
-                func, grid, 1, 1, block, 1, 1, 0, ptr::null_mut(),
-                params.as_mut_ptr(), ptr::null_mut(),
+                func,
+                grid,
+                1,
+                1,
+                block,
+                1,
+                1,
+                0,
+                ptr::null_mut(),
+                params.as_mut_ptr(),
+                ptr::null_mut(),
             )
         };
         if rc != CUDA_SUCCESS {
@@ -411,8 +425,17 @@ impl CudaRunner {
         }
         let rc = unsafe {
             (f.launch)(
-                func, grid, 1, 1, block, 1, 1, 0, ptr::null_mut(),
-                params.as_mut_ptr(), ptr::null_mut(),
+                func,
+                grid,
+                1,
+                1,
+                block,
+                1,
+                1,
+                0,
+                ptr::null_mut(),
+                params.as_mut_ptr(),
+                ptr::null_mut(),
             )
         };
         if rc != CUDA_SUCCESS {
