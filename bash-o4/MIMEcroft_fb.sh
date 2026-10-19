@@ -3911,7 +3911,13 @@ load_tex4() { lt_name=$1; lt_idx=$2
 }
 
 # ─── background generation (shell `&` fork → worker thread) ────────
-tex_bg_jobs=(0 0 0 0 0 0 0 0 0 0 0 0 0 0 0)
+# NOTE: the initializer MUST be strings, not zeros. The C backend homes
+# an all-numeric-literal array as `long long[]` and stores later values
+# through `atoll`, so `(0 0 …)` turned every submitted texture NAME into
+# 0: tex_bg_done then polled /tmp/mimecroft-bg-0.tsv forever and the
+# post-menu load stalled ~12s per texture at "loading block textures…".
+# Empty-string slots home `char*[]` and round-trip the names exactly.
+tex_bg_jobs=("" "" "" "" "" "" "" "" "" "" "" "" "" "" "")
 tex_bg_n=0
 
 # submit one texture's generation; records its job slot. The shell's
