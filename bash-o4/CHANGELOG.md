@@ -403,6 +403,61 @@ Verified: full `bash-o4` suite green (131 passed / 0 failed);
 `ground-regress.sh` PASS; kill-switch (`SH2_NO_INT_CYCLES=1`) frame
 matches the no-pass render; `--check` output unchanged.
 
+## Unreleased — uncapped arrays are vecs, not 1024-slot tables
+
+The fixed/vec split had two mechanisms with opposite economics, and only
+one of them paid. A **proven** cap is a real win — `MIME_NAMES[5]`,
+`RBHEX[256]` are exact-size tables with no grower, no cap field and no
+per-store capacity check. The **`ARR_CAP` fallback** for arrays whose
+extent was never proven was a pessimisation: it reserved 1024 pointers of
+`.bss` while still `_sh_xstrdup`-ing every element, so it saved no
+allocation at all and only over-allocated the pointer table.
+
+Measured on MIMEcroft_fb: 18,872 bytes of fixed string-array tables, of
+which **16 of 18.4 KiB was the two unproven ones** (`RFB_ROWS` reserved
+1024 slots for 240 rows, `lgi` 1024 for ≤12). After the change:
+**10,680 bytes** (`lgi` is a vec; `RFB_ROWS` keeps its fixed table — see
+below).
+
+Uncapped arrays now take vec storage (`char **x = NULL`), growing to need.
+Every use site already renders identically through the pointer, so the
+only difference is how overflow is handled: `_sh_grow_str` instead of
+exit-127. This collapses the split to "proven cap = fixed, everything else
+= vec", which is what makes a single reset path possible.
+
+Two shapes previously slipped past routing and fell into the fallback:
+
+- **Unbounded fills** (`split` / `mapfile` / `read` — count known only at
+  runtime). `record_bulk` left `defined` false on that path, so the array
+  was never routed *and* the split/mapfile store sites emitted the fixed
+  guard against a vec decl (`c=( $(...) )` still emitted `char *c[1024]`).
+- **The `mapfile` store site hardcoded the `ARR_CAP` guard** while every
+  other store site branches on `vec_arrays`, so a vec-routed array was
+  written past a NULL pointer — a segfault on
+  `012_process_substitution`.
+
+Deliberately **not** routed:
+
+- a **dynamic index write** (`arr[$k]=v`): sparse dynamic fills keep the
+  documented fixed backstop (works up to the cap, exits 127 past it, never
+  garbage). Routing those properly needs the dense-coverage proof that the
+  `routed` set already collects. This is why `RFB_ROWS` stays fixed.
+- an array whose name **escapes to an unknown call** (possible nameref
+  aliasing): the callee would see a `char**` it did not grow. New
+  `escaped` flag on the sizing `Info`.
+
+Verified: C corpus gate **596 PASS / 652, verdicts byte-identical per file**
+against a HEAD build of the same tree; `c_backend` unit tests at the
+pre-existing 10-failure baseline; MIMEcroft_fb runs (`--first-frame`,
+menu → game) and the `mapfile` example match bash.
+
+### Known, not fixed here
+
+- `RFB_ROWS` still reserves 1024 slots. It is written only through a
+  runtime row index (`RFB_ROWS[$y]=`), whose store site resolves its
+  capacity via `array_cap()` → `ARR_CAP`; routing such arrays needs the
+  dense-coverage proof, since the sparse case must keep the backstop.
+
 ## Unreleased — MIMEcroft_fb leaks fixed (heap `setenv` + capped string arrays)
 
 Two independent leak classes found by running MIMEcroft_fb under LSan and by
