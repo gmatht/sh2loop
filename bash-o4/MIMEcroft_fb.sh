@@ -4629,6 +4629,47 @@ render_frame() {
       # whole screen (the "green flash when crouching" bug). Cull the
       # patch within 1 cell of the eye (the camera cell + neighbours,
       # covering the glide interpolation) so it can't blow up.
+      # Occlusion: the painter has no depth buffer and this patch
+      # draws after the walls, so any wall cube standing between the
+      # eye and the patch would be painted over by the green — the
+      # classic failure is a wall face directly behind the patch: the
+      # patch's rear side face is coplanar-adjacent to it and wins the
+      # paint order. March the sight line from the eye cell toward the
+      # patch; a non-AIR y=1 block on any intermediate cell (or the
+      # patch cell itself, e.g. a wall mined into a grass-marked cell
+      # by a later edit) occludes it. y=2 blocks don't occlude: the
+      # patch top (0.525) is well below the y=2 span and the eye is
+      # above it, so sight lines over y=2-only cells still land.
+      if [ "$gs_draw" -eq 1 ]; then
+        gs_cx=$((dpcx_ms / 1000))
+        gs_cz=$((dpcz_ms / 1000))
+        gs_mx=$gs_x
+        gs_mz=$gs_z
+        if [ "$gs_mx" -lt "$gs_cx" ]; then gs_sx=1; else gs_sx=-1; fi
+        if [ "$gs_mx" -eq "$gs_cx" ]; then gs_sx=0; fi
+        if [ "$gs_mz" -lt "$gs_cz" ]; then gs_sz2=1; else gs_sz2=-1; fi
+        if [ "$gs_mz" -eq "$gs_cz" ]; then gs_sz2=0; fi
+        gs_ox=$gs_cx
+        gs_oz=$gs_cz
+        gs_blocked=0
+        while [ "$gs_blocked" -eq 0 ]; do
+          if [ "$gs_ox" -ne "$gs_mx" ]; then gs_ox=$((gs_ox + gs_sx)); fi
+          if [ "$gs_oz" -ne "$gs_mz" ]; then gs_oz=$((gs_oz + gs_sz2)); fi
+          if [ "$gs_ox" -lt 0 ] || [ "$gs_ox" -ge "$MAP_W" ] || [ "$gs_oz" -lt 0 ] || [ "$gs_oz" -ge "$MAP_D" ]; then
+            gs_blocked=1
+          else
+            gs_bi=$((1 * CELLS + gs_oz * MAP_W + gs_ox))
+            gs_bv=${map[$gs_bi]}
+            if [ "$gs_bv" -ne "$AIR" ]; then
+              gs_blocked=1
+              gs_draw=0
+            fi
+          fi
+          if [ "$gs_ox" -eq "$gs_mx" ] && [ "$gs_oz" -eq "$gs_mz" ]; then
+            gs_blocked=1
+          fi
+        done
+      fi
       if [ "$crouched" -eq 1 ]; then
         gs_eye_x=$((dpcx_ms / 1000))
         gs_eye_z=$((dpcz_ms / 1000))
