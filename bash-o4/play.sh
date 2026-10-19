@@ -6,11 +6,13 @@
 # the window flow back through the key queue. Ctrl-C (or q / Escape in
 # the window) stops both.
 #
-# The game runs under a 4 GiB address-space cap (GAME_MEM_MIB), so the
-# known residual growth in the transpiled runtime cannot wedge the box:
-# an allocation past the cap fails and the game exits, instead of
-# climbing until the OOM killer takes the machine down. Override with
-# --mem MB, or --mem 0 to disable the cap.
+# The game runs under a 4 GiB address-space cap (GAME_MEM_MIB) as
+# defense-in-depth: an allocation past the cap fails and the game exits,
+# instead of climbing until the OOM killer takes the machine down. The
+# per-export heap leak that used to trip this cap is fixed (sh2perl
+# d6ea96f31 — the export table; verified flat below), so a 127 today
+# means something new, not the old growth. Override with --mem MB, or
+# --mem 0 to disable the cap.
 #
 # Usage: ./play.sh [--scale N] [--mem MB] [--build] [--no-build] [-- <game args...>]
 #   --scale N   window scale (default 2 => 640x480)
@@ -139,9 +141,9 @@ echo "play.sh: menu keys: arrows/WASD change settings · SPACE (not Enter) start
 if [ "$GAME_MEM_MIB" -gt 0 ]; then
   echo "play.sh: game memory capped at ${GAME_MEM_MIB} MiB (--mem 0 disables)."
   # ulimit -v is a per-process address-space cap, applied in a subshell
-  # so it cannot affect this script or the viewer. The cap makes the
-  # residual leak fail loudly (the game's checked allocation helpers
-  # exit) instead of growing until the box wedges.
+  # so it cannot affect this script or the viewer. The cap makes any
+  # future runaway allocation fail loudly (the game's checked allocation
+  # helpers exit) instead of growing until the box wedges.
   (
     ulimit -v $((GAME_MEM_MIB * 1024)) 2>/dev/null || {
       echo "play.sh: warning: ulimit -v unavailable; running uncapped" 1>&2
@@ -159,9 +161,10 @@ wait "$GAME_PID"
 GAME_RC=$?
 if [ "$GAME_RC" -eq 127 ] && [ "$GAME_MEM_MIB" -gt 0 ]; then
   echo "play.sh: game exited 127 after hitting its ${GAME_MEM_MIB} MiB cap." 1>&2
-  echo "play.sh: that is the known residual growth in the transpiled runtime —" 1>&2
-  echo "play.sh: the cap stopped it before the box ran out of memory. Re-launch" 1>&2
-  echo "play.sh: with a larger --mem (or --mem 0 to run uncapped)." 1>&2
+  echo "play.sh: the per-export heap leak that used to trip this cap is fixed" 1>&2
+  echo "play.sh: (sh2perl d6ea96f31, verified flat) — so this is something new." 1>&2
+  echo "play.sh: Re-launch with a larger --mem (or --mem 0 to run uncapped)" 1>&2
+  echo "play.sh: to confirm, and file the growth shape." 1>&2
 else
   echo "play.sh: game exited ($GAME_RC)."
 fi

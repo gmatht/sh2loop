@@ -5,6 +5,59 @@ ends over one pipeline (`ShIR` → C via tcc, or → PTX via the CUDA candidacy)
 sharing one flag surface (`bash-o4/src/flags.rs`) and one dispatch vehicle
 (`bash_o4::cu_run`).
 
+## Unreleased — play.sh 127 closed: the export leak is fixed, proven flat, game binary rebuilt
+
+The `game exited 127 after hitting its 4096 MiB cap` the launcher
+reported was the stale `target/mimecroft-fb-play` (built Oct 14, before
+either leak fix) meeting the fixed-HEAD reality: the current renderer
+(`sh2perl` HEAD `7c9b73b39`, carrying `d6ea96f31` export table +
+`a5b871f93` heap-string ownership) emits no per-frame growth on any
+path this session could probe. No renderer change in this entry — the
+fix was already committed; what was missing was the artifact and the
+proof.
+
+Proven with `mallinfo2()` step probes in the emitted C (per the taste
+rule: every counted line re-run before committing), same `--demo`
+workload, fixed-vs-control where control is the identical emit with
+`_sh_export` reverted to plain `setenv` (the exact pre-`d6ea96f31`
+shape):
+
+| build | demo heap slope | max RSS, full `--demo` |
+|---|---|---|
+| control (`setenv` per export) | **+23.6 KB/frame** (17.4 → 21 MB over 151 frames) | **8,476,600 KB** (stale Oct-14 binary, 102 frames — past the 4 GiB cap) |
+| fixed (putenv table, current emit) | **+0.5 B/frame** over the 342-frame tail (frames 200–541: +176 B total; +8 KB over the full 541, all warmup in the first ~200) | **12,740 KB** (178 frames), stdout identical to stale except the `$FB_DUMP` path, frame-1 PPM byte-identical (230,415 B both) |
+
+Menu path (16 idle iterations + texture harvests, headless=0): 893 KB
+→ 1.14 MB at iteration 2 (texture-table warmup) → flat ±64 B, one
++34 KB step at iteration 12 (second harvest landing), then flat. No
+unbounded class on any probed path; the menu zombies (`tex_bg_submit`
+never `waitpid`'d) remain, as documented, a separate defect with no
+heap growth attributed.
+
+Miniature of the cap-hit (growing-value export loop, 3000 iterations):
+control max RSS **138,748 KB** vs fixed **5,368 KB**, outputs
+byte-identical; under a 64 MiB `ulimit -v` the control exits **127**
+and the fixed build completes rc 0 — the exact play.sh signature,
+now with the sides assigned.
+
+Also verified: fresh `game.c` carries exactly one `setenv` (the 64+-
+name fallback) and one `putenv` — no remaining per-frame export path;
+free-before-store / free-before-re-literal shapes intact throughout.
+Targeted parity at the committed renderer (Oct-16 `otranspilerl-cli`,
+pre-dirty-tree): `009`/`028`/`062_14`/`array-subscript` arrays +
+`064_20` env + `045` perl-call **6/6 PASS** vs bash. (The live driver
+binary currently fails those array emits with `arr_len undeclared` —
+that is the parallel session's uncommitted int-homing work in the
+dirty sh2perl tree, mid-flight at the time of writing, not this entry
+and not HEAD.)
+
+Changed here: rebuilt `target/mimecroft-fb-play` with the current
+driver (gitignored artifact — the player was running the leaky
+binary because the source predates it, so `play.sh` auto mode never
+rebuilt); `play.sh` 127 text no longer blames the fixed residual
+(the cap stays as defense-in-depth, and a 127 now means something
+new — file the growth shape).
+
 ## Unreleased — shared `split_fold` pass + native-int store arms (MIMEcroft C: −46% `atoll`, −48% `snprintf`)
 
 The remaining text round trips on MIMEcroft's frame path were `split[e]` in
