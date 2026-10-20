@@ -1535,6 +1535,32 @@ export const sh2 = {
     return cond ? a : b;
   },
 
+  // `int(v)` — the integer-attribute coercion (typeset -i, src/transforms/
+  // typeset_attrs.rs emits `int(arith)` for every LATER assignment to an
+  // integer-attributed variable). Truncate toward zero, matching the arith
+  // evaluator's `int:` (Math.trunc) and Python/Perl `int()`. A non-numeric
+  // value is 0, exactly as an unknown NAME is 0 in bash arithmetic
+  // (`typeset -i n; n="hello"` → 0). This is a top-level `sh2.int` CALL node
+  // (not an inline arith() call), so the reference executor needs the method
+  // here — without it the estree arm of typeset-cmdsub.sh crashed with
+  // `TypeError: sh2.int is not a function`.
+  int(v) {
+    const n = Number(v);
+    return Number.isNaN(n) ? 0 : Math.trunc(n);
+  },
+
+  // `lc(v)` / `uc(v)` — the case-fold attributes (typeset -l / -u, same
+  // typeset_attrs.rs emit as `int`). The transform folds ASCII-safe LITERALS
+  // at compile time; these runtime calls cover the values it cannot fold
+  // (dynamic / non-ASCII), mirroring the arith/Perl backends' lc()/uc().
+  lc(v) {
+    return String(v ?? '').toLowerCase();
+  },
+
+  uc(v) {
+    return String(v ?? '').toUpperCase();
+  },
+
   // `lit(v)` — the opaque quoted-literal marker (src/shir.rs IrExpr::Str,
   // SingleQuoted holding `$`): `'putb $b'` must stay byte-verbatim, so the
   // emitter wraps it here and the interpolation passes skip it. IDENTITY at
