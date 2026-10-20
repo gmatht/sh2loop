@@ -28,6 +28,7 @@ my %whitelist = map { $_ => 1 } qw(
     memAlloc memFree ternary arrayStore memAdvance memTest line
     assocSet assocGet assocNames assocValues
     lit warn die
+    int lc uc
 );
 
 my $file = shift @ARGV or die "usage: estree_gate.pl <program.estree.json>\n";
