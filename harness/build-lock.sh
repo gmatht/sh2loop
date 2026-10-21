@@ -336,11 +336,24 @@ MAX_BUILD_SECS="${MAX_BUILD_SECS:-900}"
 # diagnostics stay on stderr, which callers read with 2>&1. The build child
 # is deliberately NOT changed — it legitimately owns the caller's stdout,
 # which is what a backtick is reading.
-setsid bash -c 'for f in $(seq 3 32); do eval "exec ${f}>&-" 2>/dev/null || true; done; exec "$@"' _ "$@" &
+# THE CLOSE FORM HERE MATTERS (measured 2026-10-20): the old
+#   for f in $(seq 3 32); do eval "exec ${f}>&-" 2>/dev/null || true; done
+# silently retargets fd 2 to /dev/null. When bash applies the per-command
+# `2>/dev/null` to the eval it saves the caller's real stderr on a spare
+# high fd; the eval'd `exec N>&-` then CLOSES that saved copy, the restore
+# fails, and the shell's fd 2 stays on /dev/null for the rest of its life
+# — inherited by the exec'd cargo. Measured through this wrapper:
+# `bash -c 'echo E >&2; echo O'` wrote only "O", and cargo's compile
+# errors vanished, so the core worker's lib gate read 12 hours of
+# "NO summary (hung or crashed)" off a plain E0433. A single
+# `exec3>&- … 32>&-` has no per-command redirection to save, and closing
+# an already-closed fd is silent (verified: rc 0, no diagnostic), so no
+# eval and no 2>/dev/null.
+setsid bash -c 'exec 3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&- 10>&- 11>&- 12>&- 13>&- 14>&- 15>&- 16>&- 17>&- 18>&- 19>&- 20>&- 21>&- 22>&- 23>&- 24>&- 25>&- 26>&- 27>&- 28>&- 29>&- 30>&- 31>&- 32>&-; exec "$@"' _ "$@" &
 cmd_pid=$!
 trap 'kill -TERM -"$cmd_pid" 2>/dev/null || true; sleep 1; kill -KILL -"$cmd_pid" 2>/dev/null || true; exit 143' TERM
 setsid bash -c '
-  for f in $(seq 3 32); do eval "exec ${f}>&-" 2>/dev/null || true; done
+  exec 3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&- 10>&- 11>&- 12>&- 13>&- 14>&- 15>&- 16>&- 17>&- 18>&- 19>&- 20>&- 21>&- 22>&- 23>&- 24>&- 25>&- 26>&- 27>&- 28>&- 29>&- 30>&- 31>&- 32>&-
   exec >/dev/null
   sleep "$1"
   if kill -0 "$2" 2>/dev/null; then

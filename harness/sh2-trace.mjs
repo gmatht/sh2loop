@@ -1254,6 +1254,14 @@ export const sh2 = {
     return String(haystack ?? '').includes(String(needle ?? ''));
   },
 
+  // globMatch(pattern, value) — the case-lowering transform's SHARED
+  // glob predicate (mirrors sh2-namespace.mjs; the same module-level
+  // matcher caseMatch dispatches with). Pattern first — the shIR call
+  // carries globMatch(value, pattern); the emitter swaps to this order.
+  globMatch(pattern, value) {
+    return globMatch(String(pattern), String(value ?? ''));
+  },
+
   // The `echo ARGS | grep [FLAGS] PAT` pipeline lift (see src/shir.rs
   // try_native_echo_grep): a SYNC mini-grep over the echoed text with
   // exact GNU grep semantics for the supported flag set (v/i/n/c/o/q/x

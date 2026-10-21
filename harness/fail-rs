@@ -1,0 +1,102 @@
+#!/bin/bash
+# harness/fail-rs — CORE-PATH rust equivalence gate: otranspilerl-cli
+# --target rs -> rustc -> run vs bash, over the whole examples corpus.
+#
+# WHY THIS EXISTS (2026-10-19): the rust equivalence gate everyone quotes
+# (backends/rust/rt_gate_verbose.sh, PASS=645) renders through the rust
+# WORKTREE's shir_render — the CORE's own `--target rs` emission path had
+# never been gated end-to-end. This round removed every ` as u32` from the
+# emitted runtime helpers (964 -> 0; see PLAN v63), so the core path got
+# its first full-corpus run.
+#
+# Contract (copied from rt_gate_verbose.sh where it matters):
+#   - stdin at EOF; `env -u BASH_ENV` for the reference (the agent harness
+#     redefines grep/timeout via BASH_ENV — a poisoned reference scores
+#     faithful translations as failures);
+#   - `exec -a prog.sh` so $0 matches the bash arm;
+#   - timeout 15 per side; rc must be equal and neither may be 124;
+#   - byte-for-byte stdout compare in a per-example private dir.
+#
+# RESUMABLE: one verdict line per example is appended to
+# $OUT/verdicts.log and examples already verdicted are skipped on
+# relaunch. This box chronically kills session-leader processes (see
+# PLAN v63 / loop-repair.log), so a full run may need relaunching;
+# a relaunch continues, it does not restart.
+#
+# BASELINE (2026-10-19, first run): 541 pass / 12 fail / 7 skip.
+# The 12 fails were PRE-EXISTING core-path bugs, each proven independent
+# of the v63 helper edit (11 emissions contain none of the edited
+# helpers; 070_gnuisms_thorough was re-tested with the old helper text
+# patched back in and still differs).
+#
+# UPDATED 2026-10-21 (551 pass / 2 fail / 7 skip): nine of the original
+# twelve went green via fleet commits, and four more were fixed the same
+# day by the rust-idiomity work:
+#   - bench-case, 064_19 — `expr_bool` had no strHasSuffix/strHasPrefix
+#     arms, so affix case conds fell to the string-truthiness default,
+#     where the "1"/"0" status string is NEVER empty and the false arm
+#     could not fire; they now render as native `.ends_with` /
+#     `.starts_with` conditions.
+#   - eq-string-num-var — a statement-position `A && B` list records the
+#     lhs's status (the And/Or statement arms), matching bash: the list's
+#     `$?` after a failed `[ … ]` is 1, which an `if`'s no-else `store(0)`
+#     synthesis cannot express.
+#   - test-glob-rhs-fallback, 070_gnuisms — the test `=` arm now honours
+#     the evalTest `rQuoted` rule (a QUOTED rhs never globs, in either
+#     style; an unquoted rhs keeps the go-sh glob probe) with `nocasematch`
+#     folding on the literal path. The pinned unit test was renamed
+#     glob_rhs_probe_is_quoting_gated.
+# Current known reds (both pre-existing, outside this work):
+#   064_hard_to_generate  utf8-non-utf8-content
+# A NEW failure below is a regression; an old one going green is a fix
+# (update this list either way — never the other direction).
+#
+# The final summary is RECOUNTED from $LOG, not accumulated from this
+# process's own runs: a resumed run would otherwise headline
+# "pass=0 fail=0" and read as a clean gate over a log holding 12 reds.
+# `command grep` (bypasses the grep->rg shell function; rg has no
+# -c semantics to confuse here and a miscount would be a false verdict).
+set -u
+exec </dev/null
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CLI="${OTRANSPILERL_BIN:-$ROOT/otranspilerl/target/debug/otranspilerl-cli}"
+EX="$ROOT/sh2perl/examples"
+OUT="${RS_GATE_OUT:-/tmp/fail_rs}"
+LOG="$OUT/verdicts.log"
+mkdir -p "$OUT"; touch "$LOG"
+[ -x "$CLI" ] || { echo "fail-rs: CLI missing: $CLI" >&2; exit 2; }
+
+pass=0; fail=0; skip=0; resumed=0
+for f in "$EX"/*.sh; do
+  name=$(basename "$f" .sh)
+  if grep -q "^$name " "$LOG" 2>/dev/null; then resumed=$((resumed+1)); continue; fi
+  if ! bash -n "$f" 2>/dev/null; then
+    echo "$name SKIP-bashn" >> "$LOG"; skip=$((skip+1)); continue
+  fi
+  rs="$OUT/$name.rs"; bin="$OUT/$name.bin"
+  if ! "$CLI" --target rs "$f" > "$rs" 2>"$OUT/$name.emiterr" || [ ! -s "$rs" ]; then
+    echo "$name FAIL-emit" >> "$LOG"; fail=$((fail+1)); continue
+  fi
+  if ! rustc --crate-name prog "$rs" -o "$bin" 2>"$OUT/$name.rustcerr"; then
+    echo "$name FAIL-rustc" >> "$LOG"; fail=$((fail+1)); continue
+  fi
+  d="$OUT/d_$name"; rm -rf "$d"; mkdir -p "$d"
+  cp "$f" "$d/prog.sh"
+  bash_rc=0
+  (cd "$d" && env -u BASH_ENV timeout 15 bash prog.sh > ref.txt 2>/dev/null) || bash_rc=$?
+  eq_rc=0
+  (cd "$d" && timeout 15 bash -c "exec -a prog.sh '$bin'" > out.txt 2>/dev/null) || eq_rc=$?
+  if [ "$eq_rc" != 124 ] && [ "$bash_rc" != 124 ] && [ "$eq_rc" = "$bash_rc" ] \
+     && diff -q "$d/ref.txt" "$d/out.txt" >/dev/null 2>&1; then
+    echo "$name PASS" >> "$LOG"; pass=$((pass+1)); rm -rf "$d" "$bin"
+  else
+    echo "$name FAIL-equiv bash_rc=$bash_rc rust_rc=$eq_rc" >> "$LOG"
+    fail=$((fail+1))
+    { echo "=== EQUIV FAIL: $name bash_rc=$bash_rc rust_rc=$eq_rc"; diff "$d/ref.txt" "$d/out.txt" | head -10; } >> "$OUT/fails.txt"
+  fi
+done
+p=$(command grep -c ' PASS$' "$LOG"); f=$(command grep -c ' FAIL' "$LOG"); s=$(command grep -c ' SKIP' "$LOG")
+echo "FAIL-RS pass=$p fail=$f skip=$s resumed=$resumed (log: $LOG)"
+# Exit reflects the verdict: the known reds above (2 as of 2026-10-21)
+# mean exit 1 TODAY — honest, and it is what lets a caller detect a 3rd.
+[ "$f" = 0 ]

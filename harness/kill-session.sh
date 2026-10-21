@@ -142,6 +142,36 @@ child=$!
 # setsid(2) yet); the retry could not add information, because the value it
 # converges on is already known.
 sid=$(ps -o sid= -p "$child" 2>/dev/null | tr -d ' ')
+# INVARIANT GUARD (2026-10-21). setsid execs IN PLACE on this path
+# (non-interactive shell, the backgrounded subshell is not a process-group
+# leader), so $child IS its own session leader and its sid must equal its
+# pid. A different value means one of two failure modes, and sweeping the
+# probed session in EITHER case SIGKILLs an innocent workstream:
+#
+#   1. the probe read a RECYCLED pid. This box churns ~60k pids/min
+#      (measured 2026-10-21: 307k→427k in 2 min), and a fast example can
+#      exit, be reaped by the shell, and have its pid reused between the
+#      `setsid … &` above and this `ps`. The probed sid then names some
+#      OTHER live session — e.g. a fleet supervisor's — and the sweep
+#      below kills its whole membership: supervisors vanished mid-gate
+#      with no exit trace, exactly the "unidentified external killer"
+#      repair-workers.sh exists for. Death snapshots recorded kill-session
+#      wrappers active in the dead supervisor's session at every death.
+#   2. setsid(2) returned EPERM (caller already a group leader) and
+#      util-linux forked: $child is then a dead wrapper whose sid is OUR
+#      caller's session — the gate's own worker session — and the sweep
+#      would kill the gate itself.
+#
+# Fall back to the child's own pid, which can only name the session this
+# invocation actually created. The sweep stays fully effective for its
+# purpose (orphans KEEP their session after reparenting); the only cost of
+# the fallback is a missed sweep in the pathological cases, and those
+# orphans are exactly what harness/reap-orphan-examples.sh collects
+# every 10 min. Deliberately fail-open: a missing sweep must never kill a
+# workstream, and it must never hang the gate.
+if [ -n "$sid" ] && [ "$sid" != "$child" ]; then
+    sid="$child"
+fi
 [ -n "$sid" ] || sid="$child"
 
 wait "$child"
