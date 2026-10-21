@@ -2224,6 +2224,14 @@ captureSync(fn) {
     return undefined;
   },
 
+  // globMatch(pattern, value) — the case-lowering transform's SHARED
+  // glob predicate (the same module-level matcher caseMatch dispatches
+  // with). Pattern first — the shIR call carries globMatch(value,
+  // pattern); the emitter swaps to this order.
+  globMatch(pattern, value) {
+    return globMatch(String(pattern), String(value ?? ''));
+  },
+
   // ── functions ──────────────────────────────────────────────────────
   define(name, fn) {
     this.functions.set(name, fn);
