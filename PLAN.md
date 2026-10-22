@@ -12,6 +12,29 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v64: **Perl redirect emit made idiomatic — the print-only
+>   lexical-select fast path (75 of 111 dance sites convert).** A
+>   `Redirect` over a non-command inner used the heavy dup/close/reopen of
+>   the REAL STDOUT glob even when nothing in the body could fork — a
+>   shape whose whole reason is that children inherit the redirected fd 1
+>   (`capture_do_perl` argues the same from the capture side). For a body
+>   whose every output is a bare Perl `print`, `select` on a LEXICAL
+>   filehandle routes the same bytes without mutating a global handle: a
+>   `die` mid-body can no longer leave STDOUT closed, and each site emits
+>   2 lines instead of 5. Refuse>guess keeps every forking body on the
+>   proven heavy path byte-for-byte (the `capture_do_perl` spawn-marker
+>   vocabulary plus the capture seam, qx/backtick), and any body
+>   mentioning the STDOUT glob falls back too — `063_14`'s pure-Perl diff
+>   emulation holds `my $__fh = \*STDOUT; print $__fh …`, an explicit
+>   alias that bypasses `select($fh)` and only the reopened glob serves
+>   (the gate caught it, then the marker list pinned it). fd-2 redirects
+>   keep their existing shape. Also fixed the shared crate's compile:
+>   `fish_backend`'s `IrStmt::Function` lift was never given the core's
+>   new `params` field, so HEAD failed E0063 for every worker. Verified:
+>   `./fail` **562/562** (the `test_find` CWD-churn flake was diagnosed as
+>   environmental first — deterministic generation, byte-equal arms in
+>   quiet windows); `perl -c` + `check_qx` clean over all 562 generated
+>   files. Submodule `e60cb9b82` (fish params) + `e4ad098d7` (fast path).
 > - v62: **transform verification, second pass — the laws made able to FAIL,
 >   and the nested-subshell bug they found.** The v61 suite passed; a passing
 >   suite is not evidence until you have seen it fail. Two gaps closed and
