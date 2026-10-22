@@ -487,6 +487,19 @@ export function toI64(v) {
   return Number.isInteger(n) ? BigInt(n) : 0n;
 }
 
+// One argument of a script-function call (fnCall / fnValue). Shell values
+// are strings (or string arrays), so the String() is the identity there.
+// A frontend that passes a RECORD/map VALUE — the rust frontend lowers a
+// method call as `Type_method(receiver, …)` and the receiver is an object
+// literal read back from the store — must survive the positional channel:
+// String() freezes it as "[object Object]", so every FieldRead on the
+// receiver reads undefined (frontend gate t46_methods: 10/20/10/10 →
+// 0/0/0/0). Non-array objects therefore pass through untouched; arrays
+// still flatten to their string ITEMS (bash `$@` word splitting).
+function fnArg(a) {
+  return a !== null && typeof a === 'object' && !Array.isArray(a) ? a : String(a);
+}
+
 export const sh2 = {
   toI64,
 
@@ -1493,8 +1506,8 @@ export const sh2 = {
   fnCall(name, args = []) {
     const flat = [];
     for (const a of args) {
-      if (Array.isArray(a)) flat.push(...a.map(String));
-      else flat.push(String(a));
+      if (Array.isArray(a)) flat.push(...a.map(fnArg));
+      else flat.push(fnArg(a));
     }
     for (let i = 0; i < flat.length; i++) {
       if (flat[i] === ARRAY_LIT_MAGIC) {
@@ -1563,8 +1576,8 @@ export const sh2 = {
   fnValue(name, args = []) {
     const flat = [];
     for (const a of args) {
-      if (Array.isArray(a)) flat.push(...a.map(String));
-      else flat.push(String(a));
+      if (Array.isArray(a)) flat.push(...a.map(fnArg));
+      else flat.push(fnArg(a));
     }
     for (let i = 0; i < flat.length; i++) {
       if (flat[i] === ARRAY_LIT_MAGIC) {
@@ -4481,6 +4494,21 @@ captureSync(fn) {
       // (which yields the DEFAULT on empty); the A1 carries `:+` for it
       // since zig-20261021-param-lowering-gaps.
       case ':+': return v !== '' ? expandWord(this, a ?? '') : '';
+      // `${x+w}` — the ALTERNATE word when x is SET (set-but-empty
+      // counts; strictly weaker than `:+`). A trailing `value` override
+      // means the emitter inlined a LIFTED binding, which always exists;
+      // otherwise bash's set-ness is key presence in the store, an
+      // array/assoc declaration, or the environment (the same fallbacks
+      // getVar uses).
+      case '+': {
+        const isSet = value !== undefined
+          ? true
+          : (name in this.vars)
+            || this.arrays.has(name)
+            || this.assocNames.has(name)
+            || (name in process.env);
+        return isSet ? expandWord(this, a ?? '') : '';
+      }
       case ':=':
         if (v === '') { const d = expandWord(this, a ?? ''); this.setVar(name, d); return d; }
         return v;
