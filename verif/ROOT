@@ -1,0 +1,4 @@
+session "Sh2" = HOL +
+  options [document = false]
+  theories
+    P2_Checked
