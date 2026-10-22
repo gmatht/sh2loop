@@ -12,6 +12,24 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v66: **`A || true` captures fold to one run with forced status — and
+>   the partial-output bug they were hiding.** The generic
+>   `chain_or_capture` form ran the RHS INSTEAD of keeping `$__c`: for the
+>   no-op status command that forked a whole `bash -c true` for an empty
+>   string AND discarded the LHS's partial stdout — `x=$(ls f g
+>   2>/dev/null || true)` printed f's line under bash and NOTHING under
+>   the generated Perl (real divergence, unexposed by the corpus: both
+>   sites are pgrep/cat-shaped with no partial output). The fold emits
+>   `do { my $__c = <lhs>; $CHILD_ERROR = 0; $__c }` — one fork, status
+>   constantly 0 as bash defines it, output untouched; the forced write
+>   rides `rc_write` so status-liveness elision still applies. Guard is
+>   structural (`is_noop_status_cmd`: bare `true`/`:` with no words;
+>   `expr_to_cmd` single-quotes literal names, so the first text-guard
+>   attempt never matched and the probe caught it). Non-noop RHS keeps the
+>   generic two-arm form byte-for-byte. Measured: 2 → 0 noop forks,
+>   pipe_capture sites 58 → 56, exactly 2 corpus files changed;
+>   `./fail` **562/562**; `perl -c` + `check_qx` clean; 4 unit tests.
+>   Submodule `71b584d29`.
 > - v65: **the Perl external-command seam gated per segment — 418 dead
 >   subs retire, generated corpus −30%.** `SH_RUN_EXT_PREAMBLE` was ONE
 >   blob on four coarse entry markers, so a body calling only
