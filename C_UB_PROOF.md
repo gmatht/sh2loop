@@ -172,8 +172,8 @@ rust dogfood scoreboard: judge by the blocker class removed, not the total.
 |---|---|---|---|
 | **P1** interval domain + narrowing | store condition: a value stored at width `w` lies in `w`'s interval | `verif/P1_Narrowing.thy` | **DONE** — see §10 |
 | **P2** checked tier | overflow flag set iff exact result ∉ i64 | `c_backend.rs:7303-7429` templates | **DONE** — `verif/P2_Checked.thy`, see §8 |
-| **P3** length/array abstraction | `strlen ≤ N` at every write; `array_caps` sizing sound | `analyze_string_lengths`, `array_caps` (`:2732-2790`) | **DONE (capacity half)** — `verif/P3_Capacity.thy`, see §9 |
-| **P4** renderer deep embedding | `render : ShIR → C_ast` respect the invariants | `c_backend.rs` (subset) | large |
+| **P3** length/array abstraction | `strlen ≤ N` at every write; `array_caps` sizing sound | `analyze_string_lengths`, `array_caps` (`:2732-2790`) | **DONE** — `verif/P3_Capacity.thy` + `verif/P3_Buffer.thy`, see §9 |
+| **P4** renderer deep embedding | `render : ShIR → C_ast` respect the invariants | `c_backend.rs` (subset) | **blocked** — no `C-Parser`/`AutoCorres` in this distribution, see §11 |
 | — | **never** claimed | `_sh_*` runtime, frontend, stubs | out of scope |
 
 Verification of record for each stage follows the workspace rule: build in
@@ -337,10 +337,13 @@ array's history is a list of `Reset`/`Append` ops, and the theory proves
 | `max_combines_independent_bounds`, `min_would_be_unsound` | the index term combines by `max`, since each bounds the length independently |
 | `guard_admits_in_bounds_writes`, `append_in_bounds` | a write within the declared capacity is in bounds — the property the guard checks |
 
-**Not yet covered:** the `strlen ≤ N` half (the fixed-buffer transform at
-`c_backend.rs:20-24`, where `assert` is debug-only and `NDEBUG` truncates).
-That needs a string-length abstraction over the shIR, not a capacity
-combinatorics argument, and is the remaining P3 work.
+**The `strlen ≤ N` half** is `verif/P3_Buffer.thy` (see §11): the
+fixed-buffer contract at `c_backend.rs:18-24`, where the assert is
+debug-only and `NDEBUG` truncates. Its gap is stated in the file: N's
+*producer* (`analyze_string_lengths`) is Rust, and proving N correct is a
+property of the shIR walk that only the `--dump-widths` bridge of
+`PLAN-P1.md` §4 can discharge — what is proved is that a correct N
+suffices.
 
 One model limitation is recorded in the file: `unsigned long long`'s upper
 bound (`2^64−1`) is not an `int`, so `W64u`'s interval is given the largest
@@ -371,7 +374,50 @@ promote anyway. What matters is the **store condition**:
 | `narrow_not_monotone` | a negative result: the backend cannot narrow to the tightest per-use interval; it must keep taking the max over uses |
 | `arithmetic_in_interval_stays`, `store_safe_iff` | the interval containment that T1 and T3 consume |
 
+## 11. P3_Buffer: the fixed-buffer contract (2026-10-22)
+
+`verif/P3_Buffer.thy` builds green and closes P3's second half. The
+destination is modelled as `(capacity, length)`; the two copy idioms the
+renderer emits are modelled concretely:
+
+| lemma | content |
+|---|---|
+| `strlen_bound_justifies_copy` | `strlen ≤ N` plus a declared capacity `N+1` makes the unbounded copy safe — the obligation the bound exists to discharge |
+| `overlong_source_makes_copy_unsafe` | the converse: a mis-analysed bound makes the copy return `None`. Same shape as P1's `outside_width_not_admitted` and P2's `subtree_overflow_forces_gmp` |
+| `copy_unbounded_exact`, `copy_bounded_preserves_fits` | the idioms bracket the contract: exact when safe, truncating-but-defined otherwise — **a wrong `N` is a wrong value, never UB** |
+| `debug_assert_matches_contract` | the debug `assert(strlen(v) <= N)` *is* `fits_buf`, which is why removing it under `NDEBUG` changes only the failure mode |
+
+**The gap, stated rather than papered over.** `N`'s producer,
+`analyze_string_lengths` in `shir.rs`, is Rust. That `N` is *correct* — the
+value really has length ≤ N at every write — is a property of the shIR walk,
+not of the buffer arithmetic. Only the `--dump-widths` bridge of
+`PLAN-P1.md` §4 (measure the analysis against the corpus) can discharge it.
+What this theory proves is the conditional: **a correct `N` suffices.**
+
+## 12. P4 blocked: no deep embedding toolchain (2026-10-22)
+
+P4 was `optional` in §5 and depended on P1. P1 is now green, so the stated
+dependency is satisfied — but P4 needs something that is not in this
+distribution: **there is no `C-Parser`, `AutoCorres` or `Simpl`** under
+`Isabelle2025-2/src/` (`src/HOL/` has no `C_Parser*`/`AutoCorres*`). Those
+live in the AFP, which is not part of the tarball obtained here. Without
+them there is no `C_ast` to embed `render` into, so the theorem
+`render : ShIR → C_ast` cannot even be *stated*, let alone proved.
+
+Two secondary reasons P4 would not pay even with the AFP:
+- §2c already records that a theorem about the emitted *text* is only as
+  good as the compiler downstream, absent a verified C compiler.
+- The renderer is 50.7k lines with 12 `TODO(unsupported)` sites; embedding
+  the whole of it is the "large" effort §5 estimated, for a property
+  P2/P3 already pin at the arithmetic level.
+
+Recorded as blocked rather than attempted.
+
 ## Revision history
+
+- v6 (2026-10-22): P3's fixed-buffer half mechanized (`verif/P3_Buffer.thy`),
+  closing P3. P4 recorded as blocked on the absent `C-Parser`/`AutoCorres`
+  toolchain (§12). All four theories build together, no `sorry`.
 
 - v5 (2026-10-22): P1 mechanized and committed (`verif/P1_Narrowing.thy`);
   the datatype case-split defect is isolated and worked around, not hidden.
