@@ -1,8 +1,13 @@
 # Can Isabelle prove the C backend produces no UB?
 
-Status: **assessment + staged plan**. No sanitizer pass, no proof obligation
-and no mechanized invariant exists today. Written 2026-10-22 against
+Status: **P1, P2 and P3 mechanized and green; P4 blocked on the absent
+`C-Parser`/`AutoCorres` toolchain** (§12). Written 2026-10-22 against
 `sh2perl/backends/c` @ `5b1524085` (`src/c_backend.rs`, 50,747 lines).
+
+`verif/` holds four theories (P1, P2, P3-capacity, P3-buffer) totalling 40
+lemmas/theorems. A clean-room `isabelle build -d verif -b Sh2` (Isabelle
+2025-2) is green with no `sorry` and no `oops`. `harness/c_gate_ubsan.sh`
+is the measurement instrument behind §7.
 
 ## Short answer
 
