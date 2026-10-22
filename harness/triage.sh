@@ -43,6 +43,22 @@ mkdir -p "$TRIAGE"
 
 CLI="$ROOT/otranspilerl/target/debug/otranspilerl-cli"      # shared core (the estree reference)
 RUNNER="$ROOT/harness/estree-runner.mjs"
+# The C renderer's external-command path emits `#include <uu_run.h>` and
+# calls sh2_uu_run/sh2_uu_capture — runtime/uu_run.c + libcoreutils_ffi.so.
+# A cell compiled WITHOUT that runtime fails to COMPILE and returns EMPTY
+# stdout, which the classifier reads as "estree matches native; c differs"
+# and files as a phantom FAIL-BACKEND/per-backend core-request (bat
+# t45_fileflags / t36_redirect_var, posix t32_redirect, 2026-08-17). The C
+# corpus gate (harness/c_gate_main.sh) has always linked it; triage did not.
+# Probe at startup; add the flags only when the runtime is present, and only
+# for a rendered program that actually includes the header (below).
+C_UU_SRC="$ROOT/sh2perl/runtime/uu_run.c"
+C_UU_LIBDIR="$ROOT/sh2perl/runtime/lib"
+C_UU_SO="$C_UU_LIBDIR/libcoreutils_ffi.so"
+C_UU_EXTRA=""
+if [ -f "$C_UU_SRC" ] && [ -f "$C_UU_SO" ]; then
+  C_UU_EXTRA="$C_UU_SRC $C_UU_SO -lpthread -Wl,-rpath,$C_UU_LIBDIR -I$ROOT/sh2perl/runtime -I$C_UU_LIBDIR"
+fi
 NOW() { date +%s; }
 NOWI() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
@@ -323,8 +339,16 @@ backend_out() {  # backend run-field rendered-file [source-file] -> executed out
       # reaches the toolchain as link/compile flags — `-lgmp` for the C
       # backend's unconditional `#include <gmp.h>`. Unquoted on purpose so a
       # space-separated flag list splits into separate argv entries.
+      # C cells whose rendered program includes <uu_run.h> also need the
+      # uu-ffi runtime (C_UU_EXTRA): without it the compile fails and the
+      # cell's empty stdout reads as a phantom backend mismatch.
+      local uuflags=""
+      if [ "$cmd" = cc ] && [ -n "$C_UU_EXTRA" ] \
+         && command grep -q 'uu_run\.h' "$rendered" 2>/dev/null; then
+        uuflags="$C_UU_EXTRA"
+      fi
       ( cd "$tmp" && cp "$rendered" "main.${ext:-b}" \
-        && timeout 30 "$cmd" "main.${ext:-b}" -o main ${extra:+"$extra"} 2>/dev/null \
+        && timeout 30 "$cmd" "main.${ext:-b}" -o main ${extra:+"$extra"} $uuflags \
         && timeout 30 ./main ) < /dev/null 2>/dev/null || true
     fi
     rm -rf "$tmp"
