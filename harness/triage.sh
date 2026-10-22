@@ -471,13 +471,13 @@ sweep() {
   # stale-refusal self-heal in the row loop below. Only FAIL-FRONTEND-EMIT
   # is removed: any other status for an out-of-corpus file is harmless
   # history and is left alone.
-  local _pfe _psk
+  local _pfe _psk _sk="$VTSV.skip.$$"
   for _pfe in "${fes[@]}"; do
     for _psk in $(shir_skip "$_pfe"); do
       awk -F'\t' -v fe="$_pfe" -v ex="$_psk" \
         '!($1==fe && $3==ex && $4=="FAIL-FRONTEND-EMIT")' "$VTSV" \
-        > "$VTSV.skip" 2>/dev/null && mv -f "$VTSV.skip" "$VTSV" \
-        || rm -f "$VTSV.skip"
+        > "$_sk" 2>/dev/null && mv -f "$_sk" "$VTSV" \
+        || rm -f "$_sk"
     done
   done
 
