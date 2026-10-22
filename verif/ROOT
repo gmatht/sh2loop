@@ -1,5 +1,6 @@
 session "Sh2" = HOL +
   options [document = false]
   theories
+    P1_Narrowing
     P2_Checked
     P3_Capacity
