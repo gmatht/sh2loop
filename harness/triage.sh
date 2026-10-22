@@ -410,12 +410,34 @@ classify_pair() {  # fe ex be a1-file native-out proxy-out [source-file]
 # ── the sweep: (frontend, example) OUTER — the row once, backends inner ──
 list_frontends() { echo "$FRONTENDS" | awk -F'|' '$1!="" {print $1}'; }
 list_backends() { echo "$BACKENDS" | awk -F'|' '$1!="" {print $1}'; }
+shir_skip() {  # fe -> basenames the frontend declares OUT of its A1-emit corpus
+  local mk; mk="$(fe_abs "$1" "")Makefile"
+  [ -f "$mk" ] || return 0
+  sed -n 's/^SHIR_SKIP[[:space:]]*:=[[:space:]]*//p' "$mk" | tail -1
+}
 list_examples() {
   local info; info=$(frontend_info "$1")
   IFS='|' read -r corpus ext bin native <<<"$info"
+  # A frontend's gate may also declare fixtures OUT of its A1-emit corpus
+  # (`SHIR_SKIP` in its Makefile — py-sh-go's py2cy-pipeline fixtures: the
+  # hand-rolled A1 parser cannot lower PEP 695/classes, and one A1 body
+  # cannot carry t102's per-value int/bigint/float dispatch). Those are
+  # refused BY DESIGN, the same class as a *_refuse/_gap pin below. The
+  # sweep only ever emitted a failing row for them, which the triage
+  # worker escalates as FAIL-FRONTEND-EMIT -- so a declared skip spawned
+  # a phantom --pi-fix-frontend session on EVERY sweep, one backend at a
+  # time (2026-10-23: t103_pep695.py re-escalated zig, then rust, then
+  # java, ~10 min apart, each one invoking the frontend fix agent for a
+  # gap the Makefile already documents). Read the declaration from the
+  # frontend itself: one source of truth, nothing hardcoded here.
+  local skip; skip=$(shir_skip "$1")
   local e; for e in ${ext//,/ }; do
     ls "$(fe_abs "$1" "$corpus")"/*."$e" 2>/dev/null
-  done | xargs -n1 basename | grep -vE '_refuse|_gap'
+  done | xargs -n1 basename | grep -vE '_refuse|_gap' \
+       | while IFS= read -r b; do
+           case " $skip " in *" $b "*) continue ;; esac
+           printf '%s\n' "$b"
+         done
   # *_refuse* / *_gap* files are REFUSAL PINS: the frontend must FAIL to
   # emit them (each frontend gate asserts exactly that — the cpp gate's
   # "refusals: *_refuse.cc must FAIL loudly"). Triage's cross-product
@@ -436,6 +458,28 @@ sweep() {
   done
   [ ${#fes[@]} -eq 0 ] && fes=($(list_frontends))
   [ ${#bes[@]} -eq 0 ] && bes=($(list_backends))
+
+  # DECLARED-OUT-OF-CORPUS fixtures (SHIR_SKIP) are not sweep inputs, and
+  # their historical rows are not verdicts. Dropping them from the sweep is
+  # NOT enough: the triage worker's change diff re-derives the NEWEST row
+  # per (frontend, backend, example) from this file and escalates it when
+  # baseline.tsv disagrees — and for a never-PASSing skip the baseline has
+  # no row at all, so each cycle escalated ONE more backend's phantom
+  # --pi-fix-frontend session (2026-10-23: t103_pep695.py fired zig, then
+  # rust, then java ~10 min apart, each killing and re-spawning the fix
+  # agent). Purge the refusal rows at the source, exactly like the
+  # stale-refusal self-heal in the row loop below. Only FAIL-FRONTEND-EMIT
+  # is removed: any other status for an out-of-corpus file is harmless
+  # history and is left alone.
+  local _pfe _psk
+  for _pfe in "${fes[@]}"; do
+    for _psk in $(shir_skip "$_pfe"); do
+      awk -F'\t' -v fe="$_pfe" -v ex="$_psk" \
+        '!($1==fe && $3==ex && $4=="FAIL-FRONTEND-EMIT")' "$VTSV" \
+        > "$VTSV.skip" 2>/dev/null && mv -f "$VTSV.skip" "$VTSV" \
+        || rm -f "$VTSV.skip"
+    done
+  done
 
   local pairs=() fe ex be
   # the deterministic sweep
