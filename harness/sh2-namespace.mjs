@@ -490,6 +490,30 @@ export function toI64(v) {
 export const sh2 = {
   toI64,
 
+  // `sh2.pyFloat(v)` — Python `str(float)`: a float value always renders
+  // with a decimal point (`5.0`, not `5`). Emitted by the py-sh-go
+  // frontend for float-typed print args (t104_float32: `print(x * 2)`
+  // with float x is 5.0 in Python; JS String(5) is "5"). Values arriving
+  // here are Numbers or numeric strings from the arith helper; only
+  // float-typed args are wrapped by the frontend, so `print(5)` still
+  // prints `5`. The digits themselves are JS's shortest round-trip form,
+  // which matches CPython's `repr` for the corpus' ranges; the two
+  // differ only in where scientific notation starts (CPython at 1e16,
+  // JS at 1e21) — an out-of-corpus edge this helper does not paper over.
+  // A BigInt coerces to Number: a float-typed value is never exact-past-
+  // 2^53 by definition (Python would have promoted it), so the double is
+  // the faithful repr.
+  pyFloat(v) {
+    if (v === true || v === false) return v ? 'True' : 'False';
+    const n = typeof v === 'bigint' ? Number(v) : Number(v);
+    if (Number.isNaN(n)) return 'nan';
+    if (n === Infinity) return 'inf';
+    if (n === -Infinity) return '-inf';
+    if (Object.is(n, -0)) return '-0.0';
+    const s = String(n);
+    return /[.eE]/.test(s) ? s : s + '.0';
+  },
+
   // node:fs/promises — the native readFile/writeFile surface the emitter's
   // pure-capture lowerings (`$(cat f)`, `$(sort f)`, `$(wc -l < f)`) call
   // directly (PLAN.md §1.2's sh2.fs.* namespace; whitelisted in
@@ -4387,6 +4411,11 @@ captureSync(fn) {
       case '//': return substGlob(this, v, a, b);
       case '/': return substGlobFirst(this, v, a, b);
       case ':-': return v !== '' ? v : expandWord(this, a ?? '');
+      // `${x:+y}` — the ALTERNATE-VALUE twin of `:-`: y only when x is
+      // SET AND NON-EMPTY, else the empty string. Distinct from `:-`
+      // (which yields the DEFAULT on empty); the A1 carries `:+` for it
+      // since zig-20261021-param-lowering-gaps.
+      case ':+': return v !== '' ? expandWord(this, a ?? '') : '';
       case ':=':
         if (v === '') { const d = expandWord(this, a ?? ''); this.setVar(name, d); return d; }
         return v;
@@ -4538,7 +4567,13 @@ captureSync(fn) {
           return [...slice];
         }
         const off = sliceOff(a);
-        if (b !== undefined && b !== null && b !== '') return v.slice(off, off + (sliceLen(b) || 0));
+        if (b !== undefined && b !== null && b !== '') {
+          // A NEGATIVE length means "stop |len|-1 characters before the
+          // end" — the end index is v.length + len, not off + len
+          // (`s=hello; ${s:1:-1}` → ell).
+          const ln = sliceLen(b) || 0;
+          return v.slice(off, ln < 0 ? v.length + ln : off + ln);
+        }
         return v.slice(off);
       }
       case '': return v;
