@@ -172,7 +172,7 @@ rust dogfood scoreboard: judge by the blocker class removed, not the total.
 |---|---|---|---|
 | **P1** interval domain + narrowing | `∀ s. v∈[lo,hi] ⟹ eval_narrow(e,s) = eval_i64(e,s)` | new `verif/` + a generator reading `var_types`/range output | ~2–4k lines |
 | **P2** checked tier | overflow flag set iff exact result ∉ i64 | `c_backend.rs:7303-7429` templates | **DONE** — `verif/P2_Checked.thy`, see §8 |
-| **P3** length/array abstraction | `strlen ≤ N` at every write; `array_caps` sizing sound | `analyze_string_lengths`, `array_caps` (`:2732-2790`) | ~2–3k lines |
+| **P3** length/array abstraction | `strlen ≤ N` at every write; `array_caps` sizing sound | `analyze_string_lengths`, `array_caps` (`:2732-2790`) | **DONE (capacity half)** — `verif/P3_Capacity.thy`, see §9 |
 | **P4** renderer deep embedding | `render : ShIR → C_ast` respect the invariants | `c_backend.rs` (subset) | large |
 | — | **never** claimed | `_sh_*` runtime, frontend, stubs | out of scope |
 
@@ -323,7 +323,34 @@ Two modelling corrections are recorded in the file: `__` is reserved in
 Isabelle identifiers (hence `builtin_add_overflow`), and `sizeof` is a
 reserved token.
 
+## 9. P3 mechanized (2026-10-22)
+
+`verif/P3_Capacity.thy` builds green (clean-room `isabelle build -d verif
+-b Sh2`, no `sorry`/`oops`). It covers the **capacity half** of P3: an
+array's history is a list of `Reset`/`Append` ops, and the theory proves
+
+| lemma | content |
+|---|---|
+| `length_le_volume` | the length never exceeds the volume ever added, any interleaving, any starting length — the reset case is load-bearing (a reset discards what preceded it) |
+| `volume_le_capacity_when_single_reset` | total volume ≤ `max_reset + appends` **exactly** in the single-reset regime, which is what `array_fixed_caps` admits (a reset is a loop-free `setArray`); stated as a hypothesis, not assumed |
+| `exec_zero_le_capacity` | the composition: the empty-array length fits the backend's capacity quantity |
+| `max_combines_independent_bounds`, `min_would_be_unsound` | the index term combines by `max`, since each bounds the length independently |
+| `guard_admits_in_bounds_writes`, `append_in_bounds` | a write within the declared capacity is in bounds — the property the guard checks |
+
+**Not yet covered:** the `strlen ≤ N` half (the fixed-buffer transform at
+`c_backend.rs:20-24`, where `assert` is debug-only and `NDEBUG` truncates).
+That needs a string-length abstraction over the shIR, not a capacity
+combinatorics argument, and is the remaining P3 work.
+
+One model limitation is recorded in the file: `unsigned long long`'s upper
+bound (`2^64−1`) is not an `int`, so `W64u`'s interval is given the largest
+representable bound and is excluded from the soundness statement by
+hypothesis.
+
 ## Revision history
+
+- v4 (2026-10-22): P3's capacity half mechanized and committed
+  (`verif/P3_Capacity.thy`); the `strlen ≤ N` half remains. P1 still red.
 
 - v3 (2026-10-22): P2 mechanized and committed (`verif/P2_Checked.thy`,
   `verif/ROOT`); Isabelle 2025-2 obtained from `mirror.clarkson.edu`
