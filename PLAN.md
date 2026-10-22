@@ -12,6 +12,109 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v62: **transform verification, second pass — the laws made able to FAIL,
+>   and the nested-subshell bug they found.** The v61 suite passed; a passing
+>   suite is not evidence until you have seen it fail. Two gaps closed and
+>   two findings:
+>   (a) **Verdict resets.** Eight analysis-only transforms cache their verdict
+>   in a `static Mutex` and return `false` from `run()` while a RENDERER
+>   reads it, so a caller that runs one transform in ISOLATION (the law
+>   harness, the `first-n` bisect replay) saw run 1's verdict on run 2 and the
+>   determinism law was vacuously true. `transforms::reset_verdicts()` +
+>   per-module `clear_verdicts()`.
+>   (b) **The generator could not produce the shapes the law asserts on.**
+>   proptest shrinking prefers short, leaf-heavy programs; measured, the
+>   forbidden-shape law passed while a suppressed fold went unnoticed. The
+>   generator now GUARANTEES a foldable `${v:0}` and a foldable `${#NAME[@]}`
+>   in every program. The law's own predicate also had to stop re-testing the
+>   transform's name guard (requiring a plain identifier made the mutation
+>   probe pass).
+>   (c) **Control run, reproducible 3/3 per transform:** with `run_one`
+>   restoring the input after the call (pretend the fold did nothing),
+>   `array-len-fold` and `slice-identity` each report "a foldable … call
+>   survived". A law that cannot fail is not evidence.
+>   (d) **Bug: `text-ops` nested subshells.** `( ( b=2 ) )` — the body was
+>   copied verbatim into the snapshot/restore block, so a second call wrapped
+>   the inner `Subshell` again with a fresh counter index and a different
+>   variable ordering; the inner save no longer read the outer save's
+>   restored value. `lower_stmt` now lowers the body in the same call.
+>   Gate: `harness/transform-laws.sh` (per-law verdicts, the COVERAGE line —
+>   currently 8–9 of 48 transforms actually rewrite something, and the idle
+>   list is printed, not hidden — `--json`, and a distinct
+>   `CARGO_TARGET_DIR` by default). Tier 1 is `checked` (Isabelle2025-2, with
+>   a negative control); Tier 3 is stated as unreachable and replaced by the
+>   `harness/transform-diff.sh` differential. Note to the box: the IR has no
+>   depth guard — an `IrExpr` chain ~1500 deep overflows a 64 MiB stack
+>   *while being dropped*, so the harness bounds its generator and every
+>   recursive consumer of untrusted depth is a stack risk.
+> - v61: **transform verification — a property suite + a differential gate,
+>   and the two bugs they found.** PLAN §11.4 requires every transform to
+>   declare its `invariant:` in prose; nothing checked it.
+>   `sh2perl/tests/transform_laws.rs` (only a `proptest` dev-dependency)
+>   checks determinism, idempotence, no-panic, the declared rewrite happening,
+>   and Perl-render invariance where the transform claims it — reporting
+>   coverage honestly (`COVERAGE 9/55`; the verdict-producing analyses and the
+>   frontend-shape transforms do not fire on the generator yet).
+>   `sh2perl/src/bin/transform_diff.rs` + `harness/transform-diff.sh` render
+>   every corpus file with `transforms::apply` and without: baseline **511/562
+>   text-identical, 45 cascade, 6 unlowered**. Findings: (a) the IR has no
+>   depth guard — an `IrExpr` chain ~1500 deep overflows the stack while being
+>   DROPPED, so every recursive consumer is a stack risk on deep input;
+>   (b) `text-ops` was non-idempotent (a fold inside a subshell happened only
+>   on a second pass) — fixed; (c) `copy-propagation` skipped reads carried in
+>   flat `test`/`arith` TEXT, leaving declare+assign+never-read variables in
+>   the Perl output — fixed, 506 → 511 text-identical. NOT verified by
+>   `./fail`: `otranspilerl` does not build in this tree (`wasi.rs` calls
+>   functions that exist only in an uncommitted working-tree state), so the
+>   differential gate is the oracle that was available. The Tier-1 proof is
+>   NOT prose: with Isabelle2025-2 installed (`/opt/Isabelle2025-2`, from the
+>   Cambridge mirror — the tum.de host is unreachable here),
+>   `core-requests/transforms/done/div-mod-pow2.rs/proof` now builds clean
+>   with `quick_and_dirty = false` and proves `div_mod_pow2_sound`,
+>   `pow2_pos`, `non_negative_bin_iff` and `shift_agrees`; a negative control
+>   was run and FAILED, so the session is not vacuous. The first two attempts
+>   did not check (the `AND` operator and the induction-hypothesis name) —
+>   which is exactly what a `stated` proof is worth.
+> - v60: **tty-cmdsub driven to bash-identical: the `[[ -r … ]]` class,
+>   the redirect STDIN dup, the process-subst producer pipeline.** Three
+>   independent wrong-answer bugs in one example. (1) `render_test_tokens`'
+>   two-token arm covered only `-f/-d/-e/-s/-S/-h/-a/-z/-n/-t`, so
+>   `[[ -r "$dev" ]]` (flattened `-r "$dev" [[`) fell to the historic
+>   always-TRUE heuristic `my $t = "…"; $t =~ /-\w+/` — which matches the
+>   test's OWN flag text — and tty-cmdsub picked a nonexistent /dev/pts/2
+>   where bash picked a readable pts, then died on the redirect. The
+>   unhandled two- and three-token shapes now hand the token list to the
+>   shared recursive parser (`render_test_token_list`: `!`, parens, the
+>   unary file tests, `-nt`/`-ef`) and fall back to the heuristic only when
+>   it renders nothing; two unit tests pin the class. (2) The `while …; done
+>   < FILE` and `$fn_call(…) < FILE` redirect arms emitted `local *STDIN` —
+>   a localized typeglob is fd-less, so the open landed on the lowest free
+>   fd (3) and every CHILD still inherited the original fd 0: `tty` printed
+>   "not a tty" where bash printed the terminal. Both arms now dup fd 0
+>   first and restore it at block exit (bash's `< FILE` puts the file ON
+>   fd 0; nests still compose). (3) `process_subst`'s producer statements
+>   are re-parsed shell text, so a pipeline producer reached the renderer
+>   as a statement-position `pipeline(…)` CALL — the `system('bash','-c',…)`
+>   shape — because `shir-pipeline-native` runs earlier in the registry and
+>   never sees those statements; `producer_redirect` now re-applies it
+>   (still `transform_enabled`-gated). Also removed the `DBG_RTE` debug
+>   eprintln from `render_test_expr`. Verification of record: tty-cmdsub
+>   bash-vs-perl stdout diff **0 lines, both rc 0** (same pts chosen);
+>   `./fail` **562/562 rc=0**; `./fail-estree` **PERL 562/562 rc=0**
+>   (ESTREE 558/562 — three of the four mismatches re-run PASS in an
+>   isolated check on both binaries (gate-order flake) and the fourth
+>   (`a.sh`) fails identically on the isolated-commit binary and on the
+>   worktree binary, i.e. outside this change); `./fail-shir` rc=0
+>   (545/562 bash-free); `./fail-coreutils` 1/5 — the four reds are the
+>   documented parser-gap tests (case keyword collision, escaped case
+>   paren, env-prefix-if, cmdsub-digit redirect). sh2perl `--lib` 1435
+>   pass / 10 fail — the same pre-existing `c_backend::tests` set
+>   (concurrent uncommitted `c_backend.rs` edit; hand-built IR →
+>   `shir_to_c`, unreachable here). The commit also builds and passes the
+>   tty check in an ISOLATED crate linked against c5a830bc9 alone.
+>   Gitlink deliberately not bumped (the commit sits on the concurrent
+>   c_backend/frontends commits and the worktree carries other
+>   workstreams' uncommitted edits — same call as the entries below).
 > - v59: **rust-emit idiom audit (whole corpus) → the two remaining
 >   shared folds, written up as a marketplace spec.** Measured the
 >   `--target rs` output for all 560 examples (2.73 MB): **0 `sh2.*`
