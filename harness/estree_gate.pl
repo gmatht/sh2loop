@@ -29,6 +29,7 @@ my %whitelist = map { $_ => 1 } qw(
     assocSet assocGet assocNames assocValues
     lit warn die
     int lc uc
+    pyFloat
 );
 
 my $file = shift @ARGV or die "usage: estree_gate.pl <program.estree.json>\n";
