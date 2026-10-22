@@ -488,6 +488,49 @@ sweep() {
     done
   done
 
+  # ABSENT-EXAMPLE SELF-HEAL (2026-10-23). A verdict row can outlive its
+  # example: corpus files get deleted or renamed, and a sweep that was
+  # ALREADY IN FLIGHT when they went away appends rows for them after any
+  # one-off cleanup. The triage worker's cycle diff re-derives the newest
+  # row per (frontend, backend, example) from this file regardless of the
+  # live corpus, so each such row re-escalates a phantom
+  # --pi-fix-frontend session — ONE BACKEND PER CYCLE. Measured after
+  # go-sh's four pysh-port .sh fixtures were deleted: 05:22 zig, 05:38
+  # rust, 06:10 java, each spawning a fix agent for a file that no longer
+  # exists. Such a row can never be superseded by a successful emit
+  # (there is nothing to emit), so it is not history worth keeping: drop
+  # the FAIL-FRONTEND-EMIT rows whose example is absent from every
+  # declared corpus dir, before the sweep's rows are appended and long
+  # before the diff reads them. Other statuses stay (harmless history,
+  # same rule as the SHIR_SKIP purge above).
+  local _gfe _gcorpus _gext _gbin _gnative _gdir _gb _gfound _ge _gex
+  local _gabs="$VTSV.absent.$$" _gchk="$VTSV.absent.chk.$$"
+  : > "$_gabs"
+  for _gfe in "${fes[@]}"; do
+    IFS='|' read -r _gcorpus _gext _gbin _gnative <<<"$(frontend_info "$_gfe")"
+    _gdir=$(fe_abs "$_gfe" "$_gcorpus")
+    awk -F'\t' -v fe="$_gfe" \
+      '$1==fe && $4=="FAIL-FRONTEND-EMIT" {print $3}' "$VTSV" 2>/dev/null \
+      | sort -u > "$_gchk"
+    while IFS= read -r _gex; do
+      [ -n "$_gex" ] || continue
+      _gb=$(basename "$_gex")
+      _gfound=0
+      for _ge in ${_gext//,/ }; do
+        if [ -e "$_gdir/$_gb" ]; then _gfound=1; break; fi
+      done
+      (( _gfound )) || printf '%s\t%s\n' "$_gfe" "$_gex" >> "$_gabs"
+    done < "$_gchk"
+  done
+  if [ -s "$_gabs" ]; then
+    echo "  purge: $(wc -l < "$_gabs") absent-example FAIL-FRONTEND-EMIT key(s) — no such corpus file:" >&2
+    sed 's/^/    /' "$_gabs" >&2
+    awk -F'\t' 'NR==FNR {bad[$1 FS $2]=1; next} !bad[$1 FS $3]' \
+      "$_gabs" "$VTSV" > "$_gabs.new" \
+      && mv -f "$_gabs.new" "$VTSV" || rm -f "$_gabs.new"
+  fi
+  rm -f "$_gabs" "$_gchk"
+
   local pairs=() fe ex be
   # the deterministic sweep
   for fe in "${fes[@]}"; do

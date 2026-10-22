@@ -109,7 +109,21 @@ SEAM_rust='__sh_[A-Za-z_0-9]+'
 SEAM_perl='__sh_[A-Za-z_0-9]+'
 SEAM_python='__sh_[A-Za-z_0-9]+'
 SEAM_zig='sh2[A-Za-z_0-9]+'
+# go: CALL SITES ONLY, for the same reason as fish above — but the seam is
+# not the problem here, the SCOPE is. The go renderer emits its runtime as a
+# Go PACKAGE-LEVEL PREAMBLE (`func s2s(x any) string {` … `func redirRun(…)`)
+# ahead of `func main`. Grepping the whole file counts the definitions, the
+# helpers' own internal calls, and every helper that had to be pulled in
+# transitively: measured 2026-10-22 over the 562 corpus renders, 2068 whole-
+# file hits of which 1467 are the preamble and 601 are real call sites in the
+# program body. A number 71% of which no lowering can move measures the size
+# of the emitted library, not how native the lowering is — and it moves BACK
+# UP when the renderer lowers something (fewer helpers needed, but a different
+# subset). So the count starts at `func main` — the same call-site rule the
+# fish seam encodes with its trailing group. (Whole-file figure, for history:
+# 2068 on 2026-10-22, 3376 on the pre-WIP renderer of the same corpus.)
 SEAM_go='s2s|capRun|capCmd|runCmd|redirRun|redirCap'
+SEAM_BODY_go='^func main\(\)'
 SEAM_java='sh[A-Z][A-Za-z0-9]+'
 SEAM_js='sh2\.[A-Za-z_0-9]+'
 SEAM_sh='sh2[a-z_]+\('
@@ -234,7 +248,15 @@ for lang in $LANGS; do
         # this script exists to prevent, one level up. A zero-file result is
         # therefore an error here, not a green backend.
         if render_one "$lang" "$f" "$out"; then
-            n=$(grep -oE "$seam" "$out" 2>/dev/null | wc -l)
+            # SEAM_BODY_<lang> restricts the count to the program body (the
+            # lines from that marker on): a runtime emitted as a whole block
+            # ahead of the body is the library, not the renderer's calls.
+            bodyfrom=$(eval "printf '%s' \"\${SEAM_BODY_$lang:-}\"")
+            if [ -n "$bodyfrom" ]; then
+                n=$(awk -v m="$bodyfrom" '$0 ~ m { on = 1 } on' "$out" 2>/dev/null | grep -oE "$seam" | wc -l)
+            else
+                n=$(grep -oE "$seam" "$out" 2>/dev/null | wc -l)
+            fi
             total=$((total + n)); files=$((files + 1))
         fi
     done
