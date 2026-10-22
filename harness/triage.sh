@@ -48,6 +48,13 @@ NOWI() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 # ── the fleet tables ────────────────────────────────────────────
 # frontend: corpus-dir|ext|emit-bin|native-runner("" = none)
+#
+# go-sh parses GO SOURCE (the v2 subset from the 2026-08-06 rewrite), not
+# shell. It advertised a mixed "sh,go" corpus left over from the pysh-port
+# scaffold; those four .sh fixtures were not Go and always refused, so every
+# sweep recorded FAIL-FRONTEND-EMIT and the cycle diff escalated a phantom
+# --pi-fix-frontend go-sh session, one backend per cycle (2026-10-23 05:22
+# zig, 05:38 rust). The fixtures are gone; the corpus is Go only.
 FRONTENDS="
 c-sh-go|testdata|c|./c-sh-go|compile:cc
 cpp-sh-go|testdata_cpp|cc|./cpp-sh-go|compile:g++
@@ -57,7 +64,7 @@ perl-sh-go|testdata|pl|./perl-sh-go|run:perl
 posix-sh-go|testdata|sh|./posix-sh-go|run:bash
 zsh-sh-go|testdata|zsh|./zsh-sh-go|run:zsh
 fish-sh-go|testdata|fish|./fish-sh-go|run:fish
-go-sh|testdata|sh,go|./go-sh|go-wrap
+go-sh|testdata|go|./go-sh|go-wrap
 powershell-sh-go|testdata|ps1|./powershell-sh-go|run:pwsh
 rust-frontend|testdata|rs|./target/debug/rust-frontend|compile:rustc
 zig-sh-go|testdata|zig|./zig-sh-go|run:zig
