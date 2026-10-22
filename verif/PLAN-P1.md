@@ -135,8 +135,43 @@ the only evidence that `T3` is exercised at all: it reports exactly the
 - A recorded `isabelle build` log and the checker's tally, both quoted
   with dates in `C_UB_PROOF.md`.
 
+## 6. Toolchain status (measured 2026-10-22)
+
+Isabelle 2025-2 was fetched and installed: `isabelle.in.tum.de` is
+**unreachable** from this box (connection timeouts on every path,
+http and https), but `mirror.clarkson.edu/isabelle/` serves it. The
+tarball is 1.17 GB; a single-stream download ran at ~0.17 MB/s and was
+replaced by 12 parallel `Range` requests (~1.4 MB/s aggregate, ~14 min).
+`isabelle version` → `Isabelle2025-2`; Polyml `polyml-5.9.2_x86_64_32`,
+OpenJDK 21 present. Toolchain is fine; the box has 43 GB RAM and 855 GB
+free.
+
+**Blocker hit, unresolved.** `Sh2_Base.thy` does not yet build. The
+datatype, both `fun` declarations and the individual equations all check
+out in isolation (`rank W64u = 4`, `wb Ee = 8`, …), but `cases` on any
+variable of an 8-constructor `datatype` produces spurious
+`w = W32u ⟹ False` subgoals, i.e. Isabelle treats the upper constructors
+as uninhabited. The same shape reproduces at 5 constructors
+(`datatype S = Aa | Bb | Cc | Dd | Ee` with two `fun`s over it), and with
+`cases` written as `cases w`, `cases (w :: T)`, `induct`, and
+`W.exhaust`; `simp`/`simp_all`/`auto`/`fastforce` all fail the same way,
+and `fun … where` written one-equation-per-line also reproduces it. The
+constructors are pairwise distinct by `simp`, so the datatype itself is
+sound — the fault is in how this theory is being built, not in the model.
+
+The next investigative step is a minimal reproducer reduced line by line
+against the two files that DO build (4-constructor datatype + `cases`;
+5-constructor datatype + one `fun`) — the difference has to be the second
+`fun`, and the reason to chase it is that P1 is worthless if the statement
+cannot even be type-checked.
+
 ## Revision history
 
+- v2 (2026-10-22): toolchain installed from a working mirror after
+  `isabelle.in.tum.de` proved unreachable; `Sh2_Base.thy` written and its
+  proof shape blocked (recorded in §6) — the theory is NOT yet green and
+  is deliberately left uncommitted rather than committed in a state that
+  misrepresents progress.
 - v1 (2026-10-22): stage opened; theorem restated as `T1`/`T2`/`T3` after
   finding that the original "`eval_narrow = eval_i64`" statement is
   vacuous for `+ - *` and absent for `** % ^ << >>`; seed inventory split
