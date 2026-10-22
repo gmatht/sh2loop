@@ -229,13 +229,14 @@ retires one hypothesis and *fails to test* the other:
   present: no OOB index into `array_caps`/`ARR_CAP`, no null load, no div0,
   no leaked-pointer use.
 - **The width class is NOT measurable by sanitizers.** Narrowing in
-  practice is `uint8_t` (39 decls) + `uint16_t` (8) across 36 of 654 files.
-  `range_width_name` tests `u8` *before* `i8` (and `u16` before `i16`), so
-  any non-negative range yields the unsigned type — `int8_t`/`int16_t`/
-  `int32_t` are unreachable. **Unsigned** conversion is defined behaviour,
-  so UBSan cannot fire, and a `uint8_t` global store has no redzone for ASan
-  to check. Measured with a control program:
-  `uint8_t i; i = 300;` prints 44 under `address,undefined` with no
+  practice is `uint8_t` (39 decls) + `uint16_t` (8) across 36 of 654 files;
+  **no signed narrow type (`int8_t`/`int16_t`/`int32_t`) occurs anywhere in
+  the corpus** (word-boundary recount over all 654 renders).
+  `range_width_name` tests `u8` *before* `i8`, so every non-negative range
+  yields the unsigned type and the signed arms are effectively dead.
+  **Unsigned** conversion is defined behaviour, so UBSan cannot fire, and a
+  size-1 global store has no redzone for ASan to check. Measured with a
+  control: `uint8_t i; i = 300;` prints 44 under `address,undefined` with no
   diagnostic.
 - But gcc's own analysis finds **10 truncating stores in 9 corpus files**:
 
@@ -247,17 +248,25 @@ retires one hypothesis and *fails to test* the other:
   tsv-string-accumulate-loop, bc-native-capture, 062_01, 062_04
   ```
 
-  Two shapes, both from `seed_range_loop_vars` / `seed_isqrt_bounds` seeding
-  a range that ignores how the value is *used*:
-  1. `for i in 1..5` seeds `i:[1,5] → uint8_t`, and the store from the
-     `_for_i_0[]` table is `long long → uint8_t`. Latent, not a manifest bug
-     (the seeded range is right for the loop) — but nothing checks the
-     *store's* range against the declared width, which is exactly what P1
-     has to prove.
-  2. `result=$(( (2+3)*(4-1) + (5**2) ))` renders `uint8_t result` and
-     `result = 15 + _sh_pow(5,2)` → prints **44** instead of **40**. Safe
-     only because `_sh_pow` returns a wrapped `long long`; it is correct by
-     accident, not by proof.
+  Two shapes, both from the backend's own seeders (`seed_range_loop_vars`,
+  `seed_isqrt_bounds`) rather than from the shared transforms:
+  1. `for i in 1 2 3 4 5` seeds `i:[1,5] → uint8_t`, then the loop body does
+     `i = _for_i_0[_i_i]` — a `long long` table element stored into a
+     `uint8_t`. Latent, not a manifest bug (the seed is right for the loop),
+     but nothing checks the *store's* range against the declared width.
+  2. `result=$(( (2 + 3) * (4 - 1) + (5 ** 2) ))` emits `uint8_t result` and
+     `result = 15 + _sh_pow(5,2)`. This one is **not latent**: the store is
+     safe only because `_sh_pow(5,2) = 25` happens to fit an 8-bit unsigned;
+     the compiler cannot see that, and with a larger literal the same shape
+     stores an unchecked wrapping result.
+
+  The mechanism behind (1) is worth naming for P1: in
+  `walk_widths_expr`, an arith whose range is **unknown** widens its
+  participants to `I64` (`arith_range_local` returns `None` → `arith_op_wide`
+  false → force I64), but an arith whose range is **known** only *widens*
+  them (`widen`), never refines their declared width. So a variable declared
+  from its own seed keeps that width even when a use proves something else;
+  only the unknown case is conservative.
 
 **So the Step-0 verdict is: the array-cap/buffer invariants hold on this
 corpus; the width invariant is live but *unproven and unobservable by
@@ -279,8 +288,12 @@ false `SAN-DIFF` verdicts on every run):
 
 - v2 (2026-10-22): Step 0 executed. `harness/c_gate_ubsan.sh` added with
   live positive controls; 652/652 compiled programs sanitizer-clean; the
-  width class found live-but-invisible (9 signed→unsigned truncating stores
-  in 9 files, 2 by `-Wconversion`, plus the `uint8_t = _sh_pow(...)` store);
-  P1 obligation sharpened to include the store-side range check.
+  width class found live-but-invisible to sanitizers (10 signed→unsigned
+  truncating stores in 9 files by `-Wconversion`, incl. the
+  `uint8_t = 15 + _sh_pow(5,2)` store); P1 obligation sharpened to include
+  the store-side range check. Two measurement corrections: signed narrow
+  types do not occur in the corpus at all, and an early `grep -oE 'int8_t'`
+  scan counted `uint8_t` substrings as signed hits (word-boundary grep
+  needed — the same trap AGENTS.md records for `grep -qF`).
 - v1 (2026-10-22): initial assessment and plan; no code changed, no
   sanitizer run performed yet.
