@@ -215,6 +215,12 @@ control divzero:  FIRES
 == UBSan/ASan kinds ==   (none)
 ```
 
+The per-file tally is written to `gate-reports/c-ubsan-<stamp>.tsv` and is
+**machine state, not shipped**: `.gitignore:9` excludes the whole
+`gate-reports/` directory, so the numbers are quoted here rather than
+committed. `--warn` adds the store-side check (`TRUNC` verdict): 643 CLEAN,
+9 TRUNC, 1 STUB, 1 CC-FAIL — the same 9 files as below.
+
 **Reading of that result — and the trap in it.** A 652/652 clean sweep
 retires one hypothesis and *fails to test* the other:
 
