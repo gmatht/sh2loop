@@ -1027,6 +1027,64 @@ export const sh2 = {
     return { ...process.env };
   },
 
+  // ENOEXEC fallback target (see the spawn site in _runProc): the path to
+  // feed to bash instead of exec'ing `cmd` directly, or null to spawn
+  // normally. When bash execve()s a file whose header the kernel doesn't
+  // recognize (a script with NO `#!`), bash re-runs the file AS A BASH
+  // SCRIPT — `set -o pipefail` works and $0 is the path it resolved.
+  // child_process.spawn uses glibc execvp, which instead silently reruns
+  // such files under /bin/sh (dash), so bash-only syntax dies with
+  // "Illegal option -o pipefail" and the estree run diverges from the
+  // bash reference (exactly what fails `a.sh`: a shebang-less
+  // /root/bin/a containing `set -o pipefail`).
+  _enoexecAsBash(cmd, pathVar) {
+    try {
+      let statTarget = null; // path to stat/read (cwd-resolved for slashes)
+      let passAs = null; // path handed to bash — it becomes $0
+      if (cmd.includes('/')) {
+        statTarget = path.isAbsolute(cmd) ? cmd : `${this.cwd}/${cmd}`;
+        passAs = cmd; // keep the written form: bash's $0 for `./x` is `./x`
+      } else {
+        // execvp PATH search: first executable regular file wins; an empty
+        // entry means the cwd. A non-executable hit is skipped (EACCES),
+        // like execvp.
+        for (const dir of pathVar.split(':')) {
+          const cand = `${dir === '' ? '.' : dir}/${cmd}`;
+          try {
+            fs.accessSync(cand, fs.constants.X_OK);
+            if (fs.statSync(cand).isFile()) { statTarget = cand; passAs = cand; break; }
+          } catch { /* keep searching */ }
+        }
+        if (statTarget === null) return null;
+      }
+      // Execute permission is required: execve() returns EACCES (never
+      // ENOEXEC) for a non-executable file, so bash never falls back there.
+      fs.accessSync(statTarget, fs.constants.X_OK);
+      const fd = fs.openSync(statTarget, 'r');
+      let head;
+      try {
+        head = Buffer.alloc(4);
+        const n = fs.readSync(fd, head, 0, 4, 0);
+        head = head.subarray(0, n);
+      } finally {
+        fs.closeSync(fd);
+      }
+      if (head.length === 0) return null; // empty: both sides no-op, status 0
+      if (head[0] === 0x23 && head[1] === 0x21) return null; // `#!`: kernel handles it
+      for (const b of head) {
+        // Text-like header only. A NUL/control byte means a binary the
+        // kernel may execute anyway (ELF, or binfmt_misc: MZ/WSLInterop,
+        // pyc `cb 0d 0d 0a`, LLVM bitcode `BC c0 de`, wasm \0asm, class
+        // files) — execve wouldn't return ENOEXEC there, so bash doesn't
+        // fall back either. Leave those to the normal spawn.
+        if (!((b >= 0x20 && b <= 0x7e) || b === 0x09 || b === 0x0a || b === 0x0d)) return null;
+      }
+      return passAs;
+    } catch {
+      return null;
+    }
+  },
+
   // ── command execution ──────────────────────────────────────────────
   // Process substitution arguments: the emitter marks argument positions
   // that were `<(...)` with a magic prefix whose payload is the captured
@@ -1228,9 +1286,16 @@ export const sh2 = {
         // a fresh pipe would never be written to, so `cat -` would block
         // until the spawn timeout instead of seeing EOF).
         else if (fd0.kind === 'stdin') stdio[0] = 'inherit';
-        child = spawn(cmd, args, {
+        // ENOEXEC parity with bash: a shebang-less executable is re-run by
+        // bash as a bash script, whereas execvp (spawn) silently reruns it
+        // under /bin/sh — hand such files to bash directly (see
+        // _enoexecAsBash), passing the same path spelling bash uses so $0
+        // matches the reference run.
+        const spawnEnv = this._spawnEnv();
+        const asBash = this._enoexecAsBash(cmd, spawnEnv.PATH ?? '');
+        child = spawn(asBash ? 'bash' : cmd, asBash ? [asBash, ...args] : args, {
           cwd: this.cwd,
-          env: this._spawnEnv(),
+          env: spawnEnv,
           stdio,
         });
       } catch (e) {
