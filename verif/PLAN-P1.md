@@ -146,7 +146,7 @@ replaced by 12 parallel `Range` requests (~1.4 MB/s aggregate, ~14 min).
 OpenJDK 21 present. Toolchain is fine; the box has 43 GB RAM and 855 GB
 free.
 
-**Blocker hit, unresolved.** `Sh2_Base.thy` does not yet build. The
+**Blocker: found, worked around, cause recorded.** `Sh2_Base.thy` does not yet build. The
 datatype, both `fun` declarations and the individual equations all check
 out in isolation (`rank W64u = 4`, `wb Ee = 8`, …), but `cases` on any
 variable of an 8-constructor `datatype` produces spurious
@@ -159,11 +159,27 @@ and `fun … where` written one-equation-per-line also reproduces it. The
 constructors are pairwise distinct by `simp`, so the datatype itself is
 sound — the fault is in how this theory is being built, not in the model.
 
-The next investigative step is a minimal reproducer reduced line by line
-against the two files that DO build (4-constructor datatype + `cases`;
-5-constructor datatype + one `fun`) — the difference has to be the second
-`fun`, and the reason to chase it is that P1 is worthless if the statement
-cannot even be type-checked.
+Reduced to a minimal reproducer: a five-constructor datatype with two
+`fun`s over it, case-split with `cases`, from a fresh heap. Established
+along the way that the datatype itself is sound (`case_W` has five
+W-arguments; the constructors are pairwise distinct by `simp`; `induct`
+proves a plain disjunction over them), so the defect is in `cases` for this
+shape, not in the model.
+
+**Workaround, adopted.** `P1_Narrowing.thy` encodes widths as natural-number
+codes selected by the same if-chain as `range_width_name`. That carries
+P1's content unchanged — the u8-before-i8 preference, the soundness of the
+range-to-width map, the store condition, the non-monotonicity — while
+depending on no datatype case split. `Sh2_Base.thy` is dropped (it was never
+green and stays uncommitted); the defect above is kept here so a later
+Isabelle can be re-tested rather than assumed.
+
+**P1 result.** `verif/P1_Narrowing.thy` builds green (clean-room
+`isabelle build -d verif -b Sh2`, no `sorry`/`oops`) and proves
+`narrow_sound`, `store_within_declared_width`, the two
+`outside_width_not_admitted_*` lemmas (the direction a missing check
+violates), `nonneg_never_signed`, and the negative result
+`narrow_not_monotone`.
 
 ## Revision history
 

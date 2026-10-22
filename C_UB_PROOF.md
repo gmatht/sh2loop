@@ -170,7 +170,7 @@ rust dogfood scoreboard: judge by the blocker class removed, not the total.
 
 | Stage | Theorem | Files | Effort |
 |---|---|---|---|
-| **P1** interval domain + narrowing | `∀ s. v∈[lo,hi] ⟹ eval_narrow(e,s) = eval_i64(e,s)` | new `verif/` + a generator reading `var_types`/range output | ~2–4k lines |
+| **P1** interval domain + narrowing | store condition: a value stored at width `w` lies in `w`'s interval | `verif/P1_Narrowing.thy` | **DONE** — see §10 |
 | **P2** checked tier | overflow flag set iff exact result ∉ i64 | `c_backend.rs:7303-7429` templates | **DONE** — `verif/P2_Checked.thy`, see §8 |
 | **P3** length/array abstraction | `strlen ≤ N` at every write; `array_caps` sizing sound | `analyze_string_lengths`, `array_caps` (`:2732-2790`) | **DONE (capacity half)** — `verif/P3_Capacity.thy`, see §9 |
 | **P4** renderer deep embedding | `render : ShIR → C_ast` respect the invariants | `c_backend.rs` (subset) | large |
@@ -347,7 +347,35 @@ bound (`2^64−1`) is not an `int`, so `W64u`'s interval is given the largest
 representable bound and is excluded from the soundness statement by
 hypothesis.
 
+## 10. P1 mechanized (2026-10-22)
+
+`verif/P1_Narrowing.thy` builds green (clean-room `isabelle build -d verif
+-b Sh2`, no `sorry`/`oops`). The stage was recorded as blocked for most of
+this session; the blocker was **tooling, not mathematics** — an
+8-constructor datatype carrying two `fun`s cannot be case-split by `cases`
+in this Isabelle build (`x = <ctor> ⟹ False` for the upper constructors),
+reproduced at five constructors from a fresh heap. P1 therefore encodes
+widths as natural-number codes chosen by the same if-chain as
+`range_width_name`, which keeps the content and drops the dependency.
+
+The theorem is the one the code relies on. **"narrow evaluation equals i64
+evaluation" is vacuous** for `+`/`*` — C's usual arithmetic conversions
+promote anyway. What matters is the **store condition**:
+
+| lemma | content |
+|---|---|
+| `narrow_sound` | the width named for a range accepts every value in it, so the *declaration* is never the fault |
+| `store_within_declared_width` | the store-side form (T3) |
+| `outside_width_not_admitted_u8`/`_u16` | the direction a **missing** range check violates — exactly the 10 gcc-visible truncating stores in 9 files from §7 |
+| `nonneg_never_signed` | a non-negative lower bound always picks an *unsigned* width — why UBSan could not see those stores and §7's sweep came back clean |
+| `narrow_not_monotone` | a negative result: the backend cannot narrow to the tightest per-use interval; it must keep taking the max over uses |
+| `arithmetic_in_interval_stays`, `store_safe_iff` | the interval containment that T1 and T3 consume |
+
 ## Revision history
+
+- v5 (2026-10-22): P1 mechanized and committed (`verif/P1_Narrowing.thy`);
+  the datatype case-split defect is isolated and worked around, not hidden.
+  All three staged theories (P1, P2, P3-capacity) build together.
 
 - v4 (2026-10-22): P3's capacity half mechanized and committed
   (`verif/P3_Capacity.thy`); the `strlen ≤ N` half remains. P1 still red.
