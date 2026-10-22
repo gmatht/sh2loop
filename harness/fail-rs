@@ -74,25 +74,46 @@ for f in "$EX"/*.sh; do
     echo "$name SKIP-bashn" >> "$LOG"; skip=$((skip+1)); continue
   fi
   rs="$OUT/$name.rs"; bin="$OUT/$name.bin"
+  # A concurrent worker's rebuild relinks otranspilerl-cli and the path is
+  # briefly ABSENT (cargo unlinks before writing) — one retry after 5s
+  # turns that race into a pass instead of a phantom FAIL-emit.
   if ! "$CLI" --target rs "$f" > "$rs" 2>"$OUT/$name.emiterr" || [ ! -s "$rs" ]; then
-    echo "$name FAIL-emit" >> "$LOG"; fail=$((fail+1)); continue
+    sleep 5
+    if ! "$CLI" --target rs "$f" > "$rs" 2>"$OUT/$name.emiterr" || [ ! -s "$rs" ]; then
+      echo "$name FAIL-emit" >> "$LOG"; fail=$((fail+1)); continue
+    fi
   fi
   if ! rustc --crate-name prog "$rs" -o "$bin" 2>"$OUT/$name.rustcerr"; then
     echo "$name FAIL-rustc" >> "$LOG"; fail=$((fail+1)); continue
   fi
   d="$OUT/d_$name"; rm -rf "$d"; mkdir -p "$d"
   cp "$f" "$d/prog.sh"
+  # stdout is captured OUTSIDE the example dir. With `> ref.txt` inside
+  # $d, bash's own capture file existed during ITS run but not during the
+  # binary's (and vice versa for out.txt) — a script that ENUMERATES the
+  # directory saw a different file set per side: 064_hard_to_generate
+  # printed `Text file: out.txt` only on the rust arm (the harness's own
+  # redirect file). Both arms now run with an identical dir (prog.sh
+  # only); the capture files live beside the dir where neither side can
+  # see them.
+  ref="$OUT/$name.ref"; act="$OUT/$name.out"
+  # Pre-create BOTH capture files before either arm runs: an example that
+  # enumerates its surroundings (046_cd. does `cd ..` into $OUT and `ls`)
+  # must see the same file set from both arms — during the bash arm only
+  # $ref exists, so the rust arm's `ls` printed one extra line (its own
+  # redirect file) and the diff failed on a harness artifact.
+  : >"$ref"; : >"$act"
   bash_rc=0
-  (cd "$d" && env -u BASH_ENV timeout 15 bash prog.sh > ref.txt 2>/dev/null) || bash_rc=$?
+  (cd "$d" && env -u BASH_ENV timeout 15 bash prog.sh > "$ref" 2>/dev/null) || bash_rc=$?
   eq_rc=0
-  (cd "$d" && timeout 15 bash -c "exec -a prog.sh '$bin'" > out.txt 2>/dev/null) || eq_rc=$?
+  (cd "$d" && timeout 15 bash -c "exec -a prog.sh '$bin'" > "$act" 2>/dev/null) || eq_rc=$?
   if [ "$eq_rc" != 124 ] && [ "$bash_rc" != 124 ] && [ "$eq_rc" = "$bash_rc" ] \
-     && diff -q "$d/ref.txt" "$d/out.txt" >/dev/null 2>&1; then
+     && diff -q "$ref" "$act" >/dev/null 2>&1; then
     echo "$name PASS" >> "$LOG"; pass=$((pass+1)); rm -rf "$d" "$bin"
   else
     echo "$name FAIL-equiv bash_rc=$bash_rc rust_rc=$eq_rc" >> "$LOG"
     fail=$((fail+1))
-    { echo "=== EQUIV FAIL: $name bash_rc=$bash_rc rust_rc=$eq_rc"; diff "$d/ref.txt" "$d/out.txt" | head -10; } >> "$OUT/fails.txt"
+    { echo "=== EQUIV FAIL: $name bash_rc=$bash_rc rust_rc=$eq_rc"; diff "$ref" "$act" | head -10; } >> "$OUT/fails.txt"
   fi
 done
 p=$(command grep -c ' PASS$' "$LOG"); f=$(command grep -c ' FAIL' "$LOG"); s=$(command grep -c ' SKIP' "$LOG")
