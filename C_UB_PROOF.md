@@ -171,7 +171,7 @@ rust dogfood scoreboard: judge by the blocker class removed, not the total.
 | Stage | Theorem | Files | Effort |
 |---|---|---|---|
 | **P1** interval domain + narrowing | `∀ s. v∈[lo,hi] ⟹ eval_narrow(e,s) = eval_i64(e,s)` | new `verif/` + a generator reading `var_types`/range output | ~2–4k lines |
-| **P2** checked tier | overflow flag set iff exact result ∉ i64 | `c_backend.rs:7303-7429` templates | ~500 lines |
+| **P2** checked tier | overflow flag set iff exact result ∉ i64 | `c_backend.rs:7303-7429` templates | **DONE** — `verif/P2_Checked.thy`, see §8 |
 | **P3** length/array abstraction | `strlen ≤ N` at every write; `array_caps` sizing sound | `analyze_string_lengths`, `array_caps` (`:2732-2790`) | ~2–3k lines |
 | **P4** renderer deep embedding | `render : ShIR → C_ast` respect the invariants | `c_backend.rs` (subset) | large |
 | — | **never** claimed | `_sh_*` runtime, frontend, stubs | out of scope |
@@ -304,7 +304,30 @@ false `SAN-DIFF` verdicts on every run):
   (`057_case.sh`: `Usage: $0 …`) disagreed with itself → now one path,
   swapped between runs.
 
+## 8. P2 mechanized (2026-10-22)
+
+`verif/P2_Checked.thy` builds under Isabelle 2025-2 with no `sorry`
+(clean-room `isabelle build -d verif -b Sh2`). It states the tier's
+contract over an expression tree (`Lit`/`Add`/`Sub`/`Mul` + `eval`), which
+is the shape `tiered_i64_expr` walks:
+
+| lemma | content |
+|---|---|
+| `add/sub/mul_overflow_iff`, `…2` | out-of-range test = ¬ in-range test, per operator |
+| `flag_reports_overflow` | ¬fits = out-of-range, for an `Add` node |
+| `fast_arm_is_exact_when_flag_clear` | flag clear ⟹ the value fits |
+| `subtree_overflow_forces_gmp` | overflow anywhere forces the GMP arm (the direction a *missing* check would violate) |
+| `or_flag_mono`, `or_flag_zero_iff` | `ov |= …` is monotone, so "an early overflow leaves later ops on discarded values" is a theorem, not a comment |
+
+Two modelling corrections are recorded in the file: `__` is reserved in
+Isabelle identifiers (hence `builtin_add_overflow`), and `sizeof` is a
+reserved token.
+
 ## Revision history
+
+- v3 (2026-10-22): P2 mechanized and committed (`verif/P2_Checked.thy`,
+  `verif/ROOT`); Isabelle 2025-2 obtained from `mirror.clarkson.edu`
+  (tum.de unreachable) and driven headless. P1 remains red.
 
 - v2 (2026-10-22): Step 0 executed. `harness/c_gate_ubsan.sh` added with
   live positive controls; 652/652 compiled programs sanitizer-clean; the
