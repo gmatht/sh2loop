@@ -12,6 +12,28 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v65: **the Perl external-command seam gated per segment — 418 dead
+>   subs retire, generated corpus −30%.** `SH_RUN_EXT_PREAMBLE` was ONE
+>   blob on four coarse entry markers, so a body calling only
+>   `__sh_uu_capture` embedded the whole pipeline front end and vice
+>   versa: 418 of 826 embedded `sub` instances across the 562 examples
+>   were never called (44 files uu-only, 55 pipe-only, 19 both, 444
+>   none). `sh_run_ext_preamble()` splits the blob at line boundaries
+>   (`split_inclusive` makes the all-live reassembly byte-exact — pinned
+>   by test) and emits each segment only when the body names it or a
+>   live segment needs it: `__sh_pipe_capture` drags uu SUPPORT for its
+>   shared `$__SH_UU_SEQ`, `__sh_q` is gated on its own body marker, and
+>   `# __SH_RUN_EXT_END` always closes so check_qx's strip keeps its
+>   anchor. Entry markers unchanged (no new seam can appear; a false-
+>   positive marker only over-emits). Measured: 826 → 320 definitions,
+>   0 uncalled, 0 call-without-def, corpus 1,464,718 → 1,023,493 bytes;
+>   `./fail` **562/562**, `perl -c` + `check_qx` clean, 5 new unit tests.
+>   NOTE for the fleet: `cargo test --lib` currently has **14 pre-existing
+>   reds** (9 c_backend, 5 fish_backend) that predate this work — the
+>   crate did not compile at HEAD since `Function.params` landed, so the
+>   suite could not run; proven pre-existing at `201f0c9c4` + the
+>   one-line params fix (identical 14 fail). Submodule `627cbb5a8`
+>   (segment gate) on top of `e60cb9b82`/`e4ad098d7`.
 > - v64: **Perl redirect emit made idiomatic — the print-only
 >   lexical-select fast path (75 of 111 dance sites convert).** A
 >   `Redirect` over a non-command inner used the heavy dup/close/reopen of
