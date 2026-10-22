@@ -268,6 +268,26 @@ retires one hypothesis and *fails to test* the other:
   from its own seed keeps that width even when a use proves something else;
   only the unknown case is conservative.
 
+**Measurement discipline (three traps hit, all recorded because each one
+produced a confident wrong answer).** The signed/unsigned question was
+measured five times before it was right:
+
+1. `grep -oE 'int8_t'` counts the `int8_t` inside `uint8_t` — a word-boundary
+   pattern is required (same family as the `grep -qF` trap in AGENTS.md);
+2. `otranspilerl-cli` exits non-zero with `cannot locate the workspace root
+   (set OTRANSPILER_ROOT)` when run from an ad-hoc directory, so an
+   unpinned sweep renders **empty** input and reports "clean" for every
+   file;
+3. `n=$(… | grep -c …)` loses a pipeline's output on some of these
+   renderers; counting must be `grep … | wc -l` over a stream, not
+   `$(grep -c)`.
+
+The final sweep streams every file's render into `grep -E '\bint8_t\b'`
+(`verif/` is not needed for it: it is the one-liner in §7's revision note)
+and is validated by an in-corpus positive control — a temporary example
+containing `y=$(( 2 - x ))` must, and does, print a signed site. With that
+control passing, the corpus count is **0 of 654**.
+
 **So the Step-0 verdict is: the array-cap/buffer invariants hold on this
 corpus; the width invariant is live but *unproven and unobservable by
 sanitizers*.** That is a stronger reason to mechanize P1 than "sanitizers are
@@ -292,8 +312,10 @@ false `SAN-DIFF` verdicts on every run):
   truncating stores in 9 files by `-Wconversion`, incl. the
   `uint8_t = 15 + _sh_pow(5,2)` store); P1 obligation sharpened to include
   the store-side range check. Two measurement corrections: signed narrow
-  types do not occur in the corpus at all, and an early `grep -oE 'int8_t'`
-  scan counted `uint8_t` substrings as signed hits (word-boundary grep
-  needed — the same trap AGENTS.md records for `grep -qF`).
+  types do not occur in the corpus at all. Three measurement traps had to
+  be cleared to learn this (word-boundary grep; `OTRANSPILER_ROOT` making
+  an unpinned sweep render empty input; `$(grep -c)` losing a pipeline),
+  and the final sweep is validated by an in-corpus positive control — see
+  §7's "Measurement discipline".
 - v1 (2026-10-22): initial assessment and plan; no code changed, no
   sanitizer run performed yet.
