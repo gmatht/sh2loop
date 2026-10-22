@@ -4,3 +4,4 @@ session "Sh2" = HOL +
     P1_Narrowing
     P2_Checked
     P3_Capacity
+    P3_Buffer
