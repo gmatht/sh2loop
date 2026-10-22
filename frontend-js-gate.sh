@@ -62,7 +62,7 @@ ref_stdout() {
     zsh)  timeout $TIMEOUT zsh "$file" 2>/dev/null ;;
     pl)   timeout $TIMEOUT perl "$file" 2>/dev/null ;;
     c)    timeout $TIMEOUT gcc "$file" -o "$TMP/refbin" 2>/dev/null && timeout $TIMEOUT "$TMP/refbin" 2>/dev/null ;;
-    cpp)  timeout $TIMEOUT g++ "$file" -o "$TMP/refbin" 2>/dev/null && timeout $TIMEOUT "$TMP/refbin" 2>/dev/null ;;
+    cc|cpp) timeout $TIMEOUT g++ "$file" -o "$TMP/refbin" 2>/dev/null && timeout $TIMEOUT "$TMP/refbin" 2>/dev/null ;;
     rs)   timeout $TIMEOUT rustc "$file" -o "$TMP/refbin" 2>/dev/null && timeout $TIMEOUT "$TMP/refbin" 2>/dev/null ;;
     zig)  timeout $TIMEOUT "${ZIGBIN:-zig}" run "$file" 2>&1 ;;
     ps1)  timeout $TIMEOUT "${PWSHBIN:-pwsh}" -NoProfile -File "$file" 2>/dev/null ;;
@@ -97,6 +97,17 @@ for lang in "${LANGS[@]}"; do
       a1=$("$ROOT/sh2perl/frontends/${BIN[$lang]}/${BIN[$lang]}" --shir "$f" 2>/dev/null)
     fi
     if [ -z "$a1" ]; then fail=$((fail+1)); fails="$fails $bn(parse)"; printf '%s\t%s\tFAIL\tparse\n' "$lang" "$bn" >> "$TSV"; continue; fi
+    # 1b. c/cpp: out-parameter elimination. The C/C++ frontends emit
+    # memStore/memLoad pointer writes, which the estree reference cannot
+    # read back (the caller's var stays empty) unless the params are
+    # rewritten to the shell value-return channel. The corpus documents
+    # this transform as part of the lowering (frontends/c-sh-go/testdata/
+    # t71_multi_out.c et al.), and harness/triage.sh applies it at ingress;
+    # this gate did not, so t71/t72/t78 read as stdout mismatches.
+    if [ "$lang" = c ] || [ "$lang" = cpp ]; then
+      printf '%s' "$a1" | python3 "$ROOT/harness/outparam_to_returns.py" > "$TMP/a1.outparam.json" 2>/dev/null \
+        && a1=$(cat "$TMP/a1.outparam.json")
+    fi
     # 2. A1 → estree (default js render)
     printf '%s' "$a1" > "$TMP/a1.json"
     if ! "$OTRANSPILERL" --source-lang shir --target estree "$TMP/a1.json" > "$TMP/estree.json" 2>/dev/null; then

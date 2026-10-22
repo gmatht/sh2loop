@@ -41,6 +41,11 @@ pub const TARGETS: &[(&str, &str)] = &[
     (".glsl", "glsl"),
     (".glslv", "glslv"),
     (".shir", "shir"),
+    // the shell-family renderers copied from sh2perl/backends/{fish,zsh}
+    // into sh2perl/src (the vendored copies predate IrStmt::Function
+    // {params}); both consume the A1 contract in-process.
+    (".fish", "fish"),
+    (".zsh", "zsh"),
 ];
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -320,17 +325,34 @@ pub fn compile(src: &str, _opts: &str) -> Result<String, String> {
 /// A1 ingress shared by `render` and `shir_opt` — the EXACT pass sequence
 /// the backend receives, so the GUI can show the optimized contract
 /// without drift. Returns the lowered program + canonical target kind.
-fn ingest(a1: &str, lang: &str) -> Result<(debashl::ir::IrProgram, String), String> {
+/// The canonical target kind for a `lang` spelling (bare name or
+/// extension) — the TARGETS lookup `ingest` and the one-shot
+/// `render_exported_prog` share, so both spell exactly the same error.
+fn canonical_kind(lang: &str) -> Result<String, String> {
     let lang = lang.strip_prefix('.').unwrap_or(lang);
-    let kind = TARGETS
+    TARGETS
         .iter()
         .find(|(ext, _)| *ext == format!(".{lang}").as_str())
         .or_else(|| TARGETS.iter().find(|(_, k)| *k == lang))
         .map(|(_, k)| k.to_string())
         .ok_or_else(|| {
             format!("target {lang:?} not wired (known: js, pl, c, go, py, sh, java, rs, zig, glsl, glslv, shir)")
-        })?;
+        })
+}
+
+fn ingest(a1: &str, lang: &str) -> Result<(debashl::ir::IrProgram, String), String> {
+    let kind = canonical_kind(lang)?;
     let mut prog = debashl::shir_json_in::shir_json_to_ir(a1)?;
+    ingress_normalize(&mut prog, &kind);
+    Ok((prog, kind))
+}
+
+/// The FRONTEND A1 ingress pass set — everything `ingest` runs on a
+/// program after the JSON ingress, factored out so the one-shot
+/// `render_exported_prog` (shell source → `ast_to_ir` → HERE → backend)
+/// applies the identical normalisations to a program that never went
+/// through the JSON round-trip.
+fn ingress_normalize(mut prog: &mut debashl::ir::IrProgram, kind: &str) {
     // FRONTEND A1 ingress — the deleted CLI layer's --shir-in-* contract:
     // process_subst + OPT-IN text-ops, NEVER the full transform set (the
     // full set fires echo-return on frontend-emitted Function nodes and
@@ -386,11 +408,16 @@ fn ingest(a1: &str, lang: &str) -> Result<(debashl::ir::IrProgram, String), Stri
     // pass — the CLI's --shir-in-estree/--shir-in-perl run the same
     // restructure_goto_only; without it frontend A1 carrying C `goto`
     // reaches the renderers' Label/Goto arms instead of DoWhile/While).
-    // The ESTREE target SKIPS both passes — the direct `--target estree` is
-    // ast_to_ir → shir_to_estree_json DIRECTLY, and the estree emitter
-    // handles goto/cfor natively; restructuring changed the output for
-    // goto/cfor-bearing examples (gate "stdout mismatch" deltas).
-    if kind != "estree" {
+    // The ESTREE target has no Label/Goto arm — a surviving jump renders as
+    // `sh2.unsupported("goto <label>")` and dies at runtime — so it runs
+    // restructure_goto_if_present: jump-free programs stay byte-identical
+    // (the predicate gates the pass), while a goto-bearing program is
+    // restructured instead of refused. strip_cfor and the echo/const folds
+    // stay off for estree: that emitter handles cfor and the exec-call echo
+    // form natively, and its direct-path output must stay unchanged.
+    if kind == "estree" {
+        debashl::shir_passes::restructure_goto_if_present(&mut prog);
+    } else {
         debashl::shir_passes::restructure_goto_only(&mut prog);
         // rich nodes (C-style ForInit) → the shell-flavored A1 the renderers
         // expect; a survivor means this pipeline forgot the strip.
@@ -422,7 +449,6 @@ fn ingest(a1: &str, lang: &str) -> Result<(debashl::ir::IrProgram, String), Stri
             debashl::shir_passes::echo_fold::EchoFold.run(&mut prog, &ctx);
         }
     }
-    Ok((prog, kind))
 }
 
 /// The OPTIMIZED A1 contract — exactly what `render(a1, lang)` feeds its
@@ -735,7 +761,12 @@ pub fn render_with_source(a1: &str, lang: &str, src_lang: Option<&str>) -> Resul
 
 fn render_ingested(a1: &str, lang: &str) -> Result<String, String> {
     let (prog, kind) = ingest(a1, lang)?;
-    let target = match kind.as_str() {
+    render_kind(&prog, &kind, a1)
+}
+
+/// The backend dispatch: lowered A1 + canonical kind -> target source.
+fn render_kind(prog: &debashl::ir::IrProgram, kind: &str, a1: &str) -> Result<String, String> {
+    let target = match kind {
         "estree" => {
             debashl::shir::shir_to_estree_json(&prog).map_err(|e| format!("estree: {e}"))?
         }
@@ -747,6 +778,12 @@ fn render_ingested(a1: &str, lang: &str) -> Result<String, String> {
         "java" => debashl::java_backend::shir_to_java(&prog)?,
         "rust" => debashl::rust_backend::shir_to_rust(&prog),
         "zig" => debashl::zig_backend::shir_to_zig(&prog),
+        // A1 → idiomatic fish / zsh source (the shell-family renderers
+        // copied from sh2perl/backends/{fish,zsh} into sh2perl/src). Both
+        // refuse loudly (Err) on a construct with no faithful spelling, so
+        // the page's target pane shows the refusal, never a half-render.
+        "fish" => debashl::fish_backend::shir_to_fish(&prog)?,
+        "zsh" => debashl::zsh_backend::shir_to_zsh(&prog)?,
         // A1 → GLSL ES 1.00 render fragment — the same options the
         // dedicated otranspilerl_glsl shell→shader entry uses (the
         // MIMEcroft bridges: frag_x/frag_y/vcolor/uv/tex/crack, putb
@@ -782,6 +819,51 @@ fn render_ingested(a1: &str, lang: &str) -> Result<String, String> {
         }
     };
     Ok(target)
+}
+
+/// The CONTRACT export for shell source — parse WITH lines and run the
+/// full `ast_to_ir` pipeline (every worker transform + the A2 annotations
+/// + stmt_lines), returning the PROGRAM rather than its JSON spelling.
+/// `None` = shell parse failure (the caller decides how to report it).
+/// `otranspilerl_shir` serialises this; `otranspilerl_transpile` feeds it
+/// straight to [`render_exported_prog`], so the A1 pane and the target
+/// pane are rendered from the SAME program.
+pub fn shell_to_shir_export_prog(content: &str) -> Option<debashl::ir::IrProgram> {
+    let (commands, lines) = debashl::Parser::new(content).parse_with_lines().ok()?;
+    Some(debashl::shir::ast_to_ir_with_lines(&commands, &lines))
+}
+
+/// Render an already-exported program ([`shell_to_shir_export_prog`]'s
+/// output) to `lang` — the ONE-SHOT pipeline: `ast_to_ir` ran the worker
+/// transforms at export time, so this is the target's ingress half
+/// ([`ingress_normalize`], the same passes `ingest` applies to frontend
+/// A1) + the backend dispatch, with NO second JSON round-trip. The old
+/// spell re-exported to JSON and re-ingested, which lost `stmt_lines`
+/// and ran the target transforms a second time on top of `ast_to_ir`'s —
+/// the two paths' panes differed on brace lists and dead stores.
+pub fn render_exported_prog(
+    prog: &debashl::ir::IrProgram,
+    lang: &str,
+    src_lang: Option<&str>,
+) -> Result<String, String> {
+    let kind = canonical_kind(lang)?;
+    // The "shir" target IS the contract: hand the export back verbatim
+    // (the old pipeline returned the A1 text it received, so the
+    // normalisation passes below must not reach this arm).
+    if kind == "shir" {
+        return Ok(debashl::shir_json::shir_to_shir_json(prog));
+    }
+    let mut prog = prog.clone();
+    debashl::shir::set_source_lang(src_lang);
+    let r = (|| {
+        ingress_normalize(&mut prog, &kind);
+        // render_kind's "shir" arm wants the A1 text and every other arm
+        // ignores it — and that arm just returned above.
+        let a1 = debashl::shir_json::shir_to_shir_json(&prog);
+        render_kind(&prog, &kind, &a1)
+    })();
+    debashl::shir::set_source_lang(None);
+    r
 }
 
 fn read_stdin() -> Result<String, String> {
