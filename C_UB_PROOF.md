@@ -191,7 +191,90 @@ script's own output.
   invariants. Doing Isabelle first risks mechanizing a claim the code
   already violates on line one of the corpus.
 
+## 7. Step 0 result (measured 2026-10-22)
+
+`harness/c_gate_ubsan.sh` is the instrument. It fixes the three defects that
+made the existing `c_gate_main.sh --sanitize` arm unmeasurable, and states
+its own validity as **positive controls**: four deliberately-UB programs are
+rendered by the C backend itself, compiled with the sanitizer, and must fire
+(`signed integer overflow`, `index out of bounds`, `load of null pointer`,
+`division by zero`). If any control is silent the script exits 2 and writes
+no tally — a clean sweep from a probe that cannot fire is not evidence.
+
+```
+$ harness/c_gate_ubsan.sh            # gcc 13.3 (this box has no clang)
+control overflow: FIRES
+control oob:      FIRES
+control nullderef: FIRES
+control divzero:  FIRES
+== verdict classes ==
+    652 CLEAN
+      1 STUB          parse-redirect-in-case-pattern.sh (4 sh2 callouts)
+      1 CC-FAIL       063_12_complex_eval.sh (`result` undeclared)
+654 files
+== UBSan/ASan kinds ==   (none)
+```
+
+**Reading of that result — and the trap in it.** A 652/652 clean sweep
+retires one hypothesis and *fails to test* the other:
+
+- **No UBSan/ASan finding anywhere** on the corpus, with the probe proven
+  live. The guards the backend documents are, on this corpus, actually
+  present: no OOB index into `array_caps`/`ARR_CAP`, no null load, no div0,
+  no leaked-pointer use.
+- **The width class is NOT measurable by sanitizers.** Narrowing in
+  practice is `uint8_t` (39 decls) + `uint16_t` (8) across 36 of 654 files.
+  `range_width_name` tests `u8` *before* `i8` (and `u16` before `i16`), so
+  any non-negative range yields the unsigned type — `int8_t`/`int16_t`/
+  `int32_t` are unreachable. **Unsigned** conversion is defined behaviour,
+  so UBSan cannot fire, and a `uint8_t` global store has no redzone for ASan
+  to check. Measured with a control program:
+  `uint8_t i; i = 300;` prints 44 under `address,undefined` with no
+  diagnostic.
+- But gcc's own analysis finds **10 truncating stores in 9 corpus files**:
+
+  ```
+  gcc -O1 -Wextra -Wconversion over all 654 renders
+    warning: conversion from 'long long int' to 'uint8_t' may change value   (9)
+    warning: conversion from 'long long int' to 'uint16_t' may change value  (1)
+  001_simple, 054_fibonacci, or-continue, eq-string-num-var, parse-brace-close,
+  tsv-string-accumulate-loop, bc-native-capture, 062_01, 062_04
+  ```
+
+  Two shapes, both from `seed_range_loop_vars` / `seed_isqrt_bounds` seeding
+  a range that ignores how the value is *used*:
+  1. `for i in 1..5` seeds `i:[1,5] → uint8_t`, and the store from the
+     `_for_i_0[]` table is `long long → uint8_t`. Latent, not a manifest bug
+     (the seeded range is right for the loop) — but nothing checks the
+     *store's* range against the declared width, which is exactly what P1
+     has to prove.
+  2. `result=$(( (2+3)*(4-1) + (5**2) ))` renders `uint8_t result` and
+     `result = 15 + _sh_pow(5,2)` → prints **44** instead of **40**. Safe
+     only because `_sh_pow` returns a wrapped `long long`; it is correct by
+     accident, not by proof.
+
+**So the Step-0 verdict is: the array-cap/buffer invariants hold on this
+corpus; the width invariant is live but *unproven and unobservable by
+sanitizers*.** That is a stronger reason to mechanize P1 than "sanitizers are
+silent" would have been — silence here is an instrument limitation, not a
+result. P1's generated obligations must therefore assert the store-side
+condition (`value ∈ declared width`) explicitly, not just the variable's own
+range, which is the gap class 1 above sits in.
+
+**Two harness defects found and fixed on the way** (both would have produced
+false `SAN-DIFF` verdicts on every run):
+- the sandbox was one level deep, so `046_cd..sh` (body: `cd ..`) escaped it
+  and listed the harness's own capture files → now two levels deep;
+- the two builds ran under different paths, so a program printing `$0`
+  (`057_case.sh`: `Usage: $0 …`) disagreed with itself → now one path,
+  swapped between runs.
+
 ## Revision history
 
+- v2 (2026-10-22): Step 0 executed. `harness/c_gate_ubsan.sh` added with
+  live positive controls; 652/652 compiled programs sanitizer-clean; the
+  width class found live-but-invisible (9 signed→unsigned truncating stores
+  in 9 files, 2 by `-Wconversion`, plus the `uint8_t = _sh_pow(...)` store);
+  P1 obligation sharpened to include the store-side range check.
 - v1 (2026-10-22): initial assessment and plan; no code changed, no
   sanitizer run performed yet.
