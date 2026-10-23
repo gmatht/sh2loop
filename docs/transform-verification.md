@@ -186,12 +186,24 @@ separable reasons — and only the first two are fundamental:
    proof assistant recovers erased information.
 3. **There is no shell semantics *in this tree*.** Earlier revisions of this
    section said "there is no formal semantics of that to quantify over".
-   That is too strong and is corrected here: **Smoosh** (POPL 2020, "Executable
-   Formal Semantics for the POSIX Shell") is a mechanized, executable
-   small-step semantics for POSIX `sh`, validated against seven shells and
-   judged the most conformant of them (its one bug is inherited from dash's
-   parser). It is in Coq/Rocq, not Isabelle, and nothing here has attempted
-   an shIR→Smoosh encoding.
+   That is too strong and is corrected here: **Smoosh** (POPL 2020,
+   "Executable Formal Semantics for the POSIX Shell") defines a small-step
+   semantics for POSIX `sh`, validated against seven shells and judged the
+   most conformant of them (its one bug is inherited from dash's parser).
+
+   **But it is not a proof development, and an earlier revision of this
+   paragraph said it was.** Checked against the artefact (2026-10-24,
+   `github.com/mgree/smoosh`): the semantics is written in **14 `.lem`
+   files** (`src/semantics.lem` 1,678 lines, `src/arith.lem` 656) and is
+   extracted to OCaml as an *executable* shell; there are **zero `.v`
+   files** and no Coq proofs of anything. "Mechanized" in the paper means
+   encoded in Lem, not proved in a proof assistant.
+
+   So Smoosh offers a reference SEMANTICS and a differential oracle, not a
+   foundation to prove against. Reaching the theorems below would mean
+   porting its semantics into Coq/Isabelle by hand — i.e. the "minimal
+   in-tree semantics" option, with Smoosh as the specification of what to
+   encode.
 
 So the boundary is a boundary of *our* model, not of the problem. What it
 costs today: the three passes that actually fire on the corpus —
