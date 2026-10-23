@@ -51,34 +51,47 @@ manifests=$(command find "$root/core-requests" -name manifest -type f 2>/dev/nul
 checked=0; skipped=0; failed=0; stated=0
 failed_names=()
 
-# ── The whole-directory form: every ROOT outside core-requests ────────────
+# ── The whole-directory form: every ROOT outside the scratch trees ────────
 # A session directory is checked when its ROOT sets quick_and_dirty = false
 # (so `sorry` cannot sneak in) and none of its theories contains `sorry` /
-# `oops`. A directory that opts out of quick_and_dirty is reported as STATED:
-# it is a claim the repo is not standing behind.
-# `command find`, not `find`: on this box `find` is a shell FUNCTION that
-# forwards to `rg --files` and silently ignores `-prune`/`-o`, so the scratch
-# tree `sh2loop/` (seven self-referencing copies) turned one gate run into
-# eight doomed Isabelle builds. Same trap as AGENTS.md's `grep -q` note: a
-# wrapper that accepts the arguments without honouring them.
-dirs=$(command find "$root" \( -name node_modules -o -name target -o -name tmp_run \
-                     -o -name core-requests -o -name sh2loop \) -prune -o \
-        -name ROOT -type f -print 2>/dev/null | sort)
-for r in $dirs; do
-    d=$(dirname "$r")
-    if grep -q "quick_and_dirty *= *false" "$r"; then
+# `oops`. A directory whose ROOT does not pin quick_and_dirty is reported as
+# STATED: it is a claim the repo is not standing behind.
+#
+# TRAPS on this box, each of which silently produced a PASS over nothing:
+#   * `find` is a shell FUNCTION that forwards to `rg --files`; `grep` is a
+#     ripgrep wrapper. Both are spelled `command` here.
+#   * The scratch tree `sh2loop/` holds self-referencing copies of the whole
+#     workspace and sits BELOW the root, so it is filtered as the relative
+#     path `sh2loop/ROOT` (not by pruning the root itself).
+#   * `find … 2>/dev/null | sort` under `set -o pipefail` yields the EMPTY
+#     string when the tree changes under the walk, so the redirect comes
+#     before the pipe.
+# The sessions of record, listed explicitly. NOT discovered by walking the
+# tree: this workspace contains a 97 GB scratch dir whose name is the
+# workspace's own (`sh2loop/`) and holds self-referencing copies of it, and
+# three `find`/`grep`-based discovery attempts here each produced a gate that
+# checked nothing and printed PASS. A new proof session is added to this list
+# WITH its ROOT — the same rule as "a new worker needs two edits".
+SESSION_DIRS=(
+    proofs
+    proofs/ArithIdentity
+    sh2perl/docs/fm/TextOps
+    verif
+)
+dirs=""
+for rel in "${SESSION_DIRS[@]}"; do
+    [ -f "$root/$rel/ROOT" ] && dirs="$dirs$root/$rel"$'\n'
+done
+for d in $dirs; do
+    r="$d/ROOT"
+    if command grep -q "quick_and_dirty *= *false" "$r"; then
         status=checked
     else
         status=stated
     fi
-    # Strip comments first: a theory that SAYS "no sorry can hide here" must
-    # not be read as containing one (grep found exactly that comment in
-    # proofs/DivModPow2). Isabelle's comments are (* … *), which the
-    # lexer handles properly; perl -0777 slurps the whole file.
     # Isabelle comments are (* … *); strip them before looking for a bare
-    # `sorry`/`oops` so a theory that SAYS "no sorry can hide here" is not
-    # read as containing one. `perl -0777 -ne … && print` in a loop is the
-    # wrong shape: perl exits 0 whatever it prints.
+    # `sorry`/`oops`, or a theory that SAYS "no sorry can hide here" is
+    # reported as containing one (it was).
     sorries=""
     for f in "$d"/*.thy; do
         [ -f "$f" ] || continue
@@ -101,37 +114,78 @@ for r in $dirs; do
         echo "CHECK   $d"
         continue
     fi
-    # Build the sessions whose theory is actually present: a ROOT may declare
-    # a session that is NOT in the default build (BigIntRange, recorded in
-    # proofs/ROOT as not-yet-checking). Those are reported as DECLARED-BUT-
-    # FAILING rather than as a passing gate: silently skipping them would be
-    # the same lie as claiming them.
+    # Build exactly the sessions whose theory is present. A ROOT may declare
+    # a session that is NOT in the default build (BigIntRange is recorded in
+    # proofs/ROOT as not-yet-checking); building by name would fail on a
+    # missing-theory error rather than on the session's own state, so those
+    # are skipped BY NAME — and the run is bounded in TIME, because Isabelle
+    # can take minutes per session and a gate that hangs is a gate nobody runs.
     log=$(mktemp)
     names=""
     if [ -f "$d/ROOT" ]; then
-        names=$(python3 - "$d/ROOT" <<'PYEOF'
-import os, re, sys
-root = sys.argv[1]
-d = os.path.dirname(root)
-names = []
-for ln in open(root, encoding='utf-8', errors='replace'):
-    m = re.match(r'session\s+(\S+)\s+in\s+(\S+)\s*=', ln)
-    if m and os.path.exists(os.path.join(d, m.group(2) + '.thy')):
-        names.append(m.group(1))
-print(' '.join(names))
+        names=$(python3 - "$d/ROOT" "$d" <<'PYEOF'
+import os, re, shlex, sys
+root = os.path.abspath(sys.argv[1]); d = os.path.abspath(sys.argv[2])
+lines = open(root, encoding='utf-8', errors='replace').read()
+out = []
+for m in re.finditer(r'^session\s+(\S+)(?:\s+in\s+(\S+))?\s*=(.*?)(?=^session\s|\Z)',
+                     lines, re.M | re.S):
+    name, sub, body = m.group(1), m.group(2) or '.', m.group(3)
+    th = re.search(r'\btheories\b(.*)', body, re.S)
+    theories = re.findall(r'^\s+([A-Z][A-Za-z0-9_]*)\s*$', th.group(1), re.M) if th else []
+    # The theory file may sit in <d>/<sub>/, <d>/<session>/, or <d>/<sub>/<session>/.
+    for t in theories or [name]:
+        for cand in (os.path.join(d, sub, t + '.thy'),
+                     os.path.join(d, name, t + '.thy'),
+                     os.path.join(d, sub, name, t + '.thy'),
+                     os.path.join(d, t + '.thy')):
+            if os.path.exists(cand):
+                out.append(name); break
+        else:
+            continue
+        break
+print(' '.join(shlex.quote(x) for x in out))
 PYEOF
 )
     fi
+    names=$(printf '%s' "$names" | tr -s ' ' | sed 's/^ *//; s/ *$//')
     if [ -n "$names" ]; then
         ok=1
         # shellcheck disable=SC2086
-        timeout 1800 "$ISABELLE" build -c -o quick_and_dirty=false -D "$d" $names >"$log" 2>&1 || ok=0
+        # NOT `-c`: two sessions in this tree build from the same HOL heap, and
+        # a from-scratch build of one while the other is cached makes Isabelle
+        # move the source DB under the running process (SQLITE_READONLY_DBMOVED).
+        # `quick_and_dirty = false` is what rejects `sorry`; `-c` only forbids
+        # reusing a heap, which is a CI-purity question, not a soundness one.
+        # A PER-RUN user home: two Isabelle invocations sharing
+        # ~/.isabelle corrupt each other's source DB (SQLITE_READONLY_DBMOVED,
+        # then SQLITE_CONSTRAINT_PRIMARYKEY on the next run). Heaps are still
+        # found through ISABELLE_HEAPS, which points at the installed ones.
+        isa_home=$(mktemp -d)
+        if USER_HOME="$isa_home" timeout "${PROOF_BUILD_TIMEOUT:-900}" "$ISABELLE" build \
+                -o quick_and_dirty=false -D "$d" $names >"$log" 2>&1; then
+            ok=1
+        else
+            ok=0
+        fi
+        rm -rf "$isa_home"
+    elif [ -f "$d/ROOT" ]; then
+        # A ROOT whose sessions name theories we cannot locate (a `in <sub>`
+        # form, or a session built on ANOTHER session). Building it by name
+        # means building the default session of the whole ROOT — for
+        # `proofs/` that drags in a session the ROOT itself marks as failing,
+        # and the verdict then blames the wrong directory. This is an
+        # UNKNOWN, reported as such: add the missing theory or leave the
+        # directory out of SESSION_DIRS.
+        ok=2
     else
         ok=0
     fi
     if [ "$ok" = 1 ]; then
         checked=$((checked + 1))
         echo "OK      $d"
+    elif [ "$ok" = 2 ]; then
+        echo "UNKNOWN $d  (no theory located for its session(s) — not a pass, not a proof)" >&2
     else
         failed=$((failed + 1)); failed_names+=("$d")
         echo "FAILED  $d" >&2
@@ -139,7 +193,6 @@ PYEOF
     fi
     rm -f "$log"
 done
-
 for m in $manifests; do
     # the proof: line, continuation lines included, read into one string
     claim=$(awk '
