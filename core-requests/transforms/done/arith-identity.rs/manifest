@@ -1,0 +1,21 @@
+name: arith-identity
+prereqs: [none — the folds pattern-match ArithAst directly; no var-type
+  info is consulted]
+invariant: rewrites `$((x+0))`/`$((x*1))`-style identities in place; every
+  rule preserves value AND error behaviour. Ungated: `x±0`, `x*1`, `x/1`,
+  `x%1`. Gated by arith_no_err (no `/` or `%` anywhere in the subtree):
+  `x-x → 0`, `x*0 → 0`, `0*x → 0` — a hidden `(1/0)*0` must keep its
+  divide-by-zero, which folding would swallow. Gated by a POSITIVE literal
+  divisor: `0/n → 0` (`0/0` is itself divide-by-zero; a negative divisor
+  flips -0.0 to +0.0 in a float domain). `x/x` and anything touching a
+  capture/call is left alone.
+scope: shell-int domain. NOT registered — `all()` has no entry; registering
+  needs the float-domain decision recorded in the module header
+updates: proofs/ArithIdentity added (2026-10-23)
+proof: proofs/ArithIdentity (checked — Isabelle2025-2,
+  quick_and_dirty=false; each fold rule stated over IR-shaped data with an
+  explicit divide-by-zero error model and an arbitrary store, plus three
+  refutations showing each guard is load-bearing
+  [(1/0)-(1/0), (1/0)*0, 0/0]; negative control observed to fail when the
+  no_err premise is replaced by True. Build:
+  isabelle build -d proofs/ArithIdentity -b ArithIdentity)
