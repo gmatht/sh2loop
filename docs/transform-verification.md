@@ -157,9 +157,34 @@ lowering **denotes the right value** (`wc_count`, with
 `strlen_plus_one_is_not_line_count` recording the pre-fix emission as
 refuted). Both are Tier 1 — no shell state.
 
-`harness/transform-proofs.sh` builds both kinds, plus the per-manifest
-`proof:` claims, with `quick_and_dirty = false` (so `sorry` cannot hide),
-strips `(* … *)` comments before scanning for `sorry`/`oops` (a theory that
-says "no sorry can hide here" is not one), and reports a session that is not
-in its own default build as `FAILED` rather than skipping it. `verif/`
-is reported `STATED` because its `ROOT` does not pin `quick_and_dirty`.
+`harness/transform-proofs.sh` builds all of them plus the per-manifest
+`proof:` claims — **6 sessions, all green, measured 2026-10-23**:
+
+```
+OK      proofs                     (DivModPow2, I32Provable, BigIntRange, IntervalFloor)
+OK      proofs/ArithIdentity
+OK      sh2perl/docs/fm/TextOps
+OK      verif                      (MemorySafety)
+OK      …/done/arith-identity.rs/manifest
+OK      …/done/div-mod-pow2.rs/manifest
+transform-proofs: 6 checked-and-built, 0 stated-only, 0 failed
+```
+
+Sabotaging `Invariant.thy` makes it exit 1 on that manifest, and restoring it
+(md5 verified) returns to 0 — the gate can fail.
+
+Two things learned building the gate, both of which had produced a PASS over
+nothing:
+
+- **Discovery by walking the tree does not work here.** `find` is a shell
+  function forwarding to `rg --files` (it ignores `-prune`), the scratch tree
+  `sh2loop/` is a 97 GB self-referencing copy of the workspace, and every
+  shell-filtered variant of the ROOT list returned zero or everything. The
+  gate now names its session directories in `SESSION_DIRS`; a new session is
+  added there *and* given a `quick_and_dirty = false` ROOT.
+- **Two Isabelle builds must not share `~/.isabelle`.** They corrupt each
+  other's source DB (`SQLITE_READONLY_DBMOVED`, then
+  `SQLITE_CONSTRAINT_PRIMARYKEY` on the next run), which reads as a proof
+  failure. Each build gets a per-run `USER_HOME`; `-c` is not used (it moves
+  the shared heap under a concurrent build, and it is the missing `sorry`
+  check that matters — `quick_and_dirty = false` is what rejects `sorry`).

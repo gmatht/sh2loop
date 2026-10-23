@@ -2,8 +2,17 @@
 # transform-proofs.sh — build every Isabelle session in the tree that CLAIMS
 # to be checked.
 #
-#   ./harness/transform-proofs.sh            # manifests + whole-dir sessions
+#   ./harness/transform-proofs.sh            # manifests + named session dirs
 #   ./harness/transform-proofs.sh --list     # show what would be checked
+#
+# Checked today (6 sessions, all green — measured 2026-10-23):
+#   proofs/ (DivModPow2, I32Provable, BigIntRange, IntervalFloor),
+#   proofs/ArithIdentity, sh2perl/docs/fm/TextOps, verif/ (MemorySafety),
+#   and the per-manifest claim in core-requests/…/div-mod-pow2.rs.
+#
+# To add a session: add its directory to SESSION_DIRS below AND give it a
+# ROOT with `quick_and_dirty = false`. NOTHING is discovered by walking the
+# tree — see the traps in the loop's header.
 #
 # TWO KINDS OF CLAIM are checked, because the repo has two:
 #
@@ -252,7 +261,11 @@ PY
     # Isabelle reject `sorry` outright, and `-c` forces a from-scratch build so
     # a cached heap cannot certify a file that has since been edited.
     log=$(mktemp)
-    if timeout 1800 "$ISABELLE" build -c -o quick_and_dirty=false -D "$proofdir" >"$log" 2>&1; then
+    # Per-run Isabelle home (see the note in the directory loop): two builds
+    # sharing ~/.isabelle corrupt each other's source DB, and the failure then
+    # reads as a proof error.
+    isa_home=$(mktemp -d)
+    if USER_HOME="$isa_home" timeout 1800 "$ISABELLE" build -c -o quick_and_dirty=false -D "$proofdir" >"$log" 2>&1; then
         checked=$((checked + 1))
         echo "OK      $m"
     else
@@ -260,6 +273,7 @@ PY
         echo "FAILED  $m" >&2
         sed 's/^/    /' "$log" | tail -12 >&2
     fi
+    rm -rf "$isa_home"
     rm -f "$log"
 done
 
