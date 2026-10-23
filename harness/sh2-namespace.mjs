@@ -10013,7 +10013,8 @@ export function evalFloatArith(src, sh) {
 export function evalArith(src, sh) {
   // recursive descent over integers; supports + - * / % ** << >> & | ^
   // comparison, equality, && || !, ternary, ( ), assignments (x=5, x+=3,
-  // x-=1, x*=2, x/=2, x%=2), and postfix ++ / --.
+  // x-=1, x*=2, x/=2, x%=2), the comma operator (`0,0` → 0, the bash
+  // pseudo-multidim subscript `matrix[0,0]`), and postfix ++ / --.
   const s = arithExpand(sh, String(src));
   if (s.trim() === '') return 0; // `$(( $1 ))` with $1 unset → `$(( ))` → 0
   let pos = 0;
@@ -10072,7 +10073,7 @@ export function evalArith(src, sh) {
   }
   function primary() {
     ws();
-    if (s[pos] === '(') { pos++; const v = ternary(); ws(); if (s[pos] !== ')') throw new Error('arith: missing )'); pos++; return v; }
+    if (s[pos] === '(') { pos++; const v = comma(); ws(); if (s[pos] !== ')') throw new Error('arith: missing )'); pos++; return v; }
     if (s[pos] === '!') { pos++; return primary() ? 0 : 1; }
     if (s[pos] === '~') { pos++; return ~primary(); }
     // prefix ++ / -- (`$((++i))`, `(( j = i++ + ++i ))`)
@@ -10217,7 +10218,18 @@ export function evalArith(src, sh) {
     }
     return ternary();
   }
-  const v = assignment();
+  // Comma operator — LOWEST precedence, evaluates left to right and yields
+  // the LAST value (bash/C semantics). The shell-facing shape is the
+  // pseudo-multidim subscript `matrix[0,0]=v` / `${a[1,2]}`, whose
+  // subscript is real arithmetic (`$((0,0))` is 0), plus `((i=0,j=0))`.
+  function comma() {
+    let v = assignment();
+    for (;;) {
+      ws();
+      if (s[pos] === ',') { pos++; v = assignment(); } else return v;
+    }
+  }
+  const v = comma();
   ws();
   // bash parses the WHOLE expanded expression: trailing garbage
   // (`$(( 5 + ))`, `$(( echo "test" ))`) is a syntax error, and the shell
