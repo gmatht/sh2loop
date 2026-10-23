@@ -184,26 +184,50 @@ separable reasons — and only the first two are fundamental:
    are escape hatches. `${v:0}` means different things on a scalar and on an
    array, and that distinction is a *string* at this layer, not a type. No
    proof assistant recovers erased information.
-3. **There is no shell semantics *in this tree*.** Earlier revisions of this
-   section said "there is no formal semantics of that to quantify over".
-   That is too strong and is corrected here: **Smoosh** (POPL 2020,
-   "Executable Formal Semantics for the POSIX Shell") defines a small-step
-   semantics for POSIX `sh`, validated against seven shells and judged the
-   most conformant of them (its one bug is inherited from dash's parser).
+3. **There is no shell semantics *in this tree* — and the off-the-shelf
+   candidate does not transfer.** Earlier revisions of this section said
+   "there is no formal semantics of that to quantify over", then that
+   **Smoosh** (POPL 2020) supplied one "in Coq/Rocq". Both versions were
+   wrong; the second was checked against the artefact (2026-10-24) and is
+   corrected here.
 
-   **But it is not a proof development, and an earlier revision of this
-   paragraph said it was.** Checked against the artefact (2026-10-24,
-   `github.com/mgree/smoosh`): the semantics is written in **14 `.lem`
-   files** (`src/semantics.lem` 1,678 lines, `src/arith.lem` 656) and is
-   extracted to OCaml as an *executable* shell; there are **zero `.v`
-   files** and no Coq proofs of anything. "Mechanized" in the paper means
+   **What Smoosh is.** `github.com/mgree/smoosh`: the POSIX shell semantics
+   written in **14 `.lem` files** (`semantics.lem` 1,678 lines,
+   `command.lem` 2,815, `smoosh_prelude.lem` 2,364, `arith.lem` 656 — 12,007
+   lines total), extracted to OCaml via Lem and built into an *executable*
+   shell; validated against seven shells and judged the most conformant of
+   them. There are **zero `.v` files**: no Coq proofs, no Isabelle
+   theories, no theorems of any kind. "Mechanized" in the paper means
    encoded in Lem, not proved in a proof assistant.
 
-   So Smoosh offers a reference SEMANTICS and a differential oracle, not a
-   foundation to prove against. Reaching the theorems below would mean
-   porting its semantics into Coq/Isabelle by hand — i.e. the "minimal
-   in-tree semantics" option, with Smoosh as the specification of what to
-   encode.
+   **Why it still does not give us a foundation.** Lem *does* have Coq,
+   HOL4 and Isabelle/HOL backends, so the obvious route was "generate the
+   theories". Run on Smoosh's own modules, in dependency order:
+
+   ```
+   $ lem -coq -outdir /tmp/out version.lem smoosh_num.lem signal.lem …
+   File "smoosh_num.lem", line 171: unbound variable for targets {coq}: system_int_size
+   ```
+
+   Smoosh is written for OCaml extraction only: **96 `declare ocaml
+   target_rep` declarations and zero for any proof assistant**. The
+   machinery it is built on — `Sys.int_size`, `dash_string` as
+   `Ctypes.ptr`, `Unix.getppid`, `Dash.stackmark` — has no Coq or Isabelle
+   meaning, so Lem stops at the second module and `arith.lem` /
+   `semantics.lem` are never reached. `-isa` fails at exactly the same
+   point for exactly the same reason; the choice between Coq and Isabelle
+   is moot because neither backend produces output.
+
+   (The Isabelle route has a second, independent obstacle: Lem's generated
+   Isabelle theories require AFP `Word_Lib`, which is *not* in our
+   Isabelle 2025-2, and Lem targets Isabelle 2022. And earlier still we
+   noted that Isabelle ships no `C-Parser`/`AutoCorres`, which is why the
+   C-backend renderer embedding is blocked too.)
+
+   So what Smoosh offers us is a **reference semantics and a differential
+   oracle**, not a foundation to state theorems against. Reaching the
+   theorems below means writing the semantics into a proof assistant by
+   hand, with Smoosh as the specification of what to encode.
 
 So the boundary is a boundary of *our* model, not of the problem. What it
 costs today: the three passes that actually fire on the corpus —
