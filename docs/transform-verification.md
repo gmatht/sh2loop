@@ -67,7 +67,51 @@ Four laws:
 ### Coverage is part of the verdict
 
 The harness prints how many transforms actually *rewrote* a generated
-program, and names the idle ones. A law that never fires proves nothing, so
+program, and names the idle ones.
+
+**Measured against the real corpus too, not only the generator (2026-10-24).**
+The generator's "idle" set is about generated shapes; this is the same
+question asked of the 562 shell examples, one transform at a time via
+`SH2_TRANSFORMS=<name>` and a shIR hash comparison:
+
+| pass | files changed (of 562) |
+|---|---|
+| `test-lowering` | 43 |
+| `array-len-fold` | 9 |
+| `const-status-cond` | 8 |
+| `const-condition-elim` | **0** |
+| `slice-identity` | **0** |
+| `affix-strip-fold` | **0** |
+| `for-recovery` | **0** |
+| `counted-arith-forinit` | **0** |
+| `counted-while-forinit` | **0** |
+
+Three families are registered in `transforms::all()` — so they run on every
+compile — and change nothing on the corpus:
+
+* **the native-loop recovery passes** (`for-recovery`,
+  `counted-arith-forinit`, `counted-while-forinit`). Corpus-wide, `For`/
+  `ForInit` node counts are 49 with transforms OFF and 47 with them ON: the
+  passes *remove* two frontend-emitted `For` nodes and recover none. The
+  cause for `for-recovery` is recorded in its proof README: `loop_cond`'s
+  lowered-comparison arm expects `IrExpr::Var`/`IrExpr::Int` operands while
+  the shell path emits them `Arith`-wrapped, and no producer builds the bare
+  shape. The sibling passes read the same structured-`Arith` shapes and
+  should be checked against the emitted JSON the same way.
+* **`const-condition-elim`** — no effect on the corpus, and on a two-line
+  `if true; …; if false; …` probe it leaves both `If` nodes in place while
+  `const-status-cond` folds one.
+* **`slice-identity` / `affix-strip-fold`** — zero; their manifests say they
+  are offered to specific backends, so zero here may be correct rather than
+  broken, but nothing currently distinguishes the two cases.
+
+The lesson for **proofs** is the same one as for the laws: a Tier-1 lemma
+about a pass that never fires is a true theorem about a dead contract. The
+`for-recovery` proof in `proofs/ForRecovery/` is exactly that — it is
+committed, green, and its README now leads with "the proved path is
+unreachable for shell input". Check that a pass fires **before** proving
+it, the same way `div-mod-pow2`'s header had to record "no consumer in this
+tree". A law that never fires proves nothing, so
 "8/48 rewrote something" (cases=128; the count moves a little with the
 seed) is reported next to "4 laws passed", not omitted. The idle set is the
 roadmap: it needs richer generated shapes (capture `env`, redirects,
