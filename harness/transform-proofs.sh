@@ -1,18 +1,26 @@
 #!/usr/bin/env bash
-# transform-proofs.sh — check the Tier-1 proof artifacts that the transform
-# manifests CLAIM are checked.
+# transform-proofs.sh — build every Isabelle session in the tree that CLAIMS
+# to be checked.
 #
-#   ./harness/transform-proofs.sh            # every manifest with a proof: line
+#   ./harness/transform-proofs.sh            # manifests + whole-dir sessions
 #   ./harness/transform-proofs.sh --list     # show what would be checked
+#
+# TWO KINDS OF CLAIM are checked, because the repo has two:
+#
+#   1. A transform manifest carrying a `proof:` line — the per-transform
+#      form, next to the offer it constrains.
 #
 # A manifest line
 #
 #   proof: proof/Invariant.thy#div_mod_pow2_sound (checked — …)
 #
-# is a CLAIM. This gate makes the claim checkable: it builds the session next
-# to that manifest with Isabelle and fails if the build fails. A claim that
-# cannot be built is worse than no claim, because "sorry-free text that looks
-# like a proof" is indistinguishable from a proof to a reader.
+#   2. A top-level `ROOT` with `quick_and_dirty = false` and no `sorry` in its
+#      theories — the analysis/verdict form (`proofs/`, the node semantics in
+#      `sh2perl/docs/fm/`). Those claims currently live in a README, where
+#      "built once, by hand" reads exactly like "proved".
+#
+# A claim that cannot be built is worse than no claim, because sorry-free text
+# that LOOKS like a proof is indistinguishable from a proof to a reader.
 #
 # Exit: 0 when every `checked` claim builds (or there is none); 1 when a claim
 # fails; 2 when Isabelle is absent (nothing was verified — do NOT read that as
@@ -39,9 +47,98 @@ fi
 list=0
 [ "${1:-}" = "--list" ] && list=1
 
-manifests=$(find "$root/core-requests" -name manifest -type f 2>/dev/null | sort)
+manifests=$(command find "$root/core-requests" -name manifest -type f 2>/dev/null | sort)
 checked=0; skipped=0; failed=0; stated=0
 failed_names=()
+
+# ── The whole-directory form: every ROOT outside core-requests ────────────
+# A session directory is checked when its ROOT sets quick_and_dirty = false
+# (so `sorry` cannot sneak in) and none of its theories contains `sorry` /
+# `oops`. A directory that opts out of quick_and_dirty is reported as STATED:
+# it is a claim the repo is not standing behind.
+# `command find`, not `find`: on this box `find` is a shell FUNCTION that
+# forwards to `rg --files` and silently ignores `-prune`/`-o`, so the scratch
+# tree `sh2loop/` (seven self-referencing copies) turned one gate run into
+# eight doomed Isabelle builds. Same trap as AGENTS.md's `grep -q` note: a
+# wrapper that accepts the arguments without honouring them.
+dirs=$(command find "$root" \( -name node_modules -o -name target -o -name tmp_run \
+                     -o -name core-requests -o -name sh2loop \) -prune -o \
+        -name ROOT -type f -print 2>/dev/null | sort)
+for r in $dirs; do
+    d=$(dirname "$r")
+    if grep -q "quick_and_dirty *= *false" "$r"; then
+        status=checked
+    else
+        status=stated
+    fi
+    # Strip comments first: a theory that SAYS "no sorry can hide here" must
+    # not be read as containing one (grep found exactly that comment in
+    # proofs/DivModPow2). Isabelle's comments are (* … *), which the
+    # lexer handles properly; perl -0777 slurps the whole file.
+    # Isabelle comments are (* … *); strip them before looking for a bare
+    # `sorry`/`oops` so a theory that SAYS "no sorry can hide here" is not
+    # read as containing one. `perl -0777 -ne … && print` in a loop is the
+    # wrong shape: perl exits 0 whatever it prints.
+    sorries=""
+    for f in "$d"/*.thy; do
+        [ -f "$f" ] || continue
+        if perl -0777 -ne 's/\(\*.*?\*\)//gs; exit(/ (?<![A-Za-z_])(?:sorry|oops)(?![A-Za-z_]) /x ? 0 : 1)' -- "$f"; then
+            sorries="$sorries$f"$'\n'
+        fi
+    done
+    sorries=$(printf '%s' "$sorries" | head -3)
+    if [ -n "$sorries" ]; then
+        echo "transform-proofs: $d contains sorry/oops — not a proof:" >&2
+        printf '    %s\n' $sorries >&2
+        failed=$((failed + 1)); failed_names+=("$d"); continue
+    fi
+    if [ "$status" = "stated" ]; then
+        stated=$((stated + 1))
+        [ $list -eq 1 ] && echo "STATED  $d  (ROOT does not set quick_and_dirty = false)"
+        continue
+    fi
+    if [ $list -eq 1 ]; then
+        echo "CHECK   $d"
+        continue
+    fi
+    # Build the sessions whose theory is actually present: a ROOT may declare
+    # a session that is NOT in the default build (BigIntRange, recorded in
+    # proofs/ROOT as not-yet-checking). Those are reported as DECLARED-BUT-
+    # FAILING rather than as a passing gate: silently skipping them would be
+    # the same lie as claiming them.
+    log=$(mktemp)
+    names=""
+    if [ -f "$d/ROOT" ]; then
+        names=$(python3 - "$d/ROOT" <<'PYEOF'
+import os, re, sys
+root = sys.argv[1]
+d = os.path.dirname(root)
+names = []
+for ln in open(root, encoding='utf-8', errors='replace'):
+    m = re.match(r'session\s+(\S+)\s+in\s+(\S+)\s*=', ln)
+    if m and os.path.exists(os.path.join(d, m.group(2) + '.thy')):
+        names.append(m.group(1))
+print(' '.join(names))
+PYEOF
+)
+    fi
+    if [ -n "$names" ]; then
+        ok=1
+        # shellcheck disable=SC2086
+        timeout 1800 "$ISABELLE" build -c -o quick_and_dirty=false -D "$d" $names >"$log" 2>&1 || ok=0
+    else
+        ok=0
+    fi
+    if [ "$ok" = 1 ]; then
+        checked=$((checked + 1))
+        echo "OK      $d"
+    else
+        failed=$((failed + 1)); failed_names+=("$d")
+        echo "FAILED  $d" >&2
+        sed 's/^/    /' "$log" | tail -12 >&2
+    fi
+    rm -f "$log"
+done
 
 for m in $manifests; do
     # the proof: line, continuation lines included, read into one string
