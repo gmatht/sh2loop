@@ -64,3 +64,15 @@ node `optional_parameter_declaration` wrapping `parameter_declaration` +
 frontend whitelists `optional_parameter_declaration`/`default_value_clause`,
 emits the defaults, and the executed-stdout oracle matches native g++
 (`5` then `3`).
+
+## OUTCOME: implemented
+
+Core side landed: `IrSub.param_defaults` (parallel to `params`, `None` =
+required), emitted only when a sub HAS defaults so every existing A1 stays
+byte-identical (`shir_json.rs`), parsed with a total positional pairing and a
+length check (`shir_json_in.rs`, 3 unit tests), and `estree::Expr::
+AssignmentPattern` added as the native `function f(x = 5)` binding pattern with
+every ESTree pass updated (lower_expr / write_expr / hoist / read-set /
+await-sync / normalize_functions). The C++ frontend's whitelist of
+`optional_parameter_declaration` / `default_value_clause` remains the frontend
+half (out of core scope) — no frontend change was needed on the core side.
