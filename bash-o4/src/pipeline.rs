@@ -129,6 +129,226 @@ pub fn parse_program(a1: &str) -> Result<debashl::ir::IrProgram, String> {
     debashl::shir_json_in::shir_json_to_ir(a1)
 }
 
+/// Candidate discovery + table feed for the C backend's absorb table
+/// (which external commands lower to `sh2_uu_run`/`sh2_uu_capture`
+/// instead of a fork/exec `bash -c`; `c_backend::UU_BUILTIN_CMDS` is the
+/// always-on base). Runs on the A1 the compile already holds — no
+/// re-parse — collects the statically-NAMED commands from exec/capture
+/// sites, bounds them by the built `.so`'s availability stamp
+/// (`runtime/build_uu_ffi.sh --ensure` grows the helper only when the
+/// request exceeds the stamp, and is a cached no-op otherwise; an
+/// uncompiled util is rc 127 at runtime per uu_ffi.h, so an UNCOVERED
+/// name is never fed), and publishes the extras (covered − builtin) as
+/// `SH2_ABSORB_CMDS` — the renderer unions them onto its builtin set, so
+/// an empty feed changes nothing and a discovery miss can only fail to
+/// WIDEN, never to shrink. `SH2_NO_ABSORB=1` short-circuits the whole
+/// driver side (and the render kill switch ignores the feed too).
+/// Returns the fed extras for verbose logging; the feed is keyed into
+/// the render cache via `cache::render_env_key`.
+pub fn feed_absorb_table(a1: &str) -> Vec<String> {
+    if std::env::var("SH2_NO_ABSORB").is_ok() {
+        return Vec::new();
+    }
+    let prog = match parse_program(a1) {
+        Ok(p) => p,
+        Err(_) => return Vec::new(),
+    };
+    let mut cands: std::collections::BTreeSet<String> = Default::default();
+    let mut defs: std::collections::BTreeSet<String> = Default::default();
+    collect_absorb_candidates(&prog.stmts, &mut cands, &mut defs);
+    // Script-defined functions are NOT absorb candidates: bash resolves
+    // them before any external command of the same name (the renderer's
+    // `_ if self.functions.contains(&cmd)` arm also precedes the uu
+    // fallback), so a def'd name can never reach the uu path — and
+    // asking `--ensure` to grow the `.so` for `draw_text`-style names
+    // would be a doomed build request on every compile.
+    cands.retain(|c| !defs.contains(c));
+    // Bare simple names only: a path form (`/bin/ls`) never matched the
+    // builtin set and keeps its shell site (refuse > guess).
+    cands.retain(|c| {
+        !c.is_empty()
+            && c
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | '-' | '+'))
+    });
+    if cands.is_empty() {
+        return Vec::new();
+    }
+    let sp = match crate::tcc::find_sh2perl() {
+        Ok(p) => p,
+        Err(_) => return Vec::new(),
+    };
+    let stamp_path = sp.join("runtime").join("lib").join("uu-ffi.features");
+    // No stamp → nothing has established what the built `.so`
+    // dispatches: feed nothing (availability is never guessed).
+    let mut avail: std::collections::BTreeSet<String> =
+        match std::fs::read_to_string(&stamp_path) {
+            Ok(s) => s.split_whitespace().map(str::to_string).collect(),
+            Err(_) => return Vec::new(),
+        };
+    if !cands.iter().all(|c| avail.contains(c)) {
+        // Helper build (CACHED): --ensure rebuilds only when the request
+        // exceeds the stamp, then rewrites the stamp file. We re-read the
+        // STAMP afterwards — never parse the command's stdout, which on a
+        // real (non-cached) grow is the full cargo build log. A refusal
+        // (crate unavailable / undeclared feature) is data: the stamp then
+        // still bounds the feed to what the `.so` dispatches.
+        let _ = std::process::Command::new("bash")
+            .arg(sp.join("runtime").join("build_uu_ffi.sh"))
+            .arg("--ensure")
+            .arg(cands.iter().cloned().collect::<Vec<_>>().join(" "))
+            .output();
+        if let Ok(s) = std::fs::read_to_string(&stamp_path) {
+            let grown: std::collections::BTreeSet<String> =
+                s.split_whitespace().map(str::to_string).collect();
+            if !grown.is_empty() {
+                avail = grown;
+            }
+        }
+    }
+    let extras: Vec<String> = cands
+        .iter()
+        .filter(|c| avail.contains(*c))
+        .filter(|c| !debashl::c_backend::UU_BUILTIN_CMDS.contains(&c.as_str()))
+        .cloned()
+        .collect();
+    if extras.is_empty() {
+        return Vec::new();
+    }
+    // SAFETY: every extra is confirmed present in the stamp above, so the
+    // absorbed call can never hit an uncompiled util (rc 127) at runtime.
+    std::env::set_var("SH2_ABSORB_CMDS", extras.join(","));
+    extras
+}
+
+/// Static command names reachable from exec/capture sites — the absorb
+/// table's candidate set (`out`) — plus every script-defined function
+/// name (`defs`), which the caller subtracts (a def shadows an external
+/// command of the same name, so it can never be an absorb site).
+/// Conservative recursion over the statement containers and expression
+/// carriers; anything not walked is simply not discovered, which can
+/// only fail to WIDEN the feed (the builtin union keeps its absorption),
+/// never to widen it wrongly.
+fn collect_absorb_candidates(
+    stmts: &[debashl::ir::IrStmt],
+    out: &mut std::collections::BTreeSet<String>,
+    defs: &mut std::collections::BTreeSet<String>,
+) {
+    use debashl::ir::{IrExpr, IrStmt};
+    fn expr(e: &IrExpr, out: &mut std::collections::BTreeSet<String>) {
+        match e {
+            IrExpr::Call { func, args } => {
+                if matches!(func.as_str(), "exec" | "builtin" | "capture" | "captureWords") {
+                    if let Some(IrExpr::Str(c, _)) = args.first() {
+                        out.insert(c.clone());
+                    }
+                }
+                for a in args {
+                    expr(a, out);
+                }
+            }
+            IrExpr::Array(items) => {
+                for i in items {
+                    expr(i, out);
+                }
+            }
+            IrExpr::BinOp { lhs, rhs, .. } => {
+                expr(lhs, out);
+                expr(rhs, out);
+            }
+            IrExpr::Interpolate(parts) => {
+                for p in parts {
+                    if let debashl::ir::InterpPart::Expr(x) = p {
+                        expr(x, out);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    fn expr_opt(e: Option<&IrExpr>, out: &mut std::collections::BTreeSet<String>) {
+        if let Some(e) = e {
+            expr(e, out);
+        }
+    }
+    for s in stmts {
+        match s {
+            IrStmt::Exec { cmd, args, .. } => {
+                expr(cmd, out);
+                for a in args {
+                    expr(a, out);
+                }
+            }
+            IrStmt::Expr(e) | IrStmt::Output { value: e, .. } => expr(e, out),
+            IrStmt::Assign { expr: e, .. } => expr(e, out),
+            IrStmt::Declare { init, .. } => expr_opt(init.as_ref(), out),
+            IrStmt::If {
+                cond,
+                then,
+                elsifs,
+                else_,
+            } => {
+                expr(cond, out);
+                collect_absorb_candidates(then, out, defs);
+                for (c, b) in elsifs {
+                    expr(c, out);
+                    collect_absorb_candidates(b, out, defs);
+                }
+                collect_absorb_candidates(else_, out, defs);
+            }
+            IrStmt::While { cond, body } | IrStmt::DoWhile { cond, body, .. } => {
+                expr(cond, out);
+                collect_absorb_candidates(body, out, defs);
+            }
+            IrStmt::For { iter, body, .. } => {
+                expr(iter, out);
+                collect_absorb_candidates(body, out, defs);
+            }
+            IrStmt::ForInit {
+                init,
+                cond,
+                step,
+                body,
+            } => {
+                collect_absorb_candidates(init, out, defs);
+                expr(cond, out);
+                collect_absorb_candidates(step, out, defs);
+                collect_absorb_candidates(body, out, defs);
+            }
+            IrStmt::Block(b) | IrStmt::Subshell(b) | IrStmt::Background(b) => {
+                collect_absorb_candidates(b, out, defs)
+            }
+            IrStmt::Function { name, body, .. } => {
+                // A defined function shadows any external command of the
+                // same name — record it so the caller can subtract it.
+                defs.insert(name.clone());
+                collect_absorb_candidates(body, out, defs)
+            }
+            IrStmt::Case {
+                discriminant,
+                clauses,
+            } => {
+                expr(discriminant, out);
+                for c in clauses {
+                    collect_absorb_candidates(&c.body, out, defs);
+                }
+            }
+            IrStmt::Select { clauses } => {
+                for c in clauses {
+                    collect_absorb_candidates(&c.body, out, defs);
+                }
+            }
+            IrStmt::Redirect { inner, .. } => collect_absorb_candidates(inner, out, defs),
+            IrStmt::Pipeline { stages, .. } => {
+                for stage in stages {
+                    collect_absorb_candidates(stage, out, defs);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -162,5 +382,51 @@ mod tests {
         let a1 = parse_to_shir("#!/bin/bash\nx=1\necho $x\n");
         let prog = parse_program(&a1).expect("ingress");
         assert!(!prog.stmts.is_empty());
+    }
+
+    #[test]
+    fn absorb_candidates_cover_function_bodies_and_exclude_defs() {
+        // Discovery must reach exec sites INSIDE function bodies (most
+        // of a real script's commands live there), and must record the
+        // script's own function names for subtraction: bash resolves a
+        // defined function before any external command of the same name
+        // (the renderer's `functions.contains(&cmd)` arm likewise
+        // precedes the uu fallback), so a def'd name can never be an
+        // absorb site — feeding one to build_uu_ffi.sh --ensure would
+        // be a doomed grow request on every compile.
+        let src = "#!/bin/bash\nhelper() { cut -d, -f1 data.csv; }\nhelper\nls -l data.csv\n";
+        let a1 = parse_to_shir(src);
+        let prog = parse_program(&a1).expect("ingress");
+        let mut cands: std::collections::BTreeSet<String> = Default::default();
+        let mut defs: std::collections::BTreeSet<String> = Default::default();
+        collect_absorb_candidates(&prog.stmts, &mut cands, &mut defs);
+        assert!(cands.contains("cut"), "function-body site discovered: {cands:?}");
+        assert!(cands.contains("ls"), "top-level site discovered: {cands:?}");
+        assert!(defs.contains("helper"), "def name recorded: {defs:?}");
+        cands.retain(|c| !defs.contains(c));
+        assert!(!cands.contains("helper"), "def'd name subtracted: {cands:?}");
+    }
+
+    #[test]
+    fn string_case_pattern_compares_by_content_not_pointer() {
+        // Regression pin (RENDERER_REV 13): the shared case lowering
+        // feeds `BinOp{Ne}(subject, Str)` for Exact patterns, and C's
+        // `!=` on two `char*` compares ADDRESSES — always unequal — so
+        // `case $v in jpeg)` NEVER matched in native while `*)`
+        // caught everything. Measured on MIMEcroft: the 64px size arm
+        // never fired, the texture cache keys could never hit, and four
+        // child-bash texture generators re-ran every run (87.9% of demo
+        // CPU). The C backend must render a string Ne as strcmp.
+        let src = "#!/bin/bash\nf() { case $1 in jpeg) echo SIXTYFOUR;; *) echo other;; esac; }\nf jpeg\nf stone\n";
+        let a1 = parse_to_shir(src);
+        let c = render_c(&a1).expect("render");
+        assert!(
+            !c.contains("!= \"jpeg\"") && !c.contains("== \"jpeg\""),
+            "string literal compared by POINTER (must be strcmp/fnmatch):\n{c}"
+        );
+        assert!(
+            c.contains("strcmp(") || c.contains("fnmatch("),
+            "no content-compare primitive in the render:\n{c}"
+        );
     }
 }

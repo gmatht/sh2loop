@@ -42,6 +42,92 @@ pub(crate) fn render_env_key() -> String {
         "SH2_TRUE64",
         "SH2_NO_TAKE_FIELD",
         "SH2_NO_GROWTH",
+        // C-backend A/B validation switches (a render cached under one
+        // value must never be served for another):
+        // native operand lift (value_num_dollar / test_numeric_cmp /
+        // test_value_dollar) and the Case/Select clause fn-hoist walker.
+        "SH2_NO_NATIVE_LIFT",
+        "SH2_CASEWALK_OFF",
+        // shared numstr vars×params seeding (sh2perl shir_passes/numstr
+        // → Int var_types seeds), the null-guard stable-substr copy
+        // elision, the in-place string store, and the take-field
+        // in-place remainder store:
+        "SH2_NO_NUMSTR",
+        "SH2_NO_MIXED_ABI",
+        "SH2_NO_STABLE_SUBSTR",
+        "SH2_NO_SSET",
+        "SH2_NO_TAKE_SSET",
+        // the driver-fed absorb table (which external commands lower to
+        // sh2_uu_run/sh2_uu_capture instead of bash -c): the feed and its
+        // kill switch both change render output, so both key the render
+        // (pipeline::feed_absorb_table sets the feed BEFORE render).
+        "SH2_ABSORB_CMDS",
+        "SH2_NO_ABSORB",
+        // ── Superset capture: EVERY other env var the render path reads
+        // (audit: env::var over sh2perl/src). Policy matches parse_key's
+        // doc: an extra input only costs a miss; a missing one risks a
+        // stale HIT — the failure class this function exists to prevent
+        // ("landing backend fixes without bumping served stale renders,
+        // twice"). Includes assumption gates, pass kill switches and
+        // profile inputs that change generated C…
+        "SH2_ASSUME_ARITH_NATIVE",
+        "SH2_ASSUME_ARITH_VARS",
+        "SH2_ASSUME_ARRAY_SLICE",
+        "SH2_ASSUME_CFOR",
+        "SH2_ASSUME_ENV",
+        "SH2_ASSUME_HOME",
+        "SH2_ASSUME_I53",
+        "SH2_ASSUME_INTDECL",
+        "SH2_ASSUME_LOCAL_SCOPE",
+        "SH2_ASSUME_NO_ENV",
+        "SH2_ASSUME_OBSERVED_WIDTHS",
+        "SH2_ASSUME_PARAM_DEFAULTS",
+        "SH2_ASSUME_SUBSCRIPT_KEYS",
+        "SH2_ASSUME_TMPDIR",
+        "SH2_NO_SCANFIX",
+        "SH2_NO_SPLIT_FOLD",
+        "SH2_NO_ARRAY_MIGRATE",
+        "SH2_NO_INT_ELEM",
+        "SH2_LIST_VEC",
+        "SH2_DUAL_LOOPS",
+        "SH2_BC_NATIVE",
+        "SH2_ARGV0",
+        "SH2_LIBRARY",
+        "SH2_PERL_RC_DROP",
+        "SH2_TARGET_UNSET_ALL",
+        "SH2_PROBE",
+        "SH2_PROFILE",
+        "SH2_PROFILE_IN",
+        "SH2_PROFILE_WIDE",
+        // …plus the diagnostic/profile-OUT gates: setting one must not
+        // serve another run's cached render either (and they are never
+        // set in normal runs, so they contribute a constant).
+        "SH2_A1_JSON",
+        "SH2_ARRAY_DEBUG",
+        "SH2_TEMP_DEBUG",
+        "SH2_PROFILE_OUT",
+        "SH2_DEBUG_WRITE",
+        "SH2_DBG_ARR",
+        "SH2_DBG_BIGINT",
+        "SH2_DBG_FREE",
+        "SH2_DBG_HOIST",
+        "SH2_DBG_PARAMS",
+        "SH2_DBG_PL",
+        "SH2_DBG_SO",
+        "SH2_DBG_VARS",
+        "SH2_DBG_VR",
+        "SH2_DBG_W",
+        "SH2_DEBUG_DECL",
+        "SH2_DEBUG_DEMOTE",
+        "SH2_DEBUG_INT_ELEM",
+        "SH2_DEBUG_NUMOBS",
+        "SH2_DEBUG_NUMSTR",
+        "SH2_DEBUG_PARSER",
+        "SH2_DEBUG_PAT",
+        "SH2_DEBUG_PGFIX",
+        "SH2_DEBUG_REC",
+        "SH2_DEBUG_SVARS",
+        "SH2_T",
     ];
     let mut parts = Vec::new();
     for k in keys {
@@ -55,12 +141,50 @@ pub(crate) fn render_env_key() -> String {
 /// includes it, so fixed renders can never hide behind stale entries.
 /// History: 1 = initial M1; 2 = opt-profile mirroring; 3 = true64-safe
 /// default + split-temp/hoist/array fixes; 4 = LIC bound hoist;
-/// 5 = let_compare arith sides.
+/// 5 = let_compare arith sides; 6 = split-in-place for-in arm;
+/// 7 = native numeric reads (bare `$name`/`$((…))` resolve without the
+/// num_temp/atoll round trip; numeric `test` compares lift each
+/// operand; test operands expand whole-`$name` words — MIMEcroft demo
+/// -43% snprintf, -21% atoll); 8 = Case/Select clause vars reach the
+/// fn-local hoist (case-assigned globals were undeclared) + bigint
+/// const-name sign sanitization + store-read decl guard; 9 = shared
+/// numstr vars×params seeding (with the GpuOp payload exemption —
+/// render-loop counters like MIMEcroft's `dt_i` home to long long)
+/// + null-guard stable-substr source-copy elision (drops a per-slice
+/// strlen+strcpy of the whole source string); 10 = the `_sh_sset`
+/// in-place string store (reuses the old buffer when the new value
+/// fits instead of xstrdup+free per store); 11 = take-field blocks
+/// store their field/remainder through `_sh_sset` — the remainder is
+/// a suffix of the source var's own buffer, so the split loop's
+/// per-token xstrdup of the whole remaining payload became one
+/// in-place move (a rev bump of its own: 10 and 11 both landed after
+/// shipping and change default render output).
 /// (Mid-session lesson: landing backend fixes without bumping served
 /// stale pre-fix renders from the cache — twice. The build-time
 /// git-state rev below now covers it automatically; keep this bumped
 /// too for nogit environments.)
-pub const RENDERER_REV: u32 = 5;
+/// 12 = per-position native ABI for void lifts: mixed
+/// `long long | char *_pN` signatures (numstr-proven numeric positions
+/// keep `long long` even when a sibling slot is text), the demote
+/// (var, position) guard for positional-copy seeds, and the param-leg
+/// upgrade of already-Str positional copies — SH2_NO_NUMSTR still
+/// disables the whole seed leg.
+/// 13 = string Eq/Ne renders as strcmp in the C backend: C's `==`/`!=`
+/// on two `char*` compares ADDRESSES, so every shared-case-lowered
+/// Exact pattern (`BinOp{Ne}(subject, Str)`) was vacuously
+/// pointer-inequality — MIMEcroft's `case $lso_name in jpeg|png|…)`
+/// never matched native (32px where bash picks 64), its texture cache
+/// never hit, and four child-bash texture generators re-ran EVERY run
+/// (87.9% of demo CPU in child bash). Both operands must be
+/// certainly-text shapes (getVar/Var/Str/Interpolate/Capture/…) or the
+/// numeric path stands.
+///
+/// rev 14: the strcmp operands are wrapped in the `_sh_sc` NULL-guard
+/// helper (literals stay bare). A string-homed global read before its
+/// first assignment is a NULL char*, and strcmp(NULL, s) segfaulted at
+/// startup on mime-new (AVX strcmp, rdi=0, straight from main) — the
+/// pointer compare this replaced was NULL-safe only by accident.
+pub const RENDERER_REV: u32 = 14;
 
 // Content-addressed at BUILD time (see build.rs): HEAD SHAs + dirt hash
 // of the workspace and the sh2perl submodule. Uncommitted edits change
