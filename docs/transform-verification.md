@@ -86,10 +86,12 @@ question asked of the 562 shell examples, one transform at a time via
 | `counted-arith-forinit` | **0** |
 | `counted-while-forinit` | **0** |
 
-Three families are registered in `transforms::all()` — so they run on every
-compile — and change nothing on the corpus:
+**A zero is only a defect when the pass *should* fire** — and per-pass
+counts cannot tell "dead" from "correctly refusing" or "fires only in
+sequence". Checked each one against its own guards and against its
+neighbours in the pipeline:
 
-* **the native-loop recovery passes** (`for-recovery`,
+* **the native-loop recovery passes** — GENUINE DEFECT (see below). (`for-recovery`,
   `counted-arith-forinit`, `counted-while-forinit`). Corpus-wide, `For`/
   `ForInit` node counts are 49 with transforms OFF and 47 with them ON: the
   passes *remove* two frontend-emitted `For` nodes and recover none. The
@@ -98,12 +100,23 @@ compile — and change nothing on the corpus:
   the shell path emits them `Arith`-wrapped, and no producer builds the bare
   shape. The sibling passes read the same structured-`Arith` shapes and
   should be checked against the emitted JSON the same way.
-* **`const-condition-elim`** — no effect on the corpus, and on a two-line
-  `if true; …; if false; …` probe it leaves both `If` nodes in place while
-  `const-status-cond` folds one.
-* **`slice-identity` / `affix-strip-fold`** — zero; their manifests say they
-  are offered to specific backends, so zero here may be correct rather than
-  broken, but nothing currently distinguishes the two cases.
+* **`const-condition-elim`** — NOT dead, and a first draft of this table
+  called it dead by reading its isolated count as 2 when it was 1. On a
+  two-line `if true; …; if false; …` probe it folds one `If` and
+  `const-status-cond` folds the other; together, in the pipeline order their
+  registration enforces (`transforms.rs:316`), both go. The corpus leaves it
+  nothing to do because `const-status-cond` runs first.
+* **`slice-identity`** — zero because its guards reject the corpus's shapes:
+  the live instances are `param("slice","#files","@","")`,
+  `param("slice","s","$i","1")` and `param("slice","arr","@","")`, where the
+  NAME is not a plain identifier or the offset is not a literal `0`/`""`.
+  Those are *not* identities (`${#arr[@]}` is a length, `${arr[@]}` is
+  array-vs-string), and `${v:0}` is folded by the parser before the pass
+  runs. Correct refusal, not a bug.
+* **`affix-strip-fold`** — zero on this corpus; its manifest offers it to
+  rs/java targets and the corpus is shell-source, so this is expected —
+  though nothing currently distinguishes "rightly zero here" from "broken",
+  which is why each entry above needed checking by hand.
 
 The lesson for **proofs** is the same one as for the laws: a Tier-1 lemma
 about a pass that never fires is a true theorem about a dead contract. The
