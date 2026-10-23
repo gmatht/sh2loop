@@ -163,9 +163,23 @@ run_one() {
     echo "FAIL $f exec/diff" > "$d/v"
   fi
 }
-export -f run_one; export _c_gate_tmp CORE CC SANITIZE SAN_FLAGS SANITIZE_CC CLIBS UU_INC UU_LIBS
+# ROOT MUST be exported. `run_one` is a `bash -c` child of xargs, so it sees
+# only the exported environment — it is NOT a subshell of this script. Without
+# ROOT the kill-session wrapper resolved to `/harness/kill-session.sh`, which
+# does not exist: BOTH the compiled binary and the bash reference died with
+# 127, both captures were empty, the diff compared two empty files, and every
+# cell "passed" (measured 2026-10-23: a script whose bash and C output cannot
+# possibly agree still reported PASS=1 FAIL=0). A gate that cannot fail is
+# not a passing gate. `harness/c_gate_selftest.sh` pins this.
+export -f run_one; export _c_gate_tmp ROOT CORE CC SANITIZE SAN_FLAGS SANITIZE_CC CLIBS UU_INC UU_LIBS
 printf '%s\n' "$corpus" | xargs -P "$JOBS" -I{} bash -c 'run_one "$@"' _ {}
 cat "$_c_gate_tmp"/*/v | sort > "$_c_gate_tmp/all"
 pass=$(grep -c '^PASS' "$_c_gate_tmp/all"); skip=$(grep -c '^SKIP' "$_c_gate_tmp/all"); fail=$(grep -c '^FAIL' "$_c_gate_tmp/all")
 echo "PASS=$pass FAIL=$fail SKIP=$skip"
 grep '^FAIL' "$_c_gate_tmp/all"
+# Exit status must follow the verdict. The last command used to be the `grep`
+# above, so the script exited 0 when failures were found and 1 on a clean run
+# — exactly inverted, which is invisible to a caller that only reads the
+# printed line. SKIP is not a failure (a frontend testdata file the shell
+# parser cannot read is not this gate's verdict).
+[ "$fail" -eq 0 ]
