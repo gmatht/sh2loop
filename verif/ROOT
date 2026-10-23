@@ -1,7 +1,7 @@
-(* Build:  isabelle build -D verif -b Sh2
+(* The verdict/UB sessions. Build: isabelle build -D verif Sh2
    quick_and_dirty = false so a `sorry` cannot hide (harness/transform-proofs.sh
    requires it before it will call this session `checked`). *)
-session "Sh2" = HOL +
+session Sh2 = HOL +
   options [document = false, quick_and_dirty = false]
   theories
     P1_Narrowing
