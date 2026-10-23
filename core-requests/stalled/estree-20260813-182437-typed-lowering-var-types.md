@@ -74,3 +74,5 @@ minimum `` `${gi}` ``), and `echo "$gv"` interpolates `String(gv)`.
 Output bytes identical; the corpus gate (`./fail-estree` at the trusted
 baseline) judges. The performance target is mimecroft's
 `gspan "render"` (≈48ms/frame of async dispatches today).
+
+## OUTCOME: rejected: renderer-bound, not shared core. core-requests/stalled/MARKETPLACE-ESTREE-CLASSIFICATION.md assigns this to the ESTREE worker ("the estree backend adopting the already-shared A1 var_types verdicts"), and the change is a perf lift only — no correctness gain, with a real corpus risk (the conservative string-context scan exists to keep a `$var` interpolation a bash STRING; an Int verdict overrides it and only the corpus can judge). The core already computes and ships `var_types`; the consumer half belongs to the estree lane.

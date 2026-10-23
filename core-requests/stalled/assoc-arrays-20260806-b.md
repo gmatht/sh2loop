@@ -60,3 +60,5 @@ Current (Perl renderer): `declare -A` passes through, the write becomes
 `arrayIndex(colors, red)` renders `$colors[red]` (bareword!) or the
 hash-key form — the two must agree. Structural indices make reads and
 writes symmetric.
+
+## OUTCOME: rejected: the remaining failure is renderer-local, not a core contract gap. Verified 2026-10-23: the baked-name form the core emits (`Assign{var:"colors[red]", indices:[]}` for the write, `arrayIndex(colors,"red")` for the read, both including the dynamic `m[$i,$j]` pseudo-multidim case) is consumed CORRECTLY by estree (setVar/arrayIndex reconcile on the name) and by the C backend (`harness/c_gate_main.sh` PASS on the request's failing case plus the dynamic-key variant). The broken path is perl_backend's `split_indexed_var`, which writes `$colors{'red'}` but reads `$colors[red]` (bareword → `@colors[0]` → empty output). Moving the subscript into the IR is a 9-renderer contract migration with no corpus gain; the fix belongs in the perl lane.
