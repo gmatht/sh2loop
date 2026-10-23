@@ -52,6 +52,13 @@
 # copies the plain binary to the sanitizer binary's name so that `$0`-printing
 # programs (057_case.sh prints `Usage: $0 …`) agree.
 #
+# `--wrapv` adds the OPTIMISER-ASSUMPTION arm: each program is compiled
+# again with `-O2 -fwrapv` and its stdout+rc compared with the normal build.
+# Identical = the program does not rely on the compiler assuming no signed
+# overflow (see the block in `run_one`); different = it does, and that is a
+# real latent-wrap finding no sanitizer can see. This is the cheap, corpus-
+# sized stand-in for what CompCert would certify (see C_UB_PROOF.md).
+#
 # `--warn` adds the SIGNAL THE SANITIZERS CANNOT SEE. Measured 2026-10-22:
 # narrowing in practice is uint8_t/uint16_t only (range_width_name tests u8
 # before i8, so any non-negative range yields the UNSIGNED type), and
@@ -74,6 +81,7 @@ SUB=$ROOT/sh2perl
 CORE=${CORE_BIN:-$ROOT/otranspilerl/target/debug/otranspilerl-cli}
 RENDER=${RENDER_BIN:-$SUB/backends/c/target/debug/shir_render}
 CC=${UBSAN_CC:-cc}
+WRAPV=0
 JOBS=${JOBS:-8}
 SAN_TIMEOUT=${SAN_TIMEOUT:-15}
 CAP=$((1024*1024))
@@ -88,6 +96,7 @@ while [ $# -gt 0 ]; do
     --timeout) SAN_TIMEOUT=$2; shift 2 ;;
     --no-asan) USE_ASAN=0; shift ;;
     --warn) WARN=1; shift ;;
+    --wrapv) WRAPV=1; shift ;;
     --report) REPORT=$2; shift 2 ;;
     --out) OUTTSV=$2; shift 2 ;;
     -h|--help) sed -n '2,60p' "$0"; exit 0 ;;
@@ -194,6 +203,30 @@ run_one() {
   if ! diff -q "$d/out" "$d/sout" >/dev/null 2>&1; then
     echo -e "SAN-DIFF\t$(diff "$d/out" "$d/sout" | head -4 | tr '\n\t' '| ' | cut -c1-160)" > "$d/v"; return
   fi
+  # ── the optimiser-assumption arm (`--wrapv`) ─────────────────────────
+  # CompCert's whole value over gcc is that the compiled code provably means
+  # what the source semantics say. The one place that gap can bite THIS
+  # backend is signed overflow: an optimiser may assume `int` does not wrap,
+  # so a latent wrap (the class verif/P1 narrows) is not merely wrong, it is
+  # legal for the compiler to exploit. `-fwrapv` makes wrapping defined, which
+  # removes exactly that assumption. If a program's stdout+rc is identical
+  # with and without it, no program on this corpus is RELYING on the
+  # optimiser's assumption; if one differs, that program contains a signed
+  # overflow the optimiser exploited. This does not prove the absence — it
+  # tests the corpus, which is what we have.
+  if [ "$WRAPV" = 1 ]; then
+    if ! $CC -O2 -fwrapv $UU_INC "$d/prog.c" $CLIBS $UU_LIBS -o "$d/wrap" 2>"$d/wraperr"; then
+      echo -e "WRAPV-CC-FAIL\t$(head -1 "$d/wraperr" | cut -c1-120)" > "$d/v"; return
+    fi
+    # SAME argv0 as the plain run (057_case.sh prints $0 in its usage text):
+    # the plain run is complete, so swap the file under the shared name.
+    cp "$d/wrap" "$d/run/argv0"
+    ( cd "$d/cwd/a" && env -u BASH_ENV "$ROOT/harness/kill-session.sh" timeout "$SAN_TIMEOUT" "$d/run/argv0" 2>/dev/null \
+        | perl "$ROOT/harness/cap-capture.pl" "$CAP" wrap > "$d/wout" ); wrc=$?
+    if [ "$wrc" != "$brc" ] || ! diff -q "$d/out" "$d/wout" >/dev/null 2>&1; then
+      echo -e "WRAPV-DIFF\trc=$wrc/$brc $(diff "$d/out" "$d/wout" | head -4 | tr '\n\t' '| ' | cut -c1-160)" > "$d/v"; return
+    fi
+  fi
   if [ "$WARN" = 1 ]; then
     local tw
     tw=$($CC -O1 -Wall -Wextra -Wconversion -Wsign-conversion -c "$d/prog.c" -o /dev/null 2>&1 \
@@ -203,7 +236,7 @@ run_one() {
   echo -e "CLEAN\t" > "$d/v"
 }
 export -f run_one
-export T CORE RENDER CC SAN CLIBS UU_INC UU_LIBS CAP SAN_TIMEOUT ROOT WARN
+export T CORE RENDER CC SAN CLIBS UU_INC UU_LIBS CAP SAN_TIMEOUT ROOT WARN WRAPV
 
 printf '%s\n' "${files[@]}" | xargs -P "$JOBS" -I{} bash -c 'run_one "$@"' _ {}
 for d in "$T"/*/; do [ -f "$d/v" ] && cat "$d/file" | tr '\n' '\t' && cat "$d/v"; done | sort -t$'\t' -k2,2 > "$T/all.tsv"
