@@ -267,7 +267,20 @@ PYEOF
         fi
       fi
     fi
-    if ! "$ROOT/harness/build-lock.sh" --role core -- cargo test --lib \
+    # THE WORKTREE GETS ITS OWN TARGET DIR (2026-10-20): without
+    # --share-target, build-lock defaults CARGO_TARGET_DIR to the MAIN
+    # checkout's sh2perl/target, and debashl's build.rs emits glue scanned
+    # from the SOURCE TREE (pipeline_native capabilities, render_ext
+    # handlers) into shared fingerprint/out dirs — same package
+    # name+version, so the same unit hash. When main's src grows a handler
+    # the worktree lacks (gpu_op, capabilities/mktemp, sysinfo), the
+    # worktree build compiles MAIN's generated glue against the worktree's
+    # src and dies with E0433 ("could not find `gpu_op` in `handlers`") —
+    # the gate was RED for 12 hours off a target-dir collision, not a
+    # candidate. A worktree-local target is what every backend gate already
+    # does (--share-target "$g_wt/target").
+    if ! "$ROOT/harness/build-lock.sh" --role core \
+         --share-target "$SUB/target" -- cargo test --lib \
          --manifest-path "$SUB/Cargo.toml" >> "$LOG" 2>&1; then
       echo "[$(date +%FT%T)] core: $name fails the lib tests — REJECT (worktree restored)" >> "$LOG"
       restore_known_good
@@ -306,6 +319,25 @@ PYEOF
   if [ -n "$main_dirty" ]; then
     echo "[$(date +%FT%T)] core: main checkout has uncommitted shared-core WIP (NOT touched — owned by its worker):" >> "$LOG"
     printf '%s\n' "$main_dirty" >> "$LOG"
+  fi
+
+  # ── 2c. REPORT-ONLY: is the shared checkout BUILDABLE? ──────────────
+  # (core-request core-20261004-001500, second ask.) Every backend worker
+  # probes the MAIN checkout, so a red main tree stalls the whole fleet
+  # (measured: 62 of 89 zsh polls failed the probe) while THIS worktree's
+  # gate stays green. Record the verdict in the report, so "gate GREEN"
+  # cannot be read as "every backend can gate".
+  main_build=ok
+  main_build_err=""
+  if ! main_build_err=$(timeout 900 cargo build --lib \
+        --manifest-path "$ROOT/sh2perl/Cargo.toml" 2>&1); then
+    main_build=FAILED
+  fi
+  printf '%s core-worker: main-checkout build=%s\n' \
+    "$(date +%FT%T)" "$main_build" >> "$REPORTS/core-worker.report"
+  if [ "$main_build" = FAILED ]; then
+    echo "[$(date +%FT%T)] core: main checkout does NOT build (every backend probe will fail):" >> "$LOG"
+    printf '%s\n' "$main_build_err" | tail -20 >> "$LOG"
   fi
 
   # ── 3. finalize: commit accepted core changes when green (in the WORKTREE) ──
@@ -396,7 +428,11 @@ PYEOF
   # A HANG is still distinct from red: libtest prints its `test result:` line
   # only when the suite finishes. No summary line => hung or crashed => a hard
   # failure, never a baseline to adopt.
-  lib_out=$("$ROOT/harness/build-lock.sh" --role core -- cargo test --lib \
+  # --share-target: worktree-local target dir (see the same note at the
+  # candidate-staging build — the shared-dir default cross-contaminates
+  # the worktree with main's build-script-generated glue).
+  lib_out=$("$ROOT/harness/build-lock.sh" --role core \
+      --share-target "$SUB/target" -- cargo test --lib \
       --manifest-path "$SUB/Cargo.toml" 2>&1) || true
   lib_fails=$(printf '%s\n' "$lib_out" \
       | sed -n 's/^test result: .* \([0-9][0-9]*\) failed.*/\1/p' | tail -1)
