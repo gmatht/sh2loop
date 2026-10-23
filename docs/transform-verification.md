@@ -172,15 +172,42 @@ Reproducible in 3/3 runs for each. A law that cannot fail is not evidence.
 
 ## Tier 3 — why not prove the pipeline
 
-`transforms::apply()` is not a function to state a theorem about: eight
-transforms keep verdicts in `static Mutex` read back by *renderers*, one
-allocates fresh names from a process-global counter, and the IR is untyped
-(`Call { func: "setVar" | "param" | … }` as a string-keyed runtime seam,
-`RawExpr`, `RawText`). The meaning a transform must preserve is bash's — IFS
-splitting, `${v:0}` on scalar vs array, `set -u` — and there is no formal
-semantics of that to quantify over. The honest cheap oracle for this tier is
+`transforms::apply()` is not a function to state a theorem about, for three
+separable reasons — and only the first two are fundamental:
+
+1. **State the pipeline hides.** Eight transforms keep verdicts in
+   `static Mutex` read back by *renderers*; one allocates fresh names from a
+   process-global counter. A theorem about `apply()` would have to quantify
+   over that state.
+2. **The IR erases what the meaning needs.** `Call { func: "setVar" |
+   "param" | … }` is a string-keyed runtime seam, and `RawExpr`/`RawText`
+   are escape hatches. `${v:0}` means different things on a scalar and on an
+   array, and that distinction is a *string* at this layer, not a type. No
+   proof assistant recovers erased information.
+3. **There is no shell semantics *in this tree*.** Earlier revisions of this
+   section said "there is no formal semantics of that to quantify over".
+   That is too strong and is corrected here: **Smoosh** (POPL 2020, "Executable
+   Formal Semantics for the POSIX Shell") is a mechanized, executable
+   small-step semantics for POSIX `sh`, validated against seven shells and
+   judged the most conformant of them (its one bug is inherited from dash's
+   parser). It is in Coq/Rocq, not Isabelle, and nothing here has attempted
+   an shIR→Smoosh encoding.
+
+So the boundary is a boundary of *our* model, not of the problem. What it
+costs today: the three passes that actually fire on the corpus —
+`test-lowering` (43/562 files), `array-len-fold` (9), `const-status-cond`
+(8) — are all blocked behind statement semantics, while the arithmetic
+passes that are provable are mostly idle. `proofs/ForRecovery` shows the
+shape of the compromise: it proves the ITERATION TRACE (a list identity)
+rather than `⟦while⟧ = ⟦For⟧`, because only the former is expressible without
+a statement semantics.
+
+Until that gap is closed the honest cheap oracle for this tier is
 differential: `shir_to_perl(f(p)) == shir_to_perl(p)` (law 4) and
-`harness/transform-diff.sh` over the corpus.
+`harness/transform-diff.sh` over the corpus. Closing it means either a
+minimal in-tree state model (env, positional params, exit status, IFS +
+meanings for the ~22 statement / 17 expression kinds the live passes touch)
+or adopting Smoosh; both are multi-session jobs, neither has been started.
 
 ## Running it
 
