@@ -12,6 +12,65 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v67: **java and zig measured on a second box, and the gate defects that
+>   were hiding their progress.** Neither backend could be measured here:
+>   a `--backend-gate` pass builds the core and then holds the fleet's
+>   single `.gate.lock` for all 654 files, so java had gone a full day
+>   without a verdict and its last report said **0/654** — which was not a
+>   renderer problem at all. Two gate-visible bugs: (1) the java
+>   renderer's emitted child-sync helper was named `_sh2_env`, and the
+>   stub check's `sh2[A-Za-z_0-9]+\(` matched its *definition*, so
+>   EVERY file reported `stub(1)` (renamed `_sh_syncvar`); (2) java's
+>   test-word emitter pasted `\"` into the Java SOURCE outside any
+>   literal (`shQuote(\"…\")`), so javac died on `illegal character` for
+>   whole files. With those fixed and the gate moved to an idle 12-core
+>   box (`harness/remote-sync.sh` + `harness/backend_gate_remote.sh`,
+>   same rules, 2.5 min per pass), the real baselines are **java 559/650**
+>   and **zig 401/650**, from 0/654 and 392/650. Java's remaining 84 are
+>   genuine lowering work (79 equivalence); zig's 242 are dominated by
+>   *genuine* `sh2TODO` nodes after the TODO-comment double-count fix.
+>   Real renderer bugs found and fixed on the way, all of them classes
+>   rather than one-offs:
+>
+>   * **Fork semantics.** `shSnapshot`/`shRestore` were EMPTY stubs, so a
+>     subshell's writes leaked into the parent (`( x=2 ); echo $x` printed
+>     2) and a background job raced the parent's read
+>     (`105_background_copy_semantics`). Both are now generated over the
+>     program's own fields/arrays, and `{ …; } &` runs against a fork
+>     snapshot.
+>   * **Captured loops were dropped.** A `while …` stage's output was
+>     captured into a helper whose bytes had no sink
+>     (`while read …; done < f` printed nothing, 084/088/091), and a
+>     redirect-fed loop was routed to a helper whose fd 0 is NOT the
+>     redirect target — text first, always.
+>   * **`mapfile`/`readarray` as java state**, not child-shell state
+>     (the array field stayed empty and `${lines[@]}` printed a blank
+>     line).
+>   * **java's `${v+word}`** needs a set-ledger: Java cannot represent
+>     "unset", and "0" is a non-empty string (the `contains()` status form
+>     had the same trap).
+>   * **zig's bash dynamic scope.** A function's writes are GLOBAL unless
+>     `local`. The renderer emitted them as MAIN locals, so the body could
+>     not see its own writes, and the value parameter invented to bridge
+>     that collided with the fn's positional parameter or a runtime
+>     helper's (`shToInt(s: …)`) — a build-break class, now a module-scope
+>     `g_<name>` cell that main and the functions share.
+>   * **zig's fused `[[ $s =~ ^re$ ]]`** was one token, so it became a glob
+>     PATTERN match; it now splits and matches through a bash child (no std
+>     regex).
+>   * **Honest TODO counting.** The `TODO(unsupported)` marker is no longer
+>     written into the emitted program: the gate counts the marker, so one
+>     construct cost two stubs and a file whose only stub was a rendered
+>     call still reported one for its own diagnostic comment.
+>
+>   Gate-rule traps this surfaced (each one made a WORKING renderer look
+>   broken): `SUB`/`ROOT` must be EXPORTED in the remote worker (its body
+>   runs in a `bash -c` child — unexported, the zig arm linked
+>   `-L"/runtime/lib"` and every file "failed to build"); zig resolves its
+>   source path against the CWD, so it needs `./p.zig` and the uu-ffi
+>   `-lc/-lcoreutils_ffi/-rpath` flags; `OTRANSPILER_ROOT` must be exported;
+>   and the bash REFERENCE side must run with `BASH_ENV` unset (this box's
+>   `BASH_ENV` exports shell FUNCTIONS that only bash has).
 > - v66: **`A || true` captures fold to one run with forced status — and
 >   the partial-output bug they were hiding.** The generic
 >   `chain_or_capture` form ran the RHS INSTEAD of keeping `$__c`: for the
