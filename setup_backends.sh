@@ -2154,6 +2154,21 @@ EOF
                       fails="$f $fails"
                     fi
                   done
+                  # A CRASHED gate must never be able to report a plausible
+                  # test score. `N fail` with EVERY classification counter at
+                  # zero means the per-file fail branch ran without
+                  # classifying anything: every real failure increments one of
+                  # {stubs, equiv, static-analysis}, so an all-zero trio is a
+                  # failure OF MEASUREMENT (the render command returned
+                  # non-zero, leaving g_out empty) — deterministically
+                  # detectable, and exactly the shape that printed
+                  # "0/647 render OK, 637 fail (0 stubs, 0 equiv, 0
+                  # static-analysis)" on 2026-09-08 and was read as 637 real
+                  # regressions for 15 days. Refuse the verdict instead.
+                  if [ "$fail" -gt 0 ] && [ "$stub_files" -eq 0 ] && [ "$eq_fail" -eq 0 ] && [ "$sa_fail_total" -eq 0 ]; then
+                    echo "  [$g_lang] backend gate: CRASHED (no classification) — $fail/$((pass+skip+fail)) files failed and NONE produced a stub/equiv/static-analysis verdict; not a test score" >&2
+                    exit 1
+                  fi
                   echo "  [$g_lang] backend gate: $pass/$((pass+skip+fail)) corpus render OK, $fail fail ($stub_files stubs, $eq_fail equiv, $sa_fail_total static-analysis), $skip skip ($al_count allowlisted) — $stub_total stubs emitted${emitfail:+; $emitfail of them emit-failed (core emitter could not run — a MEASUREMENT failure, not a skip)}${eq_gate:+; equiv: $eq_pass pass vs bash}"
                   # the Go corpus through this backend (the dog-food target):
                   # the Go→<lang> verdict is part of the backend's scope. rust
