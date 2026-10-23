@@ -45,3 +45,5 @@ pure dead-code removal; the risk is a read where the runtime's proxy
 is NOT in scope (a scope where `sh2.vars` is undefined would change
 from "" to a TypeError — the emitter only emits this for store reads,
 which always have the runtime, so the gate judges).
+
+## OUTCOME: rejected: the premise is false for the reference runtime — `sh2.vars` is a plain `Object.create(null)` (harness/sh2-namespace.mjs:615), not a Proxy, so an unset or env-backed name reads as `undefined`; the `?? (process.env.X ?? "")` tail is what reproduces `getVar`'s env fallback and is load-bearing. Emitting `sh2.vars.X` alone would print `undefined` for env-backed reads (the runtime's env resolution lives in `getVar`, which the store read deliberately bypasses).

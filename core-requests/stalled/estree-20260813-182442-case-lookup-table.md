@@ -54,3 +54,5 @@ chain (5 compares + lastExit writes per call); with the table:
 `h = HARDNESS[3] ?? 1` (HARDNESS = [1,1,2,3,1,2,2,1]) → 3. Output
 identical; corpus gate (`./fail-estree`) judges. Composes with
 request …-inline-pure-fns (the table read inlines into the hot loop).
+
+## OUTCOME: rejected: perf-only (output bytes unchanged) and it conflicts with the landed shared `case-lowering` design, which lowers all-static cases per-target to if/elif over shared primitives (`globMatch`, `startsWith`, …). A per-call array table needs a hoisted const-table placement plus a bounds-checked lookup op with per-backend arms — a marketplace bundle, not a single core change.

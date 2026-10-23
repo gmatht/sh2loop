@@ -56,3 +56,5 @@ Via `otranspilerl render(a1,"js")`: prints `gv=0` (wrong — reads
 `gv=5`. Corpus gate: `./fail-estree` at the trusted baseline — this is
 a correctness fix; the corpus examples with param-indexed array reads
 are exactly the ones that must not regress.
+
+## OUTCOME: implemented: the A1 estree key emission consults the lift/store sets, so a param-derived index resolves through its binding (`map[Number(sh2.vars.gi ?? "")]` where `gi=$1` wrote the store). Verified on the request's repro: the read returns element 5, not element 0.

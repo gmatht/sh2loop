@@ -65,3 +65,5 @@ is fnCall-dispatched and nothing reads `$?`. Elided: `{ let i = 0;
 while (i < 3) { i = i + 1; } }`. Output bytes identical; the corpus
 gate (`./fail-estree`) judges — the risk is a function whose exit
 status IS read via exec/`$?`, which the call-site scan must keep.
+
+## OUTCOME: implemented: the loop-status deadness is call-site aware. Verified: a function-final loop in a function called via `sh2.fnCall` with no `$?` read afterwards elides `__sh2_loop_ran`/`__sh2_loop_last` entirely (even with status writers in the body), while the same function keeps the full tracking when the caller reads `$?` after the call.

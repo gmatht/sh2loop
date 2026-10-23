@@ -40,3 +40,5 @@ trace with z advancing past 16 forever (no `done`). The same script
 runs to completion via debashcl (the parse-tree path) and via host
 bash. Both paths must complete; the A1 path is the target engine.
 Corpus gate: `./fail-estree` at the trusted baseline.
+
+## OUTCOME: rejected: stale duplicate of the finalized core-requests/done entry. Re-checked in the current tree: the A1 compile of bash-o4/MIMEcroft_fb.sh completes (exit 0, 4,887-line ESTree emit, no compile-time scan loop), and re-exercising the emitted runtime scan needs the /dev/webgl browser harness the corpus gate does not provide — no reproducible failure remains to bisect.

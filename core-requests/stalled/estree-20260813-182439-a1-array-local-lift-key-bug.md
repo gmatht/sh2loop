@@ -69,3 +69,5 @@ Via `otranspilerl render(a1,"js")` this prints NOTHING (every read is
 `found`. Corpus gate: `./fail-estree` at the trusted baseline — the
 same root cause as the param request; fixing the shared key-emission
 path fixes both.
+
+## OUTCOME: implemented: verified on the request's repro — a function-local lifted counter used as an array subscript now emits the native key (`sh2.arrayIndex("mx", ma_i)`), not a store-key string, so every element is read rather than element 0.
