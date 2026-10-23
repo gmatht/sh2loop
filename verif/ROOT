@@ -1,5 +1,8 @@
+(* Build:  isabelle build -D verif -b Sh2
+   quick_and_dirty = false so a `sorry` cannot hide (harness/transform-proofs.sh
+   requires it before it will call this session `checked`). *)
 session "Sh2" = HOL +
-  options [document = false]
+  options [document = false, quick_and_dirty = false]
   theories
     P1_Narrowing
     P2_Checked
