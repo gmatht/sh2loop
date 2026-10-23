@@ -81,3 +81,15 @@ the same for every row). Corpus gate: `./fail-estree` at the trusted
 baseline — the risk is a "pure" verdict on a callee with a hidden side
 effect, which the purity analysis must catch (rand is the canonical
 counterexample and stays put).
+
+## OUTCOME: implemented
+
+Delivered as `src/transforms/hoist_loop_invariants.rs`, registered as
+`hoist-loop-invariants` in `src/transforms.rs` (runs inside `ast_to_ir`, so
+every backend gets it). It implements exactly the requested sound version:
+dominance-based hoisting of a single-assignment, loop-invariant, PURE
+statement out of a `While`/`For`/`DoWhile` body — including
+`IrStmt::Expr(IrExpr::Call)` function calls guarded by the shared
+function-purity verdict (`expr_pure`/`stmt_pure` over the program's user
+function bodies), so `lat_hash $x 0 $SIZE 1` and its derived
+`gph`/`stripe`/`coff` block hoist while `rand` (impure) stays put.
