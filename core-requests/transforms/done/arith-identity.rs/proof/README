@@ -47,3 +47,25 @@ What is NOT claimed
   header says.
 * The transform is UNREGISTERED (`all()` has no entry).  Proving it sound does
   not register it; that still needs the float-domain decision.
+
+Fidelity of the model (read before trusting a lemma as "the Rust says X")
+----------------------------------------------------------------------------
+The theory models the Rust's *intent*; where the two differ, the difference is
+listed here rather than left to be discovered.
+
+* `x % 1 → 0` is UNGATED in the Rust (any divisor equal to the literal 1), and
+  the model matches that — but the Rust never checks the dividend for `no_err`,
+  so `(1/0) % 1` folds to `0` and swallows the abort.  That is a real (small)
+  unsoundness in the transform, NOT covered by any lemma above.  CONFIRMED
+  against the running code: an injected unit test drove `simplify` on
+  `(1/0) % 1` and it returned `Num(0)` (test removed again).  Recorded rather
+  than fixed, because the fix is a one-word change to the Rust (add
+  `&& arith_no_err(lhs)` to the `%` arm) and the point of this file is to say
+  what is proved, not to quietly widen it.
+* `0 * x → 0` is guarded by `arith_no_err(rhs)` in the model.  The Rust's arm is
+  `num(lhs) == Some(0) && arith_no_err(rhs)`, so the model matches — but note
+  the guard is on the *other* side of the `*`, which is the right side for
+  `0 * x` and is why `0 * (1/0)` is refused.
+* Every rule is stated for the shell-int reading (`div`/`mod` on `int`).  Float
+  IR is out of scope: `TransformFn` cannot see `var_types`, so no gate is
+  possible at this layer (see the module header's open registration item).
