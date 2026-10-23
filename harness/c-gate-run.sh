@@ -4,10 +4,11 @@
 # Shares the verdict logic with harness/c-gate-repro.sh (which is the
 # same run with the default worktree binary).
 set -uo pipefail
+ROOT="${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 JOBS="${1:-8}"
 BIN="${BIN:?set BIN}"
 OUT="${OUT:-/tmp/cgate_run}"
-OTRANS="${OTRANS:-${SH2_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/otranspilerl/target/debug/otranspilerl-cli}"
+OTRANS="${OTRANS:-$ROOT/otranspilerl/target/debug/otranspilerl-cli}"
 export BIN OTRANS
 SCRATCH="$OUT/scratch"
 mkdir -p "$SCRATCH"
