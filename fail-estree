@@ -123,11 +123,61 @@ my $total = scalar @all_tests;
 # NOTE: comparison is byte-for-byte (both sides run on Linux; no
 # whitespace normalization — differences are real renderer bugs).
 
+# ── DETERMINISTIC CWD (2026-10-23) ──────────────────────────────────
+# Tests used to run in whatever directory the gate was invoked from — in
+# practice the live workspace root, which the rest of the fleet mutates
+# while a gate is in flight (logs rotate, `.stall` markers land, sibling
+# gates write). An example that INSPECTS its cwd therefore saw a
+# different directory listing on the estree run than on the bash
+# reference re-run: `058_advanced_bash_idioms.sh` prints
+# `find . -maxdepth 1 -type f | wc -l`, so ONE file appearing between the
+# two runs became a phantom "stdout mismatch" (measured: 1761 vs 1762,
+# no translation bug). Examples 008/050 had already been made hermetic
+# by hand for the same reason; 058 was not, and the corpus is user WIP —
+# the gate, not the example, is what must be stable.
+#
+# Each test now runs in a private `cwd/` that replicates the TOP-LEVEL
+# SHAPE of the gate's own cwd at start-up: one empty file per regular
+# file, one empty directory per directory. Listings, `find -type f`
+# counts and glob results are therefore identical on both sides of every
+# comparison and cannot drift mid-run. Only the shape is replicated, not
+# the contents: a test that reads a file gets an empty one on BOTH sides,
+# so the comparison stays apples-to-apples.
+#
+# Everything the harness writes (generated Perl, ESTree JSON, stderr
+# captures) goes to a sibling `art/` so `cd ..` from a test (046_cd..sh)
+# sees exactly `art cwd` on both runs — stable by construction.
+my (@cwd_files, @cwd_dirs);
+{
+    my $src = getcwd();
+    if (opendir my $dh, $src) {
+        for my $e (sort readdir $dh) {
+            next if $e eq '.' || $e eq '..';
+            my $p = "$src/$e";
+            if (-d $p && !-l $p) { push @cwd_dirs, $e }
+            else                 { push @cwd_files, $e }
+        }
+        closedir $dh;
+    }
+}
+
+sub make_sandbox {
+    my ($dir) = @_;
+    make_path($dir);
+    for my $d (@cwd_dirs)  { mkdir "$dir/$d" }
+    for my $f (@cwd_files) { open(my $fh, '>', "$dir/$f") or next; close $fh }
+    return $dir;
+}
+
 # ── run one test (both backends) ────────────────────────────────────
 sub run_one_test {
     my ($test_file, $test_num, $work_dir) = @_;
     my $tmp_dir = "$work_dir/test_$test_num";
-    make_path($tmp_dir);
+    my $art = "$tmp_dir/art";
+    my $sandbox = "$tmp_dir/cwd";
+    make_path($art);
+    make_sandbox($sandbox);
+    my $cd = "cd '$sandbox' && ";
 
     my %result = (file => basename($test_file));
 
@@ -141,7 +191,7 @@ sub run_one_test {
     } else {
         # whole stdout is the Perl (otranspilerl has no banner)
         my $perl_code = $gen_out;
-        my $perl_file = "$tmp_dir/test.pl";
+        my $perl_file = "$art/test.pl";
         open my $pfh, '>', $perl_file or die "write $perl_file: $!";
         print $pfh $perl_code;
         close $pfh;
@@ -156,7 +206,7 @@ sub run_one_test {
         if ($perl_verdict eq 'PASS') {
             # argv0 = the source path (what `bash '$test_file'` sees) so
             # $0-dependent stdout agrees with bash ($0 is argv0 pass-through).
-            my $perl_out = `'$root/harness/kill-session.sh' timeout $timeout_per_test perl -M5.010 -e '\$0 = shift \@ARGV; my \$__f = shift \@ARGV; do \$__f' '$test_file' '$perl_file' 2>"$tmp_dir/pserr.txt" | $cap_cmd perl`;
+            my $perl_out = `$cd'$root/harness/kill-session.sh' timeout $timeout_per_test perl -M5.010 -e '\$0 = shift \@ARGV; my \$__f = shift \@ARGV; do \$__f' '$test_file' '$perl_file' 2>"$art/pserr.txt" | $cap_cmd perl`;
             my $perl_exit = $? >> 8;
             # setsid + -k: the reference run must die as a PROCESS GROUP.
             #
@@ -180,7 +230,7 @@ sub run_one_test {
             # setsid gives the run its own process group, and -k escalates
             # TERM to KILL, so a stuck writer is cleaned up with the run
             # instead of outliving it.
-            my $bash_out = `'$root/harness/kill-session.sh' timeout $timeout_per_test bash '$test_file' 2>"$tmp_dir/bserr.txt" | $cap_cmd bash`;
+            my $bash_out = `$cd'$root/harness/kill-session.sh' timeout $timeout_per_test bash '$test_file' 2>"$art/bserr.txt" | $cap_cmd bash`;
             my $bash_exit = $? >> 8;
             if ($bash_exit == 124) {
                 # the bash reference itself timed out — inconclusive, not a
@@ -206,7 +256,7 @@ sub run_one_test {
         $est_verdict = 'FAIL';
         $est_reason = $? != 0 ? 'otranspilerl --target estree failed' : 'parse error';
     } else {
-        my $json_file = "$tmp_dir/prog.estree.json";
+        my $json_file = "$art/prog.estree.json";
         open my $jfh, '>', $json_file or die "write $json_file: $!";
         print $jfh $json_out;
         close $jfh;
@@ -215,7 +265,7 @@ sub run_one_test {
             $est_verdict = 'FAIL';
             $est_reason = 'gate: ' . (split /\n/, $gate_out)[0];
         } else {
-            my $est_out = `timeout $timeout_per_test node "$runner" "$json_file" --source "$test_file" 2>"$tmp_dir/estderr.txt" | $cap_cmd estree`;
+            my $est_out = `$cd timeout $timeout_per_test node "$runner" "$json_file" --source "$test_file" 2>"$art/estderr.txt" | $cap_cmd estree`;
             my $est_exit = $? >> 8;
             # The runner exits with the PROGRAM's exit code (the exit
             # builtin, errexit aborts, and the program-final status via
@@ -225,7 +275,7 @@ sub run_one_test {
             # failures (bad JSON / printer / usage errors) are runtime
             # errors — it prefixes those with "estree-runner:" on stderr.
             my $err = '';
-            if (open my $efh, '<', "$tmp_dir/estderr.txt") {
+            if (open my $efh, '<', "$art/estderr.txt") {
                 local $/; $err = <$efh>; close $efh;
             }
             if ($est_exit != 0 && $err =~ /^estree-runner:/m) {
@@ -233,7 +283,7 @@ sub run_one_test {
                 my $first = (split /\n/, $err)[0];
                 $est_reason = "runtime error: $first";
             } else {
-                my $bash_out = `'$root/harness/kill-session.sh' timeout $timeout_per_test bash '$test_file' 2>"$tmp_dir/bserr2.txt" | $cap_cmd bash`;
+                my $bash_out = `$cd'$root/harness/kill-session.sh' timeout $timeout_per_test bash '$test_file' 2>"$art/bserr2.txt" | $cap_cmd bash`;
                 my $bash_exit2 = $? >> 8;
                 # The bash REFERENCE timed out (the harness's per-test cap,
                 # not a bash exit code): e.g. sqrt1337.sh's 10k-iteration
