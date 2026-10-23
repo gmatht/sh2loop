@@ -10290,6 +10290,27 @@ function substGlob(sh, v, pattern, replacement) {
 function substGlobFirst(sh, v, pattern, replacement) {
   const rep = expandWord(sh, replacement ?? '');
   if (v === '') return v;
+  pattern = String(pattern ?? '');
+  // `${v/#pat/r}` / `${v/%pat/r}` — an unescaped leading `#`/`%` ANCHORS the
+  // match to the start/end (GNU bash pattern substitution). The anchored form
+  // takes the LONGEST match at that end: `${s/#al*/Z}` and `${s/%*bet/Z}` both
+  // replace the whole of "alphabet". `${v//#p/r}` is NOT anchored — bash
+  // treats the `#` there literally — so the caller leaves it to substGlob
+  // (unchanged below).
+  const anchored = pattern[0] === '#' ? 'start' : pattern[0] === '%' ? 'end' : null;
+  if (anchored) pattern = pattern.slice(1);
+  if (anchored === 'start') {
+    for (let len = v.length; len >= 0; len--) {
+      if (globMatch(pattern, v.slice(0, len))) return rep + v.slice(len);
+    }
+    return v;
+  }
+  if (anchored === 'end') {
+    for (let len = v.length; len >= 0; len--) {
+      if (globMatch(pattern, v.slice(v.length - len))) return v.slice(0, v.length - len) + rep;
+    }
+    return v;
+  }
   if (!/[*?[]/.test(pattern)) {
     const i = v.indexOf(pattern);
     if (i < 0) return v;

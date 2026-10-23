@@ -11,6 +11,9 @@
 #   Zig output   -> zig build-exe (compiles)
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# The zig lint compiles each generated file with `zig build-exe` — prune the
+# zig global cache to its 8 GiB ceiling first (best-effort; never fails lint).
+"$ROOT/harness/zig-cache-prune.sh" || true
 DEB="$ROOT/sh2perl/otranspilerl/target/debug/otranspilerl-cli"
 GEN="$ROOT/harness/estree-gen.mjs"
 ESLINT="${ESLINT:-/nvme/ai/.npm-global/bin/eslint}"

@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# harness/zig-cache-prune.sh — run the zig cache cleaner before the gates and
+# tests that compile zig, so ~/.cache/zig never exceeds 8 GiB (oldest atime
+# first; see harness/zig-cache-prune.zig).
+#
+# Contract: BEST-EFFORT, ALWAYS EXITS 0.
+#   - A cleaner failure must never turn a gate red — the gate's own verdict
+#     decides, not a maintenance step (same principle as the 429-cooldown fix:
+#     retriable infrastructure must not read as a test failure).
+#   - flock -n: if another gate is already pruning, skip (no queueing).
+#   - Builds harness/zig-cache-prune from source on first use / when stale.
+#   - Output goes to stderr with a zig-cache-prune: prefix so gates can be
+#     audited for "the cleaner ran" (grep for 'zig-cache-prune:') without it
+#     ever colliding with a gate's stdout protocol.
+set -u
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+BIN="$ROOT/harness/zig-cache-prune"
+SRC="$ROOT/harness/zig-cache-prune.zig"
+LOCK="$ROOT/.zig-cache-prune.lock"
+
+case "${1:-}" in
+  -h|--help)
+    echo "usage: zig-cache-prune.sh [zig-cache-prune args...]" >&2
+    echo "  (wrapper for harness/zig-cache-prune; always exits 0)" >&2
+    exit 0
+    ;;
+esac
+
+# One pruner at a time; if someone holds the lock, they are already pruning.
+# NB: no `2>/dev/null` on this exec — exec redirections persist for the whole
+# script, which would silence every later report line.
+exec 9>"$LOCK" || exit 0
+if ! flock -n 9; then
+  echo "zig-cache-prune: held by another gate — skipping" >&2
+  exit 0
+fi
+
+# Build on demand; rebuild when the source is newer than the binary.
+if [ ! -x "$BIN" ] || [ "$SRC" -nt "$BIN" ]; then
+  if ! command -v zig >/dev/null 2>&1; then
+    echo "zig-cache-prune: zig not on PATH — skipping" >&2
+    exit 0
+  fi
+  if ! tmp_out=$(zig build-exe "$SRC" -OReleaseSafe -femit-bin="$BIN.tmp.$$" 2>&1); then
+    echo "zig-cache-prune: build failed — skipping" >&2
+    rm -f "$BIN.tmp.$$"
+    exit 0
+  fi
+  mv -f "$BIN.tmp.$$" "$BIN" || { echo "zig-cache-prune: install failed — skipping" >&2; exit 0; }
+fi
+
+out=$("$BIN" "$@" 2>&1)
+rc=$?
+if [ $rc -ne 0 ]; then
+  printf 'zig-cache-prune: exited %d (ignored) — %s\n' "$rc" "$(printf '%s' "$out" | head -3 | tr '\n' '|')" >&2
+  exit 0
+fi
+# Echo the cleaner's own report, tagged, to stderr: proof-of-run in gate logs.
+printf '%s\n' "$out" | sed 's/^/zig-cache-prune: /' >&2
+exit 0

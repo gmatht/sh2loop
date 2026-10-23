@@ -139,3 +139,27 @@ harness/transform-diff.sh                             # corpus differential
 `SH2_TARGET_DIR` says otherwise: the shared target on this box has been
 stale/racy, and a gate that silently tests an old binary is worse than no
 gate.
+
+## Formal node specifications (beyond the laws)
+
+The laws above prove *structural* properties. A separate line of work writes
+down what individual shIR nodes **mean** — denotational specs plus proofs
+that the lowering emits exactly that meaning. It lives in two places:
+
+| Where | What | Scope |
+|---|---|---|
+| `proofs/` (`DivModPow2`, `I32Provable`) | analysis-verdict soundness | arithmetic obligations of `div-mod-pow2`, `i32-provable` |
+| `sh2perl/docs/fm/TextOps/` | node semantics for `StrLen`, `WordCount`, `RegCount` + `lowered_wc_sound` | the `wc` lowering in `text_ops.rs` |
+
+They are different kinds of claim: `proofs/` proves that a verdict is
+**conservative** (marking ⟹ the fact holds); `TextOps` proves that a node's
+lowering **denotes the right value** (`wc_count`, with
+`strlen_plus_one_is_not_line_count` recording the pre-fix emission as
+refuted). Both are Tier 1 — no shell state.
+
+`harness/transform-proofs.sh` builds both kinds, plus the per-manifest
+`proof:` claims, with `quick_and_dirty = false` (so `sorry` cannot hide),
+strips `(* … *)` comments before scanning for `sorry`/`oops` (a theory that
+says "no sorry can hide here" is not one), and reports a session that is not
+in its own default build as `FAILED` rather than skipping it. `verif/`
+is reported `STATED` because its `ROOT` does not pin `quick_and_dirty`.

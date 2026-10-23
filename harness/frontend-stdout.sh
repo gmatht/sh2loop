@@ -48,6 +48,9 @@ fi
 set -u
 lang=$1; bin=$2; dir=$3; otranspilerl_cli=$4
 root=${FS_ORIG_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}
+# The zig native arm runs `zig run` per testdata file — prune the zig global
+# cache to its 8 GiB ceiling first (best-effort; never fails the gate).
+if [ "$lang" = zig ]; then "$root/harness/zig-cache-prune.sh" || true; fi
 runner="$root/harness/estree-runner.mjs"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"; rm -f "${FS_SNAPSHOT:-}"' EXIT
 # Oracle stability: otranspilerl/target/debug/otranspilerl-cli is rebuilt CONCURRENTLY by the
