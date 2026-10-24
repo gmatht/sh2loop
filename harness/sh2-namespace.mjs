@@ -2246,12 +2246,52 @@ captureSync(fn) {
   },
 
   // ── pipelines ──────────────────────────────────────────────────────
+  // _nativeStage(stage, prev, statuses) — run a NATIVE pipeline stage: an
+  // arrow that declares ONE parameter is a pure text transform (src/shir.rs
+  // native_pipeline_stage — head/tail/wc/cat/awk field-print). It receives
+  // the previous stage's output and returns `[text, status]` (a bare value
+  // is text with status 0). Returns the stage's stdout text, or undefined
+  // when the stage is not a native one (the caller keeps the builtin path).
+  _nativeStage(stage, prev, statuses) {
+    if (typeof stage !== 'function' || stage.length < 1) return undefined;
+    const r = stage(prev);
+    const text = Array.isArray(r) ? String(r[0] ?? '') : String(r ?? '');
+    this.lastExit = Array.isArray(r) ? (Number(r[1]) || 0) : 0;
+    statuses.push(this.lastExit);
+    return text;
+  },
+
   async pipeline(stages) {
     const saved = { ...this.fdTargets };
     let prev = null;
     const statuses = [];
     try {
       for (let i = 0; i < stages.length; i++) {
+        // NATIVE STAGE (src/shir.rs native_pipeline_stage): an arrow that
+        // declares ONE parameter is a pure text transform — it receives the
+        // previous stage's output and returns `[text, status]`. No fd-target
+        // install, no readFd0, no builtin dispatch: the last stage's text
+        // goes through emit() (the current fd-1 sink, exactly where the
+        // builtin would write) and every other stage's text becomes the next
+        // stage's stdin. The formulas are the builtins' own arithmetic, so
+        // this is value-identical to running the builtin.
+        if (i > 0 && prev !== null) {
+          const native = this._nativeStage(stages[i], prev, statuses);
+          if (native !== undefined) {
+            // The LAST stage writes through the CALLER's fd-1 sink. The
+            // previous iteration left fdTargets[1] pointing at this
+            // pipeline's own inter-stage capture buffer, so emitting
+            // without restoring the sink first SWALLOWED the output:
+            // `echo one | cat` printed nothing, and `$(echo one; echo two
+            // | wc -l)` lost its `1` (cat/head/wc/cut are native last
+            // stages — 2026-10-24, t03_pipeline). Restore, then emit.
+            if (i === stages.length - 1) {
+              this.fdTargets[1] = saved[1];
+              emit(this, native);
+            } else prev = native;
+            continue;
+          }
+        }
         if (typeof stages[i] !== 'function') {
           // String stage — the emitter's `echo ARGS | ...` collapse (see
           // src/shir.rs try_echo_stage_text): the stage expression is a
@@ -2293,6 +2333,26 @@ captureSync(fn) {
     const statuses = [];
     try {
       for (let i = 0; i < stages.length; i++) {
+        // NATIVE STAGE — same contract as `pipeline` above (the twin must
+        // stay behaviorally identical; the arrow is pure CPU, so running it
+        // inline keeps the *Sync no-blocking-I/O rule).
+        if (i > 0 && prev !== null) {
+          const native = this._nativeStage(stages[i], prev, statuses);
+          if (native !== undefined) {
+            // The LAST stage writes through the CALLER's fd-1 sink. The
+            // previous iteration left fdTargets[1] pointing at this
+            // pipeline's own inter-stage capture buffer, so emitting
+            // without restoring the sink first SWALLOWED the output:
+            // `echo one | cat` printed nothing, and `$(echo one; echo two
+            // | wc -l)` lost its `1` (cat/head/wc/cut are native last
+            // stages — 2026-10-24, t03_pipeline). Restore, then emit.
+            if (i === stages.length - 1) {
+              this.fdTargets[1] = saved[1];
+              emit(this, native);
+            } else prev = native;
+            continue;
+          }
+        }
         if (typeof stages[i] !== 'function') {
           prev = String(stages[i] ?? '');
           statuses.push(this.lastExit);
@@ -3064,8 +3124,13 @@ captureSync(fn) {
   // ref holding the copied items; the source list is untouched
   // (`x.out[mark:]` / `x.out[:mark]` on struct-field slices).
   listSlice(id, lo, hi) {
-    const o = this._objStore.get(String(id));
-    const items = o && o.kind === 'list' ? o.items : [];
+    // an INLINE array (a derefGet of an array-backed store, a struct-
+    // literal field value) slices directly — the same tolerance
+    // listGet/listLen already carry; without it
+    // `*rest = (*rest)[1:]` over a pointer-to-array ref silently
+    // sliced a phantom EMPTY list.
+    const items = Array.isArray(id) ? id
+      : (() => { const o = this._objStore.get(String(id)); return o && o.kind === 'list' ? o.items : []; })();
     const l = Math.max(0, Number(lo) || 0);
     const h = hi == null ? items.length : Math.min(items.length, Number(hi) || 0);
     const nid = 'list#' + (++this._objSeq);
