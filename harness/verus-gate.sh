@@ -45,6 +45,7 @@ MODELS=(
   "optimize_stmts.rs:8:40"
   "dead_fn_elim.rs:25:40"
   "dead_store_elim.rs:45:40"
+  "redundant_store_elim.rs:53:80"
 )
 
 # extractor:baseline — the generator script and the file it must reproduce.
