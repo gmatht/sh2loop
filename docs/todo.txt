@@ -1,0 +1,27 @@
+17 worktrees each carry their own src/shir.rs; drift from the core:
+  perl    28851 differ   c/fish/sh 4506   rust 3235   java/zig 3206
+```
+
+
+Four renderers are registered in otranspilerl::TARGETS (fish, zsh, plus the vendored paths) while their live implementation sits in a worktree
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+The honest ranking: #1 is the best of these if you want "tricky" — it's a correctness property ($?), not just a shape, and nine renderers curre
+» stop  stop-complete ## Four 15+-file improvements that are genuinely tricky (ranked)
+
+**1. Make exit-status liveness (`$?` deadness) a shared verdict, not a Rust-backend local.**
+`lastexit_write_is_dead` / `status_write_is_unread` / `prog_observes_exit_status` exist in `shir.rs`/`ir.rs`, but the *use* is lopsided: `rust_
+**2. Unify the `IrStmt` walkers.** 35 variants × 116 files, each pass hand-rolling its own recursion with `_ => {}` fallthroughs. Already broke
+· stop-complete — ending turnFour 15+-file improvements that are genuinely tricky (ranked)
+1. Make exit-status liveness ($? deadness) a shared verdict, not a Rust-backend local.
+lastexit_write_is_dead / status_write_is_unread / prog_observes_exit_status exist in shir.rs/ir.rs, but the use is lopsided: rust_backend.rs re
+es; eight never did. The verdict is pointer-keyed on statement addresses and installed per program, read back inside renderers under a compile
+2. Unify the IrStmt walkers. 35 variants × 116 files, each pass hand-rolling its own recursion with _ => {} fallthroughs. Already broken: pythoso
+it compiles and fails at gate time. Tricky because several passes deliberately do not recurse (documented in-tree), so a naive visitor turns “untested” into “silently recursed”.
+3. Reconcile the per-worktree core copies. 17 worktrees carry their own src/shir.rs; drift: perl 28851 lines, c/fish/sh 4506, rust 3235, java/zig 3206, go 2951, python 2906. Each divergence is partly deliberate, so “make them equal” is wrong — the task is distinguishing merge-drift from i
+ntentional fork. Get it wrong and you silently revert a worker’s fix, which this workspace has already done repeatedly.
+4. Single renderer ingress. fish/zsh are in otranspilerl::TARGETS while their source of truth is a worktree (ungated copies in sh2perl/src/), and the pass sequence is re-spelled at ingest, ingest_exported and ingest_tail. Tricky because those paths differ on purpose, and the in-tree comme
+nts record the bugs from them diverging.
+Ranking: #1 best for “tricky” (a correctness property, not a shape, and 8 renderers currently ignore it); #2 best because the bug is already real and visible; #3 is larger but is a merge problem more than a design one.
