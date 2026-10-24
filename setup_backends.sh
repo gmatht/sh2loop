@@ -1729,7 +1729,16 @@ EOF
                     # skip keeps the gate alive and leaves the file + rc in the
                     # log; an anomalous skip count is the visible signal (core-
                     # emit health is the estree gate's job, not this gate's).
-                    shir=$("$g_otrans" --target shir "$f" 2>/dev/null) || {
+                    # THE EXEC-FAILURE CLASS IS RETRIED AT THE CALL SITE
+                    # (harness/emit-shir-retry.sh): the shared target dir is
+                    # relinked WHILE this loop runs, and 2026-10-25 measured
+                    # the path ABSENT (rc=127, `stat` -> GONE) on two files of
+                    # an otherwise 648/650-green run — which collapsed the whole
+                    # verdict to `CRASHED (no classification)`, discarding a
+                    # corpus for a two-file window. The retry is narrow: a
+                    # PRESENT emitter that rejects an input keeps its rc on the
+                    # FIRST attempt and is still counted a FAIL below.
+                    shir=$("$ROOT/harness/emit-shir-retry.sh" "$g_otrans" "$f") || {
                       rc=$?
                       # AN EMIT FAILURE IS NOT A SKIP. It was counted as one
                       # until 2026-09-30, and that is actively harmful: a skip
@@ -1758,6 +1767,14 @@ EOF
                       # of the binary that was invoked) instead of asserting a
                       # cause, which is what makes the next occurrence
                       # diagnosable.
+                      #
+                      # CORRECTION 2026-10-25: the "never un-runnable" finding
+                      # above was a 500-rebuild sample that missed the window.
+                      # Two corpus files emitted rc=127 with `inode=GONE` in one
+                      # run (quoted in harness/emit-shir-retry.sh), so the path
+                      # CAN be absent. That class is now retried at the call
+                      # site instead of being counted, so emitfail below only
+                      # counts a failure that survived every attempt.
                       emitfail=$((emitfail+1)); fail=$((fail+1))
                       fails="$f $fails"
                       echo "  [$g_lang] backend gate: shir emit FAILED for $f (rc=$rc, binary=$g_otrans inode=$(stat -c %i "$g_otrans" 2>/dev/null || echo GONE)) — counted as FAIL (an unmeasured file is not a passing file)"
