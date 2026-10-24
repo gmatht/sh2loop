@@ -134,11 +134,10 @@ echo "--- root worktrees ---"
 git -C "$DEST" worktree list
 echo "== done: $created created, $skipped already present, $missing unrecoverable =="
 cat <<'NOTE'
-NOTE — branches that exist on the dev box but were NEVER pushed to GitHub
-cannot be downloaded (as of 2026-10-24): backend/go, backend/zig,
-backend/zsh, backend/zsh-sh-go, backend/estree, rust, java-equivalence-grind,
-s2p.rust, s2p_go, dedupe/perl-renderer, pir-sqfix, fish-capture-arrow, the
-.<scratch> worktrees, and the root fb0-raster worktree. Push them (or fetch
+NOTE — a few experiment/scratch branches were never pushed to GitHub and
+cannot be downloaded (as of 2026-10-24): s2p.rust, s2p_go,
+dedupe/perl-renderer, pir-sqfix, fish-capture-arrow, the .<scratch>
+worktrees, and the root fb0-raster worktree. Push them (or fetch
 from the LAN remotes) if you need them elsewhere. Next: run
 ./setup_backends.sh [langs] to scaffold BACKEND.md/run_worker.sh per worktree.
 NOTE
