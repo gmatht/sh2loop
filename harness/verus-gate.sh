@@ -46,6 +46,8 @@ MODELS=(
   "dead_fn_elim.rs:25:40"
   "dead_store_elim.rs:45:40"
   "redundant_store_elim.rs:53:80"
+  "array_len_fold.rs:10:40"
+  "const_status_cond.rs:35:60"
 )
 
 # extractor:baseline — the generator script and the file it must reproduce.

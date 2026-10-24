@@ -22,10 +22,12 @@ Status snapshot (measured 2026-10-24):
 | `proofs/verus/dead_fn_elim.rs` | `transforms/dead_fn_elim.rs` Passes 1–4 | 25 verified, 0 errors | committed `46ec35566`, local-only |
 | `proofs/verus/dead_store_elim.rs` | `transforms/dead_store_elim.rs` core | 45 verified, 0 errors | committed `dbd0a5562`, local-only |
 | `proofs/verus/redundant_store_elim.rs` | `transforms/redundant_store_elim.rs` (fixed) | 53 verified, 0 errors | branch `verus-rse` (`7e317c61`), **on GitHub**, unmerged — see P0(ii) |
+| `proofs/verus/array_len_fold.rs` | `transforms/array_len_fold.rs` (`fold`) | 10 verified, 0 errors | branch `verus-p2` (`68d20941`), **on GitHub**, unmerged |
+| `proofs/verus/const_status_cond.rs` | `transforms/const_status_cond.rs` (7-row table) | 35 verified, 0 errors | branch `verus-p2` (`68d20941`), **on GitHub**, unmerged |
 
-143 obligations total, 0 errors, five of the six with checked failing
-mutants (see §(b).3; the sixth, the exec form, carries the postcondition on
-the executable function itself instead). All six counts — and all five
+188 obligations total, 0 errors, seven of the eight with checked failing
+mutants (see §(b).3; the eighth, the exec form, carries the postcondition on
+the executable function itself instead). All eight counts — and all seven
 mutants — were independently reproduced on 2026-10-24 with the pinned
 binary (see §(b).3).
 
@@ -36,14 +38,14 @@ estimator is `arith_abs_bound`/`arith_is_i32`, proved in Isabelle
 about a superseded design), but their fidelity premise is void, not stale —
 and the sync extractor has no target (its FATAL on the live tree was
 verified live: correct behavior, wrong reason to celebrate). §(d) P0 records
-what follows from this. All six were run under Verus `0.2026.10.18.7d82994` with
+what follows from this. All eight were run under Verus `0.2026.10.18.7d82994` with
 rust toolchain `1.99.1` (`--triggers-mode silent --rlimit 40`, `--rlimit 60`
-for the exec form, `--rlimit 80` for redundant-store-elim). The pinned binary lives at
+for the exec form and const-status-cond, `--rlimit 80` for redundant-store-elim). The pinned binary lives at
 `/opt/verus-0.2026.10.18.7d82994/verus` (re-fetch
 `release/0.2026.10.18.7d82994` x86-linux if it ever goes missing). Still no gate runs
 these files — re-running one is a manual command from the README, and a
 `harness/verus-gate.sh` now exists and is green (Tier 0, landed 2026-10-24):
-it re-runs the six models with exact-count assertions (exit 1 on count
+it re-runs the eight models with exact-count assertions (exit 1 on count
 mismatch or Verus error, exit 2 if the binary is absent — never read
 "not installed" as green) plus an empty sync registry with a comment
 explaining why nothing is registered. The remaining hardening item is pushing
@@ -131,6 +133,29 @@ fidelity pins, all mirrored (3 in-module bug tests, cascade + observer
 unmerged pending the `Ext`-WIP owner's rebase (overlapping `expr_reads`
 hunk, both keep-direction).
 
+**7. `array_len_fold` (`array_len_fold.rs`, 10).** The `fold()` node
+rewrite with refuse-on-doubt guards. Theorem: folding preserves the
+evaluated value (element count of the same array binding) from any
+store. Both spellings evaluate against the same binding, so the fold
+is a renaming with identical denotation; the guards only ensure the
+slice spelling MEANS element count. Guard order mirrors the code.
+Identifier-ness is an oracle; traversal is out of scope (per-node
+theorem). Eight pins, all shape-mirrored 1:1 in-module (dead_fn_elim
+precedent — no `pin_mirrors.rs` addition needed).
+
+**8. `const_status_cond` (`const_status_cond.rs`, 35).** The 7-row
+restructuring table with refusals. Theorem: rewriting preserves the
+(status, print-trace) run from any start status at every fuel bound.
+Execution threads the header's bash exit-status rules (body-never-ran
+reports 0, taken-body reports last status, untaken-if reports 0);
+(fuel, size)-lexicographic induction with two general loop lemmas
+covering entry and tails uniformly. Eleven pins: all 7 rows as
+shapes, words/elsifs/non-const refusals, plus a fuel-2 behavior run.
+Two mutants go red (dropped prepend 31/3, wrong collapse status
+33/1). `do…while` omitted (refused in code, nothing to refuse);
+StatusZero is observably `([], 0)`. All shape pins mirrored 1:1
+in-module (11 tests); the behavior pin is model-internal.
+
 ## (b) How rigorous this is, and how closely it matches the real code
 
 **1. Every artifact is a hand-duplicated model, not a proof of the code.**
@@ -152,16 +177,18 @@ source outgrows its extractor patterns — but the generated
 that lands, "the model matches the code" is a statement about the day each
 file was written, reviewed by re-reading.
 
-**3. The obligations are not vacuous — five files have a checked mutant.**
+**3. The obligations are not vacuous — seven files have a checked mutant.**
 Interval with a wrong product corner: 4 verified, 1 error. `Assign` writing
 a constant: 7 verified, 1 error. Inverted keep rule: 23 verified, 2 errors.
 Dropped purity gate: 43 verified, 2 errors. Restored `Arith(_) => true`
 purity lie: 51 verified, 2 errors. Restored index-blind `stmt_reads`:
-51 verified, 2 errors. Every mutant was restored and
+51 verified, 2 errors. Dropped `"@"`-offset guard: 9 verified, 1 error.
+Dropped command prepend: 31 verified, 3 errors. Wrong collapse status:
+33 verified, 1 error. Every mutant was restored and
 re-checked green — and every one of those reproductions was
 re-run independently on 2026-10-24 with the pinned binary, matching the
-documented numbers exactly (4v/1e, 7v/1e, 23v/2e, 43v/2e, 51v/2e, 51v/2e against clean
-baselines of 5/8/25/45/53/53). The sixth file (`i32_bounds_exec.rs`) has no
+documented numbers exactly (4v/1e, 7v/1e, 23v/2e, 43v/2e, 51v/2e, 51v/2e, 9v/1e, 31v/3e, 33v/1e against clean
+baselines of 5/8/25/45/53/53/10/35/35). The ninth file (`i32_bounds_exec.rs`) has no
 recorded mutant; its anti-vacuity argument is structural instead — the postcondition
 constrains the executable function's actual return triple over all ten
 `ArithAst` constructors, a shape 30 failed probes showed is easy to get
@@ -189,6 +216,8 @@ honest after the modelling session ends:
 | `dead_fn_elim` | 3 (`elim_pins`) | **yes, exactly** (`removes_uncalled_fn_keeps_called_and_indirect`) + ForInit extra | 3 green |
 | `dead_store_elim` | 6 pins | **partial** — 5 keep-side boundary tests green; lone-drop, read-later, impure-RHS, multi-write, dyn-freeze unmirrored | 5 green |
 | `redundant_store_elim` | 7 pins | **yes, all** — 3 bug scenarios in-module (side-effecting arith, index read, Str-embedded `$x` + scanner units); cascade + observer + index-read in `pin_mirrors.rs` | 3 + 3 green |
+| `array_len_fold` | 8 pins | **yes, all, in-module** — 4-arg, 3-arg, plain-name, numeric-offset, non-empty-length, non-ident-base, bad-arity, folded-counts (15 in-module tests incl. traversal) | 8 green |
+| `const_status_cond` | 11 pins | **yes, all shapes, in-module** — all 7 rows + words/elsifs/non-const refusals (11 in-module tests); fuel-2 behavior pin is model-internal (the theorem at f=2) | 10 green |
 | i32 ×2 | n/a | moot — target absent | n/a |
 
 **5. Compared with the Isabelle line, Verus is stronger per-lemma and weaker
@@ -200,9 +229,9 @@ gate and no binary on the box (now: `harness/verus-gate.sh`, green, and
 Conversely the Verus files carry
 executable functions with postconditions (`i32_bounds_exec.rs`) and
 discharge nonlinear arithmetic the Isabelle automation needed hand-holding
-for. The honest summary: 143 checked obligations over six models whose
+for. The honest summary: 188 checked obligations over eight models whose
 fidelity ranges from pinned-and-mirrored (`dead_fn_elim`,
-`redundant_store_elim`) through
+`redundant_store_elim`, `array_len_fold`, `const_status_cond`) through
 partially-pinned (`dead_store_elim`, `optimize_stmts`) to void (`i32` ×2)
 — see the audit table in point 4.
 
@@ -245,8 +274,8 @@ the baseline everything below also has.
 | `copy_propagation` | propagation | T2 | same census/purge shape as the proved elims |
 | `function_purity` | analysis (verdict) | T2 | verdict gates `inline_pure_fns` — wrong verdict = miscompile |
 | `inline_pure_fns` | inlining | T2 | needs purity + call preservation (Tier-3-flavored) |
-| `const_status_cond` | const fold | T2 | **fires on corpus (8/562)** |
-| `array_len_fold` | const fold | T2 | **fires on corpus (9/562)** |
+| `const_status_cond` | const fold | **V** (7-row table, 35) | branch `verus-p2`, on GitHub, unmerged; all shape pins mirrored in-module |
+| `array_len_fold` | const fold | **V** (`fold`, 10) | branch `verus-p2`, on GitHub, unmerged; all pins mirrored in-module |
 | `test_lowering` | lowering | T2 | **fires most (43/562)** but needs statement semantics; only sub-lemmas are Tier-1-shaped |
 | `const_condition_elim` | const fold | T2 | fires only via pipeline order, not in isolation |
 | `counted_arith_forinit`, `counted_while_forinit` | loop recovery | T2 | same dead-path defect class as `for_recovery` — check firing first |
@@ -284,6 +313,16 @@ without (iv) is a seventh thing silently rotting.
 proved (shadow argument, observationally exact), with all three bug
 scenarios as pins and both fix-mutants as negative controls. What remains
 is the mechanical merge once the Ext WIP lands, not another proof.
+
+**P2 — `const_status_cond`, `array_len_fold`.** DONE — both proved on
+branch `verus-p2` (`68d20941`, pushed): array-len-fold value
+preservation (10 obligations, offset-guard mutant red at 9/1) and
+const-status-cond restructuring preservation over fuel-bounded
+trace/status (35 obligations, two mutants red at 31/3 and 33/1). All
+shape pins mirrored 1:1 in-module (dead_fn_elim precedent — no
+`pin_mirrors.rs` additions); both registered in the gate
+(`array_len_fold.rs:10:40`, `const_status_cond.rs:35:60`). Unmerged
+pending main-line merge (no conflicting WIP in either file).
 
 **P2 — `const_status_cond`, `array_len_fold`.** They fire on the real corpus
 (8 and 9 files of 562 — nearly the only ones that do), their obligations
