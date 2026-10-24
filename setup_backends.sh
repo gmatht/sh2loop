@@ -1068,12 +1068,26 @@ case "${1:-}" in
                       #
                       # Detection reads only the bytes this attempt added.
                       # --pi-fix-backend always exits 0, so log text is the
-                      # only available signal.
+                      # only available signal. The READ and the patterns both
+                      # live in harness/quota-trap-signal.sh, where they are
+                      # testable (harness/test_quota_trap_signal.sh).
+                      #
+                      # 2026-10-25 (go worker) — THE READ WAS BROKEN, not just
+                      # the pattern list. This used to be
+                      #   tail -c "+N" "$LOG" | grep -qE '<patterns>' && _quota_hit=1
+                      # under `set -euo pipefail`: `grep -q` exits at the first
+                      # match, `tail` dies on EPIPE with megabytes still to
+                      # write, and pipefail turned the pipeline into 141, so
+                      # the `&&` never ran. Measured 1 KB -> 0, 2 MB -> 141.
+                      # The go attempt's window was 3.6 MB and contained 11
+                      # quota matches; the check reported none, the counter
+                      # reached 3 and the worker trapped on a build break that
+                      # did not exist (core and worktree both built clean).
+                      # Small historical windows are why it ever fired before.
+                      # A detector that can only say "no" is worse than none.
                       _quota_hit=0
-                      if [ -r "$LOG" ]; then
-                        tail -c "+$((_pre_off + 1))" "$LOG" 2>/dev/null \
-                          | grep -qE 'HTTP 429|GoUsageLimitError|quota.?blocked|quota.?exhausted|rate.?limit exceeded' \
-                          && _quota_hit=1
+                      if "$ROOT/harness/quota-trap-signal.sh" "$LOG" "$_pre_off"; then
+                        _quota_hit=1
                       fi
                       if [ "$_quota_hit" = "1" ]; then
                         echo "[$(date +%FT%T)] $rw_lang: gate red but this attempt's AI calls were QUOTA/429-blocked (not a build failure) — NOT trapping; cooling down ${rw_quota_cooldown_s}s" >> "$LOG"
