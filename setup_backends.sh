@@ -1820,10 +1820,32 @@ EOF
                       skip=$((skip+1)); continue
                     fi
                     g_out=""
+                    g_rc=0
                     if [ "$g_binmode" = 1 ]; then
-                      if g_out=$("$g_wt/target/debug/${g_lang}_backend" "$f" 2>/dev/null); then ok=1; else ok=0; g_out=""; fi
+                      g_rbin="$g_wt/target/debug/${g_lang}_backend"
+                      if g_out=$("$g_rbin" "$f" 2>/dev/null); then ok=1; else g_rc=$?; ok=0; g_out=""; fi
                     else
-                      if g_out=$(printf '%s' "$shir" | "$g_bin" "$g_flag" - 2>/dev/null); then ok=1; else ok=0; g_out=""; fi
+                      g_rbin="$g_bin"
+                      # THE RENDER EXEC IS RETRIED TOO (--mode=render): the
+                      # emitter retry above fixed only the FIRST of the gate's
+                      # two execs. The renderer lives in the same relinked
+                      # target dir, so the same exec window (127 absent, 126
+                      # ETXTBSY) hits it one step later and with NO per-file
+                      # message — `fail` increments, every classification
+                      # counter stays 0, and a 644/651-green corpus collapses
+                      # to `CRASHED (no classification)`. Measured 2026-10-26
+                      # (go gate): 644/651 green on the runs either side, then
+                      # 1 and 2 files failing with no classification. A
+                      # renderer that RAN and rejected the A1 keeps its rc on
+                      # the first attempt (a real verdict), exactly like emit.
+                      if g_out=$(printf '%s' "$shir" | "$ROOT/harness/emit-shir-retry.sh" --mode=render "$g_bin" "$g_flag" 2>/dev/null); then ok=1; else g_rc=$?; ok=0; g_out=""; fi
+                    fi
+                    if [ "$ok" = 0 ]; then
+                      # Name the file even when nothing can classify it: the
+                      # unclassified path used to be the ONE failure that
+                      # printed nothing, so a CRASHED verdict could not say
+                      # which file (or which rc) caused it.
+                      echo "  [$g_lang] backend gate: RENDER FAILED for $f (rc=$g_rc, renderer=$g_rbin flag=${g_flag:-<none>} inode=$(stat -c %i "$g_rbin" 2>/dev/null || echo GONE)) — counted as FAIL (unclassified: no stub/equiv/static-analysis verdict)"
                     fi
                     # STUB GATE: an emitted sh2.* stub call
                     # (sh2_exec()/sh2GetVar()/...) or TODO(unsupported) marker
@@ -2197,7 +2219,7 @@ EOF
                   # static-analysis)" on 2026-09-08 and was read as 637 real
                   # regressions for 15 days. Refuse the verdict instead.
                   if [ "$fail" -gt 0 ] && [ "$stub_files" -eq 0 ] && [ "$eq_fail" -eq 0 ] && [ "$sa_fail_total" -eq 0 ]; then
-                    echo "  [$g_lang] backend gate: CRASHED (no classification) — $fail/$((pass+skip+fail)) files failed and NONE produced a stub/equiv/static-analysis verdict; not a test score" >&2
+                    echo "  [$g_lang] backend gate: CRASHED (no classification) — $fail/$((pass+skip+fail)) files failed and NONE produced a stub/equiv/static-analysis verdict; not a test score — failing: $fails" >&2
                     exit 1
                   fi
                   echo "  [$g_lang] backend gate: $pass/$((pass+skip+fail)) corpus render OK, $fail fail ($stub_files stubs, $eq_fail equiv, $sa_fail_total static-analysis), $skip skip ($al_count allowlisted) — $stub_total stubs emitted${emitfail:+; $emitfail of them emit-failed (core emitter could not run — a MEASUREMENT failure, not a skip)}${eq_gate:+; equiv: $eq_pass pass vs bash}"

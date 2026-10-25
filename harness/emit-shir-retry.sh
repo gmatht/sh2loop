@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # emit-shir-retry.sh <emitter> <corpus-file>
+# emit-shir-retry.sh --mode=render <renderer> <flag>
 #
 # Emit the A1 shIR for <corpus-file> from <emitter>, retrying the ONE failure
 # class that is a MEASUREMENT ARTEFACT rather than an input verdict: the exec
@@ -7,9 +8,18 @@
 # the path ABSENT (rc=127) or PRESENT-but-busy (rc=126, ETXTBSY — see the
 # rc=126 note below).
 #
-# stdout: the shIR, and only when the emit succeeded
-# exit:   0    emitted (stdout is the shIR)
-#         N    the emitter RAN and failed — its own rc, never retried
+# --mode=render is the SAME policy for the gate's NEXT exec — the renderer that
+# turns the emitted A1 into backend source. It takes the A1 on stdin and runs
+# `<renderer> <flag> -`, writing the render to stdout. The renderer lives in
+# the WORKTREE's target dir, which another agent relinks mid-run exactly like
+# the emitter's, so a green corpus can collapse to `CRASHED (no
+# classification)` on a two-file exec window in which NO per-file message is
+# printed (2026-10-26, go gate: 644/651 green on the runs either side, then 1
+# and 2 files failing with no classification). One policy, one selftest.
+#
+# stdout: the shIR (emit) or the render (render), and only on success
+# exit:   0    succeeded (stdout is the payload)
+#         N    the program RAN and failed — its own rc, never retried
 #         rc   the exec kept failing through every attempt (126/127)
 #
 # WHY (2026-10-25, perl): otranspilerl/target and sh2perl/target are the SAME
@@ -73,22 +83,32 @@
 # still costs exactly one exec per file) and is reused across the rest of the
 # run, so a long window costs ONE snapshot, not one per corpus file.
 set -u
+mode=emit
+case "${1:-}" in
+  --mode=render) mode=render; shift ;;
+  --mode=emit) mode=emit; shift ;;
+esac
 if [ $# -ne 2 ]; then
   echo "usage: emit-shir-retry.sh <emitter> <corpus-file>" >&2
+  echo "       emit-shir-retry.sh --mode=render <renderer> <flag>" >&2
   exit 2
 fi
-emitter=$1
-file=$2
+if [ "$mode" = render ]; then
+  prog=$1; flag=$2
+else
+  prog=$1; file=$2
+fi
 
 # 3 attempts matches harness/perl_gate_local.sh's shir_of, so the fleet gate
 # and its mirror apply one policy.
 tries=3
 
-# ── the verified private copy of the emitter ────────────────────────────────
+# ── the verified private copy of the program ────────────────────────────────
 # Only ever consulted on the exec-failure path (see the header). The name
-# carries the emitter's IDENTITY (inode + mtime), so a relink produces a
+# carries the program's IDENTITY (inode + mtime), so a relink produces a
 # different name and a stale copy is never picked up — no TTL, no guessing.
 snapdir="${TMPDIR:-/tmp}/emit-shir-retry"
+[ "$mode" = render ] && snapdir="${TMPDIR:-/tmp}/render-shir-retry"
 mkdir -p "$snapdir" 2>/dev/null || snapdir="${TMPDIR:-/tmp}"
 mina1="$snapdir/min-a1.json"
 # The liveness program: a copy is trusted only once it RUNS (the same check
@@ -96,6 +116,16 @@ mina1="$snapdir/min-a1.json"
 cat > "$mina1" <<'MIN'
 {"contract_version":1,"imports":[],"requires":[],"stmt_lines":[],"stmts":[],"subs":[],"type":"Program","var_bash_env":[],"var_const":[],"var_lengths":[],"var_lifetimes":[],"var_nospace":[],"var_types":[]}
 MIN
+
+# In render mode the payload arrives on stdin. Spool it ONCE so every attempt
+# (and every copy attempt) measures the same bytes; a single-read pipe could
+# not be replayed after an exec failure.
+a1file=""
+if [ "$mode" = render ]; then
+  a1file=$(mktemp "${TMPDIR:-/tmp}/render-a1.XXXXXX") || exit 1
+  trap 'rm -f "$a1file"' EXIT
+  cat > "$a1file" || exit 1
+fi
 
 snap_name() {
   _id=$(stat -c '%i.%Y' "$1" 2>/dev/null) || return 1
@@ -122,20 +152,35 @@ make_snap() {
   _tmp="$_s.tmp.$$"
   cp "$1" "$_tmp" 2>/dev/null || { rm -f "$_tmp"; return 1; }
   chmod +x "$_tmp" 2>/dev/null || { rm -f "$_tmp"; return 1; }
-  if ! "$_tmp" - --target estree < "$mina1" >/dev/null 2>&1; then
-    rm -f "$_tmp"; return 1
+  # The liveness program must be one the copied program can actually run:
+  # the emitter's estree arm, or the renderer on a minimal A1 (the gate's own
+  # probe A1, which renders rc=0). A copy that cannot run is never trusted.
+  if [ "$mode" = render ]; then
+    if [ -n "$flag" ]; then
+      "$_tmp" "$flag" - < "$mina1" >/dev/null 2>&1 || { rm -f "$_tmp"; return 1; }
+    else
+      "$_tmp" - < "$mina1" >/dev/null 2>&1 || { rm -f "$_tmp"; return 1; }
+    fi
+  else
+    if ! "$_tmp" - --target estree < "$mina1" >/dev/null 2>&1; then
+      rm -f "$_tmp"; return 1
+    fi
   fi
   mv -f "$_tmp" "$_s" 2>/dev/null || { rm -f "$_tmp"; return 1; }
   printf '%s' "$_s"
 }
-# measure <emitter-that-can-actually-exec> — the emit, or nothing on failure.
+# measure <program-that-can-actually-exec> — the payload, or nothing on failure.
 emit_with() {
-  # The redirect is on the COMMAND, so a missing emitter is silent too.
-  out=$("$1" --target shir "$file" 2>/dev/null)
+  # The redirect is on the COMMAND, so a missing program is silent too.
+  if [ "$mode" = render ]; then
+    out=$("$1" ${flag:+"$flag"} - < "$a1file" 2>/dev/null)
+  else
+    out=$("$1" --target shir "$file" 2>/dev/null)
+  fi
   rc=$?
   if [ "$rc" -eq 0 ]; then
-    # printf, not echo: the shIR is JSON and must pass through byte-exact
-    # (the gate pipes it straight into the renderer).
+    # printf, not echo: the payload is JSON/source and must pass through
+    # byte-exact (the gate pipes the shIR straight into the renderer).
     printf '%s' "$out"
     exit 0
   fi
@@ -143,12 +188,12 @@ emit_with() {
 
 try=1
 while : ; do
-  emit_with "$emitter"
-  # PRESENT emitter -> a real result, whatever the rc says (1 = rejects the
+  emit_with "$prog"
+  # PRESENT program -> a real result, whatever the rc says (1 = rejects the
   # input, 127 = e.g. a missing shared library). Never retried. Exception:
   # rc=126 on a PRESENT, executable path is the relinker's ETXTBSY window
   # (see the header), which is an exec failure, not a result.
-  if [ -x "$emitter" ] && [ "$rc" -ne 126 ]; then
+  if [ -x "$prog" ] && [ "$rc" -ne 126 ]; then
     exit "$rc"
   fi
   # ABSENT path, or PRESENT-but-busy: an exec failure either way.
@@ -157,17 +202,17 @@ while : ; do
   # sleeps — and once one file has paid for a verified copy, the rest of the
   # corpus must not pay again: use it the moment it exists. A copy that RUNS
   # and rejects the input is a real result, so its rc is the verdict.
-  if snap=$(cached_snap "$emitter"); then
+  if snap=$(cached_snap "$prog"); then
     emit_with "$snap"
     exit "$rc"
   fi
   if [ "$try" -ge "$tries" ]; then
     # Every attempt saw the same unusable live path: measure with a private
     # copy if one can be had. A copy that cannot RUN is not used, so this
-    # still cannot rescue a genuinely broken emitter — its rc is returned.
+    # still cannot rescue a genuinely broken program — its rc is returned.
     # A copy that DOES run and then rejects the input is a real result, so
     # its rc is the verdict.
-    if snap=$(make_snap "$emitter"); then
+    if snap=$(make_snap "$prog"); then
       emit_with "$snap"
       exit "$rc"
     fi

@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # emit-shir-retry.selftest.sh — regression test for the core-emitter retry
-# policy that setup_backends.sh's js|perl emit stage uses.
+# policy that setup_backends.sh's js|perl emit stage uses, AND (from
+# --mode=render) for the gate's render exec, which has the same relink window
+# one step later: the renderer lives in the same relinked target dir, and its
+# unclassified failure was the one path that printed NO per-file line, so a
+# 644/651-green corpus read as `CRASHED (no classification)`. Cases R1-R6 pin
+# the render arm; cases 1-11 pin emit.
 #
 # Pins BOTH halves of the contract; either one alone is a bug:
 #   RETRY the exec-failure class (a concurrent relink into the shared target
@@ -228,6 +233,92 @@ if [ "$rc" -eq 1 ] && [ ! -s "$tmp/o11" ]; then
 else
   bad "copy rejects the input (rc=$rc)"
 fi
+
+echo "--- render mode: the gate's SECOND exec, same policy ---"
+
+a1="$tmp/a1.json"
+printf '%s' '{"k":1}' > "$a1"
+
+# R1. Happy path: the A1 on STDIN is passed to `<renderer> <flag> -`, the
+#     render comes back byte-exact, and it costs exactly one exec (the gate
+#     loops 651 files, so an extra exec per file would be a throughput bug).
+: > "$calls"
+stub "$tmp/rgood" 'if [ "$1" = "--target=go" ] && [ "$2" = "-" ] && [ $# -eq 2 ]; then
+  got=$(cat); [ "$got" = "{\"k\":1}" ] || exit 8; printf "%s" RENDERED; else exit 9; fi'
+bash "$impl" --mode=render "$tmp/rgood" --target=go < "$a1" > "$tmp/ro1" 2>/dev/null; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(cat "$tmp/ro1" 2>/dev/null)" = RENDERED ] && [ "$(n_calls)" -eq 1 ]; then
+  ok "render ok -> rc 0, byte-exact, ONE exec, A1 from stdin"
+else
+  bad "render ok (rc=$rc out='$(cat "$tmp/ro1" 2>/dev/null)' calls=$(n_calls))"
+fi
+
+# R2. The renderer RAN and rejected the A1 (a WIP renderer, rc=1): a real
+#     verdict, preserved on the FIRST attempt. Retrying this would sleep on a
+#     real result.
+: > "$calls"
+stub "$tmp/rreject" 'cat >/dev/null; exit 1'
+bash "$impl" --mode=render "$tmp/rreject" --target=go < "$a1" > "$tmp/ro2" 2>/dev/null; rc=$?
+if [ "$rc" -eq 1 ] && [ ! -s "$tmp/ro2" ] && [ "$(n_calls)" -eq 1 ]; then
+  ok "present renderer rc=1 -> rc 1, no stdout, ONE exec (no retry)"
+else
+  bad "present renderer rc=1 (rc=$rc calls=$(n_calls))"
+fi
+
+# R3. The relink window CLEARS: the first render is refused ETXTBSY (126) and
+#     the next runs. The file is measured, not lost.
+: > "$calls"
+rm -f "$tmp/rbusy.seen"
+stub "$tmp/rbusy" "if [ ! -f '$tmp/rbusy.seen' ]; then : > '$tmp/rbusy.seen'; exit 126; fi
+cat >/dev/null; printf '%s' BUSY"
+bash "$impl" --mode=render "$tmp/rbusy" --target=go < "$a1" > "$tmp/ro3" 2>/dev/null; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(cat "$tmp/ro3" 2>/dev/null)" = BUSY ] && [ "$(n_calls)" -eq 2 ]; then
+  ok "busy renderer then runnable -> rc 0, render from the retry (2 execs)"
+else
+  bad "busy renderer then runnable (rc=$rc out='$(cat "$tmp/ro3" 2>/dev/null)' calls=$(n_calls))"
+fi
+
+# R4. Absent through every attempt: rc 127, no stdout, and it really tried all
+#     three (two 1s sleeps) — the same verdict an emitter gets.
+absentr="$tmp/rnever"
+rm -f "$absentr"
+SECONDS=0
+bash "$impl" --mode=render "$absentr" --target=go < "$a1" > "$tmp/ro4" 2>/dev/null; rc=$?
+elapsed=$SECONDS
+if [ "$rc" -eq 127 ] && [ ! -s "$tmp/ro4" ] && [ "$elapsed" -ge 2 ]; then
+  ok "absent renderer forever -> rc 127, no stdout, 3 attempts (${elapsed}s)"
+else
+  bad "absent renderer forever (rc=$rc elapsed=${elapsed}s)"
+fi
+
+# R5. A window longer than the sleeps: the LIVE renderer is unusable past every
+#     attempt and a COPY (path contains `snap-`) runs, so the file must be
+#     MEASURED via the verified copy — this is the case that collapsed go's
+#     gate to CRASHED on a tree that renders 651/651.
+: > "$calls"
+stub "$tmp/rbusy.snapcopy" 'case "$0" in */snap-*) ;; *) exit 126;; esac
+cat >/dev/null; printf "%s" RENDERED'
+TMPDIR="$tmp" bash "$impl" --mode=render "$tmp/rbusy.snapcopy" --target=go < "$a1" > "$tmp/ro5" 2>/dev/null; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(cat "$tmp/ro5" 2>/dev/null)" = RENDERED ]; then
+  ok "live renderer busy past every retry -> measured via a verified copy (rc 0)"
+else
+  bad "renderer busy past every retry (rc=$rc out='$(cat "$tmp/ro5" 2>/dev/null)')"
+fi
+
+# R6. An EMPTY flag is passed as NO argument: the gate sets g_flag="" for a
+#     renderer that takes no target flag, and an empty argv element would be a
+#     different invocation (`"" -` instead of `-`).
+: > "$calls"
+stub "$tmp/rnoflag" 'if [ $# -eq 1 ] && [ "$1" = "-" ]; then cat >/dev/null; printf "%s" NOFLAG; else exit 9; fi'
+bash "$impl" --mode=render "$tmp/rnoflag" "" < "$a1" > "$tmp/ro6" 2>/dev/null; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(cat "$tmp/ro6" 2>/dev/null)" = NOFLAG ]; then
+  ok "empty flag -> invoked as <renderer> - (no empty argv element)"
+else
+  bad "empty flag (rc=$rc out='$(cat "$tmp/ro6" 2>/dev/null)')"
+fi
+
+# R7. Usage error is its own verdict in render mode too.
+bash "$impl" --mode=render "$tmp/rgood" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 2 ] && ok "render mode with 1 arg -> rc 2 (usage)" || bad "render usage (got $rc)"
 
 echo
 echo "[emit-shir-retry] $pass passed, $fail failed"
