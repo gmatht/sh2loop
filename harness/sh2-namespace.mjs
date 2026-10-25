@@ -531,7 +531,62 @@ export const sh2 = {
   // pure-capture lowerings (`$(cat f)`, `$(sort f)`, `$(wc -l < f)`) call
   // directly (PLAN.md §1.2's sh2.fs.* namespace; whitelisted in
   // estree_gate.pl).
-  fs: fsp,
+  //
+  // `readText` is the SYNC sibling (the ladder's rung below the async
+  // namespace): the same file value with no promise, no microtask and no
+  // `await` in the emitted expression. That matters beyond the per-call
+  // cost (measured on this box: ~320 µs for the promise chain vs ~3 µs
+  // for one readFileSync, >100x): an awaited read forces the WHOLE
+  // enclosing arrow async, which cascades down the call graph
+  // (captureSync → capture, fnCall → exec, redirectSync → redirect) for
+  // every caller of the function holding it.
+  //
+  // Contract: returns the file's utf8 text ('' when the read fails — the
+  // string the old `.catch(e => "")` produced) and records the read's
+  // exit status exactly like the promise chain it replaces: lastExit = 0
+  // on success, `errStatus` on failure. `_readOk` carries the success
+  // flag for the mapped form (`(sh2._r = sh2.fs.readText(p, e),
+  // sh2._readOk ? <transform> : "")`) — a missing file and a legitimately
+  // empty one are the same '' string, so a transform that must NOT run on
+  // the error sentinel (a line count of "" would be 0) needs the flag.
+  //
+  // Sync I/O stays in the runtime, exactly like the sync builtins (a
+  // builtin `cat`/`grep`/`sort` already reads with readFileSync) and
+  // `fileTest` (lstatSync): the emitted JS never calls `fs.*Sync`.
+  fs: {
+    ...fsp,
+    readText(path, errStatus = 1) {
+      try {
+        const t = fs.readFileSync(String(path), 'utf8');
+        sh2.lastExit = 0;
+        sh2._readOk = true;
+        return t;
+      } catch (e) {
+        sh2.lastExit = errStatus;
+        sh2._readOk = false;
+        return '';
+      }
+    },
+    // Sync twin of `writeFile`/`appendFile` (the `echo args > file` /
+    // `printf … >> file` redirect lift): one writeFileSync, returning the
+    // boolean the promise chain yielded (true, lastExit 0 on success;
+    // false, lastExit 1 on failure) and stashing the failure in
+    // `sh2._writeErr` so the emitter's report can name the code — the same
+    // `e.code === "EACCES" ? "Permission denied" : e.code ?? e.message ??
+    // e` text the `.catch(e => …)` built from the rejection.
+    writeText(path, text, append = false) {
+      try {
+        fs.writeFileSync(String(path), String(text), { flag: append ? 'a' : 'w' });
+        sh2.lastExit = 0;
+        sh2._writeErr = null;
+        return true;
+      } catch (e) {
+        sh2.lastExit = 1;
+        sh2._writeErr = e;
+        return false;
+      }
+    },
+  },
 
   // ── -O4 autoshaderization ────────────────────────────────────────
   // `sh2.shaderize(start, end, step, op, fn)` — a compute loop emitted in
@@ -1165,6 +1220,13 @@ export const sh2 = {
       else flattenOne(a);
     }
     for (let i = 0; i < flat.length; i++) {
+      // Fast path for ordinary arguments: EVERY magic marker starts with
+      // U+0001 (ARRAY_LIT/BADSUB/ARITH/PS/GLOB), so a single charCode test
+      // skips the three startsWith/equality probes per arg. The scan was
+      // measured at ~70ns of fnCall's ~150ns/call; the gate is ~2ns.
+      // Non-strings (the raw builder objects exec passes through) and the
+      // empty string can never carry a marker.
+      if (typeof flat[i] !== 'string' || flat[i].charCodeAt(0) !== 1) continue;
       if (flat[i] === ARRAY_LIT_MAGIC) {
         // `declare -a arr=(...)` — the arg was a side-effecting setArray
         // call (the array is already stored); drop the placeholder.
@@ -1290,6 +1352,9 @@ export const sh2 = {
       : null;
     const stdinSrc = fd0.kind === 'string' ? fd0.content : null;
 
+    if (process.env.SH2_SPAWN_LOG) {
+      try { fs.appendFileSync(process.env.SH2_SPAWN_LOG, `${cmd}\t${args.join(' ').slice(0, 140)}\n`); } catch { /* diag */ }
+    }
     return new Promise((resolve) => {
       let child;
       try {
@@ -1407,7 +1472,14 @@ export const sh2 = {
   // Identical semantics: same arg flattening, ARRAY_LIT/BADSUB/PS/GLOB
   // magic expansion, then the SAME builtin function — minus the async
   // exec machinery (no promise per call; the whileLoopSync pattern).
-  builtin(name, args = [], env = undefined) {
+  //
+  // `specs` (4th arg) is the emitter's redirect collapse: `CMD ARGS
+  // <specs>` whose body is exactly one builtin dispatch lowers to this
+  // one call instead of `redirectSync(() => builtin(...), specs)`. The
+  // pass applied around the builtin is redirectSync's own (install →
+  // builtin → _ensureRedirectFiles → restore/persist), so value and
+  // statuses are identical.
+  builtin(name, args = [], env = undefined, specs = undefined) {
     // command-scoped env vars: VAR=x cmd (the emitter lowers env-carrying
     // exec calls with a sync-builtin name to this twin) — apply exactly
     // like the async exec path: into process.env, and passed to the
@@ -1421,6 +1493,13 @@ export const sh2 = {
       else flat.push(String(a));
     }
     for (let i = 0; i < flat.length; i++) {
+      // Fast path for ordinary arguments: EVERY magic marker starts with
+      // U+0001 (ARRAY_LIT/BADSUB/ARITH/PS/GLOB), so a single charCode test
+      // skips the three startsWith/equality probes per arg. The scan was
+      // measured at ~70ns of fnCall's ~150ns/call; the gate is ~2ns.
+      // Non-strings (the raw builder objects exec passes through) and the
+      // empty string can never carry a marker.
+      if (typeof flat[i] !== 'string' || flat[i].charCodeAt(0) !== 1) continue;
       if (flat[i] === ARRAY_LIT_MAGIC) {
         // `declare -a arr=(...)` — the arg was a side-effecting setArray
         // call (the array is already stored); drop the placeholder.
@@ -1451,8 +1530,74 @@ export const sh2 = {
       // error — fail loudly.
       throw new Error(`sh2.builtin: '${name}' is not a sync builtin`);
     }
+    if (Array.isArray(specs) && specs.length > 0) {
+      // The emitter's `redirectSync(() => builtin(NAME, ARGS), SPECS)`
+      // collapse: the redirect body is exactly this builtin dispatch, so
+      // apply the SAME spec install/restore/persist pass around it
+      // (inlined from redirectSync — one call frame, one arrow and one
+      // fd-table save fewer per site). Value and statuses are identical:
+      // a failed install skips the body exactly like redirectSync's
+      // `if (!_applyRedirectSpecs(...)) return false`.
+      const saved = { ...this.fdTargets };
+      const persistent = specs.filter(s => s.persist);
+      try {
+        if (!this._applyRedirectSpecs(specs, saved, true)) return false;
+        const r = fn.call(this, flat, env);
+        this._ensureRedirectFiles(specs);
+        return r;
+      } finally {
+        this.fdTargets = saved;
+        this._applyRedirectSpecs(persistent, saved, false);
+      }
+    }
     const r = fn.call(this, flat, env);
     return r;
+  },
+
+  // builtinValue(name, args, specs?) — the ONE-CALL collapse of
+  //   captureSync(() => redirectSync(() => builtin(name, args), specs))
+  // and the redirect-free form captureSync(() => builtin(name, args)).
+  // src/shir.rs `native_capture_builtin_value` emits this for a `$(cmd)`
+  // whose body is exactly one sync-builtin dispatch (optionally with a
+  // redirect): the value is the builtin's fd-1 output with the capture's
+  // exact post-processing. Semantics are the composition, in order — the
+  // fd-1 capture install, the redirect spec apply/restore/persist pass,
+  // the builtin call, then captureFinish + the NUL/trailing-newline
+  // strips + resolveTempResult — so the emitted value and the statuses the
+  // builtin recorded are identical; only two call frames and the per-call
+  // arrow allocation go away.
+  builtinValue(name, args = [], specs = null) {
+    const savedTarget = this.fdTargets[1];
+    const savedStart = this.captureStart;
+    this.fdTargets[1] = { kind: 'capture', buf: '' };
+    this.captureStart = Date.now();
+    try {
+      if (Array.isArray(specs) && specs.length > 0) {
+        // the redirectSync body, inlined (same save/install/restore/persist)
+        const saved = { ...this.fdTargets };
+        const persistent = specs.filter(s => s.persist);
+        try {
+          if (!this._applyRedirectSpecs(specs, saved, true)) return '';
+          this.builtin(name, args);
+          this._ensureRedirectFiles(specs);
+        } finally {
+          this.fdTargets = saved;
+          this._applyRedirectSpecs(persistent, saved, false);
+        }
+      } else {
+        this.builtin(name, args);
+      }
+      const raw = captureFinish(this.fdTargets[1].buf);
+      if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
+        // a raw builder value: no text strips apply (the captureSync rule)
+        return raw;
+      }
+      const out = String(raw).replace(/\u0000/g, '').replace(/\n+$/, '');
+      return this.resolveTempResult(out);
+    } finally {
+      this.fdTargets[1] = savedTarget;
+      this.captureStart = savedStart;
+    }
   },
 
   // ── PowerShell named-block process input (v1 text approximation) ──
@@ -1510,6 +1655,13 @@ export const sh2 = {
       else flat.push(fnArg(a));
     }
     for (let i = 0; i < flat.length; i++) {
+      // Fast path for ordinary arguments: EVERY magic marker starts with
+      // U+0001 (ARRAY_LIT/BADSUB/ARITH/PS/GLOB), so a single charCode test
+      // skips the three startsWith/equality probes per arg. The scan was
+      // measured at ~70ns of fnCall's ~150ns/call; the gate is ~2ns.
+      // Non-strings (the raw builder objects exec passes through) and the
+      // empty string can never carry a marker.
+      if (typeof flat[i] !== 'string' || flat[i].charCodeAt(0) !== 1) continue;
       if (flat[i] === ARRAY_LIT_MAGIC) {
         flat.splice(i, 1);
         i--;
@@ -1580,6 +1732,13 @@ export const sh2 = {
       else flat.push(fnArg(a));
     }
     for (let i = 0; i < flat.length; i++) {
+      // Fast path for ordinary arguments: EVERY magic marker starts with
+      // U+0001 (ARRAY_LIT/BADSUB/ARITH/PS/GLOB), so a single charCode test
+      // skips the three startsWith/equality probes per arg. The scan was
+      // measured at ~70ns of fnCall's ~150ns/call; the gate is ~2ns.
+      // Non-strings (the raw builder objects exec passes through) and the
+      // empty string can never carry a marker.
+      if (typeof flat[i] !== 'string' || flat[i].charCodeAt(0) !== 1) continue;
       if (flat[i] === ARRAY_LIT_MAGIC) {
         flat.splice(i, 1);
         i--;
@@ -1781,6 +1940,28 @@ export const sh2 = {
   // single-eval scratch would double-write.
   fileTest(flag, arg) {
     return evalUnary(flag, arg, this);
+  },
+
+  // `[ a -ef b ]` / `[ a -nt b ]` / `[ a -ot b ]` — the emitter's native
+  // binary file-op lowering (src/shir.rs try_native_test_unstatused): the
+  // runtime's evalTest arms for these three are literally the helpers
+  // below (`statTime` / `statInfo`), so the direct call is the SAME value
+  // minus the test-string tokenize + parse + dispatch. Pure value: the
+  // EMITTER records the status (`$?`) via its native-test protocol (see
+  // native_test_statused) — the helper must not write lastExit itself.
+  fileTest2(op, a, b) {
+    const l = String(a);
+    const r = String(b);
+    switch (op) {
+      case '-nt': return statTime(l) > statTime(r);
+      case '-ot': return statTime(l) < statTime(r);
+      case '-ef': {
+        const x = statInfo(l);
+        const y = statInfo(r);
+        return !!(x && y && x.dev === y.dev && x.ino === y.ino);
+      }
+      default: return false;
+    }
   },
 
 // ── command substitution ───────────────────────────────────────────
@@ -2200,6 +2381,15 @@ captureSync(fn) {
       if (s.mode === 'w' || s.mode === 'a' || s.mode === 'wc') {
         const t = expandWord(this, String(s.target));
         if (/^&\d+$/.test(t) || t === '&-' || t === '-') continue;
+        // `/dev/null`: _applyRedirectSpecs already installed a discard
+        // target without touching the filesystem (the SH2_ASSUME_DEVNULL
+        // documented assumption — the device exists and a write to it can
+        // never fail), so there is nothing to create. Skipping the
+        // existsSync matters: it was a syscall per call (~5µs measured on
+        // this box), and `cmd 2>/dev/null` inside a loop paid it per
+        // iteration. Bash's O_CREAT|O_TRUNC open on the char device is a
+        // no-op too.
+        if (t === '/dev/null' && process.env.SH2_ASSUME_DEVNULL !== '0') continue;
         if (!fs.existsSync(t)) {
           try { fs.closeSync(fs.openSync(t, 'w')); } catch { /* unwritable target: bash reports, we ignore */ }
         }
@@ -2261,10 +2451,15 @@ captureSync(fn) {
     return text;
   },
 
-  async pipeline(stages) {
+  async pipeline(stages, capSpec) {
     const saved = { ...this.fdTargets };
     let prev = null;
     const statuses = [];
+    // Producer cap for a 2-stage `PRODUCER | head -N` (see capCapture).
+    // Only stage 0's sink is bounded: with more stages the intermediate
+    // stage's view of the producer's output would change, so the emitter
+    // only ever passes a cap for a two-stage pipeline.
+    const producerCap = capSpec && stages.length === 2 ? capSpec : null;
     try {
       for (let i = 0; i < stages.length; i++) {
         // NATIVE STAGE (src/shir.rs native_pipeline_stage): an arrow that
@@ -2309,6 +2504,7 @@ captureSync(fn) {
         else if (i === 0) this.fdTargets[0] = saved[0];
         if (i < stages.length - 1) this.fdTargets[1] = { kind: 'capture', buf: '' };
         else this.fdTargets[1] = saved[1];
+        if (i === 0 && producerCap) this.fdTargets[1].cap = producerCap;
         await stages[i]();
         statuses.push(this.lastExit);
         const cap = this.fdTargets[1];
@@ -2327,10 +2523,12 @@ captureSync(fn) {
   // to completion synchronously; an await-free stage cannot yield, so no
   // background job can interleave mid-pipeline (the async form's awaits
   // allowed exactly that — this is closer to bash's sequential pipes).
-  pipelineSync(stages) {
+  pipelineSync(stages, capSpec) {
     const saved = { ...this.fdTargets };
     let prev = null;
     const statuses = [];
+    // Producer cap — same contract as the async twin above (capCapture).
+    const producerCap = capSpec && stages.length === 2 ? capSpec : null;
     try {
       for (let i = 0; i < stages.length; i++) {
         // NATIVE STAGE — same contract as `pipeline` above (the twin must
@@ -2362,6 +2560,7 @@ captureSync(fn) {
         else if (i === 0) this.fdTargets[0] = saved[0];
         if (i < stages.length - 1) this.fdTargets[1] = { kind: 'capture', buf: '' };
         else this.fdTargets[1] = saved[1];
+        if (i === 0 && producerCap) this.fdTargets[1].cap = producerCap;
         stages[i]();
         statuses.push(this.lastExit);
         const cap = this.fdTargets[1];
@@ -2583,17 +2782,38 @@ captureSync(fn) {
     }
   },
 
-  grepText(text, args, captureMode) {
+  grepText(text, args, captureMode, specs) {
     const s = String(text ?? '');
     const { opts, patterns } = parseGrepArgs(args, false);
     const { matchRe, gRe } = grepRegexes(opts, patterns);
-    const out = [];
-    const selected = grepSelect(out, s, opts, matchRe, gRe, '', opts.byteOffset, opts.color);
-    const matched = selected > 0;
-    this.lastExit = matched ? 0 : 1;
-    if (captureMode) return out.join('');
-    if (out.length > 0) emit(this, out.join(''));
-    return matched;
+    const run = () => {
+      const out = [];
+      const selected = grepSelect(out, s, opts, matchRe, gRe, '', opts.byteOffset, opts.color);
+      const matched = selected > 0;
+      this.lastExit = matched ? 0 : 1;
+      if (captureMode) return out.join('');
+      if (out.length > 0) emit(this, out.join(''));
+      return matched;
+    };
+    // `specs` (4th arg) is the emitter's pipeline-stage redirect collapse
+    // (`echo T | grep A > f`): install → emit → persist/restore, the SAME
+    // pass `builtin`'s 4th parameter runs around the same dispatch, so the
+    // bytes, the fd table and every status are identical — one call frame,
+    // one stage loop and one fd-target save fewer per site.
+    if (Array.isArray(specs) && specs.length > 0) {
+      const saved = { ...this.fdTargets };
+      const persistent = specs.filter((sp) => sp.persist);
+      try {
+        if (!this._applyRedirectSpecs(specs, saved, true)) return false;
+        const r = run();
+        this._ensureRedirectFiles(specs);
+        return r;
+      } finally {
+        this.fdTargets = saved;
+        this._applyRedirectSpecs(persistent, saved, false);
+      }
+    }
+    return run();
   },
 
   // cutText(text, args, captureMode) — the sync twin of the cut builtin
@@ -8127,22 +8347,31 @@ builtins.find = function (args) {
   }
   const starts = operands.length ? operands : ['.'];
   let failed = false;
+  // SIGPIPE emulation: when the downstream consumer is a bounded `head`
+  // (the emitter's pipeline_head_cap), the pipeline caps this builtin's
+  // fd-1 sink and the rest of the walk is work whose output is discarded —
+  // exactly what happens to real find when head exits. Abort the walk and
+  // report the status bash reports for a SIGPIPE'd stage (141). Without a
+  // cap (sinkClosed is false) nothing changes.
+  let piped = false;
   // dir/file flags come from lstat semantics: the starting operand is
   // stat'ed, children carry their raw dirent types (a symlink is neither
   // f nor d and is never descended — GNU without -L).
   const walk = (dir, depth, isDir, isFile) => {
+    if (piped) return;
     const bn = path.basename(dir);
     const nameOk = namePat === null || globMatch(namePat, bn);
     const typeOk = type === null || (type === 'f' ? isFile : isDir);
     if (nameOk && typeOk && depth >= mindepth && depth <= maxdepth) {
       emit(this, dir + '\n');
+      if (sinkClosed(this)) { piped = true; return; }
     }
     if (!isDir || depth >= maxdepth) return;
     let dh;
     try { dh = fs.opendirSync(dir); } catch { failed = true; return; }
     try {
       let e;
-      while ((e = dh.readSync()) !== null) {
+      while (!piped && (e = dh.readSync()) !== null) {
         walk(dir + '/' + e.name, depth + 1, e.isDirectory(), e.isFile());
       }
     } finally {
@@ -8150,6 +8379,7 @@ builtins.find = function (args) {
     }
   };
   for (const s of starts) {
+    if (piped) break;
     const base = s.replace(/\/+$/, '') || '/';
     let st = null;
     try { st = fs.lstatSync(base); } catch {
@@ -8159,7 +8389,7 @@ builtins.find = function (args) {
     }
     walk(base, 0, st.isDirectory(), st.isFile());
   }
-  this.lastExit = failed ? 1 : 0;
+  this.lastExit = piped ? 141 : (failed ? 1 : 0);
   return !failed;
 };
 
@@ -8413,6 +8643,458 @@ builtins.whoami = function () {
   this.lastExit = 0;
   return true;
 };
+
+// ── tty (SH2_ASSUME_NATIVE_TOOLS gate) ──────────────────────────────
+// GNU tty: print the terminal's name for fd 0, or "not a tty" on stderr
+// with status 1. -s/--silent/--quiet suppress the output (status only).
+//
+// The terminal NAME is fd 0's resolved link under /proc/self/fd — exactly
+// what ttyname(3) reports. A tty is a /dev/pts/N pty or a /dev/tty*
+// device; pipes, regular files and the "not a terminal" character devices
+// (/dev/null, /dev/zero, …) are not. Deliberately does NOT touch
+// process.stdin: initializing node's stdin stream would put fd 0 into
+// non-blocking mode and break the runtime's raw readSync-based `read`
+// (heredocs / `while read` loops).
+const TTY_NAME_RE = /^\/dev\/(pts\/\d+|tty[^/]*|console)$/;
+// The tty NAME for the builtin's fd 0. The runtime models redirects as fd
+// targets rather than real fds, so the source of the name depends on the
+// target: a file redirect carries the device path itself (`tty < /dev/pts/N`
+// — the corpus's real-terminal cases), an inherited stdin is the process's
+// real fd 0 (resolved through /proc), and every in-memory target (pipe,
+// heredoc, herestring, capture, /dev/null discard) is NOT a terminal.
+function ttyDeviceName(sh) {
+  const t = sh.fdTargets ? sh.fdTargets[0] : null;
+  let p = null;
+  if (t && t.kind === 'file') p = String(t.target ?? '');
+  else if (!t || t.kind === 'stdin') {
+    try { p = fs.readlinkSync('/proc/self/fd/0'); } catch { return null; }
+  } else return null;
+  if (!p) return null;
+  // (ttyname(3) reports the device, not the redirect spelling: resolve
+  // symlinks/relative paths against the runtime cwd first.)
+  const abs = path.resolve(sh.cwd ?? process.cwd(), p);
+  let resolved = abs;
+  try { resolved = fs.realpathSync(abs); } catch { /* keep lexical */ }
+  if (!TTY_NAME_RE.test(resolved)) return null;
+  try { if (!fs.statSync(resolved).isCharacterDevice()) return null; } catch { return null; }
+  return resolved;
+}
+builtins.tty = function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
+  let silent = false;
+  for (const a of args) {
+    if (a === '--') continue;
+    if (a === '--silent' || a === '--quiet' || a === '-s') { silent = true; continue; }
+    if (typeof a === 'string' && /^-[a-z]+$/.test(a)) { silent = true; continue; }
+    emitErr(this, `tty: extra operand '${a}'\n`);
+    this.lastExit = 1;
+    return false;
+  }
+  const dev = ttyDeviceName(this);
+  this.lastExit = dev === null ? 1 : 0;
+  if (!silent) {
+    // GNU tty writes "not a tty" to STDOUT (POSIX), not stderr.
+    if (dev === null) emit(this, 'not a tty\n');
+    else emit(this, dev + '\n');
+  }
+  return dev !== null;
+};
+
+// ── od (SH2_ASSUME_NATIVE_TOOLS gate) ───────────────────────────────
+// The corpus's shape is `PRODUCER | od -A n -t x1z` — a 16-bytes-per-line
+// hexadecimal dump of fd 0 with no address column, plus od's trailing
+// `>printable<` column (bytes outside 0x20..0x7e become '.') and the
+// duplicate-block `*` compression. Byte-identical to GNU od for that
+// format; every other address base / type string / width falls back to
+// the real binary (still subject to the source allowlist).
+//   line  = (' ' + hex pairs joined by ' ').padEnd(50) + '>' + chars + '<'
+function odX1zLines(buf) {
+  const lines = [];
+  let prevHex = null, star = false;
+  for (let off = 0; off < buf.length; off += 16) {
+    const n = Math.min(16, buf.length - off);
+    const pairs = [];
+    let chars = '';
+    for (let i = 0; i < n; i++) {
+      const b = buf[off + i];
+      pairs.push((b < 16 ? '0' : '') + b.toString(16));
+      chars += b >= 0x20 && b <= 0x7e ? String.fromCharCode(b) : '.';
+    }
+    const hex = pairs.length ? ' ' + pairs.join(' ') : '';
+    if (n === 16 && prevHex === hex) {
+      if (!star) { lines.push('*'); star = true; }
+      continue;
+    }
+    star = false;
+    prevHex = n === 16 ? hex : null;
+    lines.push(hex.padEnd(50) + '>' + chars + '<');
+  }
+  return lines;
+}
+builtins.od = function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
+  let addrNone = false, x1z = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = String(args[i]);
+    if (a === '-A') {
+      const v = String(args[i + 1] ?? '');
+      if (v !== 'n') return this._runProc('od', args);
+      addrNone = true;
+      i++;
+    } else if (a === '-t') {
+      const v = String(args[i + 1] ?? '');
+      if (v !== 'x1z') return this._runProc('od', args);
+      x1z = true;
+      i++;
+    } else if (a === '-v') { /* verbose: od's "no duplicate elision"; the
+        corpus never passes it and the format above always elides — fall
+        back rather than silently ignore. */ return this._runProc('od', args);
+    } else return this._runProc('od', args);
+  }
+  if (!addrNone || !x1z) return this._runProc('od', args);
+  const lines = odX1zLines(readFd0Buffer(this));
+  if (lines.length) emit(this, lines.join('\n') + '\n');
+  this.lastExit = 0;
+  return true;
+};
+
+// ── realpath (SH2_ASSUME_NATIVE_TOOLS gate) ─────────────────────────
+// GNU realpath over the corpus surface: default/-e (every component must
+// exist), -m (missing components allowed), -L/-P (resolve `..` before vs
+// after following symlinks), -s/--strip (lexical cleanup, no symlink
+// expansion), --relative-to / --relative-base, -z, -q, several operands.
+// Errors reproduce GNU's `realpath: PATH: MSG` line and set status 1
+// while the remaining operands still run.
+const REALPATH_ERRS = {
+  ENOENT: 'No such file or directory',
+  ENOTDIR: 'Not a directory',
+  EACCES: 'Permission denied',
+  ELOOP: 'Too many levels of symbolic links',
+};
+// Lexical cleanup: `.` dropped, `..` pops, applied to an absolute path.
+function rpClean(absPath) {
+  const stack = [];
+  for (const c of absPath.split('/')) {
+    if (c === '' || c === '.') continue;
+    if (c === '..') { stack.pop(); continue; }
+    stack.push(c);
+  }
+  return '/' + stack.join('/');
+}
+// Canonicalize one path. opts = {logical, strip, mode: 'exist'|'default'|
+// 'missing'}. Returns the canonical absolute path, or {err} with a GNU
+// errno name.
+//
+// Existence rules (verified against GNU coreutils 9.x):
+//   -e / --canonicalize-existing  every component must exist
+//   (default)                     all but the LAST must exist (a missing
+//                                 leaf is kept; `readlink -f` semantics)
+//   -m / --canonicalize-missing   no component need exist
+// ENOTDIR (a non-directory used as a path prefix) is an error in every
+// mode except -m.
+function rpCanonical(p, opts, cwd) {
+  const trailingSlash = p.length > 1 && p.endsWith('/');
+  const abs0 = p.startsWith('/') ? p : `${cwd.replace(/\/+$/, '')}/${p}`;
+  if (opts.strip) {
+    // --strip: no symlink expansion and no existence requirement (GNU
+    // prints a lexically cleaned path even for a missing target).
+    return rpClean(abs0);
+  }
+  const allowMissing = (isLast) =>
+    opts.mode === 'missing' || (opts.mode === 'default' && isLast);
+  let queue;
+  if (opts.logical) {
+    // -L: resolve `.`/`..` in the INPUT text before any symlink is
+    // followed, then canonicalize the cleaned path.
+    queue = rpClean(abs0).split('/').filter(Boolean);
+  } else {
+    queue = abs0.split('/').filter(Boolean);
+  }
+  const stack = [];
+  let hops = 0;
+  while (queue.length) {
+    const c = queue.shift();
+    const isLast = queue.length === 0;
+    if (c === '.') continue;
+    if (c === '..') { stack.pop(); continue; }
+    const cur = '/' + [...stack, c].join('/');
+    let st = null;
+    let missErr = null;
+    try { st = fs.lstatSync(cur); } catch (e) { missErr = e.code ?? 'ENOENT'; }
+    if (st && st.isSymbolicLink()) {
+      let tgt;
+      try { tgt = fs.readlinkSync(cur); } catch (e) { return { err: e.code }; }
+      if (++hops > 40) return { err: 'ELOOP' };
+      if (tgt.startsWith('/')) stack.length = 0;
+      queue.unshift(...tgt.split('/').filter(Boolean));
+      continue;
+    }
+    if (!st) {
+      // A missing leaf may still be kept (default mode), but a
+      // non-directory path prefix is fatal outside -m.
+      if (missErr === 'ENOTDIR' && opts.mode !== 'missing') return { err: 'ENOTDIR' };
+      if (!allowMissing(isLast)) return { err: 'ENOENT' };
+      stack.push(c);
+      continue;
+    }
+    if (isLast && st && !st.isDirectory() && trailingSlash) return { err: 'ENOTDIR' };
+    stack.push(c);
+  }
+  return '/' + stack.join('/');
+}
+// The shortest relative path from absolute `base` to absolute `target`
+// (GNU relpath: shared prefix, then one `..` per unmatched base dir).
+function rpRelative(target, base) {
+  if (target === base) return '.';
+  const t = target.split('/').filter(Boolean);
+  const b = base.split('/').filter(Boolean);
+  let i = 0;
+  while (i < t.length && i < b.length && t[i] === b[i]) i++;
+  const ups = new Array(b.length - i).fill('..');
+  const rest = t.slice(i);
+  if (ups.length === 0) return rest.length ? rest.join('/') : '.';
+  return [...ups, ...rest].join('/');
+}
+builtins.realpath = function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
+  const opts = { logical: false, strip: false, mode: 'default' };
+  let zero = false, quiet = false;
+  let relativeTo = null, relativeBase = null;
+  const operands = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = String(args[i]);
+    if (a === '--') { operands.push(...args.slice(i + 1).map(String)); break; }
+    if (a.startsWith('--')) {
+      const eq = a.indexOf('=');
+      const name = eq < 0 ? a : a.slice(0, eq);
+      const val = eq < 0 ? undefined : a.slice(eq + 1);
+      if (name === '--canonicalize-existing') { opts.mode = 'exist'; continue; }
+      if (name === '--canonicalize-missing') { opts.mode = 'missing'; continue; }
+      if (name === '--logical') { opts.logical = true; continue; }
+      if (name === '--physical') { opts.logical = false; continue; }
+      if (name === '--strip' || name === '--no-symlinks') { opts.strip = true; continue; }
+      if (name === '--zero') { zero = true; continue; }
+      if (name === '--quiet') { quiet = true; continue; }
+      if (name === '--relative-to' || name === '--relative-base') {
+        let v = val;
+        if (v === undefined) v = String(args[++i] ?? '');
+        if (name === '--relative-to') relativeTo = v;
+        else relativeBase = v;
+        continue;
+      }
+      return this._runProc('realpath', args); // --help/--version/…: real binary
+    }
+    if (a.length > 1 && a.startsWith('-')) {
+      for (const c of a.slice(1)) {
+        if (c === 'e') opts.mode = 'exist';
+        else if (c === 'm') opts.mode = 'missing';
+        else if (c === 'L') opts.logical = true;
+        else if (c === 'P') opts.logical = false;
+        else if (c === 's') opts.strip = true;
+        else if (c === 'z') zero = true;
+        else if (c === 'q') quiet = true;
+        else return this._runProc('realpath', args);
+      }
+      continue;
+    }
+    operands.push(a);
+  }
+  if (operands.length === 0) {
+    emitErr(this, 'realpath: missing operand\n');
+    this.lastExit = 1;
+    return false;
+  }
+  const cwd = this.cwd ?? process.cwd();
+  // --relative-to / --relative-base dirs canonicalize in "missing" mode
+  // (GNU canonicalizes them with CAN_MISSING — a nonexistent DIR is not an
+  // error, it just yields its cleaned absolute form).
+  const dirOpts = { logical: opts.logical, strip: false, mode: 'missing' };
+  const canonDir = (d) => {
+    const r = rpCanonical(String(d), dirOpts, cwd);
+    return typeof r === 'string' ? r : String(d);
+  };
+  const rTo = relativeTo !== null ? canonDir(relativeTo) : null;
+  const rBase = relativeBase !== null ? canonDir(relativeBase) : null;
+  let out = '';
+  let failed = false;
+  const term = zero ? '\0' : '\n';
+  for (const op of operands) {
+    const r = rpCanonical(op, opts, cwd);
+    if (typeof r !== 'string') {
+      failed = true;
+      if (!quiet) emitErr(this, `realpath: ${op}: ${REALPATH_ERRS[r.err] ?? 'No such file or directory'}\n`);
+      continue;
+    }
+    let shown = r;
+    if (rBase !== null) {
+      const below = r === rBase || r.startsWith(rBase === '/' ? '/' : rBase + '/');
+      if (below) shown = rpRelative(r, rTo !== null ? rTo : rBase);
+    } else if (rTo !== null) shown = rpRelative(r, rTo);
+    out += shown + term;
+  }
+  if (out) emit(this, out);
+  this.lastExit = failed ? 1 : 0;
+  return !failed;
+};
+
+// ── id (SH2_ASSUME_NATIVE_TOOLS gate) ───────────────────────────────
+// GNU id for the corpus surface: default `uid=N(name) gid=N(name)
+// groups=N(name),…`, and the -u/-g/-G selections with -n (names), -r
+// (real; identical to effective — the runtime never runs setuid), -z
+// (NUL-terminated) and the ignored compatibility -a. A USER operand
+// resolves through /etc/passwd + /etc/group membership. -Z reports GNU's
+// no-SELinux error verbatim (status 1) — this box has no SELinux, and
+// reproducing the message keeps the corpus's stderr echo byte-identical.
+const idPasswd = (() => { let c = null; return () => {
+  if (c === null) {
+    c = [];
+    try {
+      for (const line of fs.readFileSync('/etc/passwd', 'utf8').split('\n')) {
+        const f = line.split(':');
+        if (f.length < 7) continue;
+        c.push({ name: f[0], uid: Number(f[2]), gid: Number(f[3]) });
+      }
+    } catch { /* no passwd db */ }
+  }
+  return c;
+}; })();
+const idGroups = (() => { let c = null; return () => {
+  if (c === null) {
+    c = [];
+    try {
+      for (const line of fs.readFileSync('/etc/group', 'utf8').split('\n')) {
+        const f = line.split(':');
+        if (f.length < 4) continue;
+        c.push({ name: f[0], gid: Number(f[2]), members: f[3].split(',').filter(Boolean) });
+      }
+    } catch { /* no group db */ }
+  }
+  return c;
+}; })();
+function idUserByName(name) {
+  return idPasswd().find((u) => u.name === name) ?? null;
+}
+function idUserByUid(uid) {
+  return idPasswd().find((u) => u.uid === uid) ?? null;
+}
+function idGroupName(gid) {
+  const g = idGroups().find((x) => x.gid === gid);
+  return g ? g.name : null;
+}
+// The process's supplementary group set — /proc/self/status Groups (the
+// same getgroups(2) list GNU id prints); falls back to just the gid.
+function idProcessGroups(gid) {
+  try {
+    const st = fs.readFileSync('/proc/self/status', 'utf8');
+    const m = /^Groups:\s*(.*)$/m.exec(st);
+    if (m && m[1].trim() !== '') return m[1].trim().split(/\s+/).map(Number);
+  } catch { /* no proc */ }
+  return [gid];
+}
+// A named user's group set: primary gid first, then every /etc/group
+// entry listing them (GNU's order).
+function idUserGroups(user) {
+  const out = [user.gid];
+  for (const g of idGroups()) {
+    if (!g.members.includes(user.name)) continue;
+    if (!out.includes(g.gid)) out.push(g.gid);
+  }
+  return out;
+}
+builtins.id = function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
+  let sel = null;           // 'u' | 'g' | 'G' | null (default format)
+  let names = false, zero = false, context = false;
+  const operands = [];
+  for (const a of args) {
+    if (a === '--') continue;
+    if (typeof a === 'string' && a.startsWith('-') && a !== '-') {
+      if (a === '--user') { sel = 'u'; continue; }
+      if (a === '--group') { sel = 'g'; continue; }
+      if (a === '--groups') { sel = 'G'; continue; }
+      if (a === '--name') { names = true; continue; }
+      if (a === '--zero') { zero = true; continue; }
+      if (a === '--context') { context = true; continue; }
+      if (a.startsWith('--')) {
+        emitErr(this, `id: unrecognized option '${a}'\n`);
+        this.lastExit = 1;
+        return false;
+      }
+      for (const c of a.slice(1)) {
+        if (c === 'u') sel = 'u';
+        else if (c === 'g') sel = 'g';
+        else if (c === 'G') sel = 'G';
+        else if (c === 'n') names = true;
+        else if (c === 'z') zero = true;
+        else if (c === 'Z') context = true;
+        else if (c === 'r' || c === 'a') { /* real == effective; -a ignored */ }
+        else {
+          emitErr(this, `id: invalid option -- '${c}'\n`);
+          this.lastExit = 1;
+          return false;
+        }
+      }
+      continue;
+    }
+    operands.push(String(a));
+  }
+  if (context) {
+    emitErr(this, 'id: --context (-Z) works only on an SELinux-enabled kernel\n');
+    this.lastExit = 1;
+    return false;
+  }
+  if (operands.length > 1) {
+    emitErr(this, 'id: extra operand\n');
+    this.lastExit = 1;
+    return false;
+  }
+  let uid, gid, uname, groups;
+  if (operands.length === 1) {
+    const op = operands[0];
+    const user = /^\d+$/.test(op) ? idUserByUid(Number(op)) : idUserByName(op);
+    if (!user) {
+      emitErr(this, `id: '${op}': no such user\n`);
+      this.lastExit = 1;
+      return false;
+    }
+    uid = user.uid;
+    gid = user.gid;
+    uname = user.name;
+    groups = idUserGroups(user);
+  } else {
+    uid = typeof process.getuid === 'function' ? process.getuid() : (os.userInfo().uid ?? 0);
+    gid = typeof process.getgid === 'function' ? process.getgid() : (os.userInfo().gid ?? 0);
+    const u = idUserByUid(uid);
+    uname = u ? u.name : '';
+    groups = idProcessGroups(gid);
+  }
+  const gname = idGroupName(gid);
+  const sep = zero ? '\0' : '\n';
+  const fieldSep = zero ? '\0' : ' ';
+  const tail = zero ? '\0' : '\n';
+  let out = '';
+  if (sel === 'u') out = (names ? (uname || String(uid)) : String(uid)) + sep;
+  else if (sel === 'g') out = (names ? (gname ?? String(gid)) : String(gid)) + sep;
+  else if (sel === 'G') {
+    out = groups
+      .map((g) => (names ? (idGroupName(g) ?? String(g)) : String(g)))
+      .join(fieldSep) + sep;
+  } else {
+    const ug = `${uid}${uname ? `(${uname})` : ''}`;
+    const gg = `${gid}${gname ? `(${gname})` : ''}`;
+    const gr = groups
+      .map((g) => {
+        const n = idGroupName(g);
+        return n ? `${g}(${n})` : String(g);
+      })
+      .join(',');
+    out = `uid=${ug} gid=${gg} groups=${gr}${tail}`;
+  }
+  emit(this, out);
+  this.lastExit = 0;
+  return true;
+};
+
 
 // sha256sum / sha512sum — the GNU `<hex>  <name>` line format (two
 // spaces), `-` = stdin, per-file continuation on errors with a final
@@ -8798,9 +9480,70 @@ function captureFinish(v) {
   return v;
 }
 
+// capCapture(t) — bound a CAPTURE sink to what the next stage actually
+// needs (the `PRODUCER | head -N` producer cap; the cap is installed by
+// pipeline/pipelineSync's 2nd argument and emitted by src/shir.rs
+// `pipeline_head_cap`).
+//
+// WHY: this runtime materialises each pipe stage, so `find . | head -3` ran
+// the producer to COMPLETION before head looked at the first 3 lines — a
+// 568k-entry tree walked in full (14.2 s) where bash's find is killed by
+// SIGPIPE after 7 ms. Capping the producer's sink restores the shell's
+// early-termination behaviour without changing the sequential model.
+//
+// EXACTNESS: `head -N`'s native fold is
+//   `L = s.split("\n"); out = L.slice(0,N).join("\n") + (L.length > N ? "\n" : "")`
+// so its value depends only on the first N elements of L and on whether the
+// buffer held MORE than N of them. Truncating at the Nth newline preserves
+// both (the truncated buffer has exactly N newlines → `L.length === N+1 > N`),
+// and the first N elements are untouched. `head -c N` is a bare
+// `s.slice(0, N)`, so a byte cap is the same argument.
+//
+// The newline scan only walks the newly-appended region (`nlScan`), so a
+// producer emitting one line per write stays O(1) per write.
+function capCapture(t) {
+  const cap = t.cap;
+  if (typeof t.buf !== 'string') { t.closed = true; return; }
+  if (cap.bytes !== undefined) {
+    if (t.buf.length > cap.bytes) {
+      t.buf = t.buf.slice(0, cap.bytes);
+      t.closed = true;
+    }
+    return;
+  }
+  let seen = t.nlSeen || 0;
+  for (let k = t.nlScan || 0; k < t.buf.length; k++) {
+    if (t.buf.charCodeAt(k) === 10) {
+      seen++;
+      if (seen === cap.lines) {
+        t.buf = t.buf.slice(0, k + 1);
+        t.closed = true;
+        t.nlSeen = seen;
+        t.nlScan = k + 1;
+        return;
+      }
+    }
+  }
+  t.nlSeen = seen;
+  t.nlScan = t.buf.length;
+}
+
+// sinkClosed(sh) — true when the current fd-1 sink has been capped out, i.e.
+// the consumer of this pipe needs no more bytes. An interruptible producer
+// (builtins.find's tree walk) polls this to abort instead of finishing work
+// whose output would be discarded — bash's SIGPIPE, modelled explicitly.
+function sinkClosed(sh) {
+  const t = sh.fdTargets[1];
+  return !!(t && t.closed);
+}
+
 function emit(sh, text) {
   const t = sh.fdTargets[1];
-  if (t.kind === 'capture') t.buf = captureAppend(t.buf, text);
+  if (t.kind === 'capture') {
+    if (t.closed) return;
+    t.buf = captureAppend(t.buf, text);
+    if (t.cap) capCapture(t);
+  }
   else if (t.kind === 'discard') { /* >/dev/null — nothing to write */ }
   else if (t.kind === 'file') writeFileSync(t.target, decodeRawBytes(text) ?? Buffer.from(text, 'utf8'), t.mode);
   else if (t.kind === 'stderr') process.stderr.write(decodeRawBytes(text) ?? text);
@@ -8976,8 +9719,44 @@ export const BUILTIN_NAMES = JSON.parse(
   fs.readFileSync(new URL('./builtins.json', import.meta.url), 'utf8'),
 );
 
+// DIAGNOSTIC (temporary): SH2_PROF=1 wraps every sh2 method + builtin with a
+// self-time accumulator, dumping a per-family report on exit.
+if (process.env.SH2_PROF) {
+  const prof = new Map();
+  const wrap = (obj, prefix) => {
+    for (const [k, v] of Object.entries(obj)) {
+      if (typeof v !== 'function') continue;
+      const key = `${prefix}${k}`;
+      obj[k] = function (...a) {
+        const t0 = process.hrtime.bigint();
+        let r;
+        try { return (r = v.apply(this, a)); } finally {
+          const dt = Number(process.hrtime.bigint() - t0) / 1e6;
+          const e = prof.get(key) ?? { n: 0, ms: 0 };
+          e.n++; e.ms += dt; prof.set(key, e);
+        }
+      };
+    }
+  };
+  wrap(sh2, 'sh2.');
+  if (sh2.builtins) wrap(sh2.builtins, 'builtin.');
+  process.on('exit', () => {
+    const rows = [...prof.entries()].sort((a, b) => b[1].ms - a[1].ms);
+    const out = rows.map(([k, v]) => `${v.ms.toFixed(1)}\t${v.n}\t${k}`).join('\n');
+    try { fs.appendFileSync(process.env.SH2_PROF, out + '\n'); } catch {}
+  });
+}
+
 export function expandWord(sh, s) {
   let out = String(s);
+  // Fast path: every rewrite below is triggered by `$` (param/cmd
+  // substitution), a backtick (cmd substitution), `~` (tilde), a
+  // backslash (escapes) or a quote (the surrounding-pair strip). A string
+  // with none of them is returned verbatim, skipping runCmdSubst and ~8
+  // regex scans. Plain redirect targets (`/tmp/out.txt`, `/dev/null`) and
+  // most exec words hit this — measured ~1.7µs -> ~30ns per call, and the
+  // redirect/fd path calls it once per spec.
+  if (!/[$`~\\'"]/.test(out)) return out;
   // command substitution $() / backticks first (nested, quote-aware); the
   // inner code has runtime variables expanded (unquoted parts only) so
   // `$(sort <<<"${config[*]}")` sees the runtime's values.
