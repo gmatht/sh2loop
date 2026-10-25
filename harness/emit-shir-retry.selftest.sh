@@ -109,11 +109,16 @@ fi
 #     `CRASHED (no classification)`). The emitter has no 126 exit path, so
 #     this is an exec failure: retried. It still returns 126 if every attempt
 #     fails, so a genuinely broken emitter keeps its verdict.
+#
+#     FOUR execs, not three: after the third attempt the helper makes a
+#     private copy and RUNS it (`- --target estree <minimal A1>`) before
+#     trusting it. A copy that cannot run is never used, which is exactly why
+#     this emitter's 126 survives unchanged.
 : > "$calls"
 stub "$tmp/present126" 'exit 126'
 bash "$impl" "$tmp/present126" "$f" > "$tmp/o4b" 2>/dev/null; rc=$?
-if [ "$rc" -eq 126 ] && [ ! -s "$tmp/o4b" ] && [ "$(n_calls)" -eq 3 ]; then
-  ok "present emitter rc=126 -> retried (3 execs), rc 126 verdict kept"
+if [ "$rc" -eq 126 ] && [ ! -s "$tmp/o4b" ] && [ "$(n_calls)" -eq 4 ]; then
+  ok "present emitter rc=126 -> retried (3 execs) + rejected copy, rc 126 verdict kept"
 else
   bad "present emitter rc=126 (rc=$rc calls=$(n_calls))"
 fi
@@ -174,6 +179,55 @@ fi
 # 8. Usage error is its own verdict, never a silent emit.
 bash "$impl" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 2 ] && ok "no args -> rc 2 (usage)" || bad "no args -> rc 2 (got $rc)"
+
+echo "--- window longer than the retries: the verified copy measures it ---"
+
+# 9. THE WINDOW THAT BEAT THE SLEEPS (2026-10-25). An in-place copy of the
+#    124MB debug binary keeps the path busy for as long as the write lasts —
+#    measured: an 8s write window left the 3-attempt/1s retry at `rc=126, 0
+#    bytes`, i.e. one counted FAIL and a `CRASHED (no classification)`
+#    verdict for a corpus that was otherwise green. The stub below reproduces
+#    that: the LIVE path is unusable on every attempt and a COPY (its path
+#    contains `snap-`) is fine, which is what a private copy of a busy inode
+#    actually is. The file must be MEASURED, not lost.
+: > "$calls"
+stub "$tmp/busy.snapcopy" 'case "$0" in */snap-*) ;; *) exit 126;; esac
+if [ "$1" = "-" ] && [ "$2" = --target ] && [ "$3" = estree ]; then exit 0; fi
+if [ "$1" = --target ] && [ "$2" = shir ]; then printf "%s" "{\"b\":9}"; exit 0; fi
+exit 9'
+TMPDIR="$tmp" bash "$impl" "$tmp/busy.snapcopy" "$f" > "$tmp/o9" 2>/dev/null; rc=$?
+printf '%s' '{"b":9}' > "$tmp/e9"
+if [ "$rc" -eq 0 ] && cmp -s "$tmp/o9" "$tmp/e9"; then
+  ok "live path busy past every retry -> measured via a verified copy (rc 0, byte-exact)"
+else
+  bad "busy past every retry (rc=$rc out='$(cat "$tmp/o9" 2>/dev/null)')"
+fi
+
+# 10. The copy is REUSED, not remade, for the rest of the run: a gate loops
+#     651 files through this helper, so a long window must cost ONE snapshot.
+#     Second call on the same emitter (same inode+mtime) => 1 exec for the
+#     live path + 1 for the already-trusted copy, and no new cp.
+: > "$calls"
+TMPDIR="$tmp" bash "$impl" "$tmp/busy.snapcopy" "$f" > "$tmp/o10" 2>/dev/null; rc=$?
+if [ "$rc" -eq 0 ] && cmp -s "$tmp/o10" "$tmp/e9" && [ "$(n_calls)" -eq 2 ]; then
+  ok "second file in the same window -> cached copy reused (2 execs, no new cp)"
+else
+  bad "cached copy reuse (rc=$rc calls=$(n_calls))"
+fi
+
+# 11. A copy that RUNS but REJECTS the corpus file is a real verdict: the
+#     helper returns the copy's rc, not the live path's exec-failure rc. The
+#     private copy changes how a file is MEASURED, never what counts.
+: > "$calls"
+stub "$tmp/busy.rejectcopy" 'case "$0" in */snap-*) ;; *) exit 126;; esac
+if [ "$1" = "-" ] && [ "$2" = --target ] && [ "$3" = estree ]; then exit 0; fi
+exit 1'
+TMPDIR="$tmp" bash "$impl" "$tmp/busy.rejectcopy" "$f" > "$tmp/o11" 2>/dev/null; rc=$?
+if [ "$rc" -eq 1 ] && [ ! -s "$tmp/o11" ]; then
+  ok "copy runs but rejects the input -> rc 1 (the copy's verdict, not 126)"
+else
+  bad "copy rejects the input (rc=$rc)"
+fi
 
 echo
 echo "[emit-shir-retry] $pass passed, $fail failed"
