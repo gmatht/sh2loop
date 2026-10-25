@@ -3,12 +3,16 @@
 # policy that setup_backends.sh's js|perl emit stage uses.
 #
 # Pins BOTH halves of the contract; either one alone is a bug:
-#   RETRY the path-ABSENT exec failure (a concurrent relink into the shared
-#   target dir) and succeed when the emitter reappears — otherwise two files
+#   RETRY the exec-failure class (a concurrent relink into the shared target
+#   dir) and succeed when the emitter becomes runnable — otherwise two files
 #   in a relink window are counted FAIL and a whole green corpus is classified
-#   `CRASHED (no classification)`;
+#   `CRASHED (no classification)`. That class is the path ABSENT (rc=127) and
+#   the path PRESENT-but-busy (rc=126, ETXTBSY: the relinker's binary is open
+#   for write, so the kernel refuses the exec);
 #   NEVER retry or reinterpret a PRESENT emitter's own rc — a WIP core that
-#   rejects an input is a real result and must stay a FAIL.
+#   rejects an input is a real result and must stay a FAIL. (127 from a
+#   present emitter is such a case; 126 from a present, executable one is not
+#   — the emitter has no 126 exit path. Cases 4 and 4b pin both sides.)
 #
 # No cargo, no network, no real workspace: every emitter is a stub whose
 # behaviour is written explicitly above the assertion that depends on it.
@@ -99,6 +103,21 @@ else
   bad "present emitter rc=127 (rc=$rc calls=$(n_calls))"
 fi
 
+# 4b. A PRESENT, executable emitter that exits 126 is the relinker's ETXTBSY
+#     window (2026-10-25, go gate: one file of 651 came back rc=126 with
+#     inode=3617845 — PRESENT — and collapsed a 644/651-green corpus to
+#     `CRASHED (no classification)`). The emitter has no 126 exit path, so
+#     this is an exec failure: retried. It still returns 126 if every attempt
+#     fails, so a genuinely broken emitter keeps its verdict.
+: > "$calls"
+stub "$tmp/present126" 'exit 126'
+bash "$impl" "$tmp/present126" "$f" > "$tmp/o4b" 2>/dev/null; rc=$?
+if [ "$rc" -eq 126 ] && [ ! -s "$tmp/o4b" ] && [ "$(n_calls)" -eq 3 ]; then
+  ok "present emitter rc=126 -> retried (3 execs), rc 126 verdict kept"
+else
+  bad "present emitter rc=126 (rc=$rc calls=$(n_calls))"
+fi
+
 # 5. The emitter is invoked with the gate's exact contract: --target shir <file>.
 : > "$calls"
 stub "$tmp/args" "if [ \"\$1\" = --target ] && [ \"\$2\" = shir ] && [ \"\$3\" = '$f' ]; then printf '%s' OK; else exit 9; fi"
@@ -124,6 +143,19 @@ if [ "$rc" -eq 0 ] && [ "$(cat "$tmp/o6" 2>/dev/null)" = LATE ]; then
   ok "absent then relinked -> rc 0, shIR from the retry"
 else
   bad "absent then relinked (rc=$rc out='$(cat "$tmp/o6" 2>/dev/null)')"
+fi
+
+# 6b. The PRESENT-but-busy window CLEARS: the first exec is refused with
+#     ETXTBSY and the next one runs. The corpus file is measured, not lost —
+#     which is the whole point (a lost measurement is not a failing file).
+: > "$calls"
+rm -f "$tmp/busy.seen"
+stub "$tmp/busy" "if [ ! -f '$tmp/busy.seen' ]; then : > '$tmp/busy.seen'; exit 126; fi; printf '%s' BUSY"
+bash "$impl" "$tmp/busy" "$f" > "$tmp/o6b" 2>/dev/null; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(cat "$tmp/o6b" 2>/dev/null)" = BUSY ] && [ "$(n_calls)" -eq 2 ]; then
+  ok "busy then runnable -> rc 0, shIR from the retry (2 execs)"
+else
+  bad "busy then runnable (rc=$rc out='$(cat "$tmp/o6b" 2>/dev/null)' calls=$(n_calls))"
 fi
 
 # 7. Absent through every attempt: rc 127, no stdout — and it really tried all
