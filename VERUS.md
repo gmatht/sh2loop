@@ -480,12 +480,12 @@ the baseline everything below also has.
 | `const_status_cond` | const fold | **V** (7-row table, 35) | landed in-tree, gated; all shape pins mirrored in-module |
 | `array_len_fold` | const fold | **V** (`fold`, 10) | landed in-tree, gated; all pins mirrored in-module |
 | `test_lowering` | lowering | **V** (Tier-1 leaves, 25) + T2 (rest) | **fires most (43/562)**; full obligation needs statement semantics — leaves proved, rest Tier-2 |
-| `const_condition_elim` | const fold | **V** (`elim_trio`, cce) + T2 (rest) | per-node pruning proved P9; `eval_cond` string parsing out of scope; fires only via pipeline order, not in isolation |
+| `const_condition_elim` | const fold | **V** (`elim_trio`, cce) + T2 (rest) | per-node pruning proved P9; `eval_cond` string parsing out of scope; 0/563 isolated, **3/563 in-pipeline** (measured 2026-10-26 — upstream passes mint the consts) |
 | `counted_arith_forinit`, `counted_while_forinit` | loop recovery | T2 | same dead-path defect class as `for_recovery` — check firing first |
 | `slice_identity`, `affix_strip_fold` | folds | T2 (`affix` in **V** `list_folds`; `slice` below) | zeros verified as correct refusals, not bugs — see P10 |
 | everything else in `src/transforms/` (44 files: `arith_forms`, `arith_normalize`, `background_decide`, `bc_float_clean`, `brace_fold`, `builtin*` (3), `capture_node_fold`, `cat_read`, `const_capture_fold`, `default_empty_fold`, `direct_calls`, `echo_return`, `escape_classes`, `f32_narrow`, `fbdev_gpu*` (4), `fuse_fill_consume`, `grep_o`, `grep_pcre`, `hoist_loop_invariants`, `interp_fold`, `isolate_accumulate`, `loop_return_lift`, `planner`, `process_subst`, `shir_native_stmt`, `shir_pipeline_native`, `split_set`, `str_chop_cursor`, `stray_reserved_word`, `string_accumulator`, `sub`, `sync_ok_loops`, `test_simplification`, `text_capture_fold`, `text_ops_planner`, `type_query`, `typeset_attrs`, `append_to_store`) | mixed | T2 | laws + differential only; most never fire in isolation on the corpus |
-| `unreachable_after_exit` | elimination | **V** (`elim_trio`, uae) | per-node truncation proved P9; no producer constructs `Exit`/`Return` today — dead-path class, proved as a rule |
-| `merge_init_assignments` | elimination | **V** (`elim_trio`, mia) | adjacent-pair merge proved P9 under literal/pure/no-self-read gates |
+| `unreachable_after_exit` | elimination | **V** (`elim_trio`, uae) | per-node truncation proved P9; 0/563 both modes — only the BAT frontend constructs `Exit`/`Return` (shell `exit` lowers to a builtin call); starved by producer absence, not wiring |
+| `merge_init_assignments` | elimination | **V** (`elim_trio`, mia) | adjacent-pair merge proved P9 under literal/pure/no-self-read gates; 0/563 both modes — FIRES on synthetic `declare x=0` + `x=6` input (mechanics verified live) |
 | `slice_identity` | fold | **V** (`slice_identity`, 10) | zero-offset fold proved P10; fires 0/563 shell (synthetic witnesses) |
 | `case_lowering` | lowering | **V** (dispatch, 29) + T2 (rest) | dispatch proved P10; full obligation needs statement semantics |
 | `else_if_flatten` | restructuring | **V** (chain, 22) | branch-selection proved P11; structural rule |
@@ -704,8 +704,8 @@ no model until the invariant is written AND a firing witness exists.
 | `scc` | cluster soundness: the reported SCCs are exactly the call-graph cycles (eligibility fixpoint over mutual recursion) | analysis; 6 unit tests |
 | `strip` | strip preservation: removing the stripped nodes preserves the run | rewrite; 1 unit test |
 | `used_before_decl` | uninit soundness: a flagged read is definitely uninitialized on every path (conservative dataflow) | analysis; 11 unit tests |
-| `counted_arith_forinit` | recovery preservation: structured-Arith counted-`while` + trailing `v+=1`/`v++` denotes the same iteration as `ForInit` (`$?`-read veto, no counter write/escape) | rewrite; 6 unit tests; shell-corpus sweep 2026-10-26: 0/563 (frontend-shape suspect CONFIRMED for shell input — same dead-path class as `for_recovery` until a frontend witness exists) |
-| `counted_while_forinit` | same for shell `BinOp`/text conds | rewrite; 0 unit tests; shell-corpus sweep 2026-10-26: 0/563 (no unit witness either — weakest of the two; needs a synthetic probe first) |
+| `counted_arith_forinit` | recovery preservation: structured-Arith counted-`while` + trailing `v+=1`/`v++` denotes the same iteration as `ForInit` (`$?`-read veto, no counter write/escape) | rewrite; 6 unit tests; shell-corpus sweep 2026-10-26: 0/563 (frontend-shape CONFIRMED for shell input — shell `[ $i -lt N ]` conds are `test` calls, never `Arith` (only `while ((…))` qualifies; the 2 corpus files with those refuse on body/step gates, correctly); 0/563 isolated AND in-pipeline) |
+| `counted_while_forinit` | same for shell `BinOp`/text conds | rewrite; 0 unit tests; 0/563 isolated AND in-pipeline 2026-10-26 — MECHANISM CONFIRMED: `counter_step` matches only top-level `BinOp{Add/Sub}`, but shell `i=$((i+1))` lowers to `Arith(Bin{…})` (witnessed live on 031_control_flow_loops.sh) — same Arith-wrap defect class as `for_recovery`; dead-on-shell unless a frontend emits raw `BinOp`) |
 
 Explicitly not Tier-1 and not attempted: `process_subst` /
 `background_decide` (process/exec semantics are Tier-3), `fbdev_gpu*` /
