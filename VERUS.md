@@ -613,8 +613,7 @@ Coverage syncs registered for all six (baselines committed, sabotage-
 tested, mapped tests executed: 7+6+6+3 PASS, arith/test_folds pins
 UNMIRRORED — suite-less sources, recorded).
 
-**Explicitly deprioritized.** `for_recovery` / `counted_arith_forinit` /
-`counted_while_forinit`: prove nothing until the firing defect is fixed —
+**Explicitly deprioritized.** `for_recovery` / `counted_arith_forinit`: prove nothing until the firing defect is fixed —
 the repo's own lesson is that a green proof over an unreachable path is a
 true theorem about a dead contract. Backend emitters (`fbdev_gpu*`,
 `shir_native_stmt`, …): no semantics to state preservation against, and
@@ -705,7 +704,7 @@ no model until the invariant is written AND a firing witness exists.
 | `strip` | strip preservation: removing the stripped nodes preserves the run | rewrite; 1 unit test |
 | `used_before_decl` | uninit soundness: a flagged read is definitely uninitialized on every path (conservative dataflow) | analysis; 11 unit tests |
 | `counted_arith_forinit` | recovery preservation: structured-Arith counted-`while` + trailing `v+=1`/`v++` denotes the same iteration as `ForInit` (`$?`-read veto, no counter write/escape) | rewrite; 6 unit tests; shell-corpus sweep 2026-10-26: 0/563 (frontend-shape CONFIRMED for shell input — shell `[ $i -lt N ]` conds are `test` calls, never `Arith` (only `while ((…))` qualifies; the 2 corpus files with those refuse on body/step gates, correctly); 0/563 isolated AND in-pipeline) |
-| `counted_while_forinit` | same for shell `BinOp`/text conds | rewrite; 0 unit tests; 0/563 isolated AND in-pipeline 2026-10-26 — MECHANISM CONFIRMED: `counter_step` matches only top-level `BinOp{Add/Sub}`, but shell `i=$((i+1))` lowers to `Arith(Bin{…})` (witnessed live on 031_control_flow_loops.sh) — same Arith-wrap defect class as `for_recovery`; dead-on-shell unless a frontend emits raw `BinOp`) |
+| `counted_while_forinit` | same for shell `BinOp`/text conds | rewrite; 0/563 isolated AND in-pipeline pre-fix (Arith-wrap defect, witnessed live on 031) — FIXED 2026-10-26: `counter_step` now also accepts `Arith(Bin{Var,+/- ,Num≠0})`, the exact shell lowering of `i=$((i±1))`, mirroring the BinOp arm (same purity, same nonzero gate); 7 new unit tests (failing-first verified); **9/563 fire** (IR-level ForInit gain, all ./fail-green); C backend consumes the ForInit in its standard scoped form |
 
 Explicitly not Tier-1 and not attempted: `process_subst` /
 `background_decide` (process/exec semantics are Tier-3), `fbdev_gpu*` /
