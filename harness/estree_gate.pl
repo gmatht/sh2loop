@@ -17,14 +17,16 @@ use warnings;
 use JSON::PP;
 
 my %whitelist = map { $_ => 1 } qw(
-    exec getVar setVar test pipeline capture captureWords fieldSplit mktemp redirect caseMatch globMatch param arith brace setArray setArrayAppend assign arrayItems arrayValues arrayLen arrayIndex join setLastExit arithEval idiv imod guard not contains builtin grepText grepMatches cutText bcSqrt fileTest fnCall fnValue callDirect callUndefined
+    exec getVar setVar test pipeline capture captureWords fieldSplit mktemp redirect caseMatch globMatch param arith brace setArray setArrayAppend assign arrayItems arrayValues arrayLen arrayIndex join setLastExit arithEval idiv imod guard not contains builtin builtinValue builtinText grepText grepMatches cutText bcSqrt fileTest fileTest2 fnCall fnValue callDirect callUndefined
     define subshell background block whileLoop whileLoopSync whileLoopBatch cstyleFor cstyleForSync forLoop forLoopSync forLoopBatch listVar and or
     subshellSync blockSync captureSync captureWordsSync pipelineSync redirectSync
+    execRedirect pipelineCapture pipelineCaptureSync
     shopt return break continue unsupported
+    isReturnSignal
     typeOf isType toI64
     pipelineInputLines
     makeChan recv send select
-    trimCapture dirname basename uname date readlink hostname whoami mktempValue split readFile writeFile appendFile lstat access unlink rm mkdir mkdtemp addrOf memLoad memStore walkLines readLine eachLine
+    trimCapture dirname basename uname date readlink hostname whoami mktempValue split readFile writeFile appendFile lstat access unlink rm mkdir mkdtemp addrOf memLoad memStore walkLines readLine eachLine readText writeText
     memAlloc memFree ternary arrayStore memAdvance memTest line
     assocSet assocGet assocNames assocValues
     lit warn die
@@ -92,6 +94,115 @@ for my $s (@{ $data->{body} // [] }) {
     }
 }
 
+# Names bound to a native `Map` — the associative-array migration
+# (src/shir.rs `assoc_migrate_program`, SH2_ASSUME_NATIVE_ASSOC, ON by
+# default). A `declare -A M` that the pass proves script-local becomes a JS
+# `Map`, so every later touch is `M.get(k)` / `M.set(k, v)` / `M.has(k)` /
+# `M.keys()` — built-in Map.prototype methods, pure CPU, no dispatch, no
+# store round-trip. The gate must accept exactly those methods on exactly
+# those receivers; a bare `x.set(...)` on anything else still fails.
+my %map_bindings;
+sub collect_map_bindings {
+    my ($n) = @_;
+    return unless defined $n;
+    if (ref $n eq 'HASH') {
+        my $type = $n->{type} // '';
+        my $is_new_map = $type eq 'NewExpression'
+            && ref $n->{callee} eq 'HASH'
+            && ($n->{callee}{type} // '') eq 'Identifier'
+            && ($n->{callee}{name} // '') eq 'Map';
+        # `let M = new Map()`, `M = new Map()` — the latter also covers the
+        # `(M || (M = new Map()))` lazy-init fallback the emitter wraps
+        # every access in, so a receiver seen only THERE is still known.
+        if ($is_new_map) {
+            # nothing to record from the constructor itself
+        }
+        if ($type eq 'VariableDeclarator'
+            && ref $n->{id} eq 'HASH'
+            && ($n->{id}{type} // '') eq 'Identifier'
+            && ref $n->{init} eq 'HASH'
+            && ($n->{init}{type} // '') eq 'NewExpression'
+            && ref $n->{init}{callee} eq 'HASH'
+            && ($n->{init}{callee}{name} // '') eq 'Map') {
+            $map_bindings{ $n->{id}{name} // '' } = 1;
+        }
+        if ($type eq 'AssignmentExpression'
+            && ref $n->{left} eq 'HASH'
+            && ($n->{left}{type} // '') eq 'Identifier'
+            && ref $n->{right} eq 'HASH'
+            && ($n->{right}{type} // '') eq 'NewExpression'
+            && ref $n->{right}{callee} eq 'HASH'
+            && ($n->{right}{callee}{name} // '') eq 'Map') {
+            $map_bindings{ $n->{left}{name} // '' } = 1;
+        }
+        for my $k (keys %$n) {
+            next if $k eq 'type';
+            collect_map_bindings($n->{$k});
+        }
+    } elsif (ref $n eq 'ARRAY') {
+        collect_map_bindings($_) for @$n;
+    }
+}
+collect_map_bindings($data);
+
+# Script-defined native functions (the POSITIONAL_LOCAL / param lift,
+# src/shir.rs): a lifted define is a HOISTED `function <name>(<params>)`
+# declaration and its call sites are plain `<name>(<args>)` calls — no
+# runtime dispatch, no subprocess, no store round-trip. The gate accepts a
+# call exactly when the callee is a FunctionDeclaration id in this same
+# program (the body is walked like any other node, so every call inside it
+# is still checked).
+my %defined_fns;
+sub collect_defined_fns {
+    my ($n) = @_;
+    return unless defined $n;
+    if (ref $n eq 'HASH') {
+        if (($n->{type} // '') eq 'FunctionDeclaration'
+            && ref $n->{id} eq 'HASH'
+            && ($n->{id}{type} // '') eq 'Identifier'
+            && ($n->{id}{name} // '') ne '') {
+            $defined_fns{ $n->{id}{name} } = 1;
+        }
+        for my $k (keys %$n) {
+            next if $k eq 'type';
+            collect_defined_fns($n->{$k});
+        }
+    } elsif (ref $n eq 'ARRAY') {
+        collect_defined_fns($_) for @$n;
+    }
+}
+collect_defined_fns($data);
+
+# Does this expression evaluate to a native Map? The receiver is a plain
+# `Identifier` (a name recorded above), the constructor itself, or the
+# lazy-init wrapper the emitter builds around each access.
+sub resolves_to_map {
+    my ($n) = @_;
+    return 0 unless ref $n eq 'HASH';
+    my $t = $n->{type} // '';
+    if ($t eq 'Identifier') {
+        return $map_bindings{ $n->{name} // '' } ? 1 : 0;
+    }
+    if ($t eq 'NewExpression') {
+        my $c = $n->{callee} // {};
+        return (($c->{type} // '') eq 'Identifier' && ($c->{name} // '') eq 'Map') ? 1 : 0;
+    }
+    # `M || (M = new Map())` — either side proves it
+    if ($t eq 'LogicalExpression') {
+        return resolves_to_map($n->{left}) || resolves_to_map($n->{right});
+    }
+    if ($t eq 'AssignmentExpression') {
+        return resolves_to_map($n->{right});
+    }
+    if ($t eq 'SequenceExpression') {
+        for my $e (@{ $n->{expressions} // [] }) {
+            return 1 if resolves_to_map($e);
+        }
+        return 0;
+    }
+    return 0;
+}
+
 sub walk {
     my ($n) = @_;
     return unless defined $n;
@@ -124,7 +235,7 @@ sub walk {
                 && ($obj->{property}{name} // '') eq 'fs'
                 && ref $prop eq 'HASH'
                 && ($prop->{type} // '') eq 'Identifier'
-                && $prop->{name} =~ /^(readFile|writeFile|appendFile|lstat|access|unlink|rm|mkdir|mkdtemp)$/;
+                && $prop->{name} =~ /^(readFile|writeFile|appendFile|lstat|access|unlink|rm|mkdir|mkdtemp|readText|writeText)$/;
             my $is_native = ($callee->{type} // '') eq 'Identifier'
                 && (($callee->{name} // '') eq 'Number' || ($callee->{name} // '') eq 'String'
                     || ($callee->{name} // '') eq 'parseInt' || ($callee->{name} // '') eq 'parseFloat'
@@ -154,9 +265,11 @@ sub walk {
                 && ref $prop eq 'HASH'
                 # sqrt — the native bc capture lowering (`$(echo "sqrt($n)" |
                 # bc)` → String(Math.floor(Math.sqrt(Number(n)))), Plan 8)
-                # max — the native `${x##*[/\\]}` class-core strip (max of
-                # per-char lastIndexOf, src/shir.rs glob_class_chars)
-                && ($prop->{name} // '') =~ /^(trunc|floor|ceil|sqrt|max)$/;
+                # max/min — the native `${x##*[/\\]}` class-core strip (max of
+                # per-char lastIndexOf, src/shir.rs glob_class_chars) and the
+                # `head -n N` / `tail -n N` clamp (`Math.min(n-1, L.length)`),
+                # both pure numeric bounds
+                && ($prop->{name} // '') =~ /^(trunc|floor|ceil|sqrt|max|min)$/;
             # BigInt.asIntN(64, x) / BigInt.asUintN(64, x) — the i53
             # escalation / `--true64` 64-bit wrap (bash int64 semantics)
             my $is_bigint_member = ref $obj eq 'HASH'
@@ -182,6 +295,14 @@ sub walk {
                 && ($obj->{name} // '') eq 'Array'
                 && ref $prop eq 'HASH'
                 && ($prop->{name} // '') eq 'isArray';
+            # M.get / M.set / M.has / M.keys / … on a receiver that
+            # RESOLVES TO A NATIVE MAP — the associative-array migration's
+            # whole point (no store round-trip, no sh2.assocGet dispatch).
+            # Restricting by receiver, not by method name alone, keeps
+            # `anythingElse.set(...)` a failure.
+            my $is_map_member = ref $prop eq 'HASH'
+                && ($prop->{name} // '') =~ /^(get|set|has|delete|keys|values|entries|clear|forEach|size)$/
+                && resolves_to_map($obj);
             # Promise.all — the native rm/mkdir fs-command lift's status
             # aggregation (`Promise.all([per-path results]).then(...)`)
             my $is_promise_member = ref $obj eq 'HASH'
@@ -211,7 +332,19 @@ sub walk {
                     || ($obj->{type} // '') eq 'BinaryExpression' || ($obj->{type} // '') eq 'Literal'
                     || ($obj->{type} // '') eq 'LogicalExpression' || ($obj->{type} // '') eq 'Identifier')
                 && ref $prop eq 'HASH'
-                && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase|toUpperCase|charAt|slice|substring|split|join|flat|sort|then|catch|trim|replace|replaceAll|lastIndexOf|concat|filter|map|indexOf|test|exec|repeat|push|pop)$/;
+                # charCodeAt / forEach — the native tr stage's contiguous
+                # code-point shift (`c.charCodeAt(0) + 32`) and the native sed
+                # stage's per-line loop (`L.forEach((line, li) => …)`), both
+                # src/shir.rs (tr_stage / sed_stage). Pure CPU, no I/O.
+                && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase|toUpperCase|charAt|slice|substring|split|join|flat|sort|then|catch|trim|replace|replaceAll|lastIndexOf|concat|filter|map|indexOf|test|exec|repeat|push|pop|charCodeAt|forEach)$/;
+            # String.fromCharCode(n) — the native tr stage's contiguous
+            # code-point shift (`A-Z` -> `a-z` is exactly `fromCharCode(+32)`,
+            # src/shir.rs tr_stage). Pure-CPU, no I/O.
+            my $is_string_static = ref $obj eq 'HASH'
+                && ($obj->{type} // '') eq 'Identifier'
+                && ($obj->{name} // '') eq 'String'
+                && ref $prop eq 'HASH'
+                && ($prop->{name} // '') eq 'fromCharCode';
             # Buffer.byteLength(text, 'utf8') — the native wc -c byte-count
             # lowering (the runtime wc's exact formula; node global)
             my $is_buffer = ref $obj eq 'HASH'
@@ -227,6 +360,13 @@ sub walk {
             # await-free bodies, so the IIFE is pure-CPU (the *Sync rule).
             my $is_iife = ref $callee eq 'HASH'
                 && ($callee->{type} // '') eq 'ArrowFunctionExpression';
+            # a direct call to a script-defined native function (the
+            # POSITIONAL_LOCAL / param lift): the callee is a hoisted
+            # FunctionDeclaration in this same program — no dispatch, no
+            # subprocess. Its body is walked by this same gate.
+            my $is_direct_fn = ref $callee eq 'HASH'
+                && ($callee->{type} // '') eq 'Identifier'
+                && $defined_fns{ $callee->{name} // '' };
             # direct calls on the sh2 runtime's own state fields — the
             # native special-var lowerings (`$@` → sh2.positional.join(' '),
             # `$#` → sh2.positional.length, `${@:1}` →
@@ -254,6 +394,20 @@ sub walk {
                     || (($prop->{name} // '') eq 'add'
                         && ref $obj->{property} eq 'HASH'
                         && ($obj->{property}{name} // '') =~ /^(exported|assocNames)$/));
+            # sh2._r.<string method> — the sync-read scratch (src/shir.rs
+            # read_text_map / native_exec_grep_q): the file text bound by
+            # `sh2.fs.readText` and transformed by the capture lift's native
+            # string ops. It is the exact chain the old `.then(t => …)` arrow
+            # ran over its parameter — a plain JS string, no dispatch, no I/O.
+            my $is_read_scratch = ref $obj eq 'HASH'
+                && ($obj->{type} // '') eq 'MemberExpression'
+                && ref $obj->{object} eq 'HASH'
+                && ($obj->{object}{type} // '') eq 'Identifier'
+                && ($obj->{object}{name} // '') eq 'sh2'
+                && ref $obj->{property} eq 'HASH'
+                && ($obj->{property}{name} // '') eq '_r'
+                && ref $prop eq 'HASH'
+                && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase|toUpperCase|charAt|slice|substring|split|join|trim|replace|replaceAll|lastIndexOf|concat|filter|map|indexOf|test|repeat)$/;
             # process.stdout.write — the native echo lowering (src/shir.rs
             # try_native_echo): a direct module-stdout write, no dispatch
             my $is_stdout_write = ref $obj eq 'HASH'
@@ -286,7 +440,7 @@ sub walk {
                 && ($obj->{name} // '') eq 'process'
                 && ref $prop eq 'HASH'
                 && ($prop->{name} // '') =~ /^(getuid|getgid|chdir|exit)$/;
-            if (!$is_sh2 && !$is_sh2_fs && !$is_native && !$is_math && !$is_number_member && !$is_array_member && !$is_promise_member && !$is_bigint_member && !$is_string_method && !$is_sh2_state && !$is_stdout_write && !$is_stderr_write && !$is_buffer && !$is_process_member && !$is_iife) {
+            if (!$is_sh2 && !$is_sh2_fs && !$is_native && !$is_math && !$is_number_member && !$is_array_member && !$is_map_member && !$is_promise_member && !$is_bigint_member && !$is_string_method && !$is_sh2_state && !$is_read_scratch && !$is_stdout_write && !$is_stderr_write && !$is_buffer && !$is_process_member && !$is_iife && !$is_direct_fn && !$is_string_static) {
                 push @problems, "non-sh2 callee: " . ($cname || $type);
             } elsif (($is_sh2 || $is_sh2_fs) && !$whitelist{$cname}) {
                 push @problems, "callee not in sh2.* whitelist: $cname";
@@ -306,7 +460,7 @@ sub walk {
                 # fs.readFileSync & friends would. Same rule as the *Sync
                 # loops (whileLoopSync / forLoopSync / cstyleForSync).
                 push @problems, "*Sync callee: $pname"
-                    unless $pname =~ /^(whileLoopSync|forLoopSync|cstyleForSync|captureSync|captureWordsSync|pipelineSync|subshellSync|redirectSync|blockSync)$/;
+                    unless $pname =~ /^(whileLoopSync|forLoopSync|cstyleForSync|captureSync|captureWordsSync|pipelineSync|subshellSync|redirectSync|blockSync|pipelineCaptureSync)$/;
             }
         }
         if ($type eq 'ObjectExpression') {

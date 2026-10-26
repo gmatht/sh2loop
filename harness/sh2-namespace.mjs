@@ -309,11 +309,56 @@ function grepRegexes(opts, patterns) {
   }
 }
 
+// ── grep arg/regex memoization ──────────────────────────────────────────
+//
+// `parseGrepArgs` + `grepRegexes` are PURE functions of the argv — the one
+// exception is `-f PATTERNFILE`, whose content is read at parse time and is
+// therefore never cached. Together they rebuilt the opts object and, more
+// importantly, TWO `RegExp` objects on EVERY evaluation (measured: ~600 ns
+// of a 1.4 µs `grepText`, and ~7 µs of the 11 µs `$(grep PAT FILE)` path).
+// The emitted argv is a literal at every call site, so the same key recurs
+// on every evaluation — in a loop, a function body, or an `&&` chain. Both
+// caches are bounded and cleared wholesale (the `testParseCache` policy:
+// the parse is pure, the EVAL still runs per call, so live-state verdicts
+// stay live).
+const grepArgCache = new Map();
+const grepReCache = new Map();
+const GREP_CACHE_MAX = 256;
+
+function grepParseCached(args, allowFiles) {
+  // `-f FILE` reads the pattern file here — a cache would freeze its
+  // contents. (`-fFILE` is not part of the parser's grammar.)
+  for (let i = 0; i < args.length; i++) {
+    if (String(args[i]) === '-f') return parseGrepArgs(args, allowFiles);
+  }
+  let key = allowFiles ? 'F' : 'T';
+  for (let i = 0; i < args.length; i++) key += '\u0000' + String(args[i]);
+  const hit = grepArgCache.get(key);
+  if (hit !== undefined) return hit;
+  const v = parseGrepArgs(args, allowFiles);
+  if (grepArgCache.size >= GREP_CACHE_MAX) grepArgCache.clear();
+  grepArgCache.set(key, v);
+  return v;
+}
+
+function grepRegexesCached(opts, patterns) {
+  let key = `${opts.flavor}|${opts.ci ? 'i' : ''}|${opts.wholeWord ? 'w' : ''}|${opts.whole ? 'x' : ''}`;
+  for (const p of patterns) key += '\u0000' + p;
+  const hit = grepReCache.get(key);
+  if (hit !== undefined) return hit;
+  // an invalid BRE/ERE throws — that error is NOT cached (the caller
+  // reports it exactly like GNU and exits 2 every time)
+  const v = grepRegexes(opts, patterns);
+  if (grepReCache.size >= GREP_CACHE_MAX) grepReCache.clear();
+  grepReCache.set(key, v);
+  return v;
+}
+
 // The per-source line selection core (shared by grepText and
 // builtins.grep): filters/transforms the content lines and pushes the
 // formatted output lines (terminator included) to `out`. `prefix` ("" or
 // "name:") precedes every line (multi-file / -r / -H forms); `byteOffset`
-// prefixes the line-start (plain) or match (with -o) byte offset (GNU -b:
+// prefixes the line-start (plain) or match (with -o) byte offsets (GNU -b:
 // LINENO:OFFSET:line with -n); `color` wraps each match in GNU's
 // --color=always codes. Returns the number of SELECTED lines (the -m /
 // exit-status unit).
@@ -866,6 +911,13 @@ export const sh2 = {
       if (!arr) return '';
       let idx;
       try { idx = evalArith(m[2], this); } catch { return ARITH_BAD_MAGIC; } // subscript arithmetic syntax error: bash prints "syntax error in expression", skips the WHOLE command (status 1)
+      // Negative subscript counts from the end — bash `a=([0]=x [1]=y);
+      // echo ${a[-1]}` prints `y`. arrayIndex already does this
+      // (`idx += arr.length`); getVar did not, so the two A1 read twins
+      // disagreed and a negative index silently read ''. They must agree:
+      // the emitter lowers `${a[i]}` to either one depending on the
+      // provability of the base.
+      if (idx < 0) idx += arr.length;
       return idx >= 0 && idx < arr.length ? String(arr[idx]) : '';
     }
     // `#name` — the LENGTH of a variable. Both zsh (`$#a`, `${#s}`) and
@@ -985,7 +1037,7 @@ export const sh2 = {
         if (tm && tm.get(v)) v = this.freezeOneTemp(v);
       }
       this.assocStore.get(name).set(normAssocKey(String(key)), v);
-      return;
+      return true;
     }
     const eq = name.indexOf('[');
     if (eq > 0 && name.endsWith(']')) {
@@ -1000,10 +1052,11 @@ export const sh2 = {
       // that skipped this.)
       this.assocNames.add(base);
       this.assocStore.get(base).set(k, String(key));
-      return;
+      return true;
     }
     if (!this.assocStore.has(name)) this.assocStore.set(name, new Map());
     this.assocStore.get(name).set('', String(key));
+    return true;
   },
 
   assocGet(name, key) {
@@ -2951,8 +3004,8 @@ captureSync(fn) {
 
   grepText(text, args, captureMode, specs) {
     const s = String(text ?? '');
-    const { opts, patterns } = parseGrepArgs(args, false);
-    const { matchRe, gRe } = grepRegexes(opts, patterns);
+    const { opts, patterns } = grepParseCached(args, false);
+    const { matchRe, gRe } = grepRegexesCached(opts, patterns);
     const run = () => {
       const out = [];
       const selected = grepSelect(out, s, opts, matchRe, gRe, '', opts.byteOffset, opts.color);
@@ -4740,21 +4793,32 @@ captureSync(fn) {
     return idx >= 0 && idx < arr.length ? String(arr[idx]) : '';
   },
 
-  // `arrayStore(name, idx, v)` — a C array write with a DYNAMIC index
-  // (the c-sh-go frontend's `a[i] = v` with i a variable). The baked-name
-  // `a[$i]` write target would resolve the subscript via the STORE
-  // (evalArith → getVar), which is stale for natively-lifted index vars;
-  // this call receives the index ALREADY lowered (the core's `arith` arm
-  // converts `$i` → the native binding) and writes the runtime array
-  // store directly — the mirror of arrayIndex. Like the setVar subscript
-  // path, an out-of-range index extends the array (bash sparse arrays).
+  // `arrayStore(name, idx, v)` — the WRITE twin of `arrayIndex`, and the
+  // lean form of `setVar("name[idx]", v)`. The name-text setVar path runs a
+  // subscript regex, a list# probe and an assoc/inner dispatch on EVERY
+  // call (measured 1.1-1.5 us against 0.6-0.9 us here); when the emitter
+  // has proven the base's kind it can name it directly. A C array write
+  // with a DYNAMIC index (the c-sh-go frontend's `a[i] = v`) is the other
+  // caller: the baked-name `a[$i]` write target would resolve the subscript
+  // via the STORE (evalArith → getVar), stale for natively-lifted index
+  // vars, so the index arrives ALREADY lowered. Like the setVar subscript
+  // path, an out-of-range index extends the array (bash sparse arrays) and
+  // an assoc base dispatches to the assoc store.
   arrayStore(name, idx, v) {
     const nm = String(name);
+    if (this.assocNames.has(nm)) {
+      if (!this.assocStore.has(nm)) this.assocStore.set(nm, new Map());
+      this.assocStore.get(nm).set(normAssocKey(String(idx)), String(v ?? ''));
+      return true;
+    }
     const arr = this.arrays.get(nm) ?? [];
     let i;
     try { i = evalArith(String(idx), this); } catch { return ARITH_BAD_MAGIC; }
     arr[i] = String(v ?? '');
     this.arrays.set(nm, arr);
+    // truthy on every path, like setVar — a statement-position store write
+    // must never make the errexit guard fire
+    return true;
   },
 
   // ── sh2.mem — allocation_id + offset pointer emulation (slice 1) ──────
@@ -5390,6 +5454,16 @@ captureSync(fn) {
   return(value) {
     this.lastExit = value === undefined || value === null ? 0 : Number(value);
     throw new Signal('RETURN', this.lastExit);
+  },
+
+  // `isReturnSignal(e)` — the RETURN-signal test. A lifted define
+  // (POSITIONAL_LOCAL / param lift) is called as a plain native function, so
+  // it owns the RETURN boundary `fnCall`/`callDirect` provide: a shell
+  // `return` inside one of its runtime loop bodies arrives here as a thrown
+  // Signal, and the define's catch must swallow exactly that (every other
+  // exception rethrows). Emitted once per lifted define that needs it.
+  isReturnSignal(e) {
+    return isSignal(e, 'RETURN');
   },
 
   break() {
@@ -6757,7 +6831,13 @@ builtins.ls = function (args) {
     }
     dirEntries.push([d, entries]);
   }
-  const w = widthsOf([...fileEntries, ...dirOwn]);
+  // The column widths exist ONLY for `-l` (longLine). Computing them
+  // unconditionally made every plain `ls` pay the owner/group scan — a
+  // full read of /etc/passwd AND /etc/group — for widths nothing reads.
+  // Measured on this box: `ls` 135 µs → 12 µs (the manual
+  // readdir+lstat+sort work is 9.6 µs); the corpus's 21 `ls` sites all
+  // use the short form.
+  const w = long ? widthsOf([...fileEntries, ...dirOwn]) : null;
   let out = '';
   if (fileEntries.length > 0) {
     for (const [n, st] of fileEntries) out += (long ? longLine(n, st, w) : n) + '\n';
@@ -6772,7 +6852,7 @@ builtins.ls = function (args) {
       for (const [, st] of entries) total += st.blocks;
       out += `total ${Math.floor((total * 512) / 1024)}\n`;
     }
-    const dw = widthsOf(entries);
+    const dw = long ? widthsOf(entries) : null;
     for (const [n, st] of entries) out += (long ? longLine(n, st, dw) : n) + '\n';
   }
   if (out) emit(this, out);
@@ -7057,7 +7137,7 @@ builtins.egrep = function (args) {
 builtins.grep = function (args) {
   let parsed;
   try {
-    parsed = parseGrepArgs(args, true);
+    parsed = grepParseCached(args, true);
   } catch (e) {
     // a missing -f pattern file is a real grep error (exit 2), not an
     // emitter bug — report like GNU and fail the status
@@ -7071,7 +7151,7 @@ builtins.grep = function (args) {
   const { opts, patterns, files } = parsed;
   let matchRe, gRe;
   try {
-    ({ matchRe, gRe } = grepRegexes(opts, patterns));
+    ({ matchRe, gRe } = grepRegexesCached(opts, patterns));
   } catch (e) {
     // an invalid BRE/ERE pattern: GNU reports to fd-2 and exits 2 with
     // no output — replicate (the message text is not corpus-observed)
@@ -10361,19 +10441,46 @@ function printfFormat(format, args) {
   return out;
 }
 
-function formatOnce(format, nextArg) {
+// formatOnce's PARSE is a pure function of the format string: the spec
+// positions and the unescaped literal segments. It used to be redone on
+// every pass (one pass per argument — `printf '%s=%s\n' a b` walked the
+// regex twice and ran unescapeFormat's nine `.replace()` chains four
+// times), which dominated the builtin: measured 4.4-6.7 us/call against
+// echo's 0.5 us. Cache the pieces per format (bounded; the format set of
+// a program is tiny). The EVAL still runs per call, so only literal
+// pieces are shared.
+const printfPiecesCache = new Map();
+function printfPieces(format) {
+  let p = printfPiecesCache.get(format);
+  if (p !== undefined) return p;
   const specs = /%(?:[-+ 0#]*\d*(?:\.\d+)?[diouxXeEfgGcbsq%])/g;
-  let out = '';
+  // Each piece is a literal STRING or a `{ spec }` record — a literal can
+  // itself start with `%` (`"%z then %s"` keeps `%z` in the literal run),
+  // so the shape has to be tagged rather than sniffed from the text.
+  const parts = [];
   let last = 0;
   let m;
   while ((m = specs.exec(format)) !== null) {
-    out += unescapeFormat(format.slice(last, m.index));
+    parts.push(unescapeFormat(format.slice(last, m.index)));
     const spec = m[0];
-    if (spec === '%%') { out += '%'; last = m.index + 2; continue; }
-    out += printfOne(spec, nextArg());
+    if (spec === '%%') { parts.push('%'); last = m.index + 2; continue; }
+    parts.push({ spec });
     last = m.index + spec.length;
   }
-  out += unescapeFormat(format.slice(last));
+  parts.push(unescapeFormat(format.slice(last)));
+  p = parts;
+  if (printfPiecesCache.size >= 1024) printfPiecesCache.clear();
+  printfPiecesCache.set(format, p);
+  return p;
+}
+
+function formatOnce(format, nextArg) {
+  const parts = printfPieces(format);
+  let out = '';
+  for (const part of parts) {
+    if (typeof part === 'string') out += part;
+    else out += printfOne(part.spec, nextArg());
+  }
   return out;
 }
 
