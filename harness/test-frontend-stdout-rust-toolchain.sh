@@ -71,6 +71,41 @@ else
   echo "ok: rustc_cmd resolves the workspace-pinned channel via \`rustup run\`"
 fi
 
+# --- half 1b: the SAME defect at its second site -------------------------
+# bat-triage-repro.sh runs every case in `mktemp -d /tmp/batrepro…` — outside
+# the workspace, exactly like the gate's native arm — so its rust arm needs
+# the identical resolution. Proved live 2026-10-26: a bare `rustc` there
+# exits 1 and the arm returns EMPTY, which the repro reports as a stdout
+# mismatch instead of a dead oracle.
+BATREPRO="$ROOT/harness/bat-triage-repro.sh"
+if command grep -q 'cd "\$wd" && rustc -A warnings' "$BATREPRO"; then
+  echo "FAIL: bat-triage-repro.sh's rust arm still invokes bare \`rustc\` in a"
+  echo "      /tmp scratch dir — every case silently yields empty stdout."
+  rc=1
+elif ! command grep -q 'rustc_cmd=(rustup run' "$BATREPRO"; then
+  echo "FAIL: bat-triage-repro.sh has no rustup-run toolchain resolution."
+  rc=1
+else
+  echo "ok: bat-triage-repro.sh rust arm resolves its toolchain too"
+fi
+# Behavioural half: the box cannot resolve a bare rustc in a scratch dir (the
+# precondition above only proves the PIN resolves). When that is so, a known
+# example must still come back OK — pre-fix it came back as a mismatch.
+bare_broken=0
+scratch=$(mktemp -d)
+if ! ( cd "$scratch" && rustc --version ) >/dev/null 2>&1; then bare_broken=1; fi
+rm -rf "$scratch"
+if [ "$bare_broken" -eq 1 ] && [ -x "$BATREPRO" ]; then
+  batout=$(timeout 300 bash "$BATREPRO" rust t02_set.bat 2>/dev/null | tail -1)
+  case "$batout" in
+    *OK*) echo "ok: bat-triage-repro rust case compares against a real compiler ($batout)" ;;
+    *)    echo "FAIL: bat-triage-repro rust case got no oracle: ${batout:-<no verdict>}"
+          rc=1 ;;
+  esac
+else
+  echo "ok: bare \`rustc\` resolves here, so the bat-repro defect cannot occur"
+fi
+
 # --- half 2: behavioural ------------------------------------------------
 TMP=$(mktemp -d) || exit 1
 # frontend-stdout.sh appends one verdict row per basename to the TRACKED
