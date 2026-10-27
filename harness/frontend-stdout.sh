@@ -287,6 +287,13 @@ t52_pipeline.bat|beta\npipe-end\n
 t53_renpattern.bat|one\ntwo\n
 "
 
+# Per-example wall-clock bound. 20s (the historical value) is ample for a
+# genuine hang, but py-sh-go's t88_factor53 legitimately trial-divides a
+# 53-bit number (~19s for native python3 at fleet load ~44 on 16 cores) and
+# flipped the gate red at random against a hard 20s. A frontend whose
+# fixtures are honestly expensive raises this; nothing else changes.
+FTIMEOUT="${SH2_FRONTEND_TIMEOUT:-20}"
+
 run_native() {  # <file> -> stdout on stdout
   local f=$1
   if [ "$lang" = zig ]; then
@@ -410,7 +417,7 @@ run_native() {  # <file> -> stdout on stdout
     # spurious DIFFs; the zig branch has the same readlink-first
     # pattern).
     fabs=$(readlink -f "$f")
-    (cd "$tmp" && timeout 20 "${native[@]}" "$fabs") < /dev/null 2>/dev/null
+    (cd "$tmp" && timeout "$FTIMEOUT" "${native[@]}" "$fabs") < /dev/null 2>/dev/null
   elif [ "$lang" = bat ]; then
     # cmd.exe REQUIRES CRLF batch files (LF-only files fail with "(echo was
     # unexpected at this time.") — stage a CRLF copy, then run via WSL
@@ -448,7 +455,7 @@ run_estree() {  # <estree-json> <source-file> -> transpiled stdout
     # the scratch dir — the allowlist silently empties and every raw
     # exec-spawn aborts (go-sh t106: only "1" printed, "2" lost).
     srcabs=$(readlink -f "$2")
-    (cd "$tmp" && timeout 20 node "$runner" "$1" --source "$srcabs" 2>"$tmp/estree.err") || true
+    (cd "$tmp" && timeout "$FTIMEOUT" node "$runner" "$1" --source "$srcabs" 2>"$tmp/estree.err") || true
   else
     timeout 20 node "$runner" "$1" --source "$2" 2>"$tmp/estree.err" || true
   fi
