@@ -129,6 +129,18 @@ MODELS=(
   # exactly; `num_spec`'s cast⟺%lld invariant holds with the type-match
   # rules and the 5 live unit assertions.
   "c_arith_guard.rs:15:40"
+  # The C generator's integer-math helpers it emits
+  # (sh2perl/src/c_backend.rs `_sh_isint31` + `_sh_isqrt` + `_sh_i128_str`).
+  # Proves the predicate contract (1 ==> |value| <= 2^31, each refusal arm
+  # pinned, 10-digit fold exhibited step-by-step); the Newton descent
+  # well-defined on the table range with exact small values by direct
+  # unfolding (full floor stays open — needs the fixpoint invariant);
+  # the i128 branch contract (emitted form vs identity per branch, step
+  # stays in-domain, INT128_MIN refutation, 39-digit bound by generated
+  # chain, sign/zero/digit contract). Honest provisos: `*` overflow is
+  # the caller's gate, not 2^31 alone; the cross-branch magnitude
+  # identity is solver-opaque (probed red even under nonlinear_arith).
+  "c_int_helpers.rs:69:40"
 )
 
 # extractor:baseline — the generator script and the file it must reproduce.
