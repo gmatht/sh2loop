@@ -27,6 +27,14 @@ case "${1:-}" in
     ;;
 esac
 
+# Never prune while a compile is in flight: zig has already validated its
+# manifest and is about to open the outputs we might delete. The hook runs
+# before a gate's own compiles, so this only catches other gates/workers.
+if command -v pgrep >/dev/null 2>&1 && pgrep -x zig >/dev/null 2>&1; then
+  echo "zig-cache-prune: a zig compile is in flight — skipping" >&2
+  exit 0
+fi
+
 # One pruner at a time; if someone holds the lock, they are already pruning.
 # NB: no `2>/dev/null` on this exec — exec redirections persist for the whole
 # script, which would silence every later report line.

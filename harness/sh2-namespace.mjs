@@ -1061,7 +1061,12 @@ export const sh2 = {
 
   assocGet(name, key) {
     const store = this.assocStore.get(name);
-    return store && store.has(normAssocKey(key)) ? String(store.get(normAssocKey(key))) : '';
+    if (!store) return '';
+    // ONE normalization (Plan 42): the key was expanded twice — and
+    // `normAssocKey` runs a full param expansion, so the duplicate was the
+    // whole cost of an assoc read.
+    const k = normAssocKey(key);
+    return store.has(k) ? String(store.get(k)) : '';
   },
 
   // assocDel(name, key) — Go builtin delete(m, k): remove one assoc key
@@ -10146,25 +10151,95 @@ export function expandWord(sh, s) {
     const v = sh.getVar(one[1] ?? one[2]);
     if (typeof v === 'string' && !/[$`~\\'"]/.test(v)) return v;
   }
+  // Third fast path (Plan 42): a word that is EXACTLY one `${name<op>…}`
+  // expansion — the string slice, the length, the glob-strip, the case ops
+  // and the substitution ops. The general path reaches those only after
+  // runCmdSubst (which allocates its helper closure on every call) plus
+  // five regex passes and an until-stable replace loop: measured 2.7-4.1 us
+  // per call for `${x#--}` / `${x##*/}` / `${x/a/Q}` / `${x^^}` /
+  // `${flags:j:1}`, where `sh.param` itself is ~50 ns. Every arm below
+  // reproduces the general path's own arithmetic verbatim (including the
+  // slice offsets' `Number`-then-`evalArith` rule and the negative-offset
+  // clamp), and the fast path only fires when the RESULT carries no `$`,
+  // backtick, `~`, backslash or quote — i.e. when the general path's
+  // re-expansion loop would be a no-op and its trailing quote-strip could
+  // not fire. This is the option-parser loop's assoc key
+  // (`options["${flags:j:1}"]=true`) and every `${x##*/}`-shaped word.
+  const parm = /^\$\{([A-Za-z_][A-Za-z0-9_]*)([^{}$`\\]*)\}$/.exec(out);
+  if (parm) {
+    const nm = parm[1];
+    const body = parm[2];
+    const v = sh.getVar(nm);
+    let r = null;
+    if (body === '#') {
+      r = String(v.length); // `${#name}` — length ONLY (not a strip op)
+    } else if (body.startsWith(':=') || body.startsWith(':?') || body.startsWith('=') || body.startsWith('?')) {
+      r = null; // side effects (a store write / a diagnostic exit) — general path
+    } else if (body.startsWith(':+') || body.startsWith('+')) {
+      const alt = body.startsWith(':+') ? body.slice(2) : body.slice(1);
+      r = v !== '' ? expandWord(sh, alt) : '';
+    } else if (body.startsWith(':-') || body.startsWith('-')) {
+      const def = body.startsWith(':-') ? body.slice(2) : body.slice(1);
+      r = v !== '' ? v : expandWord(sh, def);
+    } else if (body.charCodeAt(0) === 58 /* ':' */) {
+      // `${name:off}` / `${name:off:len}` — the general path's slice arm
+      const spec = body.slice(1);
+      const c = spec.indexOf(':');
+      const off = c < 0 ? spec : spec.slice(0, c);
+      const len = c < 0 ? undefined : spec.slice(c + 1);
+      let o = Number(off) || 0;
+      if (String(off).trim() !== '' && String(Number(off)) !== String(off).trim()) {
+        try { o = evalArith(String(off), sh); } catch { /* keep 0 */ }
+      }
+      const oo = o < 0 ? Math.max(0, v.length + o) : o;
+      r = len !== undefined && len !== ''
+        ? v.slice(oo, oo + (Number(len) || 0))
+        : v.slice(oo);
+    } else {
+      const om = /^(##?|%%?|\^\^?|,,|\/\/?)([\s\S]*)$/.exec(body);
+      if (om) {
+        const op = om[1];
+        const rest = om[2] ?? '';
+        if (op === '/' || op === '//') {
+          const slash = rest.indexOf('/');
+          if (slash >= 0) r = sh.param(op, nm, rest.slice(0, slash), rest.slice(slash + 1), v);
+        } else {
+          r = sh.param(op, nm, rest, '', v);
+        }
+      }
+    }
+    if (typeof r === 'string' && !/[$`~\\'"]/.test(r)) return r;
+  }
   // command substitution $() / backticks first (nested, quote-aware); the
   // inner code has runtime variables expanded (unquoted parts only) so
   // `$(sort <<<"${config[*]}")` sees the runtime's values.
   out = runCmdSubst(out, sh);
+  // Each rewrite below is GATED on a substring its regex requires (Plan 42).
+  // The gates are exact — `String.prototype.indexOf` scans the same text the
+  // regex would — and they skip the scan outright for the common shapes: a
+  // plain `$a/$b` word now runs ONE replace instead of seven, which was
+  // 2.5 us of mostly-regex-engine overhead per expansion.
   // ${#name[@]} — array length
-  out = out.replace(/\$\{#([A-Za-z_][A-Za-z0-9_]*)\[@\]\}/g, (_, n) => String(sh.arrayLen(n)));
+  if (out.indexOf('${#') >= 0) {
+    out = out.replace(/\$\{#([A-Za-z_][A-Za-z0-9_]*)\[@\]\}/g, (_, n) => String(sh.arrayLen(n)));
+  }
   // ${name[@]:off:len} — array slice (space-joined)
-  out = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\[@\]:([^}]*)\}/g, (_, n, spec) => {
-    const [off, len] = spec.split(':');
-    const arr = sh.arrays.get(n) ?? [];
-    const o = Number(off) || 0;
-    const sl = len !== undefined && len !== '' ? arr.slice(o, o + (Number(len) || 0)) : arr.slice(o);
-    return sl.join(' ');
-  });
+  if (out.indexOf('[@]:') >= 0) {
+    out = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\[@\]:([^}]*)\}/g, (_, n, spec) => {
+      const [off, len] = spec.split(':');
+      const arr = sh.arrays.get(n) ?? [];
+      const o = Number(off) || 0;
+      const sl = len !== undefined && len !== '' ? arr.slice(o, o + (Number(len) || 0)) : arr.slice(o);
+      return sl.join(' ');
+    });
+  }
   // ${name[idx]} — array element
-  out = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\[([^}\]]*)\]\}/g, (_, n, k) => {
-    if (k === '@' || k === '*') return sh.getVar(`${n}[${k}]`); // assoc-aware join
-    return sh.arrayIndex(n, k);
-  });
+  if (out.indexOf(']}') >= 0) {
+    out = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\[([^}\]]*)\]\}/g, (_, n, k) => {
+      if (k === '@' || k === '*') return sh.getVar(`${n}[${k}]`); // assoc-aware join
+      return sh.arrayIndex(n, k);
+    });
+  }
   // ${name} / $name (including special params). The BRACED form also
   // accepts dotted member keys (`${s.X}` — go-sh structType, core request
   // go-sh-structtype-20260814-054454): a struct member name is a store key
@@ -10173,11 +10248,16 @@ export function expandWord(sh, s) {
   // the member (bash-faithful: `$s.X` IS `$s` + literal `.X`). Bash errors
   // on a dotted braced name in any expansion position, so no corpus text
   // can contain one; the dot addition is behavior-neutral for bash scripts.
-  out = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_.]*)\}/g, (_, n) => sh.getVar(n));
+  if (out.indexOf('${') >= 0) {
+    out = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_.]*)\}/g, (_, n) => sh.getVar(n));
+  }
   out = out.replace(/\$([A-Za-z_][A-Za-z0-9_]*|\d+|[@#*?$0-])/g, (_, n) => sh.getVar(n));
   // ${name:-default} / ${name##pat} / ${name:off:len} / ${#name} ... —
   // innermost-first so nested defaults (`${a:-${b:-c}}`) expand correctly.
   for (;;) {
+    // nothing braced left: the replace below could not match, and the
+    // until-stable loop would pay another full scan + closure to learn it.
+    if (out.indexOf('${') < 0) break;
     const next = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_.]*)([^{}]*)\}/g, (m, n, body) => {
       const v = sh.getVar(n);
       if (body === '') return v;
@@ -10253,64 +10333,72 @@ export function expandWord(sh, s) {
   return out;
 }
 
+// A recursive sh2.* helper evaluator for cmdsubs (the go-sh byteAt lowering
+// renders `"$(sh2.byteAt(src, i))"` inside test strings) — evaluate in JS
+// instead of spawning bash (the helper is not a shell command). Split the
+// args at top-level commas (tracking paren depth and nested `$(...)`),
+// recursively evaluate nested sh2.* calls, then dispatch to the runtime
+// helper.
+//
+// Module-level since Plan 42: it closed over nothing but its `sh` argument,
+// and building the closure on EVERY runCmdSubst call was a measurable share
+// of every word expansion in generated code.
+function expandSh2Helper(sh, inner) {
+  const call = inner.slice(0, inner.indexOf('('));
+  const fn = call.trim().replace(/^sh2\./, '');
+  const body = inner.slice(inner.indexOf('(') + 1, -1);
+  // split body at top-level commas (depth-aware)
+  const args = [];
+  let depth = 0;
+  let cur = '';
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (ch === '(') depth++;
+    else if (ch === ')') depth--;
+    if (ch === ',' && depth === 0) { args.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  if (cur.trim() !== '') args.push(cur);
+  // resolve each arg (a nested sh2.* call is evaluated recursively;
+  // a `$(...)` cmdsub used as an arg is resolved)
+  const resolved = args.map((a) => {
+    a = a.trim();
+    if (/^\$\(sh2\.[A-Za-z_][A-Za-z0-9_]*\(/.test(a)) {
+      // find the helper's body: skip the `$(` opener, locate the
+      // helper's `(`, then match its balanced close.
+      const firstOpen = a.indexOf('(');
+      const bodyStart = a.indexOf('(', firstOpen + 1);
+      let d = 0;
+      let j = bodyStart;
+      for (let k = bodyStart; k < a.length; k++) {
+        if (a[k] === '(') d++;
+        else if (a[k] === ')') { d--; if (d === 0) { j = k; break; } }
+      }
+      return expandSh2Helper(sh, a.slice(2, j + 1));
+    }
+    return a;
+  });
+  let val = '';
+  if (fn === 'byteAt' && resolved.length === 2) val = sh.byteAt(resolved[0], resolved[1]);
+  else if (fn === 'objFieldLen' && resolved.length === 2) val = sh.objFieldLen(resolved[0], resolved[1]);
+  else if (fn === 'jsonGet' && resolved.length === 2) val = sh.jsonGet(resolved[0], resolved[1]);
+  else if (fn === 'chr' && resolved.length === 1) val = sh.chr(resolved[0]);
+  else if (fn === 'assocGet' && resolved.length === 2) val = sh.assocGet(resolved[0], resolved[1]);
+  return val;
+}
+
 // Command substitution in plain strings (heredocs, array elements, case
 // patterns): run `$(...)` / backtick bodies through a real shell.
 function runCmdSubst(s, sh) {
-  // sh2.* helper calls in cmdsub (the go-sh byteAt lowering renders
-  // `"$(sh2.byteAt(src, i))"` inside test strings) — evaluate in JS
-  // instead of spawning bash (the helper is not a shell command). The
-  // balanced-paren scan handles nested parens in the args (`byteAt(src,
-  // i+1)` — the generic non-greedy regex below would stop at the first
-  // `)`).
+  // Nothing to run (Plan 42): both rewrites below are keyed on `$(` (the
+  // sh2.* helper form included) or a backtick, so a word carrying neither —
+  // every plain `$name` / `"$a b"` arg and every variable-bearing redirect
+  // target — returns unchanged without building the helper parser below.
+  // The closure allocation + the two dead regex passes were the bulk of a
+  // measured 2.5 us `$a/$b` expansion.
+  if (s.indexOf('$(') < 0 && s.indexOf('`') < 0) return s;
   const sh2re = /\$\(sh2\.([A-Za-z_][A-Za-z0-9_]*)\(/g;
   let out = String(s);
-  // a recursive sh2.* helper evaluator: split args at top-level commas
-  // (tracking paren depth and nested `$(...)`), recursively evaluate
-  // nested sh2.* calls, then dispatch to the runtime helper.
-  const evalSh2 = (inner) => {
-    const call = inner.slice(0, inner.indexOf('('));
-    const fn = call.trim().replace(/^sh2\./, '');
-    const body = inner.slice(inner.indexOf('(') + 1, -1);
-    // split body at top-level commas (depth-aware)
-    const args = [];
-    let depth = 0;
-    let cur = '';
-    for (let i = 0; i < body.length; i++) {
-      const ch = body[i];
-      if (ch === '(') depth++;
-      else if (ch === ')') depth--;
-      if (ch === ',' && depth === 0) { args.push(cur); cur = ''; continue; }
-      cur += ch;
-    }
-    if (cur.trim() !== '') args.push(cur);
-    // resolve each arg (a nested sh2.* call is evaluated recursively;
-    // a `$(...)` cmdsub used as an arg is resolved)
-    const resolved = args.map(a => {
-      a = a.trim();
-      const m2 = /^\$\(sh2\.[A-Za-z_][A-Za-z0-9_]*\([\(]?\)?/;
-      if (/^\$\(sh2\.[A-Za-z_][A-Za-z0-9_]*\(/.test(a)) {
-        // find the helper's body: skip the `$(` opener, locate the
-        // helper's `(`, then match its balanced close.
-        const firstOpen = a.indexOf('(');
-        const bodyStart = a.indexOf('(', firstOpen + 1);
-        let d = 0;
-        let j = bodyStart;
-        for (let k = bodyStart; k < a.length; k++) {
-          if (a[k] === '(') d++;
-          else if (a[k] === ')') { d--; if (d === 0) { j = k; break; } }
-        }
-        return evalSh2(a.slice(2, j + 1));
-      }
-      return a;
-    });
-    let val = '';
-    if (fn === 'byteAt' && resolved.length === 2) val = sh.byteAt(resolved[0], resolved[1]);
-    else if (fn === 'objFieldLen' && resolved.length === 2) val = sh.objFieldLen(resolved[0], resolved[1]);
-    else if (fn === 'jsonGet' && resolved.length === 2) val = sh.jsonGet(resolved[0], resolved[1]);
-    else if (fn === 'chr' && resolved.length === 1) val = sh.chr(resolved[0]);
-    else if (fn === 'assocGet' && resolved.length === 2) val = sh.assocGet(resolved[0], resolved[1]);
-    return val;
-  };
   let m;
   while ((m = sh2re.exec(out)) !== null) {
     const fn = m[1];
@@ -10323,7 +10411,7 @@ function runCmdSubst(s, sh) {
       j++;
     }
     const inner = out.slice(m.index + 2, j - 1); // between $( and the final )
-    let val = evalSh2(inner);
+    let val = expandSh2Helper(sh, inner);
     out = out.slice(0, m.index) + val + out.slice(j);
     sh2re.lastIndex = m.index + (val === undefined ? 0 : val.length);
   }
@@ -11585,9 +11673,50 @@ function parseCStyleHeader(header) {
 }
 
 // ── parameter-expansion helpers ──────────────────────────────────────
+// Split a single-star parameter-expansion pattern into `{ side, core }`:
+// `*P` → { side: 'head', core: 'P' }, `P*` → { side: 'tail', core: 'P' }.
+// `null` for anything else (two stars, a metachar-bearing core, an empty
+// core, a bare `*` — those keep the generic glob loop).
+//
+// WHY (Plan 42): the strip engines below test `globMatch` against EVERY
+// prefix/suffix of the value — O(n²) regex work for what is usually ONE
+// `indexOf`. The single-star shapes are the shell's basename/extension
+// idioms (`${f##*/}`, `${f%.*}`, `${s#*:}`), measured 1.1-3.7 us per call
+// on short values. The formula is the SAME one src/shir.rs
+// (`try_native_param`) already emits for word positions, so the two paths
+// agree by construction: with a metachar-free core P, `*P` matches exactly
+// the strings ENDING with P, hence the shortest such prefix is the FIRST
+// occurrence of P and the longest the last one (and mirror-image for P*).
+function stripPatternCore(pattern) {
+  const p = String(pattern ?? '');
+  if (p.length < 2) return null;
+  const headStar = p.charCodeAt(0) === 42 /* '*' */;
+  const tailStar = p.charCodeAt(p.length - 1) === 42;
+  if (headStar === tailStar) return null; // no star, or `**…`
+  const core = headStar ? p.slice(1) : p.slice(0, -1);
+  // A core with any glob syntax — a metachar, or a backslash escape (which
+  // the glob engine interprets but `indexOf` would take literally) — keeps
+  // the generic loop.
+  if (core === '' || /[*?[\\]/.test(core)) {
+    return null;
+  }
+  return { head: headStar, core };
+}
+
 function stripGlobPrefix(v, pattern, longest) {
   if (v === '') return v;
   if (!/[*?[]/.test(pattern)) return v.startsWith(pattern) ? v.slice(pattern.length) : v;
+  const sc = stripPatternCore(pattern);
+  if (sc !== null) {
+    if (sc.head) {
+      // `*P` — strip through the first (shortest) / last (longest) P
+      const ix = longest ? v.lastIndexOf(sc.core) : v.indexOf(sc.core);
+      return ix >= 0 ? v.slice(ix + sc.core.length) : v;
+    }
+    // `P*` — # strips P, ## strips everything
+    if (!v.startsWith(sc.core)) return v;
+    return longest ? '' : v.slice(sc.core.length);
+  }
   let best = -1;
   for (let i = 0; i <= v.length; i++) {
     if (globMatch(pattern, v.slice(0, i))) best = longest ? Math.max(best, i) : (best === -1 ? i : best);
@@ -11597,6 +11726,17 @@ function stripGlobPrefix(v, pattern, longest) {
 function stripGlobSuffix(v, pattern, longest) {
   if (v === '') return v;
   if (!/[*?[]/.test(pattern)) return v.endsWith(pattern) ? v.slice(0, v.length - pattern.length) : v;
+  const sc = stripPatternCore(pattern);
+  if (sc !== null) {
+    if (!sc.head) {
+      // `P*` — % (shortest) strips the LAST occurrence, %% (longest) the first
+      const ix = longest ? v.indexOf(sc.core) : v.lastIndexOf(sc.core);
+      return ix >= 0 ? v.slice(0, ix) : v;
+    }
+    // `*P` — % strips P off the end, %% strips everything
+    if (!v.endsWith(sc.core)) return v;
+    return longest ? '' : v.slice(0, v.length - sc.core.length);
+  }
   let best = -1;
   for (let i = 0; i <= v.length; i++) {
     if (globMatch(pattern, v.slice(i))) {

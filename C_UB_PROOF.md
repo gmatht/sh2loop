@@ -1,8 +1,12 @@
 # Can Isabelle prove the C backend produces no UB?
 
-Status: **P1, P2 and P3 mechanized and green; P4 blocked on the absent
+Status: **P1, P2 and P3 mechanized and green; §2a's `ov`-flag obligation
+mechanized in Verus and in Isabelle (§13); the Eq/Ne render decision and
+the decimal renderers mechanized in Verus, the decimal round trip also in
+Isabelle (§14); P4 blocked on the absent
 `C-Parser`/`AutoCorres` toolchain** (§12). Written 2026-10-22 against
-`sh2perl/backends/c` @ `5b1524085` (`src/c_backend.rs`, 50,747 lines).
+`sh2perl/backends/c` @ `5b1524085` (`src/c_backend.rs`, 50,747 lines);
+§13 added 2026-10-27, §14 added 2026-10-28.
 
 `verif/` holds four theories (P1, P2, P3-capacity, P3-buffer) totalling 40
 lemmas/theorems. A clean-room `isabelle build -d verif -b Sh2` (Isabelle
@@ -418,7 +422,337 @@ Two secondary reasons P4 would not pay even with the AFP:
 
 Recorded as blocked rather than attempted.
 
-## Revision history
+## 13. §2a's `ov`-flag obligation mechanized (2026-10-27)
+
+§2a named the first render-discipline obligation verbatim:
+
+> the theorem is "the `ov` flag is set exactly when the exact result
+> leaves `long long`", i.e. the tier's escape hatch to GMP is only taken
+> when needed *and* always taken when needed
+
+That sentence is now machine-checked, in two halves that together close it.
+
+**Emission level — Verus, `sh2perl/proofs/verus/c_checked_arith.rs`.**
+18 obligations, 0 errors, over a model of the checked tier's own logic
+(`tiered_i64_expr` + `tiered_store_general` = protocol A's `ov |=` walk
+with its `if (!ov)` commit; `spec_checked_expr` + `spec_checked_store` =
+protocol B's `break` walk with the store line *after* the checks):
+
+- `flag_iff_exact_exits` — THE OBLIGATION, both directions: `ov == false`
+  iff every flagged node's exact value lies in i64, so the escape hatch is
+  taken only when needed *and* whenever needed;
+- `walk_value_sound` / `air_value_sound` — a flag-free walk *is* the
+  denotation and re-establishes the range invariant;
+- `commit_a_sound`, `commit_a_spill_exactly_when_needed` — `fast` is
+  assigned only under `!ov`, and the GMP spill runs iff a participant was
+  already promoted or some exact value left i64;
+- `commit_b_sound`, `commit_b_entry_refusal`, `break_matches_flag` — the
+  short-circuit protocol reports the same flag as the continue protocol,
+  so one `walk` models both, and an entry refusal means no store;
+- `refusal_forces_spill` — the source's `None => ov = 1` arm, pinned;
+- `raw_divisor_gate` — the unflagged `/` `%` arm is reachable only under a
+  positive-literal divisor, excluding both UBs of raw C division (zero
+  divisor, `LLONG_MIN / -1`) *at the gate*, not at a runtime check;
+- two negative controls: `unguarded_commit_ships_wrap` (delete the
+  `if (!ov)` gate and MAX+1 "commits" `-2^63`) and
+  `protocol_b_skips_the_overflowing_store`.
+
+Why Verus for this half rather than Isabelle: the tier is Rust. Verus
+verifies the source that *produces* the C, so the theorem is about
+`tiered_i64_expr`'s actual control flow instead of a transcription of it —
+a transcription could agree with itself and disagree with the compiler's
+input. It is registered in `harness/verus-gate.sh` with its **exact
+obligation count**, so a weakened file fails the gate even when Verus
+exits 0.
+
+**shIR level — Isabelle, `proofs/ArithIdentity/ArithWidth.thy`.** §4 of the
+arithmetic denotation, building under `quick_and_dirty = false` with no
+`sorry`. It defines the machine-width reading `ev64` against `ArithIdentity`'s
+exact reading `ev` and proves:
+
+- `ev64_agrees` — `air e a ⟹ ev64 e a = ev e a`: while every fold point
+  holds an in-range exact value the two readings coincide, so a value the
+  tier commits under `if (!ov)` **is** the shIR meaning of the tree;
+- `wrap64_id` / `wrap64_range` — an in-range value is its own wrap, and
+  every wrap lands back in i64, so the fast tier's value is always a legal
+  `long long`, flag or no flag;
+- `machine_wrap_changes_the_reading` /
+  `machine_wrap_breaks_the_invariant` — the negative control: MAX+1 reads
+  `2^63` exactly and `-2^63` wrapped, and `air` genuinely fails there,
+  which is why the flag exists at all.
+
+The two halves are one contract: Verus proves the *protocol* (the flag is
+set exactly when needed), Isabelle proves that what the protocol lets
+through *is* the denotation. Verus's `Tree::Num` is i64 by type so its
+invariant skips leaves, while `arith = Num int` refines nothing, so `air`
+checks literals too — the Isabelle side is deliberately the stronger
+statement. `fits64` is spelled `i64_min ≤ x ∧ x < half_u64` rather than
+`x ≤ i64_max` because `Main` here has neither `omega` nor `presburger` and
+the strict form keeps every obligation inside `linarith`; over `int` the
+two denote the same set, since `half_u64 = i64_max + 1`.
+
+**Still open in §2a.** The obligations above are about one *rendered*
+expression. The layer deciding *which* expressions get narrowed —
+`var_types` / `analyze_var_ranges`, and the shared `f32_narrow` /
+`i32_provable` transforms — is untouched, so §2a's per-variable statement
+`∀ s. v ∈ [lo,hi] ⟹ eval_int32(e,s) = eval_i64(e,s) = eval_shell_intmax(e,s)`
+remains unmechanized, as do `_sh_isint31`, the `__int128`-to-decimal
+helper, `need_isqrt`, and the operator/promotion rules. §2a's "a few
+thousand lines plus a generator" estimate still stands for that; nothing
+here substitutes for it.
+
+**Gates (re-run 2026-10-28).** `harness/transform-proofs.sh` → 5
+checked-and-built, 1 failed: the pre-existing `proofs/` root, red on
+another lane's uncommitted `Maskable.thy` at lines 251/621/800 — in a
+session (`Maskable = BigIntRange +`) that imports none of this work, and
+last edited 2026-10-24, before any of it. The ArithIdentity session
+(`ArithIdentity` + `ArithWidth` + `ArithDec`, `quick_and_dirty = false`,
+zero `sorry`), TextOps, verif and both `checked` manifests all build.
+`harness/verus-gate.sh` → **43 passed, 0 failed**: all 26 models green,
+including the three added here (`c_eqne_emit.rs` 11/11,
+`c_checked_arith.rs` 18/18, `c_dec_str.rs` 26/26), and the sync-coverage
+checks too — `verus-sync-coverage.sh:elim_trio`, which failed on 2026-10-27
+because another lane's edits broke the lib's `cfg(test)` target, passes
+again.
+
+## 14. Two more render-discipline obligations mechanized (2026-10-27/28)
+
+§1's first layer — "render discipline … silent wrong value / UB" — gains
+two more of its informal comment-claims as machine-checked theorems. Both
+are Verus models of the generator's OWN decision code (same rationale as
+§13: the theorem is about the source that produces the C, not a
+transcription of it), and the decimal half is closed on the shIR side too.
+
+### 14a. The Eq/Ne arm — `sh2perl/proofs/verus/c_eqne_emit.rs` (11 obligations)
+
+`expr()`'s `BinOp Eq|Ne` arm makes a two-way decision: both operands
+certainly-text (`str_cmp_valued`) → a STRING compare via
+`strcmp`/`_sh_sc`; otherwise a RAW `==`/`!=` on the operand emissions.
+The raw arm is UB when an operand emission is a `char*` — a
+pointer/integer comparison, which gcc names exactly
+("warning: comparison between pointer and integer"). This is not latent:
+`test-lowering`'s string-eq lift turns `[ "$i" = "2" ]` into
+`Not(BinOp{Ne}, Var i, Str "2")`, and for a numeric-homed `i` (loop
+counters — the common case) `str_cmp_valued(Var i)` is false while the
+literal is text, so the RAW arm emits `i != "2"`. Measured 2026-10-27 on
+the 563-example corpus: 2 of 564 renders carry the gcc warning, and
+`harness/c_gate_main.sh` fails 5 files whose transforms-ON output diverges
+from bash while the transforms-OFF output matches it (`or-continue`
+rc=1, `func-after-test-or` rc=134 abort on UB, plus three of the same
+decision class).
+
+| lemma | content |
+|---|---|
+| `emit_string_cmp_sound` | the strcmp arm is total (through `_sh_sc`) and equals the shIR STRING compare whenever both operands are certainly-text |
+| `emit_raw_cmp_sound` | the raw arm equals the shIR NUMERIC compare whenever both operand emissions are C integers (NULL counts as 0, as C's null-pointer constant compares) |
+| `raw_arm_ub_on_text` | the negative direction, stated as a theorem: a non-null `char*` operand makes the raw arm UB — the class the corpus actually hits |
+
+### 14b. The decimal renderers — `c_dec_str.rs` (26 obligations) + `proofs/ArithIdentity/ArithDec.thy`
+
+The backend emits two hand-rolled itoas, each carrying an unproven claim
+in its own comment — and the claims are the claims §2a lists as
+"not trivially in range" and §2b lists as width obligations:
+
+- `_sh_ll2s(char *d, long long v)` (reached from `num_temp`, whose
+  destination is the emitted `static char _sN[32]`): *"byte-for-byte what
+  snprintf("%lld") writes for every long long (incl. LLONG_MIN)"*;
+- the inline `size_t` itoa of `FieldStrip`/`FieldStripEnd` into
+  `str_temp(24)`: *"a decimal string in a bounded static (size_t ≤ 20
+  digits + NUL ≤ 24)"*.
+
+**Verus half (`sh2perl/proofs/verus/c_dec_str.rs`, 26 obligations, four
+mutants).** `mag_emitted_is_abs` (the emitted `-(v+1)+1` equals `|v|` for
+all v) and `mag_step_fits_i64` (and `-(v+1)` lies in i64 for every v — the
+reason the source is written that way; `neg_plain_overflows` refutes plain
+`-v` at LLONG_MIN); `fill_is_digits` (the do-while emits LSB-first digits,
+so the copied slice is MSB first); `ndigits_le_19` — THE WIDTH THEOREM, no
+64-bit magnitude needs more than 19 digits, hence no index underflow in
+`t[24]`; `ll2s_exact` (the bytes equal `render_ll(v)`, the `%lld`
+spelling); `ll2s_capacity` (`copy_len + 1 ≤ 32`, the NUL lands inside
+`num_temp`'s buffer); `size_itoa_i_bound` (`_i ≥ 3`, so the `memmove`
+always carries the NUL at `b[23]`); `size_itoa_exact` (result is
+`dec_digits(v)` for every u64, incl. the 20-digit maximum and the `!_v`
+zero arm); `max_digits_64` (the shared width fact, proved once).
+
+**Isabelle half (`proofs/ArithIdentity/ArithDec.thy`, §5 of the
+arithmetic denotation, green under `quick_and_dirty = false`).** The bytes
+those helpers promise are proved against the shIR denotation, not against
+a model of C: `parse_dec_bytes` (the fold reader inverts `dec_bytes`),
+`parse_render_id` (`parse (render v) = v` — the round trip `ll2s_exact`
+points at), well-formedness (`dec_bytes_digits` digit-set,
+`dec_bytes_hd45` never a sign byte), and the width lemmas:
+`dec_bytes_len_i64_max` (19), `dec_bytes_len_u64_max` (20),
+`dec_bytes_length_le_19`, `render_len_le_20` over the 64-bit domain — plus
+the negative control `render_len_unbounded`: shell ints are unbounded, so
+"≤ 20 digits" is precisely a *64-bit-domain* claim and is stated as one.
+
+The two halves meet where `ll2s_exact` names `render_ll` and ArithDec's
+`render` defines the same spelling over the denotation: Verus proves the
+emitted buffer arithmetic is exact and in-bounds; Isabelle proves the
+spelling round-trips and is the one bash's `printf %d` family reads.
+
+## 15. The width store condition — `c_width_store.rs` (20 obligations)
+
+§7's 10 gcc-visible truncating stores are the shape this model closes at
+the Verus level. The backend checks nothing at the store: a var seeded
+`[1,5]→u8` keeps that width while a `long long` table element is stored
+into it, and `uint8_t result = 15 + _sh_pow(5,2)` is safe only because
+25 happens to fit. `range_width_name` (shir.rs:16628) names 8 widths by
+first-match if-chain (u8 before i8 — load-bearing for the
+sanitizer-invisibility: non-negative ranges always take the unsigned
+arm), `Width::from_range_name` maps back (garbage→I64, fail-closed),
+`Width::widen` is max rank, and `effective_widths` + `walk_widths_expr`
+fold the var's own width with every mentioning arith result's width,
+forcing I64 on unknown ranges (modulo the `arith_op_wide` escape and
+the comparison/side-effect-root skips, both modelled as shape
+predicates).
+
+What is proved (ranges are HYPOTHESES — T1 of P1_Narrowing.thy; the
+producers stay proved in Isabelle: BigIntRange corner lemmas for `/`,
+I32Provable for the estimator):
+
+- `narrow_sound` — a value inside the analysed range fits the named
+  width (P1's T1-second-half, mirrored), WITH the honest domain
+  provisos the if-chain needs: `hi ≤ 2^64-1` (the U64 arm has no
+  source-level upper bound), and an I64 naming is sound only when the
+  range fits i64 (the else arm fires for wider ranges it cannot hold —
+  the analysis must not produce them; stated, not hidden);
+- `store_safe_conditional` — THE OBLIGATION (T3): under consistent
+  (value-covering) ranges the widen-fold admits the store —
+  `eff_fold_sound` over the max-rank fold, with the shell-domain
+  premise (`fits(v, I64)`: bash arithmetic never leaves i64);
+- `outside_not_admitted_u8/_i8` — the TRUNC direction (P1's lemma),
+  the property the 10 gcc-visible stores violate;
+- `narrow_u8_first`, `nonneg_never_signed` — the ordering pins (first-
+  match names U8 though I8 would fit; lo≥0 never names signed);
+- `from_range_name_total`, `unknown_forces_i64`, `op_wide_fail_closed`
+  / `op_wide_fires` (the escape claims wide only on literal-out-of-i32,
+  positional `$N`, wide-range var; never on unknown/unranged),
+  `skip_shapes`, `widen_is_max`/`widen_lattice`/`widen_preserves_fit`;
+- three fidelity pins: the 6 live shir.rs unit assertions (incl.
+  `(0,2^64-1)→u64`), the c_type spellings, and the corpus TRUNC shape
+  detected (own `[1,5]→U8` + unknown use forces the fold to I64 — the
+  analysis had the information to stay wide; the per-store check is
+  absent).
+
+Negative control: naming `(0,100)` as I8 (ordering flipped) goes red
+(19v/1e, restored to 20v/0e) — the u8-before-i8 arm is load-bearing,
+not cosmetic.
+
+
+
+- v11 (2026-10-28): §17 — the arith guard + temp/spec decisions
+  (`c_arith_guard.rs`, 15 obligations, negative-dividend mutant red
+  14v/1e): the guarded `({r} == 0 ? 0 : …)` form is total (no SIGFPE)
+  and dead exactly under the divisor proof; the unsigned
+  strength-reduction equals the signed truncating op on proven-nonneg
+  i64 dividends (with the shipped `-3 % 2` divergence as the negative
+  control); `static char _sN[32]` + `str_temp(cap)` + `width_buf_len`
+  size every stringification exactly; `num_spec`'s cast⟺`%lld`
+  invariant holds with all 5 live unit assertions. Proof artifacts
+  only; no transpiler source changed.
+
+- v10 (2026-10-28): §16 — the fixed-buffer store contract
+  (`c_buf_copy.rs`, 14 obligations, capture-denial mutant red 13v/1e):
+  the emission side of P3's buffer half (given the analysis bound, every
+  store site respects it). Proof artifacts only; no transpiler source
+  changed.
+
+- v9 (2026-10-28): §15 — the width store condition (`c_width_store.rs`,
+  20 obligations, ordered-mutant red 19v/1e): T3 of P1_Narrowing.thy at
+  the Verus level (consistent ranges ⟹ widen-fold admits the store),
+  with the honest domain provisos (u64 unbounded above, else/I64 fires
+  past i64). Proof artifacts only; no transpiler source changed.
+
+## 16. The fixed-buffer store contract — `c_buf_copy.rs` (14 obligations)
+
+§11 closed P3's second half (the fixed-buffer contract) conditional on
+a correct N. This model closes the EMISSION side: given the analysis
+bound, does every store site respect it? `buf_bound`
+(c_backend.rs:11269) grants `char v[b+1]` only to proven Str vars with
+b ≤ 1024 — numeric vars (integer C value: `strlen` on it is itself UB),
+capture receivers (the analysis under-bounds command output: `sha256sum`
+emits hash + filename, only the hash was counted), and GMP bigint vars
+(unbounded by design) all stay `char*`. `emit_guarded_copy` (:11293)
+emits per RHS shape: fitting unescaped literal → bare
+`strncpy(dst,src,b+1)` (no assert needed — provably true; no NUL store
+— strncpy pads); capture/vbuf/`sh2_` sources → `strncpy` + `dst[b]=0`
+with NO assert (not reliably bounded — the assert would
+false-positive; the truncation is still safe); other stringy sources →
+`assert(strlen ≤ b)` + `strncpy` + `dst[b]=0` (the assert is the
+debug-mode tripwire, the NUL store defines NDEBUG); non-stringy
+spellings → `dst[0]=0` (never touch the pointer).
+
+What is proved (lengths are HYPOTHESES; the model states the
+store-side contract): `guarded_write_safe` (THE OBLIGATION — the grown
+write always lands NUL-terminated in bounds; exact when the source
+fits, truncating-but-defined otherwise); `literal_arm_exact`;
+`debug_assert_matches` (the assert IS the fits predicate — P3_Buffer's
+lemma, mirrored); `capture_arm_no_ub` (assert-free is still never UB —
+"a wrong N is a wrong value, never UB"); `bogus_arm_clears`;
+`stringy_shape_mirror` (the six-shape classifier + three refusals);
+`unescaped_recognizes` (only escape-free `"…"` qualifies, strlen =
+len−2); `bound_discipline` (all three denials stay `char*`; bound
+requires b ≤ 1024); three pins (decl shapes, the `sha256sum`
+capture-receiver-stays-`char*` shape, the `"yes"`-fast vs
+`_cap_`-unguarded vs `+`-clear arm shapes).
+
+Negative control: dropping the capture denial (bounded capture
+receiver as Fixed) goes red (13v/1e, restored to 14v/0e) — the denial
+is load-bearing, not conservative: the analysis demonstrably
+under-bounds command output.
+
+## 17. The arith guard + temp/spec decisions — `c_arith_guard.rs` (15 obligations)
+
+The one site where a missing check is a CRASH, not a wrap: a raw `/ 0`
+is SIGFPE. `arith`'s `/`|`%` arm (c_backend.rs:15264) takes the first
+matching shape: float operand → `fmod` (no guard — NaN propagates, the
+documented Python divergence); positive-literal power-of-2 divisor +
+`arith_proven_nonneg(lhs)` (range says lo≥0 AND every subrange fits
+i64) → strength-reduced unsigned `& mask`/`>> k`; positive-literal
+divisor + proven-nonneg dividend → unsigned op (guard still needed
+unless bounded-nonzero); `arith_divisor_bounded_nonzero(rhs)`
+(shir.rs:10914 — nonzero literal/var, or BOUNDED-subset var whose
+proven range stays strictly inside ±i64 so a wrapping render can never
+overflow through zero) → bare `(l op r)` (guard dead); else →
+`({r} == 0 ? 0 : (l op r))` (bash's rule: the expansion vanishes → 0).
+Kept away from the tier entirely: dynamic-divisor `/` `%` (refused by
+`spec_rhs_ok` — the checked-tier model), `const_arith_value` never
+folding `/` `%` (a fold turns a runtime abort into a compile error),
+LLONG_MIN/−1 (positive-divisor gate only).
+
+What is proved: `guard_total` (THE OBLIGATION — the guarded form is
+total: zero → 0, else the truncating quotient); `guard_matches_bare`
+(nonzero ⟹ guard dead); `llong_min_gate` (LLONG_MIN/−1 still UB under
+the guard — the gate is load-bearing); `unsigned_red_sound` (unsigned
+= signed on nonneg i64 dividends, positive divisors); the negative
+control `reduction_needs_nonneg` (the shipped `-3 % 2` shape: signed
+−1 vs unsigned 1 — the comment's own executed counterexample);
+`bounded_nonzero_elides`; `num_temp_fits` (`_sN[32]` holds every i64
+spelling — the decimal model's ≤20+NUL bound); `str_temp_sized`
+(24 for the size_t itoa, 32 for specials/strlen); `width_buf_exact`
+(the I8→4 … I64/U64→21 table = chars+NUL of each widest spelling);
+`num_spec_invariant` (cast ⟺ `%lld` — a casted operand never meets a
+narrow format); `type_matches_sound` (var-at-w matches, Str-var and
+int-literal never match, same-width-leaves arith matches);
+`specials_are_int` (`# ? $` are `%d` cast-free); two pins (the 5 live
+`num_spec` unit assertions; the shipped guard shape + gate + strength
+predicates).
+
+Negative control: claiming the negative dividend equals the unsigned
+reduction goes red (14v/1e, restored to 15v/0e) — the nonneg proof is
+load-bearing, not an optimization.
+
+- v8 (2026-10-28): §14 — two more render-discipline obligations
+  mechanized: the Eq/Ne emission decision (`c_eqne_emit.rs`, 11) and the
+  decimal renderers (`c_dec_str.rs`, 26, four mutants), with the shIR-side
+  round trip and width theorems in `proofs/ArithIdentity/ArithDec.thy`.
+  Both gates re-run green: `verus-gate.sh` 43 passed / 0 failed (26
+  models + sync coverage; `elim_trio`'s previously failing coverage check
+  is now repaired by the other lane), `transform-proofs.sh` 5
+  checked-and-built / 1 pre-existing failure (`proofs/` root,
+  `Maskable.thy`, another lane). Proof artifacts only; no transpiler
+  source and no generated-code behaviour changed.
 
 - v6 (2026-10-22): P3's fixed-buffer half mechanized (`verif/P3_Buffer.thy`),
   closing P3. P4 recorded as blocked on the absent `C-Parser`/`AutoCorres`

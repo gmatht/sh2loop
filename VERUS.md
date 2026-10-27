@@ -12,7 +12,7 @@ framework is Isabelle (`sh2perl/proofs/README.md`, `proofs/ArithIdentity`,
 the two are not double-counted. The tier language (Tier 1/2/3) comes from
 `docs/transform-verification.md`.
 
-Status snapshot (measured 2026-10-24):
+Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28):
 
 | proof file | target | obligations | status |
 |---|---|---|---|
@@ -41,11 +41,24 @@ Status snapshot (measured 2026-10-24):
 | `proofs/verus/elseif_flatten.rs` | `transforms/else_if_flatten.rs` (chain) | 22 verified, 0 errors | landed, gated — see P11 |
 | `proofs/verus/seq_range.rs` | `transforms/seq_range_for.rs` (seq words) | 11 verified, 0 errors | landed, gated — see P11 |
 | `proofs/verus/ternary_desugar.rs` | `transforms/ternary_desugar.rs` (cond normalize) | 9 verified, 0 errors | landed, gated — see P11 |
+| `proofs/verus/c_eqne_emit.rs` | **C generator**: `c_backend.rs` `expr()` Eq\|Ne arm (`str_cmp_valued` decision) | 11 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §14a |
+| `proofs/verus/c_checked_arith.rs` | **C generator**: `c_backend.rs` checked i64 tier (`tiered_i64_expr` / `tiered_store_general` + spec arm) | 18 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §13 |
+| `proofs/verus/c_dec_str.rs` | **C generator**: `_sh_ll2s` + the inline `size_t` itoa it emits | 26 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §14b |
+| `proofs/verus/c_width_store.rs` | **C generator**: `Width` + `width_of_var`/`effective_widths` store condition | 20 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §15 |
+| `proofs/verus/c_buf_copy.rs` | **C generator**: `buf_bound` + `emit_guarded_copy` store contract | 14 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §16 |
+| `proofs/verus/c_arith_guard.rs` | **C generator**: arith `/%` guard + `num_temp`/`str_temp` + `num_spec` | 15 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §17 |
 
 470 active obligations total (482 with the 12 retired i32 obligations), 0 errors,
 every active model with checked failing mutants (see §(b).3 — 25 mutants over
 23 models; the retired exec form carries its postcondition on the executable
-function itself instead). The eight pre-existing counts — and
+function itself instead). The last three rows are models of the C
+GENERATOR's own emission decisions, not of a shIR→shIR transform; they sit
+in the same gate but are counted separately from the 470 above — +104
+obligations (11/18/26/20/14/15, each with its own failing mutants or negative
+controls, all re-verified under the pinned binary 2026-10-28), for 574
+gated active obligations in total. Their proofs, and why Verus rather than
+Isabelle fits them (the target is Rust that *produces* the C), are in
+`C_UB_PROOF.md` §13–§14. The eight pre-existing counts — and
 their seven mutants — were independently reproduced on 2026-10-24 with the
 pinned binary (see §(b).3); the three new counts (27/41/25) and their three
 mutants were checked the same day in the same session; the P9 trio count
@@ -323,7 +336,7 @@ source outgrows its extractor patterns — but the generated
 that lands, "the model matches the code" is a statement about the day each
 file was written, reviewed by re-reading.
 
-**3. The obligations are not vacuous — every active model has a checked mutant (25 mutants over 23 models).**
+**3. The obligations are not vacuous — every transform model has a checked mutant (25 mutants over 23 models), plus the C-generator mutants.**
 Interval with a wrong product corner: 4 verified, 1 error. `Assign` writing
 a constant: 7 verified, 1 error. Inverted keep rule: 23 verified, 2 errors.
 Dropped purity gate: 43 verified, 2 errors. Restored `Arith(_) => true`
@@ -341,8 +354,15 @@ Dropped brace prefix: 11 verified, 1 error. Flipped case direction:
 19 verified, 3 errors. Dropped plain-ident gate (fold any name):
 9 verified, 1 error. Prefix lowered to suffix: 27 verified, 2 errors.
 Dropped else-body in the splice: 18 verified, 4 errors. Accepted step form:
-9 verified, 2 errors. Test-string routed to arith: 8 verified, 1 error.
-Every mutant was restored and
+9 verified, 2 errors. Test-string routed to arith: 8 verified, 1 error. Flipped width order
+(narrow (0,100) as I8): 19 verified, 1 error. Dropped capture denial
+(bounded capture receiver as Fixed): 13 verified, 1 error.
+Unsigned-reduction-on-negative (shipped -3 shape as equal):
+14 verified, 1 error. C-generator mutants are
+recorded per-model in `C_UB_PROOF.md` §13–§17 (unguarded commit ships
+wrap, intended-UB pair is UB, four one-token decimal mutants, flipped
+width order), all restored and re-checked green under the pinned
+binary. Every mutant was restored and
 re-checked green — and the pre-existing reproductions were
 re-run independently on 2026-10-24 with the pinned binary, matching the
 documented numbers exactly (4v/1e, 7v/1e, 23v/2e, 43v/2e, 51v/2e, 51v/2e, 9v/1e, 31v/3e, 33v/1e against clean

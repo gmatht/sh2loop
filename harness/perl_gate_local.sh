@@ -45,7 +45,27 @@ command -v perl >/dev/null || { echo "perl_gate_local: no perl" >&2; exit 2; }
 CORPUS=$(ls "$ROOT"/sh2perl/examples/*.sh "$ROOT"/sh2perl/frontends/*/testdata/*.sh 2>/dev/null)
 
 # shIR JSON on stdout for one .sh file.
-shir_of() { "$OTRANS" --target shir "$1" 2>/dev/null; }
+#
+# AN EXEC FAILURE IS NOT AN INPUT VERDICT, so it is retried before it is
+# believed. The core emitter is rebuilt by the estree loop into the SAME
+# target dir every worker shares (sh2perl/target -> .sh2target/otranspiler),
+# and cargo replaces target/debug/otranspilerl-cli by unlinking the old
+# artifact and re-linking the new one — so for a moment the path does not
+# exist and exec returns 127 with the file GONE. Measured on the fleet gate
+# 2026-10-25T02:09:37: exactly two corpus files came back
+# `rc=127 ... inode=GONE` and the run was reported as CRASHED, though the
+# same two files emit clean on demand and the corpus was 648/650 green.
+# An emit that fails while the BINARY IS PRESENT (rc=1: a WIP core) is a
+# real result and is returned at once.
+shir_of() {
+  local try
+  for try in 1 2 3; do
+    if "$OTRANS" --target shir "$1" 2>/dev/null; then return 0; fi
+    if [ -x "$OTRANS" ]; then return 1; fi
+    sleep 1
+  done
+  return 1
+}
 # render shIR -> perl text on stdout.
 render_of() { shir_of "$1" | "$SR" --target=perl - 2>/dev/null; }
 

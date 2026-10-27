@@ -72,6 +72,7 @@ my @problems;
 # names are the direct calls (`sh2.callDirect(f, ...)`); collecting the
 # declared names keeps the gate strict about everything else.
 my %native_fn_bindings;
+my %null_fn_candidates;
 my %promise_params;
 for my $s (@{ $data->{body} // [] }) {
     next unless ref $s eq 'HASH' && ($s->{type} // '') eq 'VariableDeclaration';
@@ -91,8 +92,43 @@ for my $s (@{ $data->{body} // [] }) {
             && (($init->{type} // '') eq 'Literal' && !defined $init->{value})) {
             $native_fn_bindings{ $id->{name} // '' } = 1;
         }
+        # a module-level `let <id> = null` binding that the program later
+        # ASSIGNS a function to is the same direct binding under a
+        # readable name (`let my_func = null; (my_func = () => …, …)`) —
+        # src/shir.rs `direct_binding_name` keeps the plain name when it
+        # collides with nothing. Record the null init here and confirm the
+        # arrow assignment below, so `x()` on an ordinary null variable
+        # still fails.
+        if ((($id->{type} // '') eq 'Identifier')
+            && (($init->{type} // '') eq 'Literal' && !defined $init->{value})) {
+            $null_fn_candidates{ $id->{name} // '' } = 1;
+        }
     }
 }
+# Confirm the candidates: an AssignmentExpression `<id> = <fn>` anywhere in
+# the program promotes the binding to a callable (the define site).
+sub confirm_fn_assignments {
+    my ($n) = @_;
+    return unless defined $n;
+    if (ref $n eq 'HASH') {
+        if (($n->{type} // '') eq 'AssignmentExpression'
+            && ref $n->{left} eq 'HASH'
+            && ($n->{left}{type} // '') eq 'Identifier'
+            && $null_fn_candidates{ $n->{left}{name} // '' }
+            && ref $n->{right} eq 'HASH'
+            && (($n->{right}{type} // '') eq 'ArrowFunctionExpression'
+                || ($n->{right}{type} // '') eq 'FunctionExpression')) {
+            $native_fn_bindings{ $n->{left}{name} } = 1;
+        }
+        for my $k (keys %$n) {
+            next if $k eq 'type';
+            confirm_fn_assignments($n->{$k});
+        }
+    } elsif (ref $n eq 'ARRAY') {
+        confirm_fn_assignments($_) for @$n;
+    }
+}
+confirm_fn_assignments($data);
 
 # Names bound to a native `Map` — the associative-array migration
 # (src/shir.rs `assoc_migrate_program`, SH2_ASSUME_NATIVE_ASSOC, ON by
@@ -199,6 +235,28 @@ sub resolves_to_map {
             return 1 if resolves_to_map($e);
         }
         return 0;
+    }
+    # `sh2.arrays` / `sh2.assocStore` / … — the runtime's OWN Map fields
+    # (sh2-namespace.mjs: `arrays: new Map()`, `assocStore: new Map()`, …).
+    # The native lowerings reach into them directly instead of paying a
+    # dispatch — `sh2.arrays.get("primes")` is the indexed-array store
+    # lookup (src/shir.rs `arrays_get`, whose doc calls it "the same class
+    # of direct store access `sh2.vars.<n>` already is"). The receiver is
+    # the same Map, just spelled as a member chain rather than a binding,
+    # so it belongs here; without this arm every `.get` on the store fell
+    # through to `non-sh2 callee: get` and 14 corpus examples failed the
+    # structural gate. The field list is the runtime's literal `new Map()`
+    # fields — a field that is not a Map stays refused, which is what keeps
+    # `anythingElse.get(...)` a failure.
+    if ($t eq 'MemberExpression') {
+        my $o = $n->{object} // {};
+        my $p = $n->{property} // {};
+        return 0 unless ref $o eq 'HASH' && ref $p eq 'HASH';
+        return 0
+            unless ($o->{type} // '') eq 'Identifier'
+                && ($o->{name} // '') eq 'sh2'
+                && ($p->{type} // '') eq 'Identifier';
+        return (($p->{name} // '') =~ /^(arrays|assocStore|functions|chans|shoptState|traps|refVars|readBufs|_objStore|_wasm)$/) ? 1 : 0;
     }
     return 0;
 }
@@ -336,7 +394,14 @@ sub walk {
                 # code-point shift (`c.charCodeAt(0) + 32`) and the native sed
                 # stage's per-line loop (`L.forEach((line, li) => …)`), both
                 # src/shir.rs (tr_stage / sed_stage). Pure CPU, no I/O.
-                && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase|toUpperCase|charAt|slice|substring|split|join|flat|sort|then|catch|trim|replace|replaceAll|lastIndexOf|concat|filter|map|indexOf|test|exec|repeat|push|pop|charCodeAt|forEach)$/;
+                # reduce — the array-sum/concat lowering over a store read:
+                # `sh2.arrays.get("primes").reduce((a, b) => a + b, 0)`
+                # (051_primes, 063_09, 063_20). The receiver is a
+                # CallExpression — already in the allowed object types — and
+                # the fold is a native Array method on the plain string[] the
+                # store hands back: pure CPU, no dispatch, no I/O, exactly
+                # the class of `map`/`filter` two names earlier.
+                && ($prop->{name} // '') =~ /^(includes|startsWith|endsWith|toLowerCase|toUpperCase|charAt|slice|substring|split|join|flat|sort|then|catch|trim|replace|replaceAll|lastIndexOf|concat|filter|map|indexOf|test|exec|repeat|push|pop|charCodeAt|forEach|reduce)$/;
             # String.fromCharCode(n) — the native tr stage's contiguous
             # code-point shift (`A-Z` -> `a-z` is exactly `fromCharCode(+32)`,
             # src/shir.rs tr_stage). Pure-CPU, no I/O.

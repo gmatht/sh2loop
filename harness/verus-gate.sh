@@ -70,6 +70,65 @@ MODELS=(
   "elseif_flatten.rs:22:40"
   "seq_range.rs:11:40"
   "ternary_desugar.rs:9:40"
+  # The C generator's own Eq/Ne emission decision (c_backend.rs `expr()`
+  # + `str_cmp_valued`) — the first model aimed at a RENDER decision
+  # rather than a shared shIR->shIR pass. Proves the strcmp arm total,
+  # the raw arm sound under both-int operands, and pins the measured
+  # mixed pair (numeric-homed var vs string literal, the string-eq lift's
+  # `[ "$i" = "2" ]`) as UB under the shipped two-armed decision.
+  "c_eqne_emit.rs:11:40"
+  # The C generator's checked i64 arithmetic tier — the overflow-flag
+  # protocol of both fast arms (`__builtin_*_overflow` walk, the gated
+  # commit, the spill/break escape hatches). This is C_UB_PROOF.md §2a's
+  # named obligation verbatim: the ov flag is set exactly when an exact
+  # result leaves i64, so the GMP escape hatch is taken only when needed
+  # and whenever needed. Includes the MAX+1 negative controls (an
+  # unguarded commit ships the wrapped -2^63).
+  "c_checked_arith.rs:18:40"
+  # The C generator's DECIMAL RENDERERS — the hand-rolled itoas it emits:
+  # `_sh_ll2s` into num_temp's `static char _sN[32]`, and the inline
+  # `size_t` itoa of FieldStrip/FieldStripEnd into str_temp(24). Proves
+  # the two comment-claims C_UB_PROOF.md §2a/§2b name: byte-for-byte the
+  # `%lld` spelling over the whole i64 domain (incl. LLONG_MIN), and the
+  # write bound `strlen <= cap` for both destinations. Width theorem by
+  # monotonicity + computed digit counts of 2^63 and 2^64-1. Four
+  # one-token mutants, each killing a named obligation.
+  "c_dec_str.rs:26:40"
+  # The C generator's width-of-var / effective-widths store condition
+  # (sh2perl/src/c_backend.rs `Width` + `width_of_var`/`effective_widths`
+  # over `range_width_name` in sh2perl/src/shir.rs:16628). Proves the
+  # store-side obligation T3 of P1_Narrowing.thy: under consistent
+  # (value-covering) ranges the widen-fold admits the store; the TRUNC
+  # direction (outside the declared interval is not admitted); the
+  # fail-closed arms (unknown range -> I64, garbage name -> I64);
+  # `arith_op_wide` fail-closed/fires; the walk skip shapes. Includes
+  # the honest domain provisos (u64 arm unbounded above; else/I64 arm
+  # fires past i64 — the analysis must not produce such ranges).
+  "c_width_store.rs:20:40"
+  # The C generator's fixed-buffer store decision
+  # (sh2perl/src/c_backend.rs `buf_bound` + `emit_guarded_copy` over the
+  # length analysis). Proves the store-side contract: the grown write
+  # (strncpy cap=b+1 + dst[b]=0) always lands NUL-terminated in bounds
+  # (exact when the source fits, truncating-but-defined otherwise); the
+  # debug assert IS the fits predicate; the assert-free capture arm is
+  # still never UB; the non-stringy arm never touches the pointer; all
+  # three denials (numeric/capture/bigint) stay `char*`; the sha256sum
+  # under-bound shape is detected (capture receiver with bound 64 still
+  # renders `char*`).
+  "c_buf_copy.rs:14:40"
+  # The C generator's arith /% guard + num-temp/str-temp + num-spec
+  # decisions (sh2perl/src/c_backend.rs `arith`'s `/`|`%` arm + `num_temp`
+  # + `str_temp` + `num_spec`/`expr_type_matches` + `width_buf_len`, over
+  # `arith_divisor_bounded_nonzero` in sh2perl/src/shir.rs:10914).
+  # Proves: the guarded `({r} == 0 ? 0 : …)` form is total (no SIGFPE)
+  # and dead exactly when the divisor is proven (positive literal or
+  # bounded-nonzero); the unsigned strength-reduced arm equals the
+  # signed truncating op on nonneg dividends (with the shipped -3
+  # negative control); LLONG_MIN/-1 stays gated; `static char _sN[32]`
+  # + `str_temp(cap)` + `width_buf_len` size every stringification
+  # exactly; `num_spec`'s cast⟺%lld invariant holds with the type-match
+  # rules and the 5 live unit assertions.
+  "c_arith_guard.rs:15:40"
 )
 
 # extractor:baseline — the generator script and the file it must reproduce.

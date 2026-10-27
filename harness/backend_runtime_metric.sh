@@ -107,6 +107,56 @@ GO_SHIR_RENDER="${GO_SHIR_RENDER:-$ROOT/sh2perl/backends/go/target/debug/shir_re
 SEAM_c='_sh_[A-Za-z_0-9]+'
 SEAM_rust='__sh_[A-Za-z_0-9]+'
 SEAM_perl='__sh_[A-Za-z_0-9]+'
+# perl: the seam above counts IDENTIFIER MENTIONS, and in this renderer every
+# one of them is a LEXICAL, not a runtime entry point. Re-measured 2026-10-24
+# (20:05) over the 562 corpus renders, the 1113 hits decompose exactly as:
+#
+#     1040  $__sh_st     the `$?` model scalar (read AND written per command —
+#                        the renderer's own bookkeeping, no call, no helper)
+#       37  $__sh_ls0    a saved-status temp (`set -o pipefail` restore)
+#       26  @__sh_bg     the background pid list
+#        8  $__sh_fh0/$__sh_fd3/$__sh_fd5   fd lexicals
+#        2  $__sh_eh0
+#        0  `__sh_printf_*` helper headers — no call site survives
+#
+# (The earlier reading of this table was 1109 = 1036 st / 6 fd / 2
+# `__sh_printf_*` headers. The two header lines went away when the two
+# LITERAL-operand call sites — `__sh_printf_q("\n\t")` in
+# parse-dollar-single-quote.sh, `__sh_printf_b("a\\tb\\n")` in
+# printf-format-and-v.sh — started folding at render time (`printf_b_decode` /
+# `printf_q_quote` in perl_backend.rs run the helper's own table over the
+# constant). Today the same 562 renders give 1040 st / 8 fd / 0 headers; the
+# old per-bucket numbers no longer apply, and the total alone is not a
+# change-detector — which is why the call-site count is reported beside it.)
+#
+# Counted as CALL SITES — the rule the fish and go seams below already encode —
+# the same corpus is ZERO, and has been since those two printf folds landed.
+#
+# RE-MEASURED 2026-10-25 (11:19) over the 563 corpus renders — one more file
+# than the 562 above, because `realpath-cmdsub.sh` had been failing to render
+# at ingress (a stale `builtin::BUILTINS` copy: the table gained id/od/panic/
+# realpath/tty on main and the worktree had not taken the sync). The 1043 hits
+# decompose exactly as:
+#
+#      970  $__sh_st     the `$?` model scalar
+#       37  $__sh_ls0    a saved-status temp (`set -o pipefail` restore)
+#       26  @__sh_bg     the background pid list
+#        8  $__sh_fh0/$__sh_fd3/$__sh_fd5   fd lexicals
+#        2  $__sh_eh0
+#        0  call sites (`SEAM_CALL_perl`) — still no runtime ENTRY POINT
+#
+# The delta from 1113 is all `$__sh_st` (1040 -> 970): the guarded-failure
+# fold, the per-statement dead-status liveness, and a new
+# `fold_status_chain_else` pass that turns an `A && B || C` chain's two
+# sibling `if`s (each re-testing the status, each ending in its own reset)
+# into one perl `if`/`else` with the shared reset hoisted below it.
+#
+# The surviving 970 cannot be lowered: `$__sh_st` is how this renderer models
+# `$?`, and a script that reads `$?` needs it whatever the backend does. Both
+# numbers are reported (`calls` and `total`) rather than swapping the seam,
+# because `total` is the historical series and silently dropping 99.8% of it
+# would read as a 1113→2 "win" that no code produced.
+SEAM_CALL_perl='__sh_[A-Za-z_0-9]+[[:space:]]*\('
 SEAM_python='__sh_[A-Za-z_0-9]+'
 SEAM_zig='sh2[A-Za-z_0-9]+'
 # go: CALL SITES ONLY, for the same reason as fish above — but the seam is
@@ -123,6 +173,16 @@ SEAM_zig='sh2[A-Za-z_0-9]+'
 # fish seam encodes with its trailing group. (Whole-file figure, for history:
 # 2068 on 2026-10-22, 3376 on the pre-WIP renderer of the same corpus.)
 SEAM_go='s2s|capRun|capCmd|runCmd|redirRun|redirCap'
+# The CALL-SITE column had no go seam, so `calls` on the go row was 0 BY
+# CONSTRUCTION (`seam_for` fell back to the empty string and the counter
+# never ran) while the body carried 48 real call sites. The board printed
+# that 0 as "0 runtime calls / 562 files" — the same vacuous reading this
+# script exists to prevent, one column over. `s2s(x any)` is a plain
+# function in this renderer, so a call site is the name followed by `(`; a
+# bare mention cannot survive the body rule (the definitions are all in the
+# preamble, above `func main`). Measured 2026-10-25: 48 body mentions, all
+# of them calls.
+SEAM_CALL_go='(s2s|capRun|capCmd|runCmd|redirRun|redirCap)[[:space:]]*\('
 SEAM_BODY_go='^func main\(\)'
 SEAM_java='sh[A-Z][A-Za-z0-9]+'
 SEAM_js='sh2\.[A-Za-z_0-9]+'
@@ -226,15 +286,16 @@ LANGS="${*:-c rust perl python zig go java js}"
 CORPUS=("$ROOT"/sh2perl/examples/*.sh)
 [ -e "${CORPUS[0]}" ] || { echo "no corpus under sh2perl/examples" >&2; exit 1; }
 
-printf '%-8s %8s %10s %12s  %s\n' backend files calls per_file namespace
+printf '%-8s %8s %10s %12s  %8s   %s\n' backend files mentions per_file calls namespace
 for lang in $LANGS; do
     seam=$(seam_for "$lang")
     [ -n "$seam" ] || { printf '%-8s (no seam defined — update SEAM_%s)\n' "$lang" "$lang"; continue; }
     ext=$(ext_for "$lang")
     tree=$(tree_for "$lang")
+    callseam=$(eval "printf '%s' \"\${SEAM_CALL_$lang:-}\"")
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
-    files=0; total=0
+    files=0; total=0; calls=0
     for f in "${CORPUS[@]}"; do
         [ -f "$f" ] || continue
         out="$tmp/$(basename "$f").$ext"
@@ -258,6 +319,20 @@ for lang in $LANGS; do
                 n=$(grep -oE "$seam" "$out" 2>/dev/null | wc -l)
             fi
             total=$((total + n)); files=$((files + 1))
+            # SEAM_CALL_<lang>: the CALL-SITE count. Only a name immediately
+            # followed by an open paren is a runtime entry point; a bare
+            # identifier is a lexical the renderer declared for its own
+            # bookkeeping. Subtracting the definitions keeps an emitted
+            # helper's own signature out of the count.
+            if [ -n "$callseam" ]; then
+                if [ -n "$bodyfrom" ]; then
+                    nc=$(awk -v m="$bodyfrom" '$0 ~ m { on = 1 } on' "$out" 2>/dev/null | grep -oE "$callseam" | wc -l)
+                else
+                    nc=$(grep -oE "$callseam" "$out" 2>/dev/null | wc -l)
+                fi
+                nd=$(grep -cE "sub[[:space:]]+$callseam" "$out" 2>/dev/null || true)
+                calls=$((calls + nc - ${nd:-0}))
+            fi
         fi
     done
     if [ "$files" -eq 0 ]; then
@@ -265,7 +340,11 @@ for lang in $LANGS; do
         continue
     fi
     per=$( [ "$files" -gt 0 ] && echo $((total / files)) || echo 0 )
-    printf '%-8s %8d %10d %12d  %s\n' "$lang" "$files" "$total" "$per" "$seam"
+    if [ -n "$callseam" ]; then
+        printf '%-8s %8d %10d %12d  %8d   %s\n' "$lang" "$files" "$total" "$per" "$calls" "$seam"
+    else
+        printf '%-8s %8d %10d %12d  %8s   %s\n' "$lang" "$files" "$total" "$per" "-" "$seam"
+    fi
     # Per-tree artefact for progress.sh, written into the tree the gate for
     # this backend measures — same rule fail-estree uses, so two workers
     # measuring two trees cannot clobber each other.
@@ -275,6 +354,7 @@ for lang in $LANGS; do
         printf 'total\t%d\n' "$total"
         printf 'files\t%d\n' "$files"
         printf 'per_file\t%d\n' "$per"
+        printf 'calls\t%d\n' "$calls"
         printf 'seam\t%s\n' "$seam"
     } > "$outdir/.rt_metric.tsv"
     rm -rf "$tmp"; trap - EXIT

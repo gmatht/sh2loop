@@ -89,8 +89,17 @@ export SH2_UU_LIB=$SUB/runtime/lib/libcoreutils_ffi.so
 export SH2_UU_PIPELINE_LIB=$SUB/runtime/lib/libcoreutils_ffi_pipeline.so
 export UU_FFI_MULTICALL=$SUB/runtime/lib/coreutils-ffi-multicall
 
+# ZIG CACHE CEILING — this gate runs `zig run` per corpus file, so the
+# REMOTE ~/.cache/zig is the one that grows. Prune it to the 8 GiB ceiling
+# before the pass (harness/ is rsynced by remote-sync.sh, so the wrapper is
+# present when --sync ran). Same contract as the local hooks: best-effort,
+# always exits 0 — a maintenance step must never turn the gate red.
+if [ "$L" = zig ] && [ -f "$ROOT/harness/zig-cache-prune.sh" ]; then
+  bash "$ROOT/harness/zig-cache-prune.sh" || true
+fi
+
 one() {
-  local f="$1" shir out s d wd eq_exit bash_rc
+  local f="$1" shir out s d wd eq_exit bash_rc t0 t1 t2 t3 t4
   # ZIG RESOLVES THE SOURCE PATH AGAINST THE CWD, NOT THE CACHING DIRECTORY
   # (`zig run sub/p.zig` from elsewhere dies with
   # `unable to load "p.zig": FileNotFound`), so the render must be written
@@ -98,7 +107,11 @@ one() {
   # in a DIFFERENT dir entirely and 21 files reported a phantom build
   # failure. `zigpath` is that dir; the java arm keeps `$wd` for its class
   # files and uses it directly (javac is happy with absolute paths).
-  wd="/tmp/rg.$BASHPID.${RANDOM}"; mkdir -p "$wd"
+  # UNIQUE per file: $RANDOM is re-seeded per `bash -c` child, so two
+  # concurrent files drew the SAME $wd and overwrote each other's
+  # Sh2Program.java — at --par 16 that produced 16 phantom "javac: class,
+  # interface, enum, or record expected" failures. mktemp cannot collide.
+  wd=$(mktemp -d /tmp/rg.XXXXXXXX)
   if ! shir=$("$OTRAN" --target shir "$f" 2>/dev/null); then echo "FAIL $f|emit|"; rmdir "$wd"; return; fi
   if [ -z "$shir" ]; then echo "FAIL $f|emit_empty|"; rmdir "$wd"; return; fi
   if ! bash -n "$f" 2>/dev/null; then echo "SKIP $f|parse|"; rmdir "$wd"; return; fi
@@ -113,11 +126,15 @@ one() {
   case "$L" in
     java)
       printf '%s' "$out" > "$wd/Sh2Program.java"
+      t1=$(date +%s%N)
       if ! javac -d "$wd" "$wd/Sh2Program.java" >"$wd/err" 2>&1; then
         d=$(command grep -E 'error:' "$wd/err" | head -1 | cut -c1-140)
         echo "FAIL $f|javac|$d"; rm -rf "$wd"; return
       fi
-      ( cd "$wd" && exec timeout 15 java -cp "$wd" Sh2Program > "$wd/out" 2>/dev/null ); eq_exit=$?;;
+      t2=$(date +%s%N)
+      ( cd "$wd" && exec timeout 15 java -Xshare:auto -XX:TieredStopAtLevel=1 -cp "$wd" Sh2Program > "$wd/out" 2>/dev/null ); eq_exit=$?
+      t3=$(date +%s%N)
+      echo "TIM $(( (t2-t1)/1000000 )) $(( (t3-t2)/1000000 )) $f" >> /tmp/gate_times.txt;;
     zig)
       # UU-FFI exactly as the gate's zig arm links it (see setup_backends.sh):
       # the renderer's in-process arm needs libcoreutils_ffi, `-lc` is
@@ -129,6 +146,12 @@ one() {
       ( cd "$wd" && exec timeout 30 zig run ./p.zig -lc \
           -L"$SUB/runtime/lib" -lcoreutils_ffi -rpath "$SUB/runtime/lib" \
           > "$wd/out" 2>"$wd/err" ); eq_exit=$?
+      if [ "$eq_exit" = 124 ]; then
+        tt1=$(date +%s%N)
+        ( cd "$wd" && exec timeout 40 zig build-exe ./p.zig -lc -L"$SUB/runtime/lib" -lcoreutils_ffi -rpath "$SUB/runtime/lib" >/dev/null 2>&1 )
+        tt2=$(date +%s%N)
+        echo "TIMZ build=$(( (tt2-tt1)/1000000 ))ms $f" >> /tmp/gate_times.txt
+      fi
       if [ -s "$wd/err" ] && [ "$eq_exit" != 0 ] && ! [ -s "$wd/out" ]; then
         d=$(command grep -E 'error:' "$wd/err" | head -1 | cut -c1-140)
         echo "FAIL $f|zigbuild|$d"; rm -rf "$wd"; return
