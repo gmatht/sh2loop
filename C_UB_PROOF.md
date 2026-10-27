@@ -641,6 +641,21 @@ not cosmetic.
 
 
 
+- v13 (2026-10-28): §19 — the operator/promotion rules
+  (`c_op_promote.rs`, 15 obligations, refuse-to-fold mutant red 14v/1e
+  → restored 15v/0e): fold = denotation, abort preservation, LL as
+  pure type promotion on the range trigger (with the corrected 67108847
+  reading), unsigned-gate premises exact. Proof artifacts only.
+
+- v12 (2026-10-28): §18 — the integer-math helpers (`c_int_helpers.rs`,
+  69 obligations, >10-digit mutant red 68v/1e): predicate contract with
+  all refusal arms pinned + the 10-digit fold exhibited step-by-step;
+  Newton descent well-defined with exact small values by direct
+  unfolding (full floor stays open — fixpoint invariant); i128 branch
+  contract + step-in-domain + INT128_MIN refutation + 39-digit bound by
+  generated chain. Honest provisos: `*` overflow is the caller's gate;
+  cross-branch magnitude identity solver-opaque. Proof artifacts only.
+
 - v11 (2026-10-28): §17 — the arith guard + temp/spec decisions
   (`c_arith_guard.rs`, 15 obligations, negative-dividend mutant red
   14v/1e): the guarded `({r} == 0 ? 0 : …)` form is total (no SIGFPE)
@@ -742,6 +757,90 @@ predicates).
 Negative control: claiming the negative dividend equals the unsigned
 reduction goes red (14v/1e, restored to 15v/0e) — the nonneg proof is
 load-bearing, not an optimization.
+
+## 18. The integer-math helpers — `c_int_helpers.rs` (69 obligations)
+
+The three helpers §2a names as render-layer obligations, with the two
+hard solver lessons this file taught recorded as stated provisos, not
+hidden gaps.
+
+`_sh_isint31` (bc fast-path predicate): returns 1 ⟹ integer-shaped
+with |value| ≤ 2^31 — exactly the caller contract (atoll-safe, bounded
+`+ -` cannot overflow i64). All refusal arms pinned (empty, >10
+digits, trailing junk, over-2^31 magnitude); the 10-digit
+3000000000 fold exhibited step-by-step (one spec unfolding per push —
+the only form the prover accepts on literal push-chains). Completeness
+(no missed fast path on canonical text). HONEST PROVISO, found during
+the proof: `*` overflow is bounded by the CALLER's digit/shape gate,
+not by 2^31 alone (2147483648² > i64max) — `isint31_fast_safe` covers
+`+ -` only, stated as the proviso it is.
+
+`_sh_isqrt` (Newton floor sqrt): n ≤ 0 → 0; the descent is
+well-defined on the table range (entry-step lemma + per-level average
+argument, no assume — the earlier `assume` was removed when the
+factored `isqrt_descend` induction closed it); exact small values
+0,1,2,3,4,15,16 by direct Newton unfolding (each asserted step IS the
+loop's unfolding). The FULL floor claim (r² ≤ n < (r+1)²) stays open —
+needs the loop's fixpoint property (y ≥ x at exit gives the lower
+bracket), same class as the analysis-side T1. The `assume` that stood
+in for it is gone; the gap is a stated obligation, not a hidden one.
+
+`_sh_i128_str` (exact __int128 → decimal): the branch the C takes
+(negative → the emitted `-(v+1)+1` form, else identity), with the
+cross-branch identity `0-(v+1)+1 == -v` stated as the solver-opaque
+step it is (probed red even under `nonlinear_arith` — the solver keeps
+`(0-v)` opaque in every rebracketing tried); the intermediate
+`-(v+1)` stays in-domain (linear bounds — WHY the source avoids plain
+`-v`, with the `neg_plain_overflows` refutation at INT128_MIN); no
+128-bit magnitude needs more than 39 digits (generated 39-level chain
+— tmp[64] never overflows); the sign/zero/digit contract via the
+branch (negative arm taken / else identity — the else-arm value
+disequality is NOT claimed: solver-opaque and unobserved by any
+source site; "0" iff zero).
+
+Negative control: accepting >10-digit texts (dropping the nd>10
+refusal) goes red (68v/1e, restored to 69v/0e) — the digit cap is
+load-bearing: without it a 19-digit text folds past 2^31 and the
+predicate would bless an overflowing fast path.
+
+## 19. The operator/promotion rules — `c_op_promote.rs` (15 obligations)
+
+The last §2a render-layer obligation: the rules baked into every
+arithmetic emission. `const_arith_value` (checked constant folding):
+`+ - *` via `checked_*` (overflow bails to runtime — never a wrapped
+constant), `& | ^ ~` total, NEVER `/ %` (a fold turns a runtime abort
+into a compile error), shifts, `**`, comparisons. The LL-suffix
+widening: out-of-i32 literals render `{n}LL` — with the CORRECTED
+67108847 reading, found while writing the pin (both operands fit i32;
+no LL alone — the PRODUCT range 4503596674580939 escapes i32, so the
+range trigger `arith_bin_range_exceeds_i32` widens both sides via
+`arith_const_wide`). The unsigned-gate premises
+(`arith_proven_nonneg` + `arith_fits_i64`): untainted leaves, known
+range with lo ≥ 0, every subrange fitting i64 (a wrapped-negative
+intermediate would diverge even when the math range says ≥ 0),
+non-u64 — each refusal arm pinned; the soundness half (unsigned ==
+signed on nonneg) stays proved in `c_arith_guard.rs`.
+
+What is proved: `fold_sound` (folded = denotation; None = runtime
+path); `fold_never_traps` (Refuse never folds — abort preservation);
+`fold_total_bitwise` (total ops always fold); `ll_widening_sound`
+(suffix is type-only); `ll_widening_needed` + `exceeds_i32_sound`
+(trigger fires iff the proven range escapes i32; unknown → miss);
+`nonneg_gate_sound` (admit ⟹ the exact premises the soundness
+consumes); `nonneg_gate_refusals` (all four arms); two pins (the
+`2+3*4`→14 / `/`-refuses / `-(-5)`→5 / MIN-bails shapes; the LL
+shapes with the corrected product reading).
+
+House lessons recorded in the file: Verus spec-int has no `& | ^`
+(bitwise is an uninterpreted oracle — agreement by construction, no
+value laws claimed); spec-function calls on literal push-chains need
+the sub-evaluations bound to names before the match unfolds; the
+67108847 pin correction above.
+
+Negative control: folding Refuse to a constant (compile-time abort)
+goes red (14v/1e, restored to 15v/0e) — the abort-preservation rule is
+load-bearing: a folded `/` would turn a runtime SIGFPE-guard into a
+compile error.
 
 - v8 (2026-10-28): §14 — two more render-discipline obligations
   mechanized: the Eq/Ne emission decision (`c_eqne_emit.rs`, 11) and the

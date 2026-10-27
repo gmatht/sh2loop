@@ -129,6 +129,18 @@ MODELS=(
   # exactly; `num_spec`'s cast⟺%lld invariant holds with the type-match
   # rules and the 5 live unit assertions.
   "c_arith_guard.rs:15:40"
+  # The C generator's operator/promotion rules
+  # (sh2perl/src/c_backend.rs `const_arith_value` + LL-suffix widening +
+  # `arith_bin_range_exceeds_i32` + the unsigned-gate premises
+  # `arith_proven_nonneg`/`arith_fits_i64`). Proves the fold equals the
+  # denotation (checked ops agree or bail -- never a wrapped constant),
+  # Refuse never folds (abort preservation), LL is a pure type
+  # promotion keyed on the range trigger (with the corrected 67108847
+  # reading: operands fit i32, the PRODUCT range escapes it), and the
+  # unsigned gate admits exactly the shapes the soundness needs
+  # (untainted, known nonneg range, i64-fitting, non-u64 -- each
+  # refusal arm pinned).
+  "c_op_promote.rs:15:40"
   # The C generator's integer-math helpers it emits
   # (sh2perl/src/c_backend.rs `_sh_isint31` + `_sh_isqrt` + `_sh_i128_str`).
   # Proves the predicate contract (1 ==> |value| <= 2^31, each refusal arm
