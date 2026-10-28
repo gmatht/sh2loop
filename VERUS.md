@@ -56,17 +56,26 @@ Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28):
 | `proofs/verus/c_str_helpers.rs` | **C generator**: `_sh_*` string helpers (substr/replace/arr_slice/strip/argv/split) | 40 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §20 |
 | `proofs/verus/c_capture_wrap.rs` | **C generator**: capture/wrap quoting (injection-freedom + status mapping) | 16 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §21 |
 | `proofs/verus/c_decl_coverage.rs` | **C generator**: the three decl-census walkers + const-lift veto (`collect_store_expr` / `collect_assigned_vars` / `hoist_vars` / `collect_param_write_targets`) | 51 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §22 |
+| `proofs/verus/c_str_lit.rs` | **C generator**: `cstr` — the string-literal escaper (finite-state C lexer + round-trip vs the shipped `\x` spelling) | 19 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §23 |
+| `proofs/verus/append_store.rs` | `transforms/append_to_store.rs` (counted-loop append → indexed store, per-trip + whole-loop induction) | 20 verified, 0 errors | landed, gated — store-forward sweep |
+| `proofs/verus/split_set.rs` | `transforms/split_set.rs` (isSmallInt routing partition soundness + merge agreement) | 14 verified, 0 errors | landed, gated — store-forward sweep |
+| `proofs/verus/echo_return.rs` | `transforms/echo_return.rs` passes 2–4 (body echo → Return + call-site echo(fnValue)) | 13 verified, 0 errors | landed, gated — store-forward sweep |
 
 492 active obligations total (504 with the 12 retired i32 obligations), 0 errors,
-every active model with checked failing mutants (see §(b).3 — 27 mutants over
+plus the store-forward sweep (+47: append_store 20, split_set 14,
+echo_return 13 — per-rewrite models with guard-oracle premises, mapped
+pins, and checked mutants, all re-verified under the pinned binary
+2026-10-28/29), for 539 transform-side obligations. Every active model
+with checked failing mutants (see §(b).3 — 27 mutants over
 25 models; the retired exec form carries its postcondition on the executable
-function itself instead). The eleven `c_*` rows are models of the C
+function itself instead). The twelve `c_*` rows are models of the C
 GENERATOR's own emission decisions, not of a shIR→shIR transform; they sit
-in the same gate but are counted separately from the 492 above — +295
-obligations (11/18/26/20/14/15/69/15/40/16/51, each with its own failing mutants or negative
-controls, all re-verified under the pinned binary 2026-10-28), for 787
-gated active obligations in total — the P12 pair (+14/+8) is included in
-the 492, the eleven `c_*` rows counted separately as stated. Their proofs, and why Verus rather than
+in the same gate but are counted separately from the 492 above — +314
+obligations (11/18/26/20/14/15/69/15/40/16/51/19, each with its own failing mutants or negative
+controls, all re-verified under the pinned binary 2026-10-28), for 853
+gated active obligations in total — the P12 pair (+14/+8) and the
+store-forward trio (+47) are included in
+the 539, the twelve `c_*` rows counted separately as stated. Their proofs, and why Verus rather than
 Isabelle fits them (the target is Rust that *produces* the C), are in
 `C_UB_PROOF.md` §13–§14. The eight pre-existing counts — and
 their seven mutants — were independently reproduced on 2026-10-24 with the

@@ -211,6 +211,28 @@ MODELS=(
   # negative controls: 0x1a-for-2-bytes (t1), 0x19 (t5), the
   # out-of-range arm (t7). Three negative-control pins inside the file.
   "c_str_lit.rs:19:40"
+  # Store-forward sweep (Tier-1): counted-loop append -> indexed store
+  # (append_to_store.rs 590 lines). Per-trip + whole-loop induction
+  # under the guard-verdict oracles (exactly-one site, empty init, no
+  # other write, counted +1 loop, known bound, 1:1, no escapes): each
+  # rewritten store at counter k pushes the same value the append
+  # would. 7 unit-test pins + multi-element structural refusal +
+  # runtime agreement. Mutant (no-other-write dropped) red 18v/2e.
+  "append_store.rs:20:40"
+  # Store-forward sweep (Tier-1): set[int] -> small/big partitions
+  # (split_set.rs 958 lines). isSmallInt routing preserves set
+  # semantics: membership agreement (contains_push/insert_contains
+  # lemmas) + sorted-join merge agreement. 4 unit-test pins + dedup +
+  # runtime agreement. Mutant (gate dropped) red 12v/2e.
+  "split_set.rs:14:40"
+  # Store-forward sweep (Tier-1): echo-return passes 2-4 under an
+  # eligible-set parameter (echo_return.rs 1556 lines). Body echo ->
+  # Return + call-site echo(fnValue) preserve statement/capture/
+  # last-stage bytes and status. 6 unit-test pins + bare-shape
+  # negative control. Mutant (bare fnValue at stmt) red 10v/3e.
+  # Pass 1 (SCC fixpoint) + pass 4 (case-pattern hoist) are
+  # parameters — SCC soundness is the verdict-analyses sweep.
+  "echo_return.rs:13:40"
 )
 
 # extractor:baseline — the generator script and the file it must reproduce.
@@ -250,6 +272,9 @@ SYNCS=(
   "harness/verus-sync-coverage.sh:ternary_desugar:sh2perl/proofs/verus/ternary_desugar_sync.txt"
   "harness/verus-sync-coverage.sh:escape_classes:sh2perl/proofs/verus/escape_classes_sync.txt"
   "harness/verus-sync-coverage.sh:f32_narrow:sh2perl/proofs/verus/f32_narrow_sync.txt"
+  "harness/verus-sync-coverage.sh:append_store:sh2perl/proofs/verus/append_store_sync.txt"
+  "harness/verus-sync-coverage.sh:split_set:sh2perl/proofs/verus/split_set_sync.txt"
+  "harness/verus-sync-coverage.sh:echo_return:sh2perl/proofs/verus/echo_return_sync.txt"
 )
 
 if [ "${1:-}" = "--list" ]; then

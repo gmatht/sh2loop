@@ -36,7 +36,7 @@ OUT="${OUT_TMP:-/dev/stdout}"
 
 fail() { echo "verus-sync-coverage($MODEL): FATAL: $*" >&2; exit 1; }
 
-[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow"
+[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return"
 # A model may span several source files (the P6 sweep groups folds by
 # family). model_srcs lists them; SRC is the first (legacy single-file
 # uses keep working).
@@ -59,6 +59,9 @@ model_srcs() {
     ternary_desugar) echo "ternary_desugar" ;;
     escape_classes) echo "escape_classes" ;;
     f32_narrow) echo "f32_narrow" ;;
+    append_store) echo "append_to_store" ;;
+    split_set) echo "split_set" ;;
+    echo_return) echo "echo_return" ;;
     *) fail "unknown model: $1" ;;
   esac
 }
@@ -217,6 +220,33 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     f32_narrow:pin_var_lattice) echo UNMIRRORED ;;
     f32_narrow:pin_unknown_not_exact) echo UNMIRRORED ;;
     f32_narrow:pin_int_operand_uses_roundtrip) echo UNMIRRORED ;;
+    # Store-forward sweep: per-rewrite models over the transform's own
+    # unit suite (mapped pins) plus model-internal runtime checks
+    # (UNMIRRORED pins that execute the model, not the source).
+    append_store:pin_counted_loop_rewrites) echo append_to_store:append_in_counted_loop_becomes_store ;;
+    append_store:pin_all_guards_pass) echo append_to_store:append_in_counted_loop_becomes_store ;;
+    append_store:pin_unknown_bound_refuses) echo append_to_store:append_with_unknown_bound_keeps_growable ;;
+    append_store:pin_two_appends_refused) echo append_to_store:two_appends_veto ;;
+    append_store:pin_nonempty_init_refused) echo append_to_store:nonempty_init_vetoes ;;
+    append_store:pin_other_write_refused) echo append_to_store:other_write_vetoes ;;
+    append_store:pin_break_refused) echo append_to_store:break_vetoes ;;
+    append_store:pin_step2_refused) echo append_to_store:step2_vetoes ;;
+    append_store:pin_multi_element_refused) echo UNMIRRORED ;;
+    append_store:pin_rewritten_loop_agrees) echo UNMIRRORED ;;
+    split_set:pin_routing_splits) echo split_set:splits_set_into_two_partitions ;;
+    split_set:pin_iteration_out_of_scope) echo split_set:refuses_iterated_set ;;
+    split_set:pin_nonempty_init_refused) echo split_set:refuses_nonempty_init ;;
+    split_set:pin_gate_is_placement) echo split_set:disabled_by_default ;;
+    split_set:pin_dedup_within_partition) echo split_set:splits_set_into_two_partitions ;;
+    split_set:pin_runs_agree_on_membership) echo UNMIRRORED ;;
+    echo_return:pin_single_echo_lifts) echo echo_return:simple_value_function_lifts ;;
+    echo_return:pin_both_arms_return) echo echo_return:if_arms_lift ;;
+    echo_return:pin_impure_refused) echo echo_return:impure_body_refuses ;;
+    echo_return:pin_no_echo_refuses) echo echo_return:no_echo_path_refuses ;;
+    echo_return:pin_multi_echo_refuses) echo echo_return:multi_echo_refuses ;;
+    echo_return:pin_last_stage_echoes) echo echo_return:pipeline_last_stage_echoes_the_value ;;
+    echo_return:pin_wrapped_prints_value) echo echo_return:simple_value_function_lifts ;;
+    echo_return:pin_bare_is_not_echo) echo UNMIRRORED ;;
     *) echo "" ;;
   esac
 }
@@ -641,6 +671,57 @@ case "$MODEL" in
     command grep -q "f32_narrow::is_f32_var" "$root/sh2perl/src/c_backend.rs" \
       || fail "C consumer f32 arm not found in c_backend.rs"
     echo "guard C consumer f32 arm: PRESENT"
+    ;;
+  append_store)
+    # The counted-loop shape: ForInit header with 0-init and +1 step.
+    sgrep -q "fn counted_forinit" \
+      || fail "counted_forinit header matcher not found in source"
+    echo "guard counted +1 header: PRESENT"
+    sgrep -q "fn zero_init_of" \
+      || fail "zero_init_of not found in source"
+    echo "guard 0-init: PRESENT"
+    # The escape veto (break/continue/return desync the counter).
+    sgrep -q "fn escapes" \
+      || fail "escapes veto not found in source"
+    echo "guard no-escapes veto: PRESENT"
+    # The append-site census (exactly-one site + empty init + no other).
+    sgrep -q "appends == 1" \
+      || fail "exactly-one-append filter not found in source"
+    echo "guard exactly-one-append: PRESENT"
+    sgrep -q "fn literal_bound" \
+      || fail "literal_bound gate not found in source"
+    echo "guard known-bound gate: PRESENT"
+    ;;
+  split_set)
+    # The routing predicate (value decides the partition).
+    sgrep -q '"isSmallInt"' \
+      || fail "isSmallInt routing predicate not found in source"
+    echo "guard isSmallInt routing: PRESENT"
+    # The join merge (sortedJoinMerge of both partitions).
+    sgrep -q '"sortedJoinMerge"' \
+      || fail "sortedJoinMerge consumer not found in source"
+    echo "guard join merge: PRESENT"
+    # The append-only whitelist (indexed writes/deletes refuse).
+    sgrep -q "fn scope_refs_ok" \
+      || fail "scope_refs_ok whitelist not found in source"
+    echo "guard append-only whitelist: PRESENT"
+    ;;
+  echo_return)
+    # The per-path echo discipline (Need/Done/Dead machine).
+    sgrep -q "enum EchoState" \
+      || fail "EchoState machine not found in source"
+    echo "guard echo-state machine: PRESENT"
+    sgrep -q "fn body_echo_ok" \
+      || fail "body_echo_ok recognition not found in source"
+    echo "guard body recognition: PRESENT"
+    # The call-site wrap (exec echo of fnValue).
+    sgrep -q '"fnValue"' \
+      || fail "fnValue wrap not found in source"
+    echo "guard fnValue wrap: PRESENT"
+    # The pipeline-last-stage rule (value position keeps its echo).
+    sgrep -q "fn echo_pipeline_last_stage" \
+      || fail "pipeline-last-stage rule not found in source"
+    echo "guard last-stage echo: PRESENT"
     ;;
   *) fail "unknown model: $MODEL" ;;
 esac
