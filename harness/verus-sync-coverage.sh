@@ -36,7 +36,7 @@ OUT="${OUT_TMP:-/dev/stdout}"
 
 fail() { echo "verus-sync-coverage($MODEL): FATAL: $*" >&2; exit 1; }
 
-[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit"
+[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed"
 # A model may span several source files (the P6 sweep groups folds by
 # family). model_srcs lists them; SRC is the first (legacy single-file
 # uses keep working).
@@ -64,11 +64,26 @@ model_srcs() {
     echo_return) echo "echo_return" ;;
     arith_forms) echo "arith_forms" ;;
     counted_while_forinit) echo "counted_while_forinit" ;;
+    scc) echo "scc" ;;
+    used_before_decl) echo "used_before_decl" ;;
+    maskable) echo "maskable" ;;
+    lifetime) echo "lifetime" ;;
+    numstr) echo "numstr" ;;
+    numeric_observed) echo "numeric_observed" ;;
     *) fail "unknown model: $1" ;;
   esac
 }
 SRCS="$(model_srcs "$MODEL")"
-SRC="$root/sh2perl/src/transforms/$(echo "$SRCS" | awk '{print $1}').rs"
+# Source directory per model (most live in transforms/; the verdict
+# analyses live in shir_passes/).
+model_dir() {
+  case "$1" in
+    scc|used_before_decl|maskable|lifetime|numstr|numeric_observed) echo "shir_passes" ;;
+    *) echo "transforms" ;;
+  esac
+}
+SRCDIR="$(model_dir "$MODEL")"
+SRC="$root/sh2perl/src/$SRCDIR/$(echo "$SRCS" | awk '{print $1}').rs"
 PRF="$root/sh2perl/proofs/verus/$MODEL.rs"
 [ -f "$SRC" ] || fail "no source: $SRC"
 [ -f "$PRF" ] || fail "no proof: $PRF"
@@ -77,7 +92,7 @@ PRF="$root/sh2perl/proofs/verus/$MODEL.rs"
 sgrep() { # sgrep <grep-args...>
   local f
   for f in $SRCS; do
-    command grep "$@" "$root/sh2perl/src/transforms/$f.rs" && return 0
+    command grep "$@" "$root/sh2perl/src/$SRCDIR/$f.rs" && return 0
   done
   return 1
 }
@@ -272,6 +287,55 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     counted_while_forinit:pin_declare_refuses) echo counted_while_forinit:declare_in_body_refuses ;;
     counted_while_forinit:pin_trace_agrees) echo UNMIRRORED ;;
     counted_while_forinit:pin_step_gate_load_bearing) echo UNMIRRORED ;;
+    # Verdict-analyses sweep: verdict-soundness over oracle censuses.
+    scc:pin_mutual_pair) echo scc:mutual_recursion_is_one_scc ;;
+    scc:pin_self_loop) echo scc:self_recursion_is_scc_of_one ;;
+    scc:pin_leaf_singleton) echo scc:self_recursion_is_scc_of_one ;;
+    scc:pin_chain_singletons) echo scc:acyclic_chain_is_singletons ;;
+    scc:pin_matcher_triple) echo scc:matcher_cycle_is_one_scc ;;
+    scc:pin_capture_edge) echo scc:capture_is_a_call_edge ;;
+    scc:pin_parser_cluster) echo scc:test_parser_cluster_is_one_scc ;;
+    scc:pin_singleton_leaf) echo UNMIRRORED ;;
+    scc:pin_condensation_acyclic) echo UNMIRRORED ;;
+    used_before_decl:pin_straight_def_no_warn) echo used_before_decl:defined_before_use_is_clean ;;
+    used_before_decl:pin_read_before_def_warns) echo used_before_decl:straight_line_use_before_decl ;;
+    used_before_decl:pin_branch_both_arms_no_warn) echo used_before_decl:branch_both_sides_define_is_clean ;;
+    used_before_decl:pin_branch_one_arm_warns) echo used_before_decl:branch_meet_suppresses_when_one_side_undefs ;;
+    used_before_decl:pin_loop_body_def_no_leak) echo used_before_decl:loop_body_def_does_not_propagate ;;
+    used_before_decl:pin_subshell_no_propagate) echo UNMIRRORED ;;
+    used_before_decl:pin_function_entry_union) echo used_before_decl:function_capture_of_top_level_is_clean ;;
+    used_before_decl:pin_never_defined_warns) echo used_before_decl:function_body_read_of_never_assigned_warns ;;
+    used_before_decl:pin_sequential_defs_accumulate) echo used_before_decl:defined_before_use_is_clean ;;
+    used_before_decl:pin_if_without_else_falls_through) echo used_before_decl:branch_meet_suppresses_when_one_side_undefs ;;
+    maskable:pin_bare_inf) echo maskable:bare_is_inf ;;
+    maskable:pin_square_brackets) echo maskable:square_threshold_brackets_i64 ;;
+    maskable:pin_linear_math) echo maskable:linear_threshold_math ;;
+    maskable:pin_refusals) echo maskable:refuses ;;
+    maskable:pin_const_folds) echo maskable:const_dividends ;;
+    maskable:pin_pow2_table) echo maskable:pow2_lit ;;
+    maskable:pin_bound_sound) echo UNMIRRORED ;;
+    lifetime:pin_span_ordering) echo UNMIRRORED ;;
+    lifetime:pin_single_access_degenerate) echo lifetime:live_span_covers_def_to_use ;;
+    lifetime:pin_span_covers_all) echo lifetime:live_span_covers_def_to_use ;;
+    lifetime:pin_escape_store) echo lifetime:array_element_write_escapes ;;
+    lifetime:pin_escape_closure) echo lifetime:closure_capture_escapes ;;
+    lifetime:pin_escape_return) echo lifetime:return_escapes ;;
+    lifetime:pin_no_escape_exec) echo lifetime:exec_args_are_uses_not_escapes ;;
+    lifetime:pin_use_needs_liveness) echo lifetime:live_span_covers_def_to_use ;;
+    lifetime:pin_retained_needs_escape) echo lifetime:return_escapes ;;
+    lifetime:pin_spurious_escape_ok) echo UNMIRRORED ;;
+    numstr:pin_int_homed_canonical) echo numstr:noncanonical_literal_disqualifies ;;
+    numstr:pin_position_promoted) echo numstr:anchored_cycle_admitted ;;
+    numstr:pin_pinned_never_reproposed) echo numstr:pinned_verdicts_survive ;;
+    numstr:pin_stringy_assign_demotes) echo numstr:revalidate_params_withdraws_demoted_chain ;;
+    numstr:pin_revalidate_removes_only) echo numstr:revalidate_params_withdraws_demoted_chain ;;
+    numstr:pin_params_positions) echo numstr:omitted_arg_disqualifies_param ;;
+    numeric_observed:pin_scalar_all_numeric) echo numeric_observed:atoll_only_scalar_is_numeric ;;
+    numeric_observed:pin_text_use_vetoes) echo numeric_observed:echo_observed_scalar_is_not_numeric ;;
+    numeric_observed:pin_empty_uses_marked) echo UNMIRRORED ;;
+    numeric_observed:pin_unmarked_no_claim) echo UNMIRRORED ;;
+    numeric_observed:pin_array_chain_veto) echo numeric_observed:array_chain_reaches_downstream_scalars ;;
+    numeric_observed:pin_param_slot_sound) echo numeric_observed:numeric_sink_param_is_numeric ;;
     *) echo "" ;;
   esac
 }
@@ -281,7 +345,7 @@ model_pins=$(command grep -o "proof fn \(pin_[A-Za-z0-9_]*\)" "$PRF" | awk '{pri
 src_tests() {
   local f
   for f in $SRCS; do
-    command grep -oE "(^|[[:space:]])fn [A-Za-z0-9_]+" "$root/sh2perl/src/transforms/$f.rs" | awk '{print $NF}' | sed 's/^fn //'
+    command grep -oE "(^|[[:space:]])fn [A-Za-z0-9_]+" "$root/sh2perl/src/$SRCDIR/$f.rs" | awk '{print $NF}' | sed 's/^fn //'
   done | sort -u
 }
 
@@ -748,6 +812,68 @@ case "$MODEL" in
       || fail "pipeline-last-stage rule not found in source"
     echo "guard last-stage echo: PRESENT"
     ;;
+  scc)
+    # The call-graph builder (exec/fnCall/capture edges, defined-only).
+    sgrep -q "fn build_call_graph_stmts" \
+      || fail "call-graph builder not found in source"
+    echo "guard call-graph builder: PRESENT"
+    sgrep -q "fn tarjan_sccs" \
+      || fail "tarjan_sccs not found in source"
+    echo "guard Tarjan SCC: PRESENT"
+    # The consumer query (echo_return's fixpoint reads scc_of).
+    sgrep -q "fn scc_of" \
+      || fail "scc_of query not found in source"
+    echo "guard scc_of query: PRESENT"
+    ;;
+  used_before_decl)
+    # The must-defined analysis entry.
+    sgrep -q "fn analyze_use_before_decl" \
+      || fail "analyze_use_before_decl not found in source"
+    echo "guard analysis entry: PRESENT"
+    sgrep -q "must_def" \
+      || fail "must_def set not found in source"
+    echo "guard must-def set: PRESENT"
+    # The finding shape (var + position).
+    sgrep -q "struct UseBeforeDeclFinding" \
+      || fail "finding struct not found in source"
+    echo "guard finding shape: PRESENT"
+    ;;
+  maskable)
+    # The threshold function + divisor gate + isqrt.
+    sgrep -q "fn mask_threshold" \
+      || fail "mask_threshold not found in source"
+    echo "guard threshold fn: PRESENT"
+    sgrep -q "fn is_pow2_lit" \
+      || fail "is_pow2_lit gate not found in source"
+    echo "guard pow2 gate: PRESENT"
+    sgrep -q "VER_INF" \
+      || fail "VER_INF not found in source"
+    echo "guard INF bound: PRESENT"
+    ;;
+  lifetime)
+    # The lifetime analysis entry.
+    sgrep -q "fn analyze_var_lifetimes" \
+      || fail "analyze_var_lifetimes not found in source"
+    echo "guard analysis entry: PRESENT"
+    ;;
+  numstr)
+    # The seed entry + revalidation discipline.
+    sgrep -q "pub fn seed" \
+      || fail "seed entry not found in source"
+    echo "guard seed entry: PRESENT"
+    sgrep -q "revalidate_params" \
+      || fail "revalidate_params not found in source"
+    echo "guard revalidation: PRESENT"
+    ;;
+  numeric_observed)
+    # The analysis entry + numeric-use census.
+    sgrep -q "pub fn analyze" \
+      || fail "analyze entry not found in source"
+    echo "guard analysis entry: PRESENT"
+    sgrep -q "Use::Num" \
+      || fail "Use::Num verdict not found in source"
+    echo "guard numeric-use verdict: PRESENT"
+    ;;
   arith_forms)
     # The let-arg gate: text extraction + parse_arith verdict.
     sgrep -q "fn let_arg_text" \
@@ -803,15 +929,15 @@ echo "# source file) and records the per-test PASS/FAIL verdict below."
 #     broken fragment.
 test_out=""; suite_blocked=0
 for src in $SRCS; do
-  one="$(cargo test --manifest-path "$root/sh2perl/Cargo.toml" --lib "transforms::$src" 2>&1)"; rc=$?
+  one="$(cargo test --manifest-path "$root/sh2perl/Cargo.toml" --lib "$SRCDIR::$src" 2>&1)"; rc=$?
   if printf '%s\n' "$one" | command grep -q "could not compile"; then
     suite_blocked=1
     test_out="$test_out
-# --- transforms::$src: BUILD BLOCKED ---
+# --- $SRCDIR::$src: BUILD BLOCKED ---
 $one"
   else
     test_out="$test_out
-# --- transforms::$src exit: $rc ---
+# --- $SRCDIR::$src exit: $rc ---
 $one"
   fi
 done

@@ -248,6 +248,41 @@ MODELS=(
   # load-bearing. Mutant (zero step accepted) red 12v/1e. Fires
   # 9/563 in-pipeline.
   "counted_while_forinit.rs:13:40"
+  # Verdict-analyses sweep (Tier-1): SCC contract over the call graph
+  # (scc.rs 450 lines). Reported sets are strongly connected,
+  # disjoint, covering, and maximal (no cross-set merge); the
+  # condensation is acyclic (echo_return's fixpoint termination).
+  # Collect-callees walk as oracle. 6 unit-test pins + pair lemmas.
+  # Mutant (merged claim across acyclic edge) red 20v/1e.
+  "scc.rs:21:40"
+  # Verdict-analyses sweep (Tier-1): must-defined dataflow
+  # (used_before_decl.rs 1497 lines). Meet soundness, def transfer,
+  # flag soundness, loop-entry fallback. Census/traversal as
+  # parameters. 10 pins mirror the 11 unit tests. Mutant (union meet)
+  # red 13v/2e.
+  "used_before_decl.rs:15:40"
+  # Verdict-analyses sweep (Tier-1): mask_threshold soundness
+  # (maskable.rs 430 lines). Square bracket by compute, linear
+  # inversion via lemma_mul_inequality, divisor/pow2 gates; shape
+  # classifiers and isqrt as oracles. 6 unit-test pins. Mutant
+  # (le-arm off-by-one) red 10v/2e.
+  "maskable.rs:12:40"
+  # Verdict-analyses sweep (Tier-1): span coverage + consumption
+  # liveness + escape-conservatism (lifetime.rs 1190 lines). Census
+  # walk as oracle. 10 pins mirror the 12 unit tests. Mutant (shrunk
+  # span) red 12v/2e.
+  "lifetime.rs:14:40"
+  # Verdict-analyses sweep (Tier-1): seed-table consistency
+  # (numstr.rs 1180 lines). Pinned stability, var/position soundness
+  # under earned sets, revalidate removal-only. Fixpoint and
+  # classifiers as parameters. 6 pins mirror the 10 unit tests.
+  # Mutant (verdict needs no justification) red 9v/2e.
+  "numstr.rs:11:40"
+  # Verdict-analyses sweep (Tier-1): marked ==> all-uses-numeric
+  # (numeric_observed.rs 1155 lines). Chain-veto propagation,
+  # per-slot contract. Census/fixpoint as parameters. 6 pins mirror
+  # the 11 unit tests. Mutant (text-observed marked) red 8v/2e.
+  "numeric_observed.rs:10:40"
 
 # extractor:baseline — the generator script and the file it must reproduce.
 # Three coverage extractors (one per P3/P4/P5 model) plus the deliberately
@@ -291,6 +326,12 @@ SYNCS=(
   "harness/verus-sync-coverage.sh:echo_return:sh2perl/proofs/verus/echo_return_sync.txt"
   "harness/verus-sync-coverage.sh:arith_forms:sh2perl/proofs/verus/arith_forms_sync.txt"
   "harness/verus-sync-coverage.sh:counted_while_forinit:sh2perl/proofs/verus/counted_while_forinit_sync.txt"
+  "harness/verus-sync-coverage.sh:scc:sh2perl/proofs/verus/scc_sync.txt"
+  "harness/verus-sync-coverage.sh:used_before_decl:sh2perl/proofs/verus/used_before_decl_sync.txt"
+  "harness/verus-sync-coverage.sh:maskable:sh2perl/proofs/verus/maskable_sync.txt"
+  "harness/verus-sync-coverage.sh:lifetime:sh2perl/proofs/verus/lifetime_sync.txt"
+  "harness/verus-sync-coverage.sh:numstr:sh2perl/proofs/verus/numstr_sync.txt"
+  "harness/verus-sync-coverage.sh:numeric_observed:sh2perl/proofs/verus/numeric_observed_sync.txt"
 )
 
 if [ "${1:-}" = "--list" ]; then
