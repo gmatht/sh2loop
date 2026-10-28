@@ -675,6 +675,13 @@ not cosmetic.
 
 
 
+- v15 (2026-10-28): §21 — capture/wrap quoting (`c_capture_wrap.rs`,
+  16 obligations, bare-quote mutant red 13v/3e → restored 16v/0e):
+  injection-freedom + splice shape + word-quote core + newline gate +
+  status mapping total/disjoint + capture empty-arm/strip + `_sh_sc`
+  NULL-safety + `"don't"`/exit-3/signal pins (length 9 corrected by
+  the proof). Proof artifacts only.
+
 - v14 (2026-10-28): §20 — the `_sh_*` string helpers
   (`c_str_helpers.rs`, 40 obligations, flipped-clamp mutant red 39v/1e
   → restored 40v/0e): shared b/e clamp total; substr/clamp edges;
@@ -1036,3 +1043,42 @@ NUL.
   §7's "Measurement discipline".
 - v1 (2026-10-22): initial assessment and plan; no code changed, no
   sanitizer run performed yet.
+
+## 21. Capture/wrap quoting — `c_capture_wrap.rs` (16 obligations)
+
+The injection-freedom boundary: `_sh_wrap_cmd` builds
+`bash -c '<q(cmd)>'` with the `'"'"'` splice, so no byte of the
+command can terminate the single-quoted word — a quoting bug here is
+RCE, not a wrong value. `_sh_system_rc`/`_sh_capture` map
+`system`/`popen` results (`-1 → 127`, exited → status, else 1) and
+the capture strips trailing newlines with the empty-command early arm
+(rc 0, not 127). The word family (`_sh_word`/`_sh_bword`/`_sh_baddq`)
+shares the splice core; `_sh_addqn`/`_sh_baddqn` quote iff a newline
+is present; `_sh_sc` restores NULL-safety.
+
+What is proved (12 proof fns, 16 verified): `quote_splice_sound`
+(the 5-char splice shape); `wrap_injection_free` (THE OBLIGATION —
+every `'` becomes the splice, every other byte literal, so the
+wrapped command parses as exactly `bash -c '<q(cmd)>'`);
+`wrap_needs_bound` (the `n*2+16` first-allocation bound, honestly
+scoped — worst-case all-quote input needs 5n+10, and the argv tail
+re-grows per word); `word_quote_sound` (all three spellings);
+`baddqn_newline_gate`; `status_mapping` (total + disjoint three
+arms); `capture_empty` + `capture_strips`; `sc_null_safe`;
+`quote_len`/`quote_len_agrees`/`quote_splice_lens` (length
+infrastructure); pins (`"don't"` — with the length 9 the proof found,
+correcting the written 8 — exit-3, signal-death→1, popen-fail→127).
+
+House lessons: spec-call unfolding on push-chains needs the
+sub-evaluations bound (the `"don't"` length needed the full
+splice-length chain); strip unfolds need the last-char + subrange
+bridges; the pin's 8 was wrong and the proof corrected it to 9
+(d,o,n literal + 5-char splice + t) — recorded, not hidden.
+
+Honest: vbuf growth assumed; `system`/`popen` execution is the OS
+contract; argv-tail gating unmodelled.
+
+Negative control: the bare-quote splice (a `'` mapping to itself —
+the injection hole: a quote in cmd terminates the word) goes red
+(13v/3e — splice shape, injection-freedom, and the `"don't"` pin all
+fail), restored to 16v/0e.

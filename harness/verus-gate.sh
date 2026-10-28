@@ -164,6 +164,31 @@ MODELS=(
   # argv slice/join soundness; split word spans + split_count.
   # Honest: vbuf growth assumed (P3); fnmatch engine is an oracle.
   "c_str_helpers.rs:40:40"
+  # The C generator's capture/wrap quoting
+  # (sh2perl/src/c_backend.rs `_sh_wrap_cmd` + `_sh_system_rc` +
+  # `_sh_capture` + the word-quoting family). Proves injection-freedom
+  # (every `'` becomes the 5-char splice; the wrapped command parses as
+  # exactly `bash -c '<q(cmd)>'`), the splice shape, the word-quote
+  # core, the newline gate, the status mapping (total + disjoint:
+  # -1->127, exited->status, else 1), capture empty-arm + strip
+  # semantics, `_sh_sc` NULL-safety, and the `"don't"`/exit-3/signal
+  # pins (with the corrected length 9, found by the proof).
+  # Honest: vbuf growth assumed; system/popen execution is the OS
+  # contract; argv-tail gating unmodelled.
+  "c_capture_wrap.rs:16:40"
+  # The C generator's DECL-COVERAGE censuses — the three collect_*
+  # walkers (hoist / file-scope inventory / read-routing) over
+  # (sh2perl/src/c_backend.rs `collect_store_expr`, `collect_assigned_vars`,
+  # `hoist_vars`), their VETO exactness, and the param/raw write bridge.
+  # Proves the invariant this session's six source fixes restore: every
+  # write a walker's arm-shape misses is caught by the others (coverage
+  # is the union in practice and hoist alone after fixes (a)-(d)), the
+  # const-lift veto set is exactly the param/raw write positions (sound
+  # AND precise), and pins the measured corpus shapes (t04 params,
+  # while-cond printf, elsif-cond-in-fn, return-collect, select-menu
+  # param write, printf/let in fn scope). Three one-token mutants, each
+  # killing a named obligation.
+  "c_decl_coverage.rs:51:40"
 )
 
 # extractor:baseline — the generator script and the file it must reproduce.
