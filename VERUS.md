@@ -18,6 +18,8 @@ Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28):
 |---|---|---|---|
 | `proofs/verus/interval.rs` | `transforms/i32_provable.rs` (`arith_bounds`) | 5 verified, 0 errors | **RETIRED** — target never landed, see P0(iv) |
 | `proofs/verus/i32_bounds_exec.rs` | same, exec-carrying full-enum form | 7 verified, 0 errors | **RETIRED** — target never landed, see P0(iv) |
+| `proofs/verus/escape_classes.rs` | **verdict analysis**: `transforms/escape_classes.rs` `class_of` over the C consumer (`c_backend.rs:9929`) | 14 verified, 0 errors | landed, gated — see P12 |
+| `proofs/verus/f32_narrow.rs` | **verdict analysis**: `transforms/f32_narrow.rs` form table + `operand_exact` | 8 verified, 0 errors | landed, gated — see P12 |
 | `proofs/verus/optimize_stmts.rs` | `src/ir.rs::optimize_stmts` Pass 1 | 8 verified, 0 errors | committed `84bb46cb7`, local-only |
 | `proofs/verus/dead_fn_elim.rs` | `transforms/dead_fn_elim.rs` Passes 1–4 | 25 verified, 0 errors | committed `46ec35566`, local-only |
 | `proofs/verus/dead_store_elim.rs` | `transforms/dead_store_elim.rs` core | 45 verified, 0 errors | committed `dbd0a5562`, local-only |
@@ -41,6 +43,8 @@ Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28):
 | `proofs/verus/elseif_flatten.rs` | `transforms/else_if_flatten.rs` (chain) | 22 verified, 0 errors | landed, gated — see P11 |
 | `proofs/verus/seq_range.rs` | `transforms/seq_range_for.rs` (seq words) | 11 verified, 0 errors | landed, gated — see P11 |
 | `proofs/verus/ternary_desugar.rs` | `transforms/ternary_desugar.rs` (cond normalize) | 9 verified, 0 errors | landed, gated — see P11 |
+| `proofs/verus/escape_classes.rs` | **verdict analysis**: `transforms/escape_classes.rs` `class_of` over the C consumer (`c_backend.rs:9929`) | 14 verified, 0 errors | landed, gated — see P12 |
+| `proofs/verus/f32_narrow.rs` | **verdict analysis**: `transforms/f32_narrow.rs` form table + `operand_exact` | 8 verified, 0 errors | landed, gated — see P12 |
 | `proofs/verus/c_eqne_emit.rs` | **C generator**: `c_backend.rs` `expr()` Eq\|Ne arm (`str_cmp_valued` decision) | 11 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §14a |
 | `proofs/verus/c_checked_arith.rs` | **C generator**: `c_backend.rs` checked i64 tier (`tiered_i64_expr` / `tiered_store_general` + spec arm) | 18 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §13 |
 | `proofs/verus/c_dec_str.rs` | **C generator**: `_sh_ll2s` + the inline `size_t` itoa it emits | 26 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §14b |
@@ -51,16 +55,18 @@ Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28):
 | `proofs/verus/c_op_promote.rs` | **C generator**: const-fold + LL widening + unsigned-gate premises | 15 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §19 |
 | `proofs/verus/c_str_helpers.rs` | **C generator**: `_sh_*` string helpers (substr/replace/arr_slice/strip/argv/split) | 40 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §20 |
 | `proofs/verus/c_capture_wrap.rs` | **C generator**: capture/wrap quoting (injection-freedom + status mapping) | 16 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §21 |
+| `proofs/verus/c_decl_coverage.rs` | **C generator**: the three decl-census walkers + const-lift veto (`collect_store_expr` / `collect_assigned_vars` / `hoist_vars` / `collect_param_write_targets`) | 51 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §22 |
 
-470 active obligations total (482 with the 12 retired i32 obligations), 0 errors,
-every active model with checked failing mutants (see §(b).3 — 25 mutants over
-23 models; the retired exec form carries its postcondition on the executable
-function itself instead). The last three rows are models of the C
+492 active obligations total (504 with the 12 retired i32 obligations), 0 errors,
+every active model with checked failing mutants (see §(b).3 — 27 mutants over
+25 models; the retired exec form carries its postcondition on the executable
+function itself instead). The eleven `c_*` rows are models of the C
 GENERATOR's own emission decisions, not of a shIR→shIR transform; they sit
-in the same gate but are counted separately from the 470 above — +244
-obligations (11/18/26/20/14/15/69/15/40/16, each with its own failing mutants or negative
-controls, all re-verified under the pinned binary 2026-10-28), for 714
-gated active obligations in total. Their proofs, and why Verus rather than
+in the same gate but are counted separately from the 492 above — +295
+obligations (11/18/26/20/14/15/69/15/40/16/51, each with its own failing mutants or negative
+controls, all re-verified under the pinned binary 2026-10-28), for 787
+gated active obligations in total — the P12 pair (+14/+8) is included in
+the 492, the eleven `c_*` rows counted separately as stated. Their proofs, and why Verus rather than
 Isabelle fits them (the target is Rust that *produces* the C), are in
 `C_UB_PROOF.md` §13–§14. The eight pre-existing counts — and
 their seven mutants — were independently reproduced on 2026-10-24 with the
@@ -340,7 +346,7 @@ source outgrows its extractor patterns — but the generated
 that lands, "the model matches the code" is a statement about the day each
 file was written, reviewed by re-reading.
 
-**3. The obligations are not vacuous — every transform model has a checked mutant (25 mutants over 23 models), plus the C-generator mutants.**
+**3. The obligations are not vacuous — every transform model has a checked mutant (27 mutants over 25 models), plus the C-generator mutants.**
 Interval with a wrong product corner: 4 verified, 1 error. `Assign` writing
 a constant: 7 verified, 1 error. Inverted keep rule: 23 verified, 2 errors.
 Dropped purity gate: 43 verified, 2 errors. Restored `Arith(_) => true`
@@ -358,7 +364,9 @@ Dropped brace prefix: 11 verified, 1 error. Flipped case direction:
 19 verified, 3 errors. Dropped plain-ident gate (fold any name):
 9 verified, 1 error. Prefix lowered to suffix: 27 verified, 2 errors.
 Dropped else-body in the splice: 18 verified, 4 errors. Accepted step form:
-9 verified, 2 errors. Test-string routed to arith: 8 verified, 1 error. Flipped width order
+9 verified, 2 errors. Test-string routed to arith: 8 verified, 1 error.
+Dropped multi-scope arm (Local for a two-scope name): 11 verified, 2 errors.
+Dropped `*` from the f32 form table (exact product): 7 verified, 1 error. Flipped width order
 (narrow (0,100) as I8): 19 verified, 1 error. Dropped capture denial
 (bounded capture receiver as Fixed): 13 verified, 1 error.
 Unsigned-reduction-on-negative (shipped -3 shape as equal):
@@ -733,6 +741,35 @@ no model until the invariant is written AND a firing witness exists.
 | `used_before_decl` | uninit soundness: a flagged read is definitely uninitialized on every path (conservative dataflow) | analysis; 11 unit tests |
 | `counted_arith_forinit` | recovery preservation: structured-Arith counted-`while` + trailing `v+=1`/`v++` denotes the same iteration as `ForInit` (`$?`-read veto, no counter write/escape) | rewrite; 6 unit tests; shell-corpus sweep 2026-10-26: 0/563 (frontend-shape CONFIRMED for shell input — shell `[ $i -lt N ]` conds are `test` calls, never `Arith` (only `while ((…))` qualifies; the 2 corpus files with those refuse on body/step gates, correctly); 0/563 isolated AND in-pipeline) |
 | `counted_while_forinit` | same for shell `BinOp`/text conds | rewrite; 0/563 isolated AND in-pipeline pre-fix (Arith-wrap defect, witnessed live on 031) — FIXED 2026-10-26: `counter_step` now also accepts `Arith(Bin{Var,+/- ,Num≠0})`, the exact shell lowering of `i=$((i±1))`, mirroring the BinOp arm (same purity, same nonzero gate); 7 new unit tests (failing-first verified); **9/563 fire** (IR-level ForInit gain, all ./fail-green); C backend consumes the ForInit in its standard scoped form |
+
+**P12 — the provable VERDICT analyses.** DONE — proved 2026-10-28
+(`escape_classes.rs`, 14 obligations, `f32_narrow.rs`, 8 obligations;
+gate-registered `escape_classes.rs:14:40`, `f32_narrow.rs:8:40`, both
+with coverage syncs). Of the five "VERDICT analyses" proposed for the P4 treatment, two are
+proved here and the other three are recorded as out of Tier 1 (`background_decide` is process/exec, the
+standing Tier-3 rule; `sync_ok_loops` criterion 1 is a wall-clock
+heuristic and its real obligation is run preservation; `type_query`
+needs bash function state at the eval splice point).
+`escape_classes`: `local_is_plain`/`local_sound` (Local ⇒ no dynamic-key
+mark, no whole-array mark ⇒ a native binding cannot be defeated by an
+indexed access), `marked_not_local` + `multi_scope_store` (the verdict
+is not vacuous), `pin_acc_ok_matches_consumer` (the model's acceptance
+IS `c_backend.rs`'s `Local || (store_ok && Store)`). Seven pins,
+UNMIRRORED by design (analysis-only source, no unit suite); mutant
+(dropped multi-scope arm) red at 11/2. Firing measured with
+`SH2_DBG_ACC=1` over `--target c` on the 563-file corpus: **1/563**
+files (1 candidate line) — narrow by construction (arrays, `local`,
+cross-scope names all refuse), so the proof's value is the decision
+rule, not coverage.
+`f32_narrow`: the exactness-preserving form table (`+0`/`-0`,
+`*±1`/`*±0`, `/±1`) and `operand_exact`'s round-trip rule, with the
+refusals pinned (`%` never; general `*` of two exact floats refused —
+the `4097.0*4097.0` hazard; `16777217`-style int operands refused).
+Seven pins UNMIRRORED; mutant (dropped `*` arm) red at 7/1. Firing: the
+verdict set is empty on shell input by construction (Python-frontend
+consumer) — the proof is for Cython/estree float homing.
+Coverage syncs registered for both (`verus-sync-coverage.sh:` model
+lists and guard sections extended; baselines committed).
 
 Explicitly not Tier-1 and not attempted: `process_subst` /
 `background_decide` (process/exec semantics are Tier-3), `fbdev_gpu*` /
