@@ -233,7 +233,21 @@ MODELS=(
   # Pass 1 (SCC fixpoint) + pass 4 (case-pattern hoist) are
   # parameters — SCC soundness is the verdict-analyses sweep.
   "echo_return.rs:13:40"
-)
+  # Arith-lowering sweep (Tier-1): let-arg text -> Assign/IncDec
+  # arith -> Assign stmt (arith_forms.rs 489 lines). The structured
+  # Assign updates the store exactly like the let-exec's evaluation;
+  # the compound read-modify-write keeps the old value. 15 unit-test
+  # pins. Mutant (x+=E as x=E) red 14v/1e. Fires on ((..))/let
+  # shapes (14+ corpus files).
+  "arith_forms.rs:15:40"
+  # Arith-lowering sweep (Tier-1): init + counter-while + trailing
+  # step -> ForInit (counted_while_forinit.rs 547 lines). The ForInit
+  # runs the same iteration trace under the guard conjunction
+  # (adjacent init, nonzero-literal step both spellings, clean prefix
+  # and cond). 7 unit-test pins + trace agreement + nonzero-gate
+  # load-bearing. Mutant (zero step accepted) red 12v/1e. Fires
+  # 9/563 in-pipeline.
+  "counted_while_forinit.rs:13:40"
 
 # extractor:baseline — the generator script and the file it must reproduce.
 # Three coverage extractors (one per P3/P4/P5 model) plus the deliberately
@@ -275,6 +289,8 @@ SYNCS=(
   "harness/verus-sync-coverage.sh:append_store:sh2perl/proofs/verus/append_store_sync.txt"
   "harness/verus-sync-coverage.sh:split_set:sh2perl/proofs/verus/split_set_sync.txt"
   "harness/verus-sync-coverage.sh:echo_return:sh2perl/proofs/verus/echo_return_sync.txt"
+  "harness/verus-sync-coverage.sh:arith_forms:sh2perl/proofs/verus/arith_forms_sync.txt"
+  "harness/verus-sync-coverage.sh:counted_while_forinit:sh2perl/proofs/verus/counted_while_forinit_sync.txt"
 )
 
 if [ "${1:-}" = "--list" ]; then

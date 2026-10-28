@@ -92,17 +92,40 @@ total=${#FILES[@]}
 [ "$total" -gt 0 ] || { echo "rust-dogfood: no .rs files under $SRCDIR" >&2; exit 2; }
 
 # --- run the frontend over every file -------------------------------------
+# PARALLEL: every file's verdict needs its own full crate link sweep
+# (~20-90 s; per-module clean-checks are content-cached, the entry sweep
+# is not), so a serial loop projected to ~7 h at 235 files. Each
+# subshell writes rc+stderr to its own result file; the aggregation loop
+# below replays them IN ORDER, so verdicts, histogram and list stay
+# byte-identical to the serial run. PAR defaults to 8 (box measured
+# healthy: io PSI ~0, 31 G free — the cost is CPU, not I/O).
+PAR=${PAR:-8}
+RES=$(mktemp -d "${TMPDIR:-/tmp}/rust-dogfood-res.XXXXXX") || exit 1
+trap 'rm -rf "$WORK" "$RES"' EXIT
+i=0
+for rel in "${FILES[@]}"; do
+  i=$((i+1))
+  (
+    err=$(timeout "$TMO" "$FE" --shir "$SNAP/src/$rel" --raw 2>&1 >/dev/null)
+    rc=$?
+    printf '%s\n%s\n' "$rc" "$err" > "$RES/$i"
+    # streaming progress (stderr): real-time per-file verdict
+    printf '[%d/%d] %s rc=%s\n' "$i" "$total" "${rel#./}" "$rc" >&2
+  ) &
+  while [ "$(jobs -rp | wc -l)" -ge "$PAR" ]; do
+    wait -n 2>/dev/null || sleep 0.1
+  done
+done
+wait
+
 pass=0; refuse=0; crash=0
 declare -A HIST=()
 LIST=()
+i=0
 for rel in "${FILES[@]}"; do
-  f="$SNAP/src/$rel"
-  # the frontend prints the refusal on stderr and exits non-zero
-  err=$(timeout "$TMO" "$FE" --shir "$f" --raw 2>&1 >/dev/null)
-  rc=$?
-  # streaming progress (stderr): the list only prints at the end, and a
-  # cold run takes long enough that watching nothing looks like a hang
-  printf '[%d/%d] %s rc=%s\n' "$((pass+refuse+crash+1))" "$total" "${rel#./}" "$rc" >&2
+  i=$((i+1))
+  rc=$(head -n1 "$RES/$i")
+  err=$(tail -n +2 "$RES/$i")
   if [ $rc -eq 0 ]; then
     pass=$((pass+1))
     LIST+=("PASS	${rel#./}	")

@@ -36,7 +36,7 @@ OUT="${OUT_TMP:-/dev/stdout}"
 
 fail() { echo "verus-sync-coverage($MODEL): FATAL: $*" >&2; exit 1; }
 
-[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return"
+[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit"
 # A model may span several source files (the P6 sweep groups folds by
 # family). model_srcs lists them; SRC is the first (legacy single-file
 # uses keep working).
@@ -62,6 +62,8 @@ model_srcs() {
     append_store) echo "append_to_store" ;;
     split_set) echo "split_set" ;;
     echo_return) echo "echo_return" ;;
+    arith_forms) echo "arith_forms" ;;
+    counted_while_forinit) echo "counted_while_forinit" ;;
     *) fail "unknown model: $1" ;;
   esac
 }
@@ -247,6 +249,29 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     echo_return:pin_last_stage_echoes) echo echo_return:pipeline_last_stage_echoes_the_value ;;
     echo_return:pin_wrapped_prints_value) echo echo_return:simple_value_function_lifts ;;
     echo_return:pin_bare_is_not_echo) echo UNMIRRORED ;;
+    # Arith-lowering sweep: per-rewrite models over the transform's own
+    # unit suite (mapped pins) plus model-internal runtime checks.
+    arith_forms:pin_plain_assign) echo arith_forms:let_simple_assign_becomes_structured_assign ;;
+    arith_forms:pin_plus_equals) echo arith_forms:let_compound_assign_plus_equals ;;
+    arith_forms:pin_postfix_inc) echo arith_forms:let_incdec_becomes_incdec_arith ;;
+    arith_forms:pin_prefix_inc) echo arith_forms:let_prefix_incdec ;;
+    arith_forms:pin_multi_arg) echo arith_forms:let_multiple_forms_emit_multiple_assigns ;;
+    arith_forms:pin_var_rhs) echo arith_forms:let_arith_with_var_rhs ;;
+    arith_forms:pin_non_let_untouched) echo arith_forms:non_let_exec_is_left_alone ;;
+    arith_forms:pin_nested_rewrite) echo arith_forms:let_in_nested_block_rewrites_recursively ;;
+    arith_forms:pin_non_arith_refuses) echo arith_forms:let_with_non_arith_arg_is_left_alone ;;
+    arith_forms:pin_paren_compound) echo arith_forms:double_paren_compound_assign_is_not_glob_tagged ;;
+    arith_forms:pin_paren_incdec) echo arith_forms:double_paren_incdec_is_lowered ;;
+    arith_forms:pin_comma_list) echo arith_forms:double_paren_comma_list_lowered ;;
+    counted_while_forinit:pin_arith_step_folds) echo counted_while_forinit:arith_wrapped_step_folds ;;
+    counted_while_forinit:pin_binop_step_folds) echo counted_while_forinit:binop_step_still_folds ;;
+    counted_while_forinit:pin_zero_step_refuses) echo counted_while_forinit:zero_arith_step_refuses ;;
+    counted_while_forinit:pin_dynamic_step_refuses) echo counted_while_forinit:dynamic_arith_step_refuses ;;
+    counted_while_forinit:pin_body_write_refuses) echo counted_while_forinit:body_write_refuses ;;
+    counted_while_forinit:pin_plain_while_untouched) echo counted_while_forinit:plain_while_is_untouched ;;
+    counted_while_forinit:pin_declare_refuses) echo counted_while_forinit:declare_in_body_refuses ;;
+    counted_while_forinit:pin_trace_agrees) echo UNMIRRORED ;;
+    counted_while_forinit:pin_step_gate_load_bearing) echo UNMIRRORED ;;
     *) echo "" ;;
   esac
 }
@@ -722,6 +747,35 @@ case "$MODEL" in
     sgrep -q "fn echo_pipeline_last_stage" \
       || fail "pipeline-last-stage rule not found in source"
     echo "guard last-stage echo: PRESENT"
+    ;;
+  arith_forms)
+    # The let-arg gate: text extraction + parse_arith verdict.
+    sgrep -q "fn let_arg_text" \
+      || fail "let_arg_text gate not found in source"
+    echo "guard let-arg text: PRESENT"
+    sgrep -q "fn build_assigns" \
+      || fail "build_assigns not found in source"
+    echo "guard assign builder: PRESENT"
+    # The two lowerings (exec-expr and exec-stmt shapes).
+    sgrep -q "fn lower_let_expr" \
+      || fail "lower_let_expr not found in source"
+    echo "guard expr lowering: PRESENT"
+    sgrep -q "fn lower_let_stmt" \
+      || fail "lower_let_stmt not found in source"
+    echo "guard stmt lowering: PRESENT"
+    ;;
+  counted_while_forinit)
+    # The counter-step gate (both spellings, nonzero literal).
+    sgrep -q "fn counter_step" \
+      || fail "counter_step gate not found in source"
+    echo "guard counter step: PRESENT"
+    # The body veto (writes/escapes) and the status-read veto.
+    sgrep -q "fn writes_or_escapes" \
+      || fail "writes_or_escapes veto not found in source"
+    echo "guard no-write veto: PRESENT"
+    sgrep -q "fn contains_status_read" \
+      || fail "contains_status_read veto not found in source"
+    echo "guard no-status veto: PRESENT"
     ;;
   *) fail "unknown model: $MODEL" ;;
 esac
