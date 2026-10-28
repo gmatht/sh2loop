@@ -56,14 +56,36 @@ done
 }
 
 # --- snapshot the source tree (content-addressed) -------------------------
-SNAP=$(mktemp -d "${TMPDIR:-/tmp}/rust-dogfood.XXXXXX") || exit 1
-trap 'rm -rf "$SNAP"' EXIT
-mkdir -p "$SNAP/src"
+# The snapshot path is CONTENT-ADDRESSED: identical sources reuse the same
+# directory on the next run, so the frontend's mtime-keyed clean-lowering
+# cache keeps its keys (a fresh mktemp dir every run forced a cold
+# ~235-module subprocess check sweep per scoreboard run). The copy still
+# happens FIRST — hashing live bytes and then copying could pair one
+# revision's hash with another's bytes while fleet workers edit.
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/rust-dogfood.XXXXXX") || exit 1
+SNAP=$WORK
+trap 'rm -rf "$WORK"' EXIT
+mkdir -p "$WORK/src"
 # copy the tree without mutating the measured bytes
-( cd "$SRCDIR" && tar cf - . ) 2>/dev/null | ( cd "$SNAP/src" && tar xf - ) || {
+( cd "$SRCDIR" && tar cf - . ) 2>/dev/null | ( cd "$WORK/src" && tar xf - ) || {
   echo "rust-dogfood: cannot snapshot $SRCDIR" >&2; exit 2; }
-SRC_HASH=$( cd "$SNAP/src" && find . -name '*.rs' -print0 \
+SRC_HASH=$( cd "$WORK/src" && find . -name '*.rs' -print0 \
               | sort -z | xargs -0 cat | sha256sum | cut -c1-16 )
+SHARED="${TMPDIR:-/tmp}/rust-dogfood-cache/$SRC_HASH"
+if [ -d "$SHARED/src" ]; then
+  rm -rf "$WORK/src"            # identical content already cached
+  SNAP=$SHARED
+else
+  mkdir -p "${SHARED%/*}"
+  if mv "$WORK" "$SHARED" 2>/dev/null; then
+    SNAP=$SHARED                 # trap's rm -rf $WORK is now a no-op
+  else
+    SNAP=$WORK                   # lost a promote race: fall back private
+  fi
+fi
+# bound the cache (one dir per source revision, /tmp is not swept for
+# this pattern) — keep 2 days of revisions.
+find "${TMPDIR:-/tmp}/rust-dogfood-cache" -mindepth 1 -maxdepth 1 -mtime +2 -exec rm -rf {} + 2>/dev/null || true
 
 mapfile -t FILES < <( cd "$SNAP/src" && find . -name '*.rs' | sort )
 total=${#FILES[@]}
@@ -78,6 +100,9 @@ for rel in "${FILES[@]}"; do
   # the frontend prints the refusal on stderr and exits non-zero
   err=$(timeout "$TMO" "$FE" --shir "$f" --raw 2>&1 >/dev/null)
   rc=$?
+  # streaming progress (stderr): the list only prints at the end, and a
+  # cold run takes long enough that watching nothing looks like a hang
+  printf '[%d/%d] %s rc=%s\n' "$((pass+refuse+crash+1))" "$total" "${rel#./}" "$rc" >&2
   if [ $rc -eq 0 ]; then
     pass=$((pass+1))
     LIST+=("PASS	${rel#./}	")
