@@ -62,24 +62,34 @@ Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28):
 | `proofs/verus/echo_return.rs` | `transforms/echo_return.rs` passes 2–4 (body echo → Return + call-site echo(fnValue)) | 13 verified, 0 errors | landed, gated — store-forward sweep |
 | `proofs/verus/arith_forms.rs` | `transforms/arith_forms.rs` (let-arg text → Assign/IncDec arith → Assign stmt) | 15 verified, 0 errors | landed, gated — arith-lowering sweep |
 | `proofs/verus/counted_while_forinit.rs` | `transforms/counted_while_forinit.rs` (init + counter-while + step → ForInit) | 13 verified, 0 errors | landed, gated — arith-lowering sweep |
+| `proofs/verus/scc.rs` | `shir_passes/scc.rs` (SCC contract + condensation acyclicity) | 21 verified, 0 errors | landed, gated — verdict-analyses sweep |
+| `proofs/verus/used_before_decl.rs` | `shir_passes/used_before_decl.rs` (must-defined dataflow) | 15 verified, 0 errors | landed, gated — verdict-analyses sweep |
+| `proofs/verus/maskable.rs` | `shir_passes/maskable.rs` (mask_threshold soundness) | 12 verified, 0 errors | landed, gated — verdict-analyses sweep |
+| `proofs/verus/lifetime.rs` | `shir_passes/lifetime.rs` (span coverage + escape conservatism) | 14 verified, 0 errors | landed, gated — verdict-analyses sweep |
+| `proofs/verus/numstr.rs` | `shir_passes/numstr.rs` (seed-table consistency) | 11 verified, 0 errors | landed, gated — verdict-analyses sweep |
+| `proofs/verus/numeric_observed.rs` | `shir_passes/numeric_observed.rs` (marked ==> all-uses-numeric) | 10 verified, 0 errors | landed, gated — verdict-analyses sweep |
 
 492 active obligations total (504 with the 12 retired i32 obligations), 0 errors,
 plus the store-forward sweep (+47: append_store 20, split_set 14,
 echo_return 13 — per-rewrite models with guard-oracle premises, mapped
 pins, and checked mutants, all re-verified under the pinned binary
 2026-10-28/29) and the arith-lowering sweep (+28: arith_forms 15,
-counted_while_forinit 13 — same shape, re-verified 2026-10-29), for
-567 transform-side obligations. Every active model
+counted_while_forinit 13 — same shape, re-verified 2026-10-29) and
+the verdict-analyses sweep (+83: scc 21, used_before_decl 15,
+maskable 12, lifetime 14, numstr 11, numeric_observed 10 —
+verdict-soundness over oracle censuses, re-verified 2026-10-29), for
+650 transform-side obligations. Every active model
 with checked failing mutants (see §(b).3 — 27 mutants over
 25 models; the retired exec form carries its postcondition on the executable
 function itself instead). The twelve `c_*` rows are models of the C
 GENERATOR's own emission decisions, not of a shIR→shIR transform; they sit
 in the same gate but are counted separately from the 492 above — +314
 obligations (11/18/26/20/14/15/69/15/40/16/51/19, each with its own failing mutants or negative
-controls, all re-verified under the pinned binary 2026-10-28), for 881
+controls, all re-verified under the pinned binary 2026-10-28), for 964
 gated active obligations in total — the P12 pair (+14/+8) and the
-store-forward trio (+47) and the arith-lowering pair (+28) are included in
-the 567, the twelve `c_*` rows counted separately as stated. Their proofs, and why Verus rather than
+store-forward trio (+47) and the arith-lowering pair (+28) and the
+verdict-analyses six (+83) are included in
+the 650, the twelve `c_*` rows counted separately as stated. Their proofs, and why Verus rather than
 Isabelle fits them (the target is Rust that *produces* the C), are in
 `C_UB_PROOF.md` §13–§14. The eight pre-existing counts — and
 their seven mutants — were independently reproduced on 2026-10-24 with the

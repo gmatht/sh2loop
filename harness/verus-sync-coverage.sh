@@ -352,7 +352,7 @@ src_tests() {
 {
 echo "# verus-sync-coverage manifest: $MODEL"
 echo -n "# source sha:"
-for f in $SRCS; do echo -n " $f=$(sha256sum "$root/sh2perl/src/transforms/$f.rs" | cut -c1-12)"; done
+for f in $SRCS; do echo -n " $f=$(sha256sum "$root/sh2perl/src/$SRCDIR/$f.rs" | cut -c1-12)"; done
 echo "  proof sha: $(sha256sum "$PRF" | cut -c1-12)"
 echo
 echo "[pins]"
