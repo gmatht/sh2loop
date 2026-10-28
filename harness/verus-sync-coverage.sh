@@ -36,7 +36,7 @@ OUT="${OUT_TMP:-/dev/stdout}"
 
 fail() { echo "verus-sync-coverage($MODEL): FATAL: $*" >&2; exit 1; }
 
-[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar"
+[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow"
 # A model may span several source files (the P6 sweep groups folds by
 # family). model_srcs lists them; SRC is the first (legacy single-file
 # uses keep working).
@@ -57,6 +57,8 @@ model_srcs() {
     elseif_flatten) echo "else_if_flatten" ;;
     seq_range) echo "seq_range_for" ;;
     ternary_desugar) echo "ternary_desugar" ;;
+    escape_classes) echo "escape_classes" ;;
+    f32_narrow) echo "f32_narrow" ;;
     *) fail "unknown model: $1" ;;
   esac
 }
@@ -201,6 +203,20 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     ternary_desugar:pin_testarith_normalizes) echo UNMIRRORED ;;
     ternary_desugar:pin_other_refuses) echo UNMIRRORED ;;
     ternary_desugar:pin_branch_preserved) echo UNMIRRORED ;;
+    # P12 — the two verdict analyses are ANALYSIS-ONLY (no unit suite in
+    # either source), so every pin is UNMIRRORED by design; the living
+    # tie is the guarded consumer/table below, not a mapped test.
+    escape_classes:pin_*) echo UNMIRRORED ;;
+    escape_classes:pin_local_accepted_without_store_ok) echo UNMIRRORED ;;
+    escape_classes:pin_acc_ok_matches_consumer) echo UNMIRRORED ;;
+    f32_narrow:pin_*) echo UNMIRRORED ;;
+    f32_narrow:pin_mod_refused) echo UNMIRRORED ;;
+    f32_narrow:pin_general_mul_not_form) echo UNMIRRORED ;;
+    f32_narrow:pin_mul_one_form) echo UNMIRRORED ;;
+    f32_narrow:pin_lit_pair_contract) echo UNMIRRORED ;;
+    f32_narrow:pin_var_lattice) echo UNMIRRORED ;;
+    f32_narrow:pin_unknown_not_exact) echo UNMIRRORED ;;
+    f32_narrow:pin_int_operand_uses_roundtrip) echo UNMIRRORED ;;
     *) echo "" ;;
   esac
 }
@@ -573,6 +589,58 @@ case "$MODEL" in
     sgrep -q 'func == "testArith"' \
       || fail "ternary-desugar testArith normalization not found in source"
     echo "guard ternary-desugar testArith normalization: PRESENT"
+    ;;
+  escape_classes)
+    # The classification itself (pass 2): multi-scope -> Store, array ->
+    # Native/StoreArray, else Store/Local. The model's `class_of` is this
+    # arm verbatim; an added class or a reordered precedence is drift.
+    sgrep -q "let multi_scope = scope_set.len() > 1" \
+      || fail "multi-scope criterion not found in source"
+    echo "guard multi-scope criterion: PRESENT"
+    for cls in "EscapeClass::StoreArray" "EscapeClass::NativeArray" "EscapeClass::Local"; do
+      sgrep -qF "$cls" || fail "class $cls not found in source"
+      echo "guard class $cls: PRESENT"
+    done
+    # Mark sources: a non-literal assign-target key and a non-literal
+    # Index key both set dynkey (the model's `dynkey` map).
+    sgrep -q "if !literal_key(k) {" || fail "assign-target dynamic-key mark not found in source"
+    echo "guard dynkey mark (assign target): PRESENT"
+    sgrep -q "if !literal_key(key) {" || fail "Index dynamic-key mark not found in source"
+    echo "guard dynkey mark (Index): PRESENT"
+    # The consumer the proof is about: the C renderer's Local/Store arm.
+    command grep -q "escape_classes::EscapeClass::Local" "$root/sh2perl/src/c_backend.rs" \
+      || fail "C consumer Local arm not found in c_backend.rs"
+    echo "guard C consumer Local arm: PRESENT"
+    command grep -q "escape_classes::EscapeClass::Store" "$root/sh2perl/src/c_backend.rs" \
+      || fail "C consumer Store arm not found in c_backend.rs"
+    echo "guard C consumer Store arm: PRESENT"
+    ;;
+  f32_narrow)
+    # The exactness predicate the whole model rests on.
+    sgrep -q "v.is_finite() && (v as f32) as f64 == v" \
+      || fail "f32_exact round-trip predicate not found in source"
+    echo "guard f32_exact round-trip: PRESENT"
+    # The exactness-preserving form table (combine's non-literal arm):
+    # +0/-0, *±1/±0, /±1. A dropped or added form is drift.
+    sgrep -q '"+" => is_zero(l) || is_zero(r)' || fail "+0/-0 form not found in source"
+    echo "guard form +0/-0: PRESENT"
+    sgrep -q '"*" => is_one_or_zero(l) || is_one_or_zero(r)' || fail "*±1/*±0 form not found in source"
+    echo "guard form *±1/*±0: PRESENT"
+    sgrep -q '"/" => is_one(r)' || fail "/±1 form not found in source"
+    echo "guard form /±1: PRESENT"
+    sgrep -q '"-" => is_zero(r)' || fail "-0 form not found in source"
+    echo "guard form -0: PRESENT"
+    # operand_exact: Float needs `exact`, Int needs the cval round-trip,
+    # Unknown never.
+    sgrep -q "Dom::Int => v.cval.map(f32_exact).unwrap_or(false)" \
+      || fail "operand_exact int round-trip rule not found in source"
+    echo "guard operand_exact int round-trip: PRESENT"
+    # The renderer hook the verdict feeds.
+    sgrep -q "pub fn is_f32_var" || fail "is_f32_var hook not found in source"
+    echo "guard is_f32_var hook: PRESENT"
+    command grep -q "f32_narrow::is_f32_var" "$root/sh2perl/src/c_backend.rs" \
+      || fail "C consumer f32 arm not found in c_backend.rs"
+    echo "guard C consumer f32 arm: PRESENT"
     ;;
   *) fail "unknown model: $MODEL" ;;
 esac

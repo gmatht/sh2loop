@@ -70,6 +70,17 @@ MODELS=(
   "elseif_flatten.rs:22:40"
   "seq_range.rs:11:40"
   "ternary_desugar.rs:9:40"
+  # P12 — the two VERDICT analyses with a stateable Tier-1 obligation
+  # and a firing consumer. escape-classes: the census->class decision
+  # (`class_of`) over the C renderer's local-vs-store predicate
+  # (`c_backend.rs:9929`): Local implies unmarked (no dynamic key, no
+  # whole-array position) and single-scope, so a native binding cannot
+  # be defeated by an indexed access; any mark forbids Local. f32-narrow:
+  # the exactness-preserving form table (`combine`'s non-literal arm) and
+  # the `operand_exact` round-trip rule that decides `cdef float` /
+  # `Math.fround` homes.
+  "escape_classes.rs:14:40"
+  "f32_narrow.rs:8:40"
   # The C generator's own Eq/Ne emission decision (c_backend.rs `expr()`
   # + `str_cmp_valued`) — the first model aimed at a RENDER decision
   # rather than a shared shIR->shIR pass. Proves the strcmp arm total,
@@ -226,6 +237,8 @@ SYNCS=(
   "harness/verus-sync-coverage.sh:elseif_flatten:sh2perl/proofs/verus/elseif_flatten_sync.txt"
   "harness/verus-sync-coverage.sh:seq_range:sh2perl/proofs/verus/seq_range_sync.txt"
   "harness/verus-sync-coverage.sh:ternary_desugar:sh2perl/proofs/verus/ternary_desugar_sync.txt"
+  "harness/verus-sync-coverage.sh:escape_classes:sh2perl/proofs/verus/escape_classes_sync.txt"
+  "harness/verus-sync-coverage.sh:f32_narrow:sh2perl/proofs/verus/f32_narrow_sync.txt"
 )
 
 if [ "${1:-}" = "--list" ]; then
