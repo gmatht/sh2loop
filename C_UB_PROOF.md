@@ -534,12 +534,46 @@ pointer/integer comparison, which gcc names exactly
 `test-lowering`'s string-eq lift turns `[ "$i" = "2" ]` into
 `Not(BinOp{Ne}, Var i, Str "2")`, and for a numeric-homed `i` (loop
 counters — the common case) `str_cmp_valued(Var i)` is false while the
-literal is text, so the RAW arm emits `i != "2"`. Measured 2026-10-27 on
-the 563-example corpus: 2 of 564 renders carry the gcc warning, and
-`harness/c_gate_main.sh` fails 5 files whose transforms-ON output diverges
-from bash while the transforms-OFF output matches it (`or-continue`
-rc=1, `func-after-test-or` rc=134 abort on UB, plus three of the same
-decision class).
+literal is text, so the RAW arm emits `i != "2"`.The lift itself is *not* wrong — its contract is that every backend maps
+`Ne` to a string-capable inequality, and C was the one backend that did
+not. The fix therefore landed in the decision, and in three sibling
+render defects the fixed compare unmasked (all 2026-10-28, all in
+`sh2perl/src/c_backend.rs`):
+
+1. **the trigger** — `str_intent`: a `Str`/`Interpolate`/`Capture`
+   operand now pins the string arm (or two certainly-text operands, the
+   original rule), and the non-text side renders through `value_c`, the
+   backend's own canonical string form, so both sides of the `strcmp`
+   are `char*`;
+2. **`continue`/`break` status** — bash's special builtins *succeed*, so
+   they set `$? = 0` (measured); the emitters wrote no status, leaving
+   the failing test's `1` through the loop's last iteration
+   (`or-continue.sh` exited 1 where bash exits 0);
+3. **word-for `loop_depth`** — the `for i in 1 2 3` table arm never
+   incremented `loop_depth`, so every in-loop flow statement took the
+   "outside a loop" branch: bare `continue;` with no status (2), and at
+   two sites `_sh_rc = 1;` INSTEAD of continue/break — a silently
+   dropped `break`;
+4. **the chain arm's unowned store** — a statement-level
+   `A || VAR="default"` (`Call{assign}` inside an and/or chain) assigned
+   a string LITERAL to a free-at-exit heap var; the epilogue's
+   `free(VAR)` then aborted (`munmap_chunk(): invalid pointer`,
+   rc=134 — func-after-test-or.sh). Expression-position assigns to a
+   heap string target now go through `_sh_sset` — the same owned store
+   a statement-position assign gets — as a GNU statement-expression so
+   the `||` stays lazy.
+
+Of the five measured reds, **three now PASS the gate** (or-continue,
+eq-string-num-var, func-after-test-or). The remaining two bisected to
+OTHER transforms, not to this lift: 083_process_sub_missing_files ←
+`process-subst` (the procsub site drops diff's stdout), 064_12 ←
+`brace-fold` (`_sh_mkdir_p` segfaults in a fresh directory). Those are
+separate bugs and remain open.
+
+Measured 2026-10-27 on the 563-example corpus: 2 of 564 renders carried
+the gcc warning (or-continue, eq-string-num-var), and
+`harness/c_gate_main.sh` failed 5 files whose transforms-ON output
+diverged from bash while the transforms-OFF output matched it.
 
 | lemma | content |
 |---|---|
@@ -640,6 +674,13 @@ Negative control: naming `(0,100)` as I8 (ordering flipped) goes red
 not cosmetic.
 
 
+
+- v14 (2026-10-28): §20 — the `_sh_*` string helpers
+  (`c_str_helpers.rs`, 40 obligations, flipped-clamp mutant red 39v/1e
+  → restored 40v/0e): shared b/e clamp total; substr/clamp edges;
+  word spans + join_range; fuel-sufficient replace march + empty-pat
+  identity; strip oracle-consistency + no-match identity; argv
+  slice/join; split words + split_count. Proof artifacts only.
 
 - v13 (2026-10-28): §19 — the operator/promotion rules
   (`c_op_promote.rs`, 15 obligations, refuse-to-fold mutant red 14v/1e
@@ -841,6 +882,120 @@ Negative control: folding Refuse to a constant (compile-time abort)
 goes red (14v/1e, restored to 15v/0e) — the abort-preservation rule is
 load-bearing: a folded `/` would turn a runtime SIGFPE-guard into a
 compile error.
+
+## 20. The `_sh_*` string helpers — `c_str_helpers.rs` (40 obligations)
+
+The `need_sh` runtime block's string core: the shared b/e clamp, the
+byte-exact readers, the literal march, the oracle-consistent strips,
+the argv words, the split spans. Each helper writes into a grown vbuf
+(capacity assumed — P3's domain) and NUL-terminates; what is proved is
+the COMPUTE side (indices in-bounds, bytes exact).
+
+What is proved (28 proof fns, 40 verified): `clamp_total` (THE
+CLAMP — total and in-bounds for every off/len over every n — the
+property every helper's loop depends on); `substr_exact` (byte-exact
+span with the bash sign conventions); `substr_edges` (empty, past-end,
+past-start, negative-len arms); `word_spans`/`join_range` (maximal
+runs + join); `find_ok_holds` (the strstr march returns in-bounds
+occurrences); `replace_first_exact` (splice = prefix + repl +
+suffix); `replace_all_unfolds` (fuel-sufficient march step);
+`replace_empty_pat` (empty pattern = identity, both forms);
+`strip_pre/suf_sound` (in-bounds + oracle-consistency; greedy takes
+the longest, lazy the shortest — by induction on the search
+direction); `strip_no_match` (no matching affix ⟹ identity, via
+per-search none-lemmas); `argv_slice/join_sound` (off≤0 includes $0,
+1-based otherwise, negative len counts back); `split_sound` (words
+are the maximal non-blank spans) + `split_count_sound`; pins
+(substr `${s:1:3}`, replace-all `"aa"→"bb"` by the two-step march,
+replace-first, the `"a b  c"` 3-word walk unfolded innermost-first).
+
+House lessons recorded in the file: `Seq::len()` is nat — the
+int-domain helpers take int, so one `slen` cast site; spec-function
+calls on literal push-chains need the sub-evaluations bound to names
+before the match unfolds; the no-match identity needs the hypotheses
+threaded per search (a bare assert does not fire); the word-walk pin
+unfolds innermost-first with index bridges.
+
+Honest: vbuf growth assumed (capacity is P3's property); the
+`fnmatch` glob ENGINE is an oracle called identically on both sides
+(the case_lowering glob-arm shape); traversal per-site.
+
+Negative control: flipping the clamp (e<b allowed, the
+out-of-bounds shape) goes red (39v/1e, restored to 40v/0e) — the
+clamp is load-bearing: without it a negative length reads past the
+NUL.
+
+- v10b (2026-10-28): **the decl-coverage family closed** — v10's single
+  `param`-arm fix extended to every place a `${NAME:=…}` write can hide,
+  plus one adjacent render defect found on the way, all in
+  `sh2perl/src/c_backend.rs`:
+  1. **three censuses, one invariant.** `collect_store_expr` (store census),
+     `collect_assigned_expr` (the `has_c_decl` gate), and the const-lift
+     veto `collect_param_write_targets` now all carry the writing-param arm
+     the write-arms of the render dispatch imply — plus structural
+     forwarders (`Arrow` → stmt walk; the `Case` discriminant; and
+     `Exec`/`DeclareArray`/`WriteFile`/`SetChildError` stmt arms) so the
+     walk reaches every position. Write ops only, mirroring v10: a
+     read-only param must stay env-homed or its value is nulled out.
+  2. **`Return` (the echo-return transform's `fn ${y:=…}` shape)** and the
+     `fn` body's `Return(param(...))` form had no arm at all — the fn3 probe
+     showed even a top-level *read* arriving as `param("", "y")`, entering
+     no census.
+  3. **raw-text writes** — `${y:=${z:=K}}` arrives as a single `Str`
+     `"${z:=K}"` (the core keeps a param's default word as raw text) and is
+     re-parsed at *emit* time by `default_word` → `heredoc_body_c`, i.e.
+     AFTER the decl hoist froze its set, so the write came out aimed at an
+     undeclared `z`. New `scan_raw_assigns` reads `=`/`:=` targets out of
+     the raw text (skip single-quoted; skip `\$` escape) in all three
+     censuses.
+  4. **`_sh_vbuf` unknown type** — `vbuf_temp()` emitted
+     `static _sh_vbuf _vN = {0,0};` naming a typedef that exists only under
+     `if self.need_sh`. A site reaching a grow buffer with `need_sh` false
+     (the native `printf`'s `${x:=…}` with `var_expr` a store ident, so no
+     `_sh_env` read ever trips `need_sh`; the `char[N]` `strcpy` write the
+     same) produced a C compile error mid-render. `vbuf_temp` now sets
+     `need_sh = true`; the runtime trim pass keeps only referenced helpers,
+     so a forced-on `need_sh` costs nothing when unreferenced.
+  Verification: an 12-case probe battery (`/tmp/decl_probe.sh`) putting
+  `${y:=…}` at every statement position — assign, if, while, block, sub,
+  redirect, case, fn, pipeline, exec, nested, array-element — is
+  **12/12 green** (compile + stdout match vs bash). Full gate
+  `harness/c_gate_main.sh`: **593 pass / 51 fail / 7 skip** vs v10's
+  578/66/7 — 15 fewer reds, zero new (the 9 `posix-sh-go/testdata` ccs and
+  the `process-subst`/`brace-fold` exec-diffs are the pre-existing classes
+  §14a already bisected away). `t04_params` freshly re-rendered still
+  matches bash.
+
+- v10 (2026-10-28): the C gate's ONE new red against the HEAD baseline
+  (t04_params.sh, `cc`: `y` undeclared) root-caused to a latent decl
+  gap, not to v9's changes. The rewritten `dead-store-elim`
+  (`dead_store_elim.rs`, +1252) plus `copy-propagation` inlining every
+  later read soundly drops `y="hello world"` — and with the Assign gone
+  the C backend never declared `y`, because `${y:=assigned}` carries its
+  target as a STRING arg (`Call{param}` args[1]), which pass-1
+  collection only saw via Assign targets, `printf -v`, `let`, and
+  `IrExpr::Var` reads. HEAD masked the gap by keeping the (dead) store.
+  Fix in `sh2perl/src/c_backend.rs`: `collect_vars_expr` now collects
+  `param` `=`/`:=` targets as declaration sources (the same precedent as
+  `printf -v`'s), writing ops only — every other param op reads the var
+  or writes a temp. Gate measured: 578 pass / 66 fail / 7 skip vs the
+  HEAD baseline's 71 fails — zero new failures, the five §14a reds stay
+  fixed, t04 now compiles and its stdout matches bash (rc 0/0).
+
+- v9 (2026-10-28): the §14a hazard is FIXED IN SOURCE — four changes
+  in `sh2perl/src/c_backend.rs` (the either-side string trigger with
+  `value_c` stringify; `continue`/`break` status writes — bash's special
+  builtins set `$? = 0`; the word-for arm's missing `loop_depth`, which
+  also silently DROPPED break/continue at two sites; and owned
+  `_sh_sset` stores for expression-position heap assigns, the
+  func-after-test-or `free(literal)` abort). Three of the five measured
+  reds now pass the C gate; the other two bisected to `process-subst`
+  and `brace-fold` — separate bugs, open. The Verus model
+  `c_eqne_emit.rs` now models the FIXED decision (`decide` carries the
+  either-side trigger, `c_eval` is total through `value_c`'s itoa) and
+  keeps the pre-fix one as `decide_old`, the mutant
+  `shipped_mixed_pair_fixed_sound` drops into — still 11 verified,
+  0 errors, registration unchanged.
 
 - v8 (2026-10-28): §14 — two more render-discipline obligations
   mechanized: the Eq/Ne emission decision (`c_eqne_emit.rs`, 11) and the

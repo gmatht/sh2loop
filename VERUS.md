@@ -49,15 +49,16 @@ Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28):
 | `proofs/verus/c_arith_guard.rs` | **C generator**: arith `/%` guard + `num_temp`/`str_temp` + `num_spec` | 15 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §17 |
 | `proofs/verus/c_int_helpers.rs` | **C generator**: `_sh_isint31` + `_sh_isqrt` + `_sh_i128_str` | 69 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §18 |
 | `proofs/verus/c_op_promote.rs` | **C generator**: const-fold + LL widening + unsigned-gate premises | 15 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §19 |
+| `proofs/verus/c_str_helpers.rs` | **C generator**: `_sh_*` string helpers (substr/replace/arr_slice/strip/argv/split) | 40 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §20 |
 
 470 active obligations total (482 with the 12 retired i32 obligations), 0 errors,
 every active model with checked failing mutants (see §(b).3 — 25 mutants over
 23 models; the retired exec form carries its postcondition on the executable
 function itself instead). The last three rows are models of the C
 GENERATOR's own emission decisions, not of a shIR→shIR transform; they sit
-in the same gate but are counted separately from the 470 above — +188
-obligations (11/18/26/20/14/15/69/15, each with its own failing mutants or negative
-controls, all re-verified under the pinned binary 2026-10-28), for 658
+in the same gate but are counted separately from the 470 above — +228
+obligations (11/18/26/20/14/15/69/15/40, each with its own failing mutants or negative
+controls, all re-verified under the pinned binary 2026-10-28), for 698
 gated active obligations in total. Their proofs, and why Verus rather than
 Isabelle fits them (the target is Rust that *produces* the C), are in
 `C_UB_PROOF.md` §13–§14. The eight pre-existing counts — and
@@ -362,8 +363,9 @@ Dropped else-body in the splice: 18 verified, 4 errors. Accepted step form:
 Unsigned-reduction-on-negative (shipped -3 shape as equal):
 14 verified, 1 error. Dropped >10-digit refusal (accept long text):
 68 verified, 1 error. Allow-Refuse-to-fold (compile-time abort):
-14 verified, 1 error. C-generator mutants are
-recorded per-model in `C_UB_PROOF.md` §13–§19 (unguarded commit ships
+14 verified, 1 error. Flipped-clamp (e<b allowed): 39 verified, 1 error.
+C-generator mutants are
+recorded per-model in `C_UB_PROOF.md` §13–§20 (unguarded commit ships
 wrap, intended-UB pair is UB, four one-token decimal mutants, flipped
 width order), all restored and re-checked green under the pinned
 binary. Every mutant was restored and

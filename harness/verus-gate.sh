@@ -153,6 +153,17 @@ MODELS=(
   # the caller's gate, not 2^31 alone; the cross-branch magnitude
   # identity is solver-opaque (probed red even under nonlinear_arith).
   "c_int_helpers.rs:69:40"
+  # The C generator's `_sh_*` string helpers it emits
+  # (sh2perl/src/c_backend.rs `need_sh` runtime block).
+  # Proves the shared b/e clamp total and in-bounds; substr byte-exact
+  # with the bash sign conventions + edge arms; arr_slice element
+  # semantics (same clamp over the word index) with the find/march
+  # contract; replace-all first-hit splice + fuel-sufficient unfold +
+  # empty-pat identity; strip pre/suf soundness (oracle consistency,
+  # greedy/longest vs lazy/shortest) with the no-match identity;
+  # argv slice/join soundness; split word spans + split_count.
+  # Honest: vbuf growth assumed (P3); fnmatch engine is an oracle.
+  "c_str_helpers.rs:40:40"
 )
 
 # extractor:baseline — the generator script and the file it must reproduce.
