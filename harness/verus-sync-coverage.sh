@@ -36,7 +36,7 @@ OUT="${OUT_TMP:-/dev/stdout}"
 
 fail() { echo "verus-sync-coverage($MODEL): FATAL: $*" >&2; exit 1; }
 
-[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed"
+[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor"
 # A model may span several source files (the P6 sweep groups folds by
 # family). model_srcs lists them; SRC is the first (legacy single-file
 # uses keep working).
@@ -70,6 +70,8 @@ model_srcs() {
     lifetime) echo "lifetime" ;;
     numstr) echo "numstr" ;;
     numeric_observed) echo "numeric_observed" ;;
+    str_splice_fold) echo "str_splice_fold" ;;
+    str_chop_cursor) echo "str_chop_cursor" ;;
     *) fail "unknown model: $1" ;;
   esac
 }
@@ -336,6 +338,28 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     numeric_observed:pin_unmarked_no_claim) echo UNMIRRORED ;;
     numeric_observed:pin_array_chain_veto) echo numeric_observed:array_chain_reaches_downstream_scalars ;;
     numeric_observed:pin_param_slot_sound) echo numeric_observed:numeric_sink_param_is_numeric ;;
+    # String/cursor sweep: per-rewrite models over the transform's own
+    # unit suite (mapped pins) plus model-internal runtime checks.
+    str_splice_fold:pin_splice_folds) echo str_splice_fold:folds_the_mimecroft_splice_shape ;;
+    str_splice_fold:pin_idempotent) echo str_splice_fold:two_slice_interpolate_is_idempotent_after_folding ;;
+    str_splice_fold:pin_bases_must_match) echo str_splice_fold:refuses_different_bases ;;
+    str_splice_fold:pin_prefix_zero) echo str_splice_fold:refuses_prefix_not_starting_at_zero ;;
+    str_splice_fold:pin_suffix_open) echo str_splice_fold:refuses_bounded_suffix ;;
+    str_splice_fold:pin_ident_base) echo str_splice_fold:refuses_non_identifier_base ;;
+    str_splice_fold:pin_kill_switch) echo str_splice_fold:kill_switch_disables_the_fold ;;
+    str_splice_fold:pin_reaches_functions) echo str_splice_fold:reaches_function_bodies ;;
+    str_splice_fold:pin_value_identity) echo UNMIRRORED ;;
+    str_chop_cursor:pin_series_converts) echo str_chop_cursor:fires_on_front_chop_loop ;;
+    str_chop_cursor:pin_window_tolerates_append) echo str_chop_cursor:fires_with_array_append_in_window ;;
+    str_chop_cursor:pin_array_base_refuses) echo str_chop_cursor:refuses_when_s_is_an_appended_array ;;
+    str_chop_cursor:pin_init_survives) echo str_chop_cursor:cursor_init_survives_full_registry ;;
+    str_chop_cursor:pin_late_read_refuses) echo str_chop_cursor:refuses_when_s_read_after_chops ;;
+    str_chop_cursor:pin_mid_window_write_refuses) echo str_chop_cursor:refuses_write_inside_window ;;
+    str_chop_cursor:pin_init_placement) echo str_chop_cursor:refuses_init_inside_use_loop ;;
+    str_chop_cursor:pin_numeric_refuses) echo str_chop_cursor:refuses_numeric_target ;;
+    str_chop_cursor:pin_needs_pair) echo str_chop_cursor:refuses_without_strip_partner ;;
+    str_chop_cursor:pin_cursor_name) echo str_chop_cursor:off_name_avoids_collision ;;
+    str_chop_cursor:pin_c_gate) echo str_chop_cursor:gate_requires_c_target ;;
     *) echo "" ;;
   esac
 }
@@ -873,6 +897,30 @@ case "$MODEL" in
     sgrep -q "Use::Num" \
       || fail "Use::Num verdict not found in source"
     echo "guard numeric-use verdict: PRESENT"
+    ;;
+  str_splice_fold)
+    # The fold gate: Interpolate shape + slice reads + same base.
+    sgrep -q "fn fold" \
+      || fail "fold fn not found in source"
+    echo "guard fold fn: PRESENT"
+    sgrep -q "fn slice_args" \
+      || fail "slice_args not found in source"
+    echo "guard slice reader: PRESENT"
+    sgrep -q "StrSplice" \
+      || fail "StrSplice node not found in source"
+    echo "guard splice node: PRESENT"
+    ;;
+  str_chop_cursor)
+    # The read-law machinery: Edits plan + cursor names.
+    sgrep -q "struct Edits" \
+      || fail "Edits plan not found in source"
+    echo "guard edits plan: PRESENT"
+    sgrep -q "FieldGrab" \
+      || fail "FieldGrab node not found in source"
+    echo "guard grab node: PRESENT"
+    sgrep -q "FieldStrip" \
+      || fail "FieldStrip node not found in source"
+    echo "guard strip node: PRESENT"
     ;;
   arith_forms)
     # The let-arg gate: text extraction + parse_arith verdict.

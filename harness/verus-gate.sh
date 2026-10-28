@@ -283,6 +283,18 @@ MODELS=(
   # per-slot contract. Census/fixpoint as parameters. 6 pins mirror
   # the 11 unit tests. Mutant (text-observed marked) red 8v/2e.
   "numeric_observed.rs:10:40"
+  # String/cursor sweep (Tier-1): Interpolate -> StrSplice
+  # denotation identity (str_splice_fold.rs 372 lines). Fold-gate
+  # conjunction as premises; the join-unwrap; the repl middle.
+  # 8 unit-test pins + value identity. Mutant (gates dropped) red
+  # 9v/2e.
+  "str_splice_fold.rs:11:40"
+  # String/cursor sweep (Tier-1): grab/strip cursor dynamics
+  # (str_chop_cursor.rs 2253 lines). Field identity, strict advance
+  # past the delimiter, init-0 default; five read-law premises as
+  # oracles. 11 unit-test pins. Mutant (cursor lands on delimiter)
+  # red 16v/1e.
+  "str_chop_cursor.rs:17:40"
 
 # extractor:baseline — the generator script and the file it must reproduce.
 # Three coverage extractors (one per P3/P4/P5 model) plus the deliberately
@@ -332,6 +344,8 @@ SYNCS=(
   "harness/verus-sync-coverage.sh:lifetime:sh2perl/proofs/verus/lifetime_sync.txt"
   "harness/verus-sync-coverage.sh:numstr:sh2perl/proofs/verus/numstr_sync.txt"
   "harness/verus-sync-coverage.sh:numeric_observed:sh2perl/proofs/verus/numeric_observed_sync.txt"
+  "harness/verus-sync-coverage.sh:str_splice_fold:sh2perl/proofs/verus/str_splice_fold_sync.txt"
+  "harness/verus-sync-coverage.sh:str_chop_cursor:sh2perl/proofs/verus/str_chop_cursor_sync.txt"
 )
 
 if [ "${1:-}" = "--list" ]; then
