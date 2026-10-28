@@ -302,6 +302,15 @@ MODELS=(
   # nothing; see BUGS_FOUND.md 7, open). 8 unit-test pins. Mutant
   # (gate without invariant_reads) red 19v/3e.
   "hoist_loop_invariants.rs:22:40"
+  # Suites-then-proofs trio (Tier-1): capture-of-pure-function ->
+  # direct call (direct_calls.rs 255 lines); statement cat ->
+  # ForEachLine (cat_read.rs 171 lines); grep -o shapes ->
+  # grepMatches (grep_o.rs 237 lines). Unit suites written first
+  # (4/6/6 green), then per-rewrite value models. Mutants red
+  # 6v/1e, 9v/1e, 9v/1e.
+  "direct_calls.rs:7:40"
+  "cat_read.rs:11:40"
+  "grep_o.rs:10:40"
 
 # extractor:baseline — the generator script and the file it must reproduce.
 # Three coverage extractors (one per P3/P4/P5 model) plus the deliberately
@@ -354,6 +363,9 @@ SYNCS=(
   "harness/verus-sync-coverage.sh:str_splice_fold:sh2perl/proofs/verus/str_splice_fold_sync.txt"
   "harness/verus-sync-coverage.sh:str_chop_cursor:sh2perl/proofs/verus/str_chop_cursor_sync.txt"
   "harness/verus-sync-coverage.sh:hoist_loop_invariants:sh2perl/proofs/verus/hoist_loop_invariants_sync.txt"
+  "harness/verus-sync-coverage.sh:direct_calls:sh2perl/proofs/verus/direct_calls_sync.txt"
+  "harness/verus-sync-coverage.sh:cat_read:sh2perl/proofs/verus/cat_read_sync.txt"
+  "harness/verus-sync-coverage.sh:grep_o:sh2perl/proofs/verus/grep_o_sync.txt"
 )
 
 if [ "${1:-}" = "--list" ]; then

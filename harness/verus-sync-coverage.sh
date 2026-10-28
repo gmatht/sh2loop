@@ -36,7 +36,7 @@ OUT="${OUT_TMP:-/dev/stdout}"
 
 fail() { echo "verus-sync-coverage($MODEL): FATAL: $*" >&2; exit 1; }
 
-[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants"
+[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants|direct_calls|cat_read|grep_o"
 # A model may span several source files (the P6 sweep groups folds by
 # family). model_srcs lists them; SRC is the first (legacy single-file
 # uses keep working).
@@ -73,6 +73,9 @@ model_srcs() {
     str_splice_fold) echo "str_splice_fold" ;;
     str_chop_cursor) echo "str_chop_cursor" ;;
     hoist_loop_invariants) echo "hoist_loop_invariants" ;;
+    direct_calls) echo "direct_calls" ;;
+    cat_read) echo "cat_read" ;;
+    grep_o) echo "grep_o" ;;
     *) fail "unknown model: $1" ;;
   esac
 }
@@ -371,6 +374,24 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     hoist_loop_invariants:pin_fn_cond_write_refused) echo hoist_loop_invariants:refuses_when_a_called_fn_in_the_condition_writes_the_read_var ;;
     hoist_loop_invariants:pin_hoist_preserves_run) echo hoist_loop_invariants:hoists_invariant_from_body ;;
     hoist_loop_invariants:pin_zero_trip_diverges) echo UNMIRRORED ;;
+    direct_calls:pin_pure_output_collapses) echo direct_calls:pure_output_fn_capture_collapses ;;
+    direct_calls:pin_impure_refuses) echo direct_calls:impure_fn_capture_refuses ;;
+    direct_calls:pin_undefined_refuses) echo direct_calls:undefined_fn_capture_refuses ;;
+    direct_calls:pin_external_refuses) echo direct_calls:non_call_capture_refuses ;;
+    direct_calls:pin_value_preserved) echo UNMIRRORED ;;
+    cat_read:pin_plain_lifts) echo cat_read:plain_cat_lifts_to_foreach_line ;;
+    cat_read:pin_numbered_lifts) echo cat_read:numbered_cat_lifts_with_counter ;;
+    cat_read:pin_multi_file_chains) echo cat_read:multi_file_chains_in_order ;;
+    cat_read:pin_dynamic_refuses) echo cat_read:dynamic_source_keeps_exec ;;
+    cat_read:pin_bare_stdin_refuses) echo cat_read:bare_cat_reads_stdin_keeps_exec ;;
+    cat_read:pin_bad_flag_refuses) echo cat_read:unsupported_flag_keeps_exec ;;
+    grep_o:pin_pipe_lifts) echo grep_o:echo_pipe_grep_o_lifts ;;
+    grep_o:pin_herestring_lifts) echo grep_o:herestring_grep_o_lifts ;;
+    grep_o:pin_flags_route) echo grep_o:flags_route_through ;;
+    grep_o:pin_dynamic_refuses) echo grep_o:dynamic_pattern_keeps_exec ;;
+    grep_o:pin_bad_flag_refuses) echo grep_o:unsupported_flag_keeps_exec ;;
+    grep_o:pin_no_o_refuses) echo grep_o:no_o_flag_keeps_exec ;;
+    grep_o:pin_match_output_shape) echo UNMIRRORED ;;
     *) echo "" ;;
   esac
 }
@@ -947,6 +968,33 @@ case "$MODEL" in
     sgrep -q "fn expr_pure" \
       || fail "purity gate not found in source"
     echo "guard purity gate: PRESENT"
+    ;;
+  direct_calls)
+    # The capture-collapse gate: single-call arrow + defined pure fn.
+    sgrep -q "fn extract_call" \
+      || fail "extract_call not found in source"
+    echo "guard call extraction: PRESENT"
+    sgrep -q "fn is_defined_pure_function" \
+      || fail "pure-function gate not found in source"
+    echo "guard pure-function gate: PRESENT"
+    ;;
+  cat_read)
+    # The statement-position lift: cat exec -> ForEachLine blocks.
+    sgrep -q "fn build_cat_replacement" \
+      || fail "build_cat_replacement not found in source"
+    echo "guard cat replacement: PRESENT"
+    sgrep -q "ForEachLine" \
+      || fail "ForEachLine node not found in source"
+    echo "guard foreach node: PRESENT"
+    ;;
+  grep_o)
+    # The argv parse + input shapes (echo-pipe, here-string).
+    sgrep -q "fn parse_grep_o" \
+      || fail "parse_grep_o not found in source"
+    echo "guard argv parse: PRESENT"
+    sgrep -q "fn grep_matches" \
+      || fail "grep_matches constructor not found in source"
+    echo "guard matches op: PRESENT"
     ;;
   arith_forms)
     # The let-arg gate: text extraction + parse_arith verdict.
