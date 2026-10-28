@@ -3,7 +3,9 @@
 Status: **P1, P2 and P3 mechanized and green; §2a's `ov`-flag obligation
 mechanized in Verus and in Isabelle (§13); the Eq/Ne render decision and
 the decimal renderers mechanized in Verus, the decimal round trip also in
-Isabelle (§14); P4 blocked on the absent
+Isabelle (§14); the width/buffer/arith operator/promotion/string-helper/
+capture/decl-coverage/escaper emission decisions mechanized in Verus
+(§15–§23); P4 blocked on the absent
 `C-Parser`/`AutoCorres` toolchain** (§12). Written 2026-10-22 against
 `sh2perl/backends/c` @ `5b1524085` (`src/c_backend.rs`, 50,747 lines);
 §13 added 2026-10-27, §14 added 2026-10-28.
@@ -675,6 +677,24 @@ not cosmetic.
 
 
 
+- v17 (2026-10-28): §23 — the string-literal escaper
+  (`c_str_lit.rs`, 19 obligations, three mutants red at their pins →
+  restored 19v/0e): FINITE-STATE C-lexer denotation + round-trip +
+  per-char locality + the measured `\x`-absorption divergences as
+  `emit_old` pins. THE SOURCE FIX SHIPS WITH IT: `cstr`'s two
+  single-byte arms now emit 3-digit octal (greedy-hex absorption was
+  live data corruption — t1/t5 stdout bytes wrong vs bash — and
+  `\x01ABC` reached the out-of-range violation); probe t1-t8 8/8
+  match post-fix; C gate re-run at baseline (593/51/7 plus one
+  standalone-green flake under a concurrent lane's rebuild).
+
+- v16 (2026-10-28): §22 — the decl-coverage censuses
+  (`c_decl_coverage.rs`, 51 obligations, three mutants red 50v/1e,
+  47v/4e, 50v/1e → restored 51v/0e): hoist-coverage invariant + veto
+  exactness both directions + param/raw bridge + the measured corpus
+  pins. Registered in `harness/verus-gate.sh`. Proof artifacts only;
+  the six source fixes they model were v10/v10b.
+
 - v15 (2026-10-28): §21 — capture/wrap quoting (`c_capture_wrap.rs`,
   16 obligations, bare-quote mutant red 13v/3e → restored 16v/0e):
   injection-freedom + splice shape + word-quote core + newline gate +
@@ -1082,3 +1102,129 @@ Negative control: the bare-quote splice (a `'` mapping to itself —
 the injection hole: a quote in cmd terminates the word) goes red
 (13v/3e — splice shape, injection-freedom, and the `"don't"` pin all
 fail), restored to 16v/0e.
+
+## 22. The decl-coverage censuses — `c_decl_coverage.rs` (51 obligations)
+
+v10/v10b's source-level story, made checkable. The C backend runs three
+independent censuses over shIR — the HOIST census (`hoist_vars`, via
+`collect_store_expr`, which decides `has_c_decl` and the file-scope
+decl list), the store/inventory census, and the read-routing census —
+plus the CONST-LIFT VETO (`collect_param_write_targets`), and every
+undeclared-variable red this month (t04, the elsif-cond-in-fn shape,
+the for-iter write, the top-level select menu) was one of these walkers
+missing a write's arm shape. The model transcribes all four walkers
+verbatim over a datatype rendering of shIR (`Expr`/`Stmt`/`Ch` modes),
+with `word_scan`/`param_gate`/`printf_v_target`/`let_target` mirroring
+the emit dispatch's own shape predicates.
+
+What is proved (51 verified):
+
+- `coverage_s`/`coverage_x`/`coverage_e`/`coverage_seq` — THE
+  OBLIGATION: every write a statement, expr, or sequence carries is
+  seen by the HOIST census (`writes ⟹ col_Hoist`), established
+  arm-by-arm with per-arm bridge asserts so a dropped arm in the model
+  fails loudly (this is the invariant the six source fixes restored:
+  after (a)-(d) hoist covers every write alone, and the union covers
+  the rest);
+- `veto_exact_s/e/x/seq` — the const-lift veto's set is EXACTLY the
+  param/raw write positions, both directions (`col_Veto ⟺ paramw`):
+  sound (no read ever vetoed — a vetoed read stays env-homed and
+  loses its value) and precise (no write slips through to an
+  env-homed null);
+- the param/raw bridge (`paramw_s` ⟺ the writes the emit dispatch's
+  `param` arm implies) tying the veto back to `writes_s`;
+- pins over the measured corpus shapes: t04's `${y:=…}` params,
+  while-cond `printf -v`, elsif-cond-in-fn, the echo-return
+  `Return(param(…))` form, a top-level `select` menu param write,
+  printf/let in fn scope (hoist standing alone — no other census is
+  consulted at fn-local decl time), and the raw-text
+  `${y:=${z:=K}}` default word.
+
+House lessons: the two big chain-equalities in `coverage_e`'s Call arm
+must be bridged per-arm (disjunct-picking over two independent if-chains
+is exactly what SMT fails at — same lesson as the earlier chain);
+constructed `seq![…]` in a `decreases` position is not a subterm (use
+direct field measures); `spec fn` without `open` is closed to unfolding,
+which silently breaks pins; `s1(':').add(s1('='))` push-chains do not
+normalize against `seq!` literals (c_width_store's warning, confirmed).
+
+Negative controls (three one-token mutants): dropping the `let` arm
+from the hoist chain goes red (50v/1e); dropping `param_gate` from the
+veto-mode chain goes red (47v/4e — the veto loses every param write);
+flipping `:=` out of the shared write-op gate goes red (50v/1e — the
+pins die). Restored: 51v/0e each.
+
+Honest: the walkers are modelled as transcribed from the source on
+2026-10-28 — the arm chains are mirrors of `c_backend.rs`, not
+extracted (no mechanical extractor bridges a transcription; the
+pin↔corpus mapping is the living tie, as in VERUS.md §(b)); traversal
+is per-position, not end-to-end.
+
+## 23. The string-literal escaper — `c_str_lit.rs` (19 obligations)
+
+`cstr` (c_backend.rs:11080) is the single funnel for every emitted C
+string literal — 178 call sites including heredoc bodies AND the
+printf FORMAT string built by `heredoc_body_c`. Its single-byte
+escape used to be spelled `\xNN`, and C's `\x` is GREEDILY hex
+(C99 6.4.4.4): `"\x01a"` lexes as ONE escape 0x1a. Measured on
+2026-10-28 (probe `/tmp/cstr_probe`, cases t1-t8 compiled and diffed
+vs bash): control byte + 'a' → stdout `1a` vs bash `01 61`; `"\x019"`
+→ `19` vs `01 39`; `"\x01ABC"` → 0x1ABC = 7116 > 255, a
+diagnostic-required range violation (invalid C). Three of six first
+shapes diverged; the survivors had non-hex followers only. Fixed in
+`cstr` by spelling both single-byte arms as 3-digit OCTAL (`{:03o}`):
+a fixed-width octal consumes at most those 3 digits, so a following
+hex-looking char stays literal — all 8 probe shapes match after the
+fix; the C gate re-ran at baseline (see below).
+
+The model's semantics extension is a LEXER DENOTATION for emitted
+text: `run(t, st)` reads one char per call through the states
+Normal/Esc/Hex/Oct (greedy-hex accumulation unbounded, octal capped
+at 3 by a state counter, a breaking char emitted THEN reprocessed),
+`flush` turns a still-open token at end-of-input into its value, and
+`decode = run + flush`. The state machine is both the faithful C
+lexer and what makes termination structural — the substring-jump
+formulation cannot prove its own length bounds in spec context (no
+spec-level assert, Z3 will not unfold the run-length recursions).
+
+What is proved (19 verified):
+
+- `round_trip` — THE OBLIGATION: `decode(emit(s), Normal) ==
+  Some(bytes_of(s))` for every valid string (ASCII + markers): the
+  bytes the C compiler puts in the program are exactly the bytes bash
+  would have seen;
+- `decode_char` — the per-char bridge `decode(emit_char(c) ++ b) ==
+  pre(byte_of(c), decode(b))`: each emitted char is self-delimiting —
+  the boundary-locality property the hex spelling violates (shown by
+  the `emit_old` pins below);
+- `decode_pair`/`decode_octal`/`decode_plain` — the three emission
+  shapes' step chains; `oct3_value` — `{:03o}` is value-exact
+  (`fold_digits(oct3(v)) == v`, 0 ≤ v ≤ 255) and its digits are
+  octal; `oct3_break` — a complete token at cnt==3 emits first and
+  then behaves exactly as in Normal;
+- pins (`by (compute)`): the measured shapes `\001a`, `\0019`,
+  `\0017` (7 is octal — still not absorbed), `\n`/`\t`/`\r`, `\"`,
+  and marker byte 0xAB → `\263`;
+- SHIPPED-HEX DIVERGENCE pins (negative controls): `emit_old` of
+  [1,'a'] decodes to `Some([26])` not [1,97] (t1), [1,'9'] →
+  `Some([25])` (t5), [1,'A','B','C'] → `None` (t7's out-of-range
+  arm) — each asserted against `bytes_of`, so the model cannot drift
+  from the measurement if the spelling is ever reintroduced.
+
+House lessons: `Seq.add` associativity is not automatic — bridge with
+`=~=`; one `reveal_with_fuel(run, 1)` per step beats a deep reveal
+(the 5-deep unfold exploded the branch tree past the wall clock);
+`by (compute)` decides every concrete pin outright (the reveal form
+timed out at 450 s); digit-range facts must precede the fold unfold.
+
+Negative controls (three one-token mutants): shipping the hex
+spelling again → the `\001a` pin computes `Some([26])` and dies;
+dropping oct3's MSD → the marker pin computes 15 instead of [1,55];
+refusing the Esc octal arm → `None` where [1,97] was promised.
+Each red at its own pin, restored to 19v/0e.
+
+Honest: the lexing model is the C lexer over the FIXED spelling —
+not a compiler; non-ASCII Unicode chars are out of `valid_c` (raw
+UTF-8 passthrough is byte-identity, stated not proved); NUL
+round-trips here but bash values are NUL-free; `%` doubling lives in
+`heredoc_body_c`, upstream of `cstr`.

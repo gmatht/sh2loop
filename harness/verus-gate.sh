@@ -200,6 +200,17 @@ MODELS=(
   # param write, printf/let in fn scope). Three one-token mutants, each
   # killing a named obligation.
   "c_decl_coverage.rs:51:40"
+  # The C generator's STRING-LITERAL ESCAPER (sh2perl/src/c_backend.rs
+  # `cstr`, the single funnel for every emitted literal incl. printf
+  # format strings). Models the C lexer as a finite-state machine over
+  # one char per step (`run`/`flush`) and proves round-trip: decode of
+  # the emitted literal equals the source bytes for every valid string,
+  # via the per-char boundary-locality bridge. Pins the measured shapes
+  # (\001a, \0019, \0017 digit followers, named escapes, marker
+  # \263) and carries the SHIPPED \x hex divergences as `emit_old`
+  # negative controls: 0x1a-for-2-bytes (t1), 0x19 (t5), the
+  # out-of-range arm (t7). Three negative-control pins inside the file.
+  "c_str_lit.rs:19:40"
 )
 
 # extractor:baseline — the generator script and the file it must reproduce.
