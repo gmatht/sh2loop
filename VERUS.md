@@ -70,13 +70,15 @@ Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28):
 | `proofs/verus/numeric_observed.rs` | `shir_passes/numeric_observed.rs` (marked ==> all-uses-numeric) | 10 verified, 0 errors | landed, gated — verdict-analyses sweep |
 | `proofs/verus/str_splice_fold.rs` | `transforms/str_splice_fold.rs` (Interpolate → StrSplice denotation identity) | 11 verified, 0 errors | landed, gated — string/cursor sweep |
 | `proofs/verus/str_chop_cursor.rs` | `transforms/str_chop_cursor.rs` (grab/strip cursor dynamics + read law) | 17 verified, 0 errors | landed, gated — string/cursor sweep |
+| `proofs/verus/hoist_loop_invariants.rs` | `transforms/hoist_loop_invariants.rs` (leading invariant run → prologue, n ≥ 1) | 22 verified, 0 errors | landed, gated — loop-hoist |
 
 492 active obligations total (504 with the 12 retired i32 obligations), 0 errors,
 plus the store-forward sweep (+47), the arith-lowering sweep (+28),
 the verdict-analyses sweep (+83) and the string/cursor sweep (+28:
-str_splice_fold 11, str_chop_cursor 17 — per-rewrite models with
-guard-oracle premises, mapped pins, and checked mutants, all
-re-verified under the pinned binary 2026-10-28/29), for 678
+str_splice_fold 11, str_chop_cursor 17) and the loop-hoist model
+(+22: hoist_loop_invariants — per-rewrite models with guard-oracle
+premises, mapped pins, and checked mutants, all re-verified under
+the pinned binary 2026-10-28/29), for 700
 transform-side obligations. Every active model
 with checked failing mutants (see §(b).3 — 27 mutants over
 25 models; the retired exec form carries its postcondition on the executable
@@ -84,11 +86,12 @@ function itself instead). The twelve `c_*` rows are models of the C
 GENERATOR's own emission decisions, not of a shIR→shIR transform; they sit
 in the same gate but are counted separately from the 492 above — +314
 obligations (11/18/26/20/14/15/69/15/40/16/51/19, each with its own failing mutants or negative
-controls, all re-verified under the pinned binary 2026-10-28), for 992
+controls, all re-verified under the pinned binary 2026-10-28), for 1014
 gated active obligations in total — the P12 pair (+14/+8) and the
 store-forward trio (+47) and the arith-lowering pair (+28) and the
-verdict-analyses six (+83) and the string/cursor pair (+28) are included in
-the 678, the twelve `c_*` rows counted separately as stated. Their proofs, and why Verus rather than
+verdict-analyses six (+83) and the string/cursor pair (+28) and the
+loop-hoist model (+22) are included in
+the 700, the twelve `c_*` rows counted separately as stated. Their proofs, and why Verus rather than
 Isabelle fits them (the target is Rust that *produces* the C), are in
 `C_UB_PROOF.md` §13–§14. The eight pre-existing counts — and
 their seven mutants — were independently reproduced on 2026-10-24 with the
@@ -541,7 +544,8 @@ the baseline everything below also has.
 | `const_condition_elim` | const fold | **V** (`elim_trio`, cce) + T2 (rest) | per-node pruning proved P9; `eval_cond` string parsing out of scope; 0/563 isolated, **3/563 in-pipeline** (measured 2026-10-26 — upstream passes mint the consts) |
 | `counted_arith_forinit`, `counted_while_forinit` | loop recovery | T2 | same dead-path defect class as `for_recovery` — check firing first |
 | `slice_identity`, `affix_strip_fold` | folds | T2 (`affix` in **V** `list_folds`; `slice` below) | zeros verified as correct refusals, not bugs — see P10 |
-| everything else in `src/transforms/` (44 files: `arith_forms`, `arith_normalize`, `background_decide`, `bc_float_clean`, `brace_fold`, `builtin*` (3), `capture_node_fold`, `cat_read`, `const_capture_fold`, `default_empty_fold`, `direct_calls`, `echo_return`, `escape_classes`, `f32_narrow`, `fbdev_gpu*` (4), `fuse_fill_consume`, `grep_o`, `grep_pcre`, `hoist_loop_invariants`, `interp_fold`, `isolate_accumulate`, `loop_return_lift`, `planner`, `process_subst`, `shir_native_stmt`, `shir_pipeline_native`, `split_set`, `str_chop_cursor`, `stray_reserved_word`, `string_accumulator`, `sub`, `sync_ok_loops`, `test_simplification`, `text_capture_fold`, `text_ops_planner`, `type_query`, `typeset_attrs`, `append_to_store`) | mixed | T2 | laws + differential only; most never fire in isolation on the corpus |
+| everything else in `src/transforms/` (43 files: `arith_forms`, `arith_normalize`, `background_decide`, `bc_float_clean`, `brace_fold`, `builtin*` (3), `capture_node_fold`, `cat_read`, `const_capture_fold`, `default_empty_fold`, `direct_calls`, `echo_return`, `escape_classes`, `f32_narrow`, `fbdev_gpu*` (4), `fuse_fill_consume`, `grep_o`, `grep_pcre`, `interp_fold`, `isolate_accumulate`, `loop_return_lift`, `planner`, `process_subst`, `shir_native_stmt`, `shir_pipeline_native`, `split_set`, `str_chop_cursor`, `stray_reserved_word`, `string_accumulator`, `sub`, `sync_ok_loops`, `test_simplification`, `text_capture_fold`, `text_ops_planner`, `type_query`, `typeset_attrs`, `append_to_store`) | mixed | T2 | laws + differential only; most never fire in isolation on the corpus |
+| `hoist_loop_invariants` | loop-hoist (leading invariant run → prologue) | **V** (`hoist_loop_invariants`, 22) | n ≥ 1 proviso (0-trip hole found + pinned, BUGS_FOUND.md 7 open); 8 unit-test pins |
 | `unreachable_after_exit` | elimination | **V** (`elim_trio`, uae) | per-node truncation proved P9; 0/563 both modes — only the BAT frontend constructs `Exit`/`Return` (shell `exit` lowers to a builtin call); starved by producer absence, not wiring |
 | `merge_init_assignments` | elimination | **V** (`elim_trio`, mia) | adjacent-pair merge proved P9 under literal/pure/no-self-read gates; 0/563 both modes — FIRES on synthetic `declare x=0` + `x=6` input (mechanics verified live) |
 | `slice_identity` | fold | **V** (`slice_identity`, 10) | zero-offset fold proved P10; fires 0/563 shell (synthetic witnesses) |

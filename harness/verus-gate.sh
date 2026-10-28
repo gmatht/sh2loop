@@ -295,6 +295,13 @@ MODELS=(
   # oracles. 11 unit-test pins. Mutant (cursor lands on delimiter)
   # red 16v/1e.
   "str_chop_cursor.rs:17:40"
+  # Loop-hoist (Tier-1): leading invariant run -> prologue
+  # (hoist_loop_invariants.rs 1167 lines). Pointwise store agreement
+  # under the five gates; n >= 1 proviso (the proof found a REAL
+  # 0-trip soundness hole — prologue runs while the original runs
+  # nothing; see BUGS_FOUND.md 7, open). 8 unit-test pins. Mutant
+  # (gate without invariant_reads) red 19v/3e.
+  "hoist_loop_invariants.rs:22:40"
 
 # extractor:baseline — the generator script and the file it must reproduce.
 # Three coverage extractors (one per P3/P4/P5 model) plus the deliberately
@@ -346,6 +353,7 @@ SYNCS=(
   "harness/verus-sync-coverage.sh:numeric_observed:sh2perl/proofs/verus/numeric_observed_sync.txt"
   "harness/verus-sync-coverage.sh:str_splice_fold:sh2perl/proofs/verus/str_splice_fold_sync.txt"
   "harness/verus-sync-coverage.sh:str_chop_cursor:sh2perl/proofs/verus/str_chop_cursor_sync.txt"
+  "harness/verus-sync-coverage.sh:hoist_loop_invariants:sh2perl/proofs/verus/hoist_loop_invariants_sync.txt"
 )
 
 if [ "${1:-}" = "--list" ]; then

@@ -36,7 +36,7 @@ OUT="${OUT_TMP:-/dev/stdout}"
 
 fail() { echo "verus-sync-coverage($MODEL): FATAL: $*" >&2; exit 1; }
 
-[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor"
+[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants"
 # A model may span several source files (the P6 sweep groups folds by
 # family). model_srcs lists them; SRC is the first (legacy single-file
 # uses keep working).
@@ -72,6 +72,7 @@ model_srcs() {
     numeric_observed) echo "numeric_observed" ;;
     str_splice_fold) echo "str_splice_fold" ;;
     str_chop_cursor) echo "str_chop_cursor" ;;
+    hoist_loop_invariants) echo "hoist_loop_invariants" ;;
     *) fail "unknown model: $1" ;;
   esac
 }
@@ -360,6 +361,16 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     str_chop_cursor:pin_needs_pair) echo str_chop_cursor:refuses_without_strip_partner ;;
     str_chop_cursor:pin_cursor_name) echo str_chop_cursor:off_name_avoids_collision ;;
     str_chop_cursor:pin_c_gate) echo str_chop_cursor:gate_requires_c_target ;;
+    hoist_loop_invariants:pin_accumulator_refused) echo hoist_loop_invariants:refuses_accumulator ;;
+    hoist_loop_invariants:pin_invariant_hoists) echo hoist_loop_invariants:hoists_invariant_from_body ;;
+    hoist_loop_invariants:pin_read_before_refused) echo hoist_loop_invariants:refuses_read_before_accumulator ;;
+    hoist_loop_invariants:pin_counter_read_refused) echo hoist_loop_invariants:refuses_foreach_counter_read ;;
+    hoist_loop_invariants:pin_indexed_target_refuses) echo hoist_loop_invariants:refuses_counter_indexed_target ;;
+    hoist_loop_invariants:pin_independent_hoists) echo hoist_loop_invariants:hoists_counter_independent_write ;;
+    hoist_loop_invariants:pin_fn_body_write_refused) echo hoist_loop_invariants:refuses_when_a_called_fn_in_the_body_writes_the_read_var ;;
+    hoist_loop_invariants:pin_fn_cond_write_refused) echo hoist_loop_invariants:refuses_when_a_called_fn_in_the_condition_writes_the_read_var ;;
+    hoist_loop_invariants:pin_hoist_preserves_run) echo hoist_loop_invariants:hoists_invariant_from_body ;;
+    hoist_loop_invariants:pin_zero_trip_diverges) echo UNMIRRORED ;;
     *) echo "" ;;
   esac
 }
@@ -921,6 +932,21 @@ case "$MODEL" in
     sgrep -q "FieldStrip" \
       || fail "FieldStrip node not found in source"
     echo "guard strip node: PRESENT"
+    ;;
+  hoist_loop_invariants)
+    # The leading-run shape: hoist_body + split_loop + gate census.
+    sgrep -q "fn hoist_body" \
+      || fail "hoist_body not found in source"
+    echo "guard hoist body: PRESENT"
+    sgrep -q "fn split_loop" \
+      || fail "split_loop not found in source"
+    echo "guard split loop: PRESENT"
+    sgrep -q "fn stmt_writes" \
+      || fail "write census not found in source"
+    echo "guard write census: PRESENT"
+    sgrep -q "fn expr_pure" \
+      || fail "purity gate not found in source"
+    echo "guard purity gate: PRESENT"
     ;;
   arith_forms)
     # The let-arg gate: text extraction + parse_arith verdict.
