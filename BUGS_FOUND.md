@@ -9,6 +9,41 @@ the source already guarded against (P4's `v[f]=5`-for-undefined-`f`
 class), harness-pattern tightenings, and concurrent workers' transient
 breakage. This file is only about defects in the product.
 
+## Confirmed product bugs (open)
+
+### 11. `string_accumulator`: `expr_read_walk`/`read_walk` miss `Arith` (and other) reads
+**Found by:** Tier-1 adjudication of the 11 parked transforms (2026-10-29) —
+in-process probe via `ast_to_ir_raw` + direct transform call, no new
+Isabelle session (deprioritized with measurements; the load-bearing
+claims here are Tier-3).
+**Defect:** the verdict's read-side walkers end in `_ => {}` catch-alls
+with no `IrExpr::Arith` arm (`ArithAst::Var` reads invisible), and
+`read_walk` has no `Redirect`/`Block`/`Pipeline`/`DeclareArray`/
+`Function`/etc. arms. Witness (live, measured):
+`tsv=""; i=0; while [ $i -lt 3 ]; do tsv="$tsv$x"; n=$(( tsv + 0 ));
+i=$(( i + 1 )); done; echo "$tsv"` still yields
+`Accumulator { var: "tsv", … }` from both `acc_vars_tree` and the cached
+`accumulators()` verdict; the D-control (same program minus the arith
+read) also fires, so the arith read is proven invisible to the walk.
+**Contained three ways (why not fixed here, transform owner's call):**
+(a) the js/estree `lower()` never runs end-to-end on the shell-source
+CLI path — the CLI renders estree from target-unset cached A1 via
+`shell_to_shir`, and `ingress_normalize` never calls
+`string_accumulator::lower` (measured: ESTREE DIFF on the D-control via
+the direct render path only; the arith witness shows none);
+(b) the C consumer (`acc_vars_tree` + `escape_classes` Store/Local +
+10 further vetoes; `SH2_DBG_ACC` measured 0 tracked on the witness)
+does not consult `expr_read_walk` at all and refuses independently;
+(c) corpus impact is 1/563 (`tsv-string-accumulate-loop.sh`), whose
+loop body carries no mid-loop exotic reads.
+**Fix (owner call):** one match arm each in `expr_read_walk`
+(recurse `ArithAst`) + `read_walk` (the missing statement forms), or
+delegate both to the shared shir descent; plus a failing-first
+regression test in the module's `#[cfg(test)]` (the `n=$(( tsv+0 ))`
+witness shape). A Tier-1 `verdict ⟹ all-writes-self-appends`
+Isabelle session would certify exactly this fix once it lands —
+proving it against the current walkers would certify the hole.
+
 ## Confirmed product bugs (fixed)
 
 ### 1. `redundant_store_elim`: `expr_pure` claims `Arith(_) => true`
