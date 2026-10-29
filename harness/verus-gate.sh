@@ -211,6 +211,43 @@ MODELS=(
   # negative controls: 0x1a-for-2-bytes (t1), 0x19 (t5), the
   # out-of-range arm (t7). Three negative-control pins inside the file.
   "c_str_lit.rs:19:40"
+  # The C generator's WRITE ARM — the `"=" | ":="` branch of the
+  # `${...}` param renderer (c_backend.rs expansion emitter), with the
+  # two gates that make it safe: `param_write_target` (census) and the
+  # length-census supplement `supplement_write_lengths`. Extended
+  # denotation: UNSET vs SET-EMPTY + provenance-carrying cells
+  # (Static / Owned(word,id)). Proves the three rendered arms
+  # value-correct against bash (`value_agrees`, `heap_sound`,
+  # `buf_sound`, `num_sound`), the heap arm's OWNERSHIP (the xstrdup
+  # adoption is what makes the scope-end free sound — mutant A drops
+  # it), the bounds routing (`bump_never_shrinks` + `bound_routes`,
+  # strcpy_fits under the 1024 CAP), and PINS the one known
+  # normalization gap (`bare_setempty_gap`: bare `=` normalizes to
+  # `:=` downstream — 0 corpus occurrences) rather than hiding it.
+  # Two in-file mutants + six measured-shape pins; the source defects
+  # fixed alongside (parser glue, length census, copy-prop RHS walk)
+  # are C_UB_PROOF.md §24.
+  "c_write_arm.rs:17:40"
+  # The C backend's GROWTH-HELPER FAMILY — the emitted vbuf protocol
+  # that §20/§21 listed as an assumption ("vbuf growth assumed"):
+  # `_sh_grow` / `_sh_vgrow` (doubling) / `_sh_grow_str` (+zero-fill)
+  # / `_sh_reserve_*` (guarded), the `_sh_add`/`_sh_addc`/`_sh_fa`
+  # appends, the `snprintf_grow` loop, the vec-slot guard, and
+  # `_sh_fgets_line`'s capacity/NUL discipline. Size_t arithmetic is
+  # wrap-EXPLICIT (u64 = x mod 2^64), so every capacity theorem
+  # carries its exact domain: fast-path identity, cap >= need after
+  # growth, alloc <=> cap >= 1 <=> p non-null deref-safety,
+  # byte-exact appends (the `+1` in the need), doubling termination
+  # under need <= 2^63 with the amortization bound cap <= max(base,
+  # 2*need), snprintf-loop termination over ANY int-typed return
+  # sequence (within imax - cap + 2 calls), grow_str's zero-fill +
+  # old-slot preservation, and reserve's guard=>no-wrap
+  # UNCONDITIONALLY — the asymmetry A/B/C cannot claim. Pins the
+  # exact wrap thresholds (2^63 stall / wrap-to-0) and carries three
+  # mutants (drop the +1, drop the zero-fill, drop the reserve
+  # guard) — C_UB_PROOF.md §25.
+  "c_vbuf.rs:39:40"
+  "c_sparse_array.rs:28:40"
   # Store-forward sweep (Tier-1): counted-loop append -> indexed store
   # (append_to_store.rs 590 lines). Per-trip + whole-loop induction
   # under the guard-verdict oracles (exactly-one site, empty init, no
@@ -311,6 +348,7 @@ MODELS=(
   "direct_calls.rs:7:40"
   "cat_read.rs:11:40"
   "grep_o.rs:10:40"
+)
 
 # extractor:baseline — the generator script and the file it must reproduce.
 # Three coverage extractors (one per P3/P4/P5 model) plus the deliberately
@@ -366,6 +404,12 @@ SYNCS=(
   "harness/verus-sync-coverage.sh:direct_calls:sh2perl/proofs/verus/direct_calls_sync.txt"
   "harness/verus-sync-coverage.sh:cat_read:sh2perl/proofs/verus/cat_read_sync.txt"
   "harness/verus-sync-coverage.sh:grep_o:sh2perl/proofs/verus/grep_o_sync.txt"
+  # c_decl_coverage: the FIRST TRANSCRIPTION model in this list — its
+  # checker does not just pin guards, it EXTRACTS the modelled walker
+  # arm chains (patterns + guards + callee sets) from c_backend.rs and
+  # diffs them (harness/declcov-extract.py), closing §22's honest
+  # proviso about unbridged transcriptions.
+  "harness/verus-sync-coverage.sh:c_decl_coverage:sh2perl/proofs/verus/c_decl_coverage_sync.txt"
 )
 
 if [ "${1:-}" = "--list" ]; then

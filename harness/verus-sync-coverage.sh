@@ -36,7 +36,7 @@ OUT="${OUT_TMP:-/dev/stdout}"
 
 fail() { echo "verus-sync-coverage($MODEL): FATAL: $*" >&2; exit 1; }
 
-[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants|direct_calls|cat_read|grep_o"
+[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants|direct_calls|cat_read|grep_o|c_decl_coverage"
 # A model may span several source files (the P6 sweep groups folds by
 # family). model_srcs lists them; SRC is the first (legacy single-file
 # uses keep working).
@@ -76,6 +76,7 @@ model_srcs() {
     direct_calls) echo "direct_calls" ;;
     cat_read) echo "cat_read" ;;
     grep_o) echo "grep_o" ;;
+    c_decl_coverage) echo "c_backend" ;;
     *) fail "unknown model: $1" ;;
   esac
 }
@@ -85,6 +86,9 @@ SRCS="$(model_srcs "$MODEL")"
 model_dir() {
   case "$1" in
     scc|used_before_decl|maskable|lifetime|numstr|numeric_observed) echo "shir_passes" ;;
+    # c_backend.rs lives at the crate root (src/c_backend.rs), so the
+    # dir part is empty — paths below collapse to src/<file>.rs.
+    c_decl_coverage) echo "" ;;
     *) echo "transforms" ;;
   esac
 }
@@ -293,6 +297,13 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     counted_while_forinit:pin_declare_refuses) echo counted_while_forinit:declare_in_body_refuses ;;
     counted_while_forinit:pin_trace_agrees) echo UNMIRRORED ;;
     counted_while_forinit:pin_step_gate_load_bearing) echo UNMIRRORED ;;
+    # c_decl_coverage: the living tie is NOT a unit test — §22 records
+    # it as the statement-position probe battery (14 cases: compile +
+    # stdout vs bash) plus the corpus pins (t04 / while-cond / elsif /
+    # select-menu / …), which cargo cannot run. Conscious UNMIRRORED
+    # entries per pin (VERUS.md §(b).4); the [exec] stage still
+    # COMPILE-checks the lib target for this model's source file.
+    c_decl_coverage:pin_*) echo UNMIRRORED ;;
     # Verdict-analyses sweep: verdict-soundness over oracle censuses.
     scc:pin_mutual_pair) echo scc:mutual_recursion_is_one_scc ;;
     scc:pin_self_loop) echo scc:self_recursion_is_scc_of_one ;;
@@ -408,7 +419,15 @@ src_tests() {
 {
 echo "# verus-sync-coverage manifest: $MODEL"
 echo -n "# source sha:"
-for f in $SRCS; do echo -n " $f=$(sha256sum "$root/sh2perl/src/$SRCDIR/$f.rs" | cut -c1-12)"; done
+if [ "$MODEL" = "c_decl_coverage" ]; then
+  # Region-stable: this manifest pins the WALKER REGIONS (the arm
+  # chains extracted below), not the whole of c_backend.rs — a shared
+  # file many lanes edit daily, whose whole-file sha would fail this
+  # diff on every unrelated commit.
+  echo -n " c_backend-walkers=$(python3 "$root/harness/declcov-extract.py" --sha "$root/sh2perl/src/c_backend.rs")"
+else
+  for f in $SRCS; do echo -n " $f=$(sha256sum "$root/sh2perl/src/$SRCDIR/$f.rs" | cut -c1-12)"; done
+fi
 echo "  proof sha: $(sha256sum "$PRF" | cut -c1-12)"
 echo
 echo "[pins]"
@@ -1025,6 +1044,19 @@ case "$MODEL" in
       || fail "contains_status_read veto not found in source"
     echo "guard no-status veto: PRESENT"
     ;;
+  c_decl_coverage)
+    # THE MECHANICAL TIE: extract the three censuses' arm chains
+    # (exact pattern text incl. guards + the walker calls each arm
+    # body carries) verbatim from the live source and emit them as
+    # manifest lines. A dropped arm, a loosened guard, or a removed
+    # walker call moves exactly its line — the gate's diff fails until
+    # the proof's fidelity section is re-blessed. This closes §22's
+    # honest proviso ("no mechanical extractor bridges a
+    # transcription").
+    python3 "$root/harness/declcov-extract.py" "$SRC" \
+      || fail "walker extraction failed (source outgrew the extractor — extend its FUNCS, do not hand-edit the baseline)"
+    echo "guard decl-coverage walker chains: EXTRACTED"
+    ;;
   *) fail "unknown model: $MODEL" ;;
 esac
 echo
@@ -1051,15 +1083,18 @@ echo "# source file) and records the per-test PASS/FAIL verdict below."
 #     broken fragment.
 test_out=""; suite_blocked=0
 for src in $SRCS; do
-  one="$(cargo test --manifest-path "$root/sh2perl/Cargo.toml" --lib "$SRCDIR::$src" 2>&1)"; rc=$?
+  # Test filter: namespaced sources are `transforms::<src>`; a crate-root
+  # source (c_decl_coverage → c_backend) must filter on the bare name.
+  filt="${SRCDIR:+$SRCDIR::}$src"
+  one="$(cargo test --manifest-path "$root/sh2perl/Cargo.toml" --lib "$filt" 2>&1)"; rc=$?
   if printf '%s\n' "$one" | command grep -q "could not compile"; then
     suite_blocked=1
     test_out="$test_out
-# --- $SRCDIR::$src: BUILD BLOCKED ---
+# --- $filt: BUILD BLOCKED ---
 $one"
   else
     test_out="$test_out
-# --- $SRCDIR::$src exit: $rc ---
+# --- $filt exit: $rc ---
 $one"
   fi
 done
