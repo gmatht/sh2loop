@@ -25,17 +25,29 @@ i=$(( i + 1 )); done; echo "$tsv"` still yields
 `Accumulator { var: "tsv", … }` from both `acc_vars_tree` and the cached
 `accumulators()` verdict; the D-control (same program minus the arith
 read) also fires, so the arith read is proven invisible to the walk.
-**Contained three ways (why not fixed here, transform owner's call):**
+**Contained today (why not fixed here, transform owner's call):**
 (a) the js/estree `lower()` never runs end-to-end on the shell-source
 CLI path — the CLI renders estree from target-unset cached A1 via
 `shell_to_shir`, and `ingress_normalize` never calls
 `string_accumulator::lower` (measured: ESTREE DIFF on the D-control via
-the direct render path only; the arith witness shows none);
-(b) the C consumer (`acc_vars_tree` + `escape_classes` Store/Local +
-10 further vetoes; `SH2_DBG_ACC` measured 0 tracked on the witness)
-does not consult `expr_read_walk` at all and refuses independently;
-(c) corpus impact is 1/563 (`tsv-string-accumulate-loop.sh`), whose
-loop body carries no mid-loop exotic reads.
+the direct render path only; the arith witness shows none, and on
+`bash-o4/MIMEcroft_fb.sh` `--target estree` is byte-identical with the
+pass on and off, 0 `__acc_` marks);
+(b) for the witness, the C consumer refuses via independent gates
+(`escape_classes` Store/Local + 10 further vetoes; `SH2_DBG_ACC`
+measured 0 tracked).
+**Reach is larger than the corpus count suggests** (measured 2026-10-30):
+the C consumer does NOT use the top-level `accumulators()` verdict — it
+calls `acc_vars_tree` on `prog.stmts` and every `sub.body`
+(`c_backend.rs:9837`), a *tree* walk, and on `MIMEcroft_fb.sh` that
+tracks four accumulators (`tup_bp`, `tup_gp`, `blk_p`, `tup_rp`, 15
+`_alen_` mirror sites), zero of which the top-level verdict reports. So
+the walker this bug is in is on a live, non-corpus code path; corpus
+`examples/` impact is 1/563 (`tsv-string-accumulate-loop.sh`), whose
+body has no mid-loop exotic reads, and MIMEcroft escapes only because
+its four accumulators have no `$(( ))` self-read (`tup_n=$((tup_n+1))`
+is a different var; `lt_payload="$lt_payload …"` is refused by
+`self_append_vars`, not proved safe).
 **Fix (owner call):** one match arm each in `expr_read_walk`
 (recurse `ArithAst`) + `read_walk` (the missing statement forms), or
 delegate both to the shared shir descent; plus a failing-first
@@ -153,3 +165,34 @@ the regression the module header records as FIXED.
   is in the transform header.
 - **P4 consistency conjuncts / P6 mutants / coverage-checker patterns:**
   proof-design and harness findings, sources already safe.
+
+## Parked-transform firing census (the denominator for "is proving it worth it")
+
+Measured 2026-10-30 over `sh2perl/examples/*.sh` (563 files) — in-process
+`ast_to_ir_raw` + one transform at a time, and re-run on the fully
+optimised IR — plus `bash-o4/MIMEcroft_fb.sh` (293 commands → 279 stmts)
+where the corpus number under-sells the pass. Full-pipeline `apply()` counts
+are included because several passes only see post-optimisation shapes.
+
+| transform | corpus fires | MIMEcroft (raw / post-pipeline) | tier |
+|---|---|---|---|
+| `fuse-fill-consume` | 0/563 | no / no | Tier 3 (loop-fusion trace) |
+| `isolate-accumulate` | 0/563 | no / no | Tier 3 (inlining value) |
+| `string-accumulator` | 1/563 top-level verdict; **C tree walk (`acc_vars_tree`) tracks 4 vars on MIMEcroft** | no / no (top-level) | Tier 1 fragment = the walker in bug 11; lowering Tier 3 |
+| `sync-ok-loops` | 43 files / 52 verdicts | **19 sync + 1 batch verdicts**, 0 emitted-byte change | criterion 2 Tier 1 (conservative-by-construction); criteria 1/3 Tier 3 |
+| `background-decide` | 0 (10 `Background` nodes over 7 files, none classified) | no / no | Tier 3 (fork/thread semantics) |
+| `inline-pure-fns` | 0/563 over 59 Function-def files | no / no | Tier 3-flavored (needs `function_purity` + call preservation) |
+| `process-subst` | 16/563 (pipeline only, never raw) | **yes / —** (pipeline) | Tier 3 (filesystem/path-arg) |
+| `for-recovery` | 0/563 | no / no | Tier 1 DONE (`proofs/ForRecovery`, dead contract) |
+| `type-query` | 1/563 (`parse-eval-multiline.sh`) | no / no | Tier 1-trivial (58-entry builtin table) |
+| `planner` | not registered in `transforms::all()` | — | mechanism, not a transform |
+| `sub` | returns `false` unconditionally | — | placeholder |
+
+Consequences recorded, not acted on: (1) the `string-accumulator`
+read-walker hole (bug 11) sits on a live C path and is the only one of the
+eleven whose fix a Tier-1 Isabelle session should certify; (2) nothing in
+this list is a Verus target — the two-loop fusion and whole-program shape
+analyses need loop traces, which the C generator rows already show Verus is
+for, but their obligations are Tier 3; (3) `sync-ok-loops` computes 20
+MIMEcroft verdicts that change no emitted byte, so a proof of its walker
+would guard an inert gate until the renderer hooks land.
