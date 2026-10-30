@@ -12,6 +12,46 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v103: **The first Tier-1 Isabelle session for a pass MIMEcroft actually
+>   fires: `string-accumulator`, and the bug it exposed is fixed with a
+>   failing-first test.**
+>   (1) **Why this one.** Of the three passes MIMEcroft fires, this is the
+>   only one whose verdict is IR-shaped (Tier 1): the C consumer
+>   re-walks the tree (`acc_vars_tree`) and tracks four accumulators
+>   (`blk_p`, `tup_rp`, `tup_gp`, `tup_bp`; 15 `_alen_` sites), so a wrong
+>   verdict is a live miscompile, not an inert gate.
+>   (2) **The session.** `proofs/StringAccumulator` — 18 lemmas,
+>   `quick_and_dirty = false`, green in ~1 min, registered in
+>   `harness/transform-proofs.sh` (whole-directory run: `OK
+>   proofs/StringAccumulator`). It models the three walks one constructor
+>   per arm (§2), keeps the PRE-FIX walk as the negative control and
+>   machine-checks the report's witness (`the_fix_is_load_bearing`: an
+>   `Arith(AVar v)` IS a read and the catch-all does not see it), proves
+>   carrier completeness (redirect, subshell, block, background, pipeline
+>   stage, function body + named blocks, ForInit, try + except clauses, case
+>   clause body AND pattern, thunk, comprehension, arith index key, arith
+>   assign rhs), and the first-read position rule
+>   (`before_any_read ⟹ ¬ stmts_read`). Replacing the fixed arm with the
+>   pre-fix `False` makes the session FAIL — the control is real.
+>   (3) **The code fix, checked but awaiting re-land.** `arith_read_walk` +
+>   the missing `IrExpr` arms + a carrier-complete, wildcard-free
+>   `read_walk` + a recursive `self_append_vars` that treats `continue` as a
+>   non-write surface. 11 module tests green; restoring
+>   `IrExpr::Arith(_) => {}` turns exactly one red (the no-arith control
+>   stays green). Landed on a branch off `12b304ddf` — the analysis version
+>   the bug reproduces in — because main's `acc_vars_tree`/`lower` work is
+>   uncommitted and cannot be replayed around. Offer + re-land recipe:
+>   `core-requests/done/string-accumulator-walk-20261030-120000.md`.
+>   (4) **The manifest now carries a real `proof:` line**, and the gate
+>   builds it: `proof/Claim.thy` re-checks the core of the same statement
+>   from source as its own session (`StringAccumulatorClaim`), so the claim
+>   cannot be satisfied by another session's stale heap. Whole gate:
+>   **7 checked-and-built, 0 stated-only** (`proofs/` itself is red from
+>   another lane's untracked `Maskable` session, not this round).
+>   (5) **Not done, deliberately:** the lowering (push/join) stays Tier 3;
+>   `sync-ok-loops` criterion 2 and `process-subst` remain unproved (the
+>   first now fires on MIMEcroft but changes no emitted byte, the second is
+>   filesystem statement semantics).
 > - v102: **The parked-transform census: eleven transforms adjudicated by
 >   measurement, one live defect promoted out of the parked set, and three
 >   stale firing counts in `docs/transform-verification.md` corrected.**

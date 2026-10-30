@@ -48,13 +48,21 @@ body has no mid-loop exotic reads, and MIMEcroft escapes only because
 its four accumulators have no `$(( ))` self-read (`tup_n=$((tup_n+1))`
 is a different var; `lt_payload="$lt_payload …"` is refused by
 `self_append_vars`, not proved safe).
-**Fix (owner call):** one match arm each in `expr_read_walk`
-(recurse `ArithAst`) + `read_walk` (the missing statement forms), or
-delegate both to the shared shir descent; plus a failing-first
-regression test in the module's `#[cfg(test)]` (the `n=$(( tsv+0 ))`
-witness shape). A Tier-1 `verdict ⟹ all-writes-self-appends`
-Isabelle session would certify exactly this fix once it lands —
-proving it against the current walkers would certify the hole.
+**Fix — WRITTEN AND CHECKED, awaiting re-land.** Branch `pir-acc-walk`
+on `12b304ddf` (the analysis version the bug reproduces in; main's later
+work adds `acc_vars_tree`/`lower` on top and could not be replayed around
+because it is uncommitted): `arith_read_walk` + the missing `IrExpr` arms +
+a carrier-complete `read_walk` (no wildcard) + a recursive
+`self_append_vars` that treats `continue` as a non-write surface. 11 module
+tests green; failing-first verified by restoring
+`IrExpr::Arith(_) => {}` (`an_arith_read_of_the_accumulator_refuses_the_
+verdict` red, the no-arith control green). The offer, with the re-land
+recipe, is filed at
+`core-requests/done/string-accumulator-walk-20261030-120000.md`.
+**Proof:** `proofs/StringAccumulator` (18 lemmas, checked) — the walk, the
+pre-fix twin, and `the_fix_is_load_bearing`; the manifest's own claim
+(`proof/Claim.thy`) re-checks the core of it from source and is gate-green
+in `harness/transform-proofs.sh` (7 checked-and-built).
 
 ## Confirmed product bugs (fixed)
 

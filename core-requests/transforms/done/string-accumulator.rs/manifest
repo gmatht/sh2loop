@@ -7,3 +7,4 @@ invariant: analysis-only; no structural mutation. A var is marked
 scope: offered to estree (owner — the shrinking `blk_p` cons-chain),
   perl (a builder), go, c, sh
 updates: none (first offer)
+proof: proof/Claim.thy#the_arith_read_is_a_read (checked — the walk finds an arithmetic read of the accumulator; the pre-fix catch-all does not, and the full carrier walk is checked in proofs/StringAccumulator)

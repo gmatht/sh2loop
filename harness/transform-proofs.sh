@@ -84,6 +84,7 @@ failed_names=()
 SESSION_DIRS=(
     proofs
     proofs/ArithIdentity
+    proofs/StringAccumulator
     sh2perl/docs/fm/TextOps
     verif
 )
