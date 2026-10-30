@@ -4645,9 +4645,15 @@ render_frame() {
         gs_cz=$((dpcz_ms / 1000))
         gs_mx=$gs_x
         gs_mz=$gs_z
-        if [ "$gs_mx" -lt "$gs_cx" ]; then gs_sx=1; else gs_sx=-1; fi
+        # STEP TOWARD THE PATCH: gs_ox starts at the EYE and walks to
+        # the patch, so the sign is (patch - eye): eye < patch -> +1.
+        # This was inverted (it compared patch < eye), so the march left
+        # the eye in the direction AWAY from the patch, hit the map edge
+        # (or some unrelated wall) and the real occluder was never tested
+        # — grass painted over the blocks standing in front of it.
+        if [ "$gs_cx" -lt "$gs_mx" ]; then gs_sx=1; else gs_sx=-1; fi
         if [ "$gs_mx" -eq "$gs_cx" ]; then gs_sx=0; fi
-        if [ "$gs_mz" -lt "$gs_cz" ]; then gs_sz2=1; else gs_sz2=-1; fi
+        if [ "$gs_cz" -lt "$gs_mz" ]; then gs_sz2=1; else gs_sz2=-1; fi
         if [ "$gs_mz" -eq "$gs_cz" ]; then gs_sz2=0; fi
         gs_ox=$gs_cx
         gs_oz=$gs_cz
