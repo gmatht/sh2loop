@@ -5458,7 +5458,19 @@ captureSync(fn) {
 
   return(value) {
     this.lastExit = value === undefined || value === null ? 0 : Number(value);
-    throw new Signal('RETURN', this.lastExit);
+    throw new Signal('RETURN', this.lastExit, value);
+  },
+
+  // The value a swallowed RETURN signal carried — what a lifted define's
+  // catch boundary returns to its caller. `raw` is the original `return e`
+  // argument; fall back to the signal's numeric payload (older call sites
+  // that construct the signal without `raw`) and finally to `lastExit`.
+  // Shell call sites are unaffected: they read `sh2.lastExit` through their
+  // status sequence, never the define's JS return value.
+  returnSignalValue(e) {
+    if (e && e.raw !== undefined && e.raw !== null) return e.raw;
+    if (e && e.value !== undefined) return e.value;
+    return this.lastExit;
   },
 
   // `isReturnSignal(e)` — the RETURN-signal test. A lifted define
@@ -5680,7 +5692,10 @@ captureSync(fn) {
 
 // ── control signals ──────────────────────────────────────────────────
 class Signal {
-  constructor(kind, value) { this.kind = kind; this.value = value; }
+  // `raw` is the ORIGINAL `return e` argument (added for the lifted-define
+  // boundary: `Number("abc")` is NaN, so the numeric status alone cannot
+  // carry a string value back to a value-position caller).
+  constructor(kind, value, raw) { this.kind = kind; this.value = value; this.raw = raw; }
 }
 function isSignal(e, kind) { return e instanceof Signal && e.kind === kind; }
 
