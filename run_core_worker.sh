@@ -400,13 +400,34 @@ PYEOF
     # the gate was RED for 12 hours off a target-dir collision, not a
     # candidate. A worktree-local target is what every backend gate already
     # does (--share-target "$g_wt/target").
-    if ! "$ROOT/harness/build-lock.sh" --role core \
+    # BASELINED, like the final gate below — NOT an exit-code test.
+    # `cargo test --lib` exits non-zero on this tree EVEN WHEN A CANDIDATE IS
+    # PERFECT: 19 lib tests are known-red at the anchor (c_backend/ir/estree).
+    # So the staging gate rejected every offer whose lib result was exactly
+    # "19 failed", i.e. every clean one, and called it "fails the lib tests".
+    # The honest test is the one the final gate already uses: a candidate must
+    # not ADD failures relative to KNOWN-GOOD. Capture the count.
+    lib_out=$("$ROOT/harness/build-lock.sh" --role core \
          --share-target "$SUB/target" -- cargo test --lib \
-         --manifest-path "$SUB/Cargo.toml" >> "$LOG" 2>&1; then
-      echo "[$(date +%FT%T)] core: $name fails the lib tests — REJECT (worktree restored)" >> "$LOG"
+         --manifest-path "$SUB/Cargo.toml" 2>&1) || true
+    printf '%s\n' "$lib_out" >> "$LOG"
+    stage_fails=$(printf '%s\n' "$lib_out" \
+        | sed -n 's/^test result: .* \([0-9][0-9]*\) failed.*/\1/p' | tail -1)
+    stage_kg=""
+    [ -f "$KNOWN_GOOD_FILE" ] && stage_kg=$(sed -n 's/^lib_fails=//p' "$KNOWN_GOOD_FILE" | tail -1)
+    if [ -z "$stage_fails" ]; then
+      # no summary line: it did not compile, or the suite hung — never a pass
+      echo "[$(date +%FT%T)] core: $name produced NO lib-test summary (compile error or hang) — REJECT (worktree restored)" >> "$LOG"
       restore_known_good
       mv "$bundle" "$REQS/transforms/rejected/"
-      printf '%s core-worker: REJECTED %s (lib tests)\n' "$(date +%FT%T)" "$name" >> "$REPORTS/core-worker.report"
+      printf '%s core-worker: REJECTED %s (no lib-test summary: compile error or hang)\n' "$(date +%FT%T)" "$name" >> "$REPORTS/core-worker.report"
+      continue
+    fi
+    if [ -n "$stage_kg" ] && [ "$stage_fails" -gt "$stage_kg" ]; then
+      echo "[$(date +%FT%T)] core: $name adds lib failures ($stage_fails vs baseline $stage_kg) — REJECT (worktree restored)" >> "$LOG"
+      restore_known_good
+      mv "$bundle" "$REQS/transforms/rejected/"
+      printf '%s core-worker: REJECTED %s (lib %s failures vs baseline %s)\n' "$(date +%FT%T)" "$name" "$stage_fails" "$stage_kg" >> "$REPORTS/core-worker.report"
       continue
     fi
     # NOT accepted yet. The candidate is STAGED (registered + compiled +
