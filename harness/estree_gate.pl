@@ -22,7 +22,7 @@ my %whitelist = map { $_ => 1 } qw(
     subshellSync blockSync captureSync captureWordsSync pipelineSync redirectSync
     execRedirect pipelineCapture pipelineCaptureSync
     shopt return break continue unsupported
-    isReturnSignal
+    isReturnSignal returnSignalValue
     typeOf isType toI64
     pipelineInputLines
     makeChan recv send select
