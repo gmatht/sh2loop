@@ -1924,7 +1924,11 @@ export const sh2 = {
     } catch (e) {
       // `return N` inside a loop body is a sh2.return Signal; the loop
       // rethrows it and the function call turns it into the value.
-      if (isSignal(e, 'RETURN')) r = undefined;
+      // `returnSignalValue` hands back what `return e` carried (the
+      // lifted-define boundary does the same — see shir.rs
+      // wrap_return_signal_catch); returning `undefined` here dropped the
+      // value of EVERY function whose return sits inside a loop.
+      if (isSignal(e, 'RETURN')) r = this.returnSignalValue(e);
       else throw e;
     } finally {
       this.positional = saved;
