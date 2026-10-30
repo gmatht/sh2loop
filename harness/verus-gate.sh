@@ -377,6 +377,11 @@ MODELS=(
   # step spellings + Arith-cond gates; 6 unit-test pins. Mutant
   # (accepting +2) red 9v/3e.
   "counted_arith_forinit.rs:12:40"
+  # Element-forward (Tier-1): single-def element load -> forwarded
+  # reads (arr_load_fwd.rs 1518 lines). Single-store induction with
+  # span oracle (mono + soundness); 9 unit-test pins. Mutant (no
+  # clean-span gate) red 33v/4e.
+  "arr_load_fwd.rs:37:40"
 )
 
 # extractor:baseline — the generator script and the file it must reproduce.
@@ -438,6 +443,7 @@ SYNCS=(
   "harness/verus-sync-coverage.sh:interp_lit_merge:sh2perl/proofs/verus/interp_lit_merge_sync.txt"
   "harness/verus-sync-coverage.sh:strip:sh2perl/proofs/verus/strip_sync.txt"
   "harness/verus-sync-coverage.sh:counted_arith_forinit:sh2perl/proofs/verus/counted_arith_forinit_sync.txt"
+  "harness/verus-sync-coverage.sh:arr_load_fwd:sh2perl/proofs/verus/arr_load_fwd_sync.txt"
   # c_decl_coverage: the FIRST TRANSCRIPTION model in this list — its
   # checker does not just pin guards, it EXTRACTS the modelled walker
   # arm chains (patterns + guards + callee sets) from c_backend.rs and

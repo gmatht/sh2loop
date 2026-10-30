@@ -36,7 +36,7 @@ OUT="${OUT_TMP:-/dev/stdout}"
 
 fail() { echo "verus-sync-coverage($MODEL): FATAL: $*" >&2; exit 1; }
 
-[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants|direct_calls|cat_read|grep_o|c_decl_coverage|exec_call_fold|interp_lit_merge|strip|counted_arith_forinit"
+[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants|direct_calls|cat_read|grep_o|c_decl_coverage|exec_call_fold|interp_lit_merge|strip|counted_arith_forinit|arr_load_fwd"
 # A model may span several source files (the P6 sweep groups folds by
 # family). model_srcs lists them; SRC is the first (legacy single-file
 # uses keep working).
@@ -80,6 +80,7 @@ model_srcs() {
     interp_lit_merge) echo "interp_lit_merge" ;;
     strip) echo "strip" ;;
     counted_arith_forinit) echo "counted_arith_forinit" ;;
+    arr_load_fwd) echo "arr_load_fwd" ;;
     c_decl_coverage) echo "c_backend" ;;
     *) fail "unknown model: $1" ;;
   esac
@@ -434,6 +435,17 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     counted_arith_forinit:pin_text_cond_refuses) echo counted_arith_forinit:shell_text_cond_left_alone ;;
     counted_arith_forinit:pin_trace_agrees) echo UNMIRRORED ;;
     counted_arith_forinit:pin_unit_gate_load_bearing) echo UNMIRRORED ;;
+    arr_load_fwd:pin_forward_folds) echo arr_load_fwd:forwards_a_single_def_element_load_and_drops_the_store ;;
+    arr_load_fwd:pin_sibling_read_inert) echo arr_load_fwd:an_intervening_read_of_the_array_is_inert ;;
+    arr_load_fwd:pin_array_write_refuses) echo arr_load_fwd:refuses_when_the_array_is_written_in_between ;;
+    arr_load_fwd:pin_multi_def_refuses) echo arr_load_fwd:refuses_a_second_write_to_the_scalar ;;
+    arr_load_fwd:pin_opaque_refuses) echo arr_load_fwd:refuses_a_call_between_def_and_read ;;
+    arr_load_fwd:pin_refuse_before_def) echo arr_load_fwd:a_read_before_the_def_never_folds ;;
+    arr_load_fwd:pin_sibling_call_inert) echo arr_load_fwd:forwards_the_call_spelling_across_sibling_element_loads ;;
+    arr_load_fwd:pin_orphan_drops) echo arr_load_fwd:removes_a_function_body_orphan_dse_can_never_take ;;
+    arr_load_fwd:pin_orphan_preserves) echo UNMIRRORED ;;
+    arr_load_fwd:pin_key_write_refuses) echo arr_load_fwd:refuses_when_the_key_variable_is_written_in_between ;;
+    arr_load_fwd:pin_trace_agrees) echo UNMIRRORED ;;
     *) echo "" ;;
   esac
 }
@@ -1138,6 +1150,38 @@ case "$MODEL" in
     sgrep -q "fn writes_or_escapes" \
       || fail "writes_or_escapes veto not found in source"
     echo "guard no-write veto: PRESENT"
+    ;;
+  arr_load_fwd)
+    # The candidate gate: bare single-target element load, both
+    # spellings (Index + the arrayIndex call form).
+    sgrep -q "fn candidate" \
+      || fail "candidate gate not found in source"
+    echo "guard candidate gate: PRESENT"
+    sgrep -q '"arrayIndex"' \
+      || fail "arrayIndex call spelling not found in source"
+    echo "guard call spelling: PRESENT"
+    # The re-evaluation gates: pure key + bounded key vars.
+    sgrep -q "fn pure_key" \
+      || fail "pure_key gate not found in source"
+    echo "guard pure-key gate: PRESENT"
+    sgrep -q "fn key_vars" \
+      || fail "key_vars gate not found in source"
+    echo "guard key-vars gate: PRESENT"
+    # The span verdicts: refusal + store-break.
+    sgrep -q "fn stmt_refuses" \
+      || fail "stmt_refuses verdict not found in source"
+    echo "guard span-refusal verdict: PRESENT"
+    sgrep -q "fn stmt_stores" \
+      || fail "stmt_stores verdict not found in source"
+    echo "guard store-break verdict: PRESENT"
+    # The shared read-only call list (the sibling-load crossing).
+    sgrep -q "READ_ONLY_CALLS" \
+      || fail "READ_ONLY_CALLS not found in source"
+    echo "guard read-only calls: PRESENT"
+    # The orphan sweep under DSE's standard.
+    sgrep -q "fn drop_orphans" \
+      || fail "drop_orphans not found in source"
+    echo "guard orphan sweep: PRESENT"
     ;;
   arith_forms)
     # The let-arg gate: text extraction + parse_arith verdict.
