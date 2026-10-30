@@ -4542,70 +4542,20 @@ render_frame() {
     rbc_dam=0
     rb_cube $qfx 2.05 $qfz 20 0.1 20 0.24 0.24 0.28
   done
-  if [ "$dyaw" -eq 0 ]; then
-    # facing -z: front = z < dpz, so FAR = smallest z — draw z
-    # ascending so the far "outside" cubes hit the canvas first and
-    # the near destructible walls paint over them
-    rf_z=0
-    while [ "$rf_z" -lt "$MAP_D" ]; do
-      rf_x=0
-      while [ "$rf_x" -lt "$MAP_W" ]; do
-        try_draw $rf_x 0 $rf_z
-        try_draw $rf_x 1 $rf_z
-        try_draw $rf_x 2 $rf_z
-        rf_x=$((rf_x + 1))
-      done
-      rf_z=$((rf_z + 1))
-    done
-  fi
-  if [ "$dyaw" -eq 1 ]; then
-    rf_x=$BOUND_X
-    while [ "$rf_x" -ge 0 ]; do
-      rf_z=0
-      while [ "$rf_z" -lt "$MAP_D" ]; do
-        try_draw $rf_x 0 $rf_z
-        try_draw $rf_x 1 $rf_z
-        try_draw $rf_x 2 $rf_z
-        rf_z=$((rf_z + 1))
-      done
-      rf_x=$((rf_x - 1))
-    done
-  fi
-  if [ "$dyaw" -eq 2 ]; then
-    # facing +z: front = z > dpz, so FAR = largest z — draw z
-    # descending so far cubes hit the canvas first, near last
-    rf_z=$BOUND_Z
-    while [ "$rf_z" -ge 0 ]; do
-      rf_x=0
-      while [ "$rf_x" -lt "$MAP_W" ]; do
-        try_draw $rf_x 0 $rf_z
-        try_draw $rf_x 1 $rf_z
-        try_draw $rf_x 2 $rf_z
-        rf_x=$((rf_x + 1))
-      done
-      rf_z=$((rf_z - 1))
-    done
-  fi
-  if [ "$dyaw" -eq 3 ]; then
-    rf_x=0
-    while [ "$rf_x" -lt "$MAP_W" ]; do
-      rf_z=0
-      while [ "$rf_z" -lt "$MAP_D" ]; do
-        try_draw $rf_x 0 $rf_z
-        try_draw $rf_x 1 $rf_z
-        try_draw $rf_x 2 $rf_z
-        rf_z=$((rf_z + 1))
-      done
-      rf_x=$((rf_x + 1))
-    done
-  fi
+  # grass BEFORE the cubes (not after): these quads sit at floor level
+  # (top 0.525, just above the dirt plane's 0.5), so the painter draws
+  # them with the background and every cube paints over them. Drawing
+  # them after the cubes let a grazing-angle quad smear over an
+  # ADJACENT chest or wall (frame-1: grass at (4,1)/(5,1) covering the
+  # chest at (6,1)) even when the occlusion march correctly kept it.
   # background planes first with depth WRITES OFF (gl.depthMask 0) —
   # they fill the void but never record depth, so the cubes drawn after
   # (depth writes on) ALWAYS paint over them
   # grass patches on the marked walkable cells: thin quads at the
   # floor (top face at 0.525, just above the dirt plane's 0.5). The
-  # depth test sorts them under the walls (written earlier) and over
-  # the floor plane (which draws with depth writes OFF). While CRAWLING
+  # depth test sorts them under the walls and over the floor plane
+  # (which draws with depth writes OFF); the painter draws them here,
+  # with the background, so every cube paints over them. While CRAWLING
   # (crouched) the eye is only 0.225 above the grass plane — a thin
   # quad viewed at a grazing angle smears green across the screen, so
   # skip the patches entirely while crouched (the dirt floor shows).
@@ -4697,6 +4647,63 @@ render_frame() {
   done
   gtick
   g_scene=$(( g_scene + g_now - r_sc0 ))
+  if [ "$dyaw" -eq 0 ]; then
+    # facing -z: front = z < dpz, so FAR = smallest z — draw z
+    # ascending so the far "outside" cubes hit the canvas first and
+    # the near destructible walls paint over them
+    rf_z=0
+    while [ "$rf_z" -lt "$MAP_D" ]; do
+      rf_x=0
+      while [ "$rf_x" -lt "$MAP_W" ]; do
+        try_draw $rf_x 0 $rf_z
+        try_draw $rf_x 1 $rf_z
+        try_draw $rf_x 2 $rf_z
+        rf_x=$((rf_x + 1))
+      done
+      rf_z=$((rf_z + 1))
+    done
+  fi
+  if [ "$dyaw" -eq 1 ]; then
+    rf_x=$BOUND_X
+    while [ "$rf_x" -ge 0 ]; do
+      rf_z=0
+      while [ "$rf_z" -lt "$MAP_D" ]; do
+        try_draw $rf_x 0 $rf_z
+        try_draw $rf_x 1 $rf_z
+        try_draw $rf_x 2 $rf_z
+        rf_z=$((rf_z + 1))
+      done
+      rf_x=$((rf_x - 1))
+    done
+  fi
+  if [ "$dyaw" -eq 2 ]; then
+    # facing +z: front = z > dpz, so FAR = largest z — draw z
+    # descending so far cubes hit the canvas first, near last
+    rf_z=$BOUND_Z
+    while [ "$rf_z" -ge 0 ]; do
+      rf_x=0
+      while [ "$rf_x" -lt "$MAP_W" ]; do
+        try_draw $rf_x 0 $rf_z
+        try_draw $rf_x 1 $rf_z
+        try_draw $rf_x 2 $rf_z
+        rf_x=$((rf_x + 1))
+      done
+      rf_z=$((rf_z - 1))
+    done
+  fi
+  if [ "$dyaw" -eq 3 ]; then
+    rf_x=0
+    while [ "$rf_x" -lt "$MAP_W" ]; do
+      rf_z=0
+      while [ "$rf_z" -lt "$MAP_D" ]; do
+        try_draw $rf_x 0 $rf_z
+        try_draw $rf_x 1 $rf_z
+        try_draw $rf_x 2 $rf_z
+        rf_z=$((rf_z + 1))
+      done
+      rf_x=$((rf_x + 1))
+    done
+  fi
   # painter's algorithm, no depth buffer: the background planes first
   # (they fill the void), then the cubes paint over them. The device
   # draws payload order as draw order, exactly as the WebGL path drew
