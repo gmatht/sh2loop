@@ -372,6 +372,11 @@ MODELS=(
   # unit-test pins. Lands with a soundness fix (legacy continue now
   # splices). Mutant (step before Break) red 11v/2e.
   "strip.rs:13:40"
+  # Arith-recovery (Tier-1): structured-Arith counted-while -> ForInit
+  # (counted_arith_forinit.rs 383 lines). Trace identity; three +1
+  # step spellings + Arith-cond gates; 6 unit-test pins. Mutant
+  # (accepting +2) red 9v/3e.
+  "counted_arith_forinit.rs:12:40"
 )
 
 # extractor:baseline — the generator script and the file it must reproduce.
@@ -432,6 +437,7 @@ SYNCS=(
   "harness/verus-sync-coverage.sh:exec_call_fold:sh2perl/proofs/verus/exec_call_fold_sync.txt"
   "harness/verus-sync-coverage.sh:interp_lit_merge:sh2perl/proofs/verus/interp_lit_merge_sync.txt"
   "harness/verus-sync-coverage.sh:strip:sh2perl/proofs/verus/strip_sync.txt"
+  "harness/verus-sync-coverage.sh:counted_arith_forinit:sh2perl/proofs/verus/counted_arith_forinit_sync.txt"
   # c_decl_coverage: the FIRST TRANSCRIPTION model in this list — its
   # checker does not just pin guards, it EXTRACTS the modelled walker
   # arm chains (patterns + guards + callee sets) from c_backend.rs and

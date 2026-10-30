@@ -36,7 +36,7 @@ OUT="${OUT_TMP:-/dev/stdout}"
 
 fail() { echo "verus-sync-coverage($MODEL): FATAL: $*" >&2; exit 1; }
 
-[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants|direct_calls|cat_read|grep_o|c_decl_coverage|exec_call_fold|interp_lit_merge|strip"
+[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants|direct_calls|cat_read|grep_o|c_decl_coverage|exec_call_fold|interp_lit_merge|strip|counted_arith_forinit"
 # A model may span several source files (the P6 sweep groups folds by
 # family). model_srcs lists them; SRC is the first (legacy single-file
 # uses keep working).
@@ -79,6 +79,7 @@ model_srcs() {
     exec_call_fold) echo "exec_call_fold" ;;
     interp_lit_merge) echo "interp_lit_merge" ;;
     strip) echo "strip" ;;
+    counted_arith_forinit) echo "counted_arith_forinit" ;;
     c_decl_coverage) echo "c_backend" ;;
     *) fail "unknown model: $1" ;;
   esac
@@ -425,6 +426,14 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     strip:pin_nested_opaque) echo UNMIRRORED ;;
     strip:pin_normal_path_runs_step) echo strip:forinit_lowers_to_while_with_step_and_continue_splice ;;
     strip:pin_both_spellings_continue) echo strip:legacy_continue_call_gets_the_step_splice ;;
+    counted_arith_forinit:pin_incdec_step_folds) echo counted_arith_forinit:prefix_incdec_step_recovers ;;
+    counted_arith_forinit:pin_expr_step_normalizes) echo counted_arith_forinit:expr_incdec_step_recovers ;;
+    counted_arith_forinit:pin_plus_one_step_folds) echo counted_arith_forinit:plus_one_assign_recovers ;;
+    counted_arith_forinit:pin_non_counter_cond_refuses) echo counted_arith_forinit:cond_not_reading_counter_vetoes ;;
+    counted_arith_forinit:pin_continue_body_refuses) echo counted_arith_forinit:continue_in_body_vetoes ;;
+    counted_arith_forinit:pin_text_cond_refuses) echo counted_arith_forinit:shell_text_cond_left_alone ;;
+    counted_arith_forinit:pin_trace_agrees) echo UNMIRRORED ;;
+    counted_arith_forinit:pin_unit_gate_load_bearing) echo UNMIRRORED ;;
     *) echo "" ;;
   esac
 }
@@ -1101,6 +1110,32 @@ case "$MODEL" in
     sgrep -q "IrStmt::Block(" \
       || fail "Block lowering shape not found in source"
     echo "guard Block lowering shape: PRESENT"
+    ;;
+  counted_arith_forinit)
+    # The +1 step gate: all three spellings (IncDec, +=, Bin+).
+    sgrep -q "fn counter_update" \
+      || fail "counter_update gate not found in source"
+    echo "guard step gate: PRESENT"
+    sgrep -q '\*delta == 1' \
+      || fail "IncDec one-gate not found in source"
+    echo "guard IncDec one-gate: PRESENT"
+    sgrep -q 'op == "+="' \
+      || fail "+= spelling not found in source"
+    echo "guard += spelling: PRESENT"
+    sgrep -q 'Bin { op, lhs, rhs } if op ==' \
+      || fail "Bin+ spelling not found in source"
+    echo "guard Bin+ spelling: PRESENT"
+    # The Arith-cond mention gate + the status veto.
+    sgrep -q "fn arith_mentions" \
+      || fail "arith_mentions gate not found in source"
+    echo "guard cond-mention gate: PRESENT"
+    sgrep -q "fn reads_status" \
+      || fail "reads_status veto not found in source"
+    echo "guard status veto: PRESENT"
+    # The body write/escape veto (incl. Continue/Break control effects).
+    sgrep -q "fn writes_or_escapes" \
+      || fail "writes_or_escapes veto not found in source"
+    echo "guard no-write veto: PRESENT"
     ;;
   arith_forms)
     # The let-arg gate: text extraction + parse_arith verdict.
