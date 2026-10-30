@@ -36,7 +36,7 @@ OUT="${OUT_TMP:-/dev/stdout}"
 
 fail() { echo "verus-sync-coverage($MODEL): FATAL: $*" >&2; exit 1; }
 
-[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants|direct_calls|cat_read|grep_o|c_decl_coverage"
+[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants|direct_calls|cat_read|grep_o|c_decl_coverage|exec_call_fold"
 # A model may span several source files (the P6 sweep groups folds by
 # family). model_srcs lists them; SRC is the first (legacy single-file
 # uses keep working).
@@ -76,6 +76,7 @@ model_srcs() {
     direct_calls) echo "direct_calls" ;;
     cat_read) echo "cat_read" ;;
     grep_o) echo "grep_o" ;;
+    exec_call_fold) echo "exec_call_fold" ;;
     c_decl_coverage) echo "c_backend" ;;
     *) fail "unknown model: $1" ;;
   esac
@@ -403,6 +404,11 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     grep_o:pin_bad_flag_refuses) echo grep_o:unsupported_flag_keeps_exec ;;
     grep_o:pin_no_o_refuses) echo grep_o:no_o_flag_keeps_exec ;;
     grep_o:pin_match_output_shape) echo UNMIRRORED ;;
+    exec_call_fold:pin_arrow_body_folds) echo exec_call_fold:arrow_body_exec_folds_to_the_call_form ;;
+    exec_call_fold:pin_statement_position_kept) echo exec_call_fold:statement_position_exec_is_left_alone ;;
+    exec_call_fold:pin_capture_kept) echo exec_call_fold:payload_bearing_exec_refuses ;;
+    exec_call_fold:pin_ps_tmp_cleanup_kept) echo exec_call_fold:ps_tmp_cleanup_keeps_its_carrier ;;
+    exec_call_fold:pin_fold_invisible_at_runtime) echo UNMIRRORED ;;
     *) echo "" ;;
   esac
 }
@@ -1014,6 +1020,22 @@ case "$MODEL" in
     sgrep -q "fn grep_matches" \
       || fail "grep_matches constructor not found in source"
     echo "guard matches op: PRESENT"
+    ;;
+  exec_call_fold)
+    # The carrier-canonicalization gate: payload-free Exec in an arrow
+    # body / pipeline stage -> the canonical exec call spelling.
+    sgrep -q "fn fold_here" \
+      || fail "fold_here gate not found in source"
+    echo "guard carrier gate: PRESENT"
+    sgrep -q "is_ps_tmp_cleanup" \
+      || fail "ps-tmp-cleanup refusal not found in source"
+    echo "guard ps-tmp-cleanup refusal: PRESENT"
+    sgrep -q "capture.is_none() && redirects.is_empty() && env.is_empty()" \
+      || fail "payload-free gate not found in source"
+    echo "guard payload-free gate: PRESENT"
+    sgrep -q '"exec"' \
+      || fail "canonical exec call spelling not found in source"
+    echo "guard canonical exec spelling: PRESENT"
     ;;
   arith_forms)
     # The let-arg gate: text extraction + parse_arith verdict.

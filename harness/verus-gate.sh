@@ -348,6 +348,12 @@ MODELS=(
   "direct_calls.rs:7:40"
   "cat_read.rs:11:40"
   "grep_o.rs:10:40"
+  # Carrier-canonicalization (Tier-1): payload-free Exec in a command
+  # carrier -> canonical exec call (exec_call_fold.rs 384 lines).
+  # Per-site payload preservation + idempotence; carrier flag as
+  # parameter; 4 unit-test pins. Mutant (cleanup refusal dropped)
+  # red 7v/1e.
+  "exec_call_fold.rs:8:40"
 )
 
 # extractor:baseline — the generator script and the file it must reproduce.
@@ -404,6 +410,7 @@ SYNCS=(
   "harness/verus-sync-coverage.sh:direct_calls:sh2perl/proofs/verus/direct_calls_sync.txt"
   "harness/verus-sync-coverage.sh:cat_read:sh2perl/proofs/verus/cat_read_sync.txt"
   "harness/verus-sync-coverage.sh:grep_o:sh2perl/proofs/verus/grep_o_sync.txt"
+  "harness/verus-sync-coverage.sh:exec_call_fold:sh2perl/proofs/verus/exec_call_fold_sync.txt"
   # c_decl_coverage: the FIRST TRANSCRIPTION model in this list — its
   # checker does not just pin guards, it EXTRACTS the modelled walker
   # arm chains (patterns + guards + callee sets) from c_backend.rs and

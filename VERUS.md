@@ -12,7 +12,7 @@ framework is Isabelle (`sh2perl/proofs/README.md`, `proofs/ArithIdentity`,
 the two are not double-counted. The tier language (Tier 1/2/3) comes from
 `docs/transform-verification.md`.
 
-Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28):
+Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28; the write-arm and vbuf rows added 2026-10-29):
 
 | proof file | target | obligations | status |
 |---|---|---|---|
@@ -55,8 +55,11 @@ Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28):
 | `proofs/verus/c_op_promote.rs` | **C generator**: const-fold + LL widening + unsigned-gate premises | 15 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §19 |
 | `proofs/verus/c_str_helpers.rs` | **C generator**: `_sh_*` string helpers (substr/replace/arr_slice/strip/argv/split) | 40 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §20 |
 | `proofs/verus/c_capture_wrap.rs` | **C generator**: capture/wrap quoting (injection-freedom + status mapping) | 16 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §21 |
-| `proofs/verus/c_decl_coverage.rs` | **C generator**: the three decl-census walkers + const-lift veto (`collect_store_expr` / `collect_assigned_vars` / `hoist_vars` / `collect_param_write_targets`) | 51 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §22 |
+| `proofs/verus/c_decl_coverage.rs` | **C generator**: the three decl-census walkers + const-lift veto (`collect_store_expr` / `collect_assigned_vars` / `hoist_vars` / `collect_param_write_targets`) | 51 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §22; **registered sync**: `declcov-extract.py` diffs the live walker arm chains vs `c_decl_coverage_sync.txt` (v19) |
 | `proofs/verus/c_str_lit.rs` | **C generator**: `cstr` — the string-literal escaper (finite-state C lexer + round-trip vs the shipped `\x` spelling) | 19 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §23 |
+| `proofs/verus/c_write_arm.rs` | **C generator**: `${name=word}` write arm + `param_write_target` census gate + `supplement_write_lengths` bounds | 17 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §24 |
+| `proofs/verus/c_vbuf.rs` | **C generator**: the emitted growth-helper family (`_sh_grow` / `_sh_vgrow` / `_sh_grow_str` + zero-fill / `_sh_reserve_*` guard, plus the add/fa/snprintf-grow/vec-guard/fgets consumers) | 39 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §25; discharges §20/§21's "vbuf growth assumed" provisos |
+| `proofs/verus/c_sparse_array.rs` | **C generator**: the sparse-array read faces over dense `char**` storage (`_sh_icount` count / `_sh_join_arr` separator / `_sh_join_ikind` keys / for-in hole-skip / free+NULL invariant / class-from-writes dispatch) | 28 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §26; fixes `${!arr[@]}`-on-indexed cc-red + the `${#arr[@]}`/`${arr[*]}`/for-in hole divergence |
 | `proofs/verus/append_store.rs` | `transforms/append_to_store.rs` (counted-loop append → indexed store, per-trip + whole-loop induction) | 20 verified, 0 errors | landed, gated — store-forward sweep |
 | `proofs/verus/split_set.rs` | `transforms/split_set.rs` (isSmallInt routing partition soundness + merge agreement) | 14 verified, 0 errors | landed, gated — store-forward sweep |
 | `proofs/verus/echo_return.rs` | `transforms/echo_return.rs` passes 2–4 (body echo → Return + call-site echo(fnValue)) | 13 verified, 0 errors | landed, gated — store-forward sweep |
@@ -74,6 +77,7 @@ Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28):
 | `proofs/verus/direct_calls.rs` | `transforms/direct_calls.rs` (capture-of-pure-function → direct call) | 7 verified, 0 errors | landed, gated — suites-then-proofs trio |
 | `proofs/verus/cat_read.rs` | `transforms/cat_read.rs` (statement cat → ForEachLine) | 11 verified, 0 errors | landed, gated — suites-then-proofs trio |
 | `proofs/verus/grep_o.rs` | `transforms/grep_o.rs` (grep -o shapes → grepMatches) | 10 verified, 0 errors | landed, gated — suites-then-proofs trio |
+| `proofs/verus/exec_call_fold.rs` | `transforms/exec_call_fold.rs` (payload-free Exec in carrier → canonical exec call) | 8 verified, 0 errors | landed, gated — carrier-canonicalization |
 
 492 active obligations total (504 with the 12 retired i32 obligations), 0 errors,
 plus the store-forward sweep (+47), the arith-lowering sweep (+28),
@@ -82,20 +86,23 @@ str_splice_fold 11, str_chop_cursor 17) and the loop-hoist model
 (+22: hoist_loop_invariants) and the suites-then-proofs trio (+28:
 direct_calls 7, cat_read 11, grep_o 10 — per-rewrite models with
 guard-oracle premises, mapped pins, and checked mutants, all
-re-verified under the pinned binary 2026-10-28/29), for 728
+re-verified under the pinned binary 2026-10-28/29) and the
+carrier-canonicalization model (+8: exec_call_fold 8 — per-site
+payload preservation with mapped pins and a checked mutant,
+re-verified under the pinned binary 2026-10-30), for 736
 transform-side obligations. Every active model
-with checked failing mutants (see §(b).3 — 27 mutants over
-25 models; the retired exec form carries its postcondition on the executable
-function itself instead). The twelve `c_*` rows are models of the C
+with checked failing mutants (see §(b).3 — 28 mutants over
+26 models; the retired exec form carries its postcondition on the executable
+function itself instead). The fifteen `c_*` rows are models of the C
 GENERATOR's own emission decisions, not of a shIR→shIR transform; they sit
-in the same gate but are counted separately from the 492 above — +314
-obligations (11/18/26/20/14/15/69/15/40/16/51/19, each with its own failing mutants or negative
-controls, all re-verified under the pinned binary 2026-10-28), for 1042
+in the same gate but are counted separately from the 492 above — +398
+obligations (11/18/26/20/14/15/69/15/40/16/51/19/17/39/28, each with its own failing mutants or negative
+controls, all re-verified under the pinned binary 2026-10-28/29), for 1134
 gated active obligations in total — the P12 pair (+14/+8) and the
 store-forward trio (+47) and the arith-lowering pair (+28) and the
 verdict-analyses six (+83) and the string/cursor pair (+28) and the
-loop-hoist model (+22) are included in
-the 728, the twelve `c_*` rows counted separately as stated. Their proofs, and why Verus rather than
+loop-hoist model (+22) and the carrier-canonicalization model (+8) are included in
+the 736, the fifteen `c_*` rows counted separately as stated. Their proofs, and why Verus rather than
 Isabelle fits them (the target is Rust that *produces* the C), are in
 `C_UB_PROOF.md` §13–§14. The eight pre-existing counts — and
 their seven mutants — were independently reproduced on 2026-10-24 with the
@@ -375,7 +382,7 @@ source outgrows its extractor patterns — but the generated
 that lands, "the model matches the code" is a statement about the day each
 file was written, reviewed by re-reading.
 
-**3. The obligations are not vacuous — every transform model has a checked mutant (27 mutants over 25 models), plus the C-generator mutants.**
+**3. The obligations are not vacuous — every transform model has a checked mutant (28 mutants over 26 models), plus the C-generator mutants.**
 Interval with a wrong product corner: 4 verified, 1 error. `Assign` writing
 a constant: 7 verified, 1 error. Inverted keep rule: 23 verified, 2 errors.
 Dropped purity gate: 43 verified, 2 errors. Restored `Arith(_) => true`
@@ -403,6 +410,7 @@ Unsigned-reduction-on-negative (shipped -3 shape as equal):
 68 verified, 1 error. Allow-Refuse-to-fold (compile-time abort):
 14 verified, 1 error. Flipped-clamp (e<b allowed): 39 verified, 1 error.
 Bare-quote splice (injection hole): 13 verified, 3 errors.
+Folded ps-tmp cleanup (cleanup loses its carrier): 7 verified, 1 error.
 C-generator mutants are
 recorded per-model in `C_UB_PROOF.md` §13–§21 (unguarded commit ships
 wrap, intended-UB pair is UB, four one-token decimal mutants, flipped
@@ -551,6 +559,7 @@ the baseline everything below also has.
 | everything else in `src/transforms/` (40 files: `arith_forms`, `arith_normalize`, `background_decide`, `bc_float_clean`, `brace_fold`, `builtin*` (3), `capture_node_fold`, `const_capture_fold`, `default_empty_fold`, `echo_return`, `escape_classes`, `f32_narrow`, `fbdev_gpu*` (4), `fuse_fill_consume`, `grep_pcre`, `interp_fold`, `isolate_accumulate`, `loop_return_lift`, `planner`, `process_subst`, `shir_native_stmt`, `shir_pipeline_native`, `split_set`, `str_chop_cursor`, `stray_reserved_word`, `string_accumulator`, `sub`, `sync_ok_loops`, `test_simplification`, `text_capture_fold`, `text_ops_planner`, `type_query`, `typeset_attrs`, `append_to_store`) | mixed | T2 | laws + differential only; most never fire in isolation on the corpus |
 | `hoist_loop_invariants` | loop-hoist (leading invariant run → prologue) | **V** (`hoist_loop_invariants`, 22) | n ≥ 1 proviso (0-trip hole found + pinned, BUGS_FOUND.md 7 open); 8 unit-test pins |
 | `unreachable_after_exit` | elimination | **V** (`elim_trio`, uae) | per-node truncation proved P9; 0/563 both modes — only the BAT frontend constructs `Exit`/`Return` (shell `exit` lowers to a builtin call); starved by producer absence, not wiring |
+| `exec_call_fold` | carrier canonicalization | **V** (`exec_call_fold`, 8) + T2 (rest) | per-site payload preservation; carrier flag as parameter, cleanup oracle + shir gate as placement; 4 unit-test pins |
 | `merge_init_assignments` | elimination | **V** (`elim_trio`, mia) | adjacent-pair merge proved P9 under literal/pure/no-self-read gates; 0/563 both modes — FIRES on synthetic `declare x=0` + `x=6` input (mechanics verified live) |
 | `slice_identity` | fold | **V** (`slice_identity`, 10) | zero-offset fold proved P10; fires 0/563 shell (synthetic witnesses) |
 | `case_lowering` | lowering | **V** (dispatch, 29) + T2 (rest) | dispatch proved P10; full obligation needs statement semantics |
