@@ -36,7 +36,7 @@ OUT="${OUT_TMP:-/dev/stdout}"
 
 fail() { echo "verus-sync-coverage($MODEL): FATAL: $*" >&2; exit 1; }
 
-[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants|direct_calls|cat_read|grep_o|c_decl_coverage|exec_call_fold|interp_lit_merge|strip|counted_arith_forinit|arr_load_fwd|isolate_accumulate|lane_private|analysis|loop_opt|restructure"
+[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants|direct_calls|cat_read|grep_o|c_decl_coverage|exec_call_fold|interp_lit_merge|strip|counted_arith_forinit|arr_load_fwd|isolate_accumulate|lane_private|analysis|loop_opt|restructure|optimize"
 # A model may span several source files (the P6 sweep groups folds by
 # family). model_srcs lists them; SRC is the first (legacy single-file
 # uses keep working).
@@ -86,6 +86,7 @@ model_srcs() {
     analysis) echo "analysis" ;;
     loop_opt) echo "loop_opt" ;;
     restructure) echo "restructure" ;;
+    optimize) echo "optimize" ;;
     c_decl_coverage) echo "c_backend" ;;
     *) fail "unknown model: $1" ;;
   esac
@@ -95,7 +96,7 @@ SRCS="$(model_srcs "$MODEL")"
 # analyses live in shir_passes/).
 model_dir() {
   case "$1" in
-    scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|strip|lane_private|analysis|loop_opt|restructure) echo "shir_passes" ;;
+    scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|strip|lane_private|analysis|loop_opt|restructure|optimize) echo "shir_passes" ;;
     # c_backend.rs lives at the crate root (src/c_backend.rs), so the
     # dir part is empty — paths below collapse to src/<file>.rs.
     c_decl_coverage) echo "" ;;
@@ -491,6 +492,17 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     restructure:pin_forward_skip_no_flag) echo restructure:goto_inside_a_switch_inside_the_loop_body_reaches_its_tail ;;
     restructure:pin_tail_guarded) echo restructure:goto_out_of_a_top_level_loop_guards_the_tail ;;
     restructure:pin_shapes_agree) echo UNMIRRORED ;;
+    optimize:pin_unread_drops) echo optimize:dce_drops_never_read_store ;;
+    optimize:pin_baked_index_refs) echo optimize:index_name_refs_reads_baked_index_vars ;;
+    optimize:pin_baked_index_keeps) echo optimize:dce_keeps_store_read_only_by_a_baked_index_name ;;
+    optimize:pin_param_reads) echo optimize:dce_keeps_param_read_store ;;
+    optimize:pin_redirect_target_reads) echo optimize:dce_keeps_redirect_target_read_store ;;
+    optimize:pin_star_join_reads_ifs) echo optimize:dce_keeps_ifs_store_read_by_a_star_join ;;
+    optimize:pin_let_arith_reads) echo optimize:dce_keeps_store_read_only_by_a_let_arith_string ;;
+    optimize:pin_const_gate_fires) echo optimize:const_prop_folds_straight_line_arith_read ;;
+    optimize:pin_const_gate_refuses) echo optimize:const_prop_folds_straight_line_arith_read ;;
+    optimize:pin_export_guards) echo optimize:decl_guard_sees_both_shapes ;;
+    optimize:pin_drop_agrees) echo optimize:dce_drops_never_read_store ;;
     *) echo "" ;;
   esac
 }
@@ -1330,6 +1342,39 @@ case "$MODEL" in
     sgrep -q "group_ends >= body.len()" \
       || fail "strict-subset bound not found in source"
     echo "guard strict-subset bound: PRESENT"
+    ;;
+  optimize)
+    # The A1 optimizer entries + the census shapes this model owns.
+    sgrep -q "pub fn expr_reads" \
+      || fail "expr_reads census entry not found in source"
+    echo "guard census expr entry: PRESENT"
+    sgrep -q "pub fn stmts_read" \
+      || fail "stmts_read census entry not found in source"
+    echo "guard census stmts entry: PRESENT"
+    sgrep -q "pub fn stmt_reads" \
+      || fail "stmt_reads census entry not found in source"
+    echo "guard census stmt entry: PRESENT"
+    sgrep -q "out.extend(crate::shir::index_name_refs" \
+      || fail "baked-index arm not found in source"
+    echo "guard baked-index arm: PRESENT"
+    sgrep -qF 'name.ends_with("[*]")' \
+      || fail "star-join IFS rule not found in source"
+    echo "guard star-join IFS rule: PRESENT"
+    sgrep -q "fn bare_arith_idents" \
+      || fail "bare-arith-ident scan not found in source"
+    echo "guard bare-arith scan: PRESENT"
+    sgrep -q "fn collect_decl_guard" \
+      || fail "decl-guard not found in source"
+    echo "guard decl-guard: PRESENT"
+    sgrep -q "fn drop_dead_store" \
+      || fail "drop gate not found in source"
+    echo "guard drop gate: PRESENT"
+    sgrep -q "pub fn const_prop" \
+      || fail "const_prop entry not found in source"
+    echo "guard const-prop entry: PRESENT"
+    sgrep -q "pub fn dead_store_elim" \
+      || fail "dead_store_elim entry not found in source"
+    echo "guard dse entry: PRESENT"
     ;;
   restructure)
     # The goto-elimination entry + per-shape handlers.

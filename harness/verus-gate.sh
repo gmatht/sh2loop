@@ -410,6 +410,13 @@ MODELS=(
   # 8 unit tests (7/7 PASS live). Mutant (spurious skip flag) red
   # 19v/1e.
   "restructure.rs:20:40"
+  # Optimize-delta (Tier-1): DCE census shapes + decl-guard +
+  # const_prop gate + drop theorem (optimize.rs 2727 lines).
+  # Unmarked-in-later implies unread-everywhere; fold/DCE/subst
+  # cores not remodelled (proved elsewhere). 11 pins mirror 9 of
+  # 12 tests (11/11 PASS live). Mutant (IFS dropped from [*]) red
+  # 16v/1e.
+  "optimize.rs:17:40"
 )
 
 # extractor:baseline — the generator script and the file it must reproduce.
@@ -477,6 +484,7 @@ SYNCS=(
   "harness/verus-sync-coverage.sh:analysis:sh2perl/proofs/verus/analysis_sync.txt"
   "harness/verus-sync-coverage.sh:loop_opt:sh2perl/proofs/verus/loop_opt_sync.txt"
   "harness/verus-sync-coverage.sh:restructure:sh2perl/proofs/verus/restructure_sync.txt"
+  "harness/verus-sync-coverage.sh:optimize:sh2perl/proofs/verus/optimize_sync.txt"
   # c_decl_coverage: the FIRST TRANSCRIPTION model in this list — its
   # checker does not just pin guards, it EXTRACTS the modelled walker
   # arm chains (patterns + guards + callee sets) from c_backend.rs and
