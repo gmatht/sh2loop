@@ -290,13 +290,36 @@ while true; do
         # `pub mod` line; the all() entries go before the vec's closing `]`
         mods=$(sed -n '/^### mod$/,/^### all$/p' "$bundle/register" | grep -v '^###' || true)
         entries=$(sed -n '/^### all$/,$p' "$bundle/register" | grep -v '^###' || true)
+        # IDEMPOTENT, and duplicate-aware (2026-10-30). Blindly inserting
+        # after the last `pub mod` / last `("...::transform),` is what killed
+        # five of six offers:
+        #   * E0583 — `pub mod <x>;` appended although the module was ALREADY
+        #     registered further down (the insert lands past every existing
+        #     line, so the duplicate is invisible to the eye and fatal to rustc);
+        #   * E0428 — the same double registration in the `all()` vec, e.g.
+        #     slice_identity/array_len_fold are already accepted on
+        #     backend/core, so re-offering them could never pass;
+        #   * re-staging a module whose .rs we just overwrote with an
+        #     identical copy.
+        # A module/entry already registered means this offer has landed
+        # before: do NOT insert a second copy. A `pub mod` line with a trailing
+        # comment (`pub mod x; // OFFER ...`) counts as registered too — the
+        # old `^pub mod ` test missed it.
         if [ -n "$mods" ]; then
           python3 - "$SUB/src/transforms.rs" "$mods" <<'PYEOF'
-import sys
+import re, sys
 path, mods = sys.argv[1], sys.argv[2]
-lines = open(path).read().split(chr(10))
+src = open(path).read()
+lines = src.split(chr(10))
+have = set(re.findall(r'^pub mod ([A-Za-z_0-9]+);', src, re.M))
 last = max(i for i, l in enumerate(lines) if l.startswith('pub mod '))
 for m in mods.strip().split(chr(10)):
+    if not m.strip():
+        continue
+    name = re.match(r'pub mod ([A-Za-z_0-9]+);', m.strip())
+    if name and name.group(1) in have:
+        sys.stderr.write('register: module %s already registered — not inserting a duplicate\n' % name.group(1))
+        continue
     lines.insert(last + 1, m)
     last += 1
 open(path, 'w').write(chr(10).join(lines))
@@ -304,14 +327,21 @@ PYEOF
         fi
         if [ -n "$entries" ]; then
           python3 - "$SUB/src/transforms.rs" "$entries" <<'PYEOF'
-import sys
+import re, sys
 path, entries = sys.argv[1], sys.argv[2]
-lines = open(path).read().split(chr(10))
-idx = max(i for i, l in enumerate(lines) if '::transform),' in l)
-close = next(i for i in range(idx, len(lines)) if lines[i].strip() == ']')
+src = open(path).read()
+lines = src.split(chr(10))
+have = set(re.findall(r'\(\"([^\"]+)\",\s*([A-Za-z_0-9:]+)::transform\)', src))
 for e in entries.strip().split(chr(10)):
+    if not e.strip():
+        continue
+    m = re.match(r'\s*\(\"([^\"]+)\",\s*([A-Za-z_0-9:]+)::transform\)', e)
+    if m and (m.group(1), m.group(2)) in have:
+        sys.stderr.write('register: %s already registered — not inserting a duplicate\n' % m.group(1))
+        continue
+    idx = max(i for i, l in enumerate(lines) if '::transform),' in l)
+    close = next(i for i in range(idx, len(lines)) if lines[i].strip() == ']')
     lines.insert(close, e)
-    close += 1
 open(path, 'w').write(chr(10).join(lines))
 PYEOF
         fi
