@@ -382,6 +382,10 @@ MODELS=(
   # span oracle (mono + soundness); 9 unit-test pins. Mutant (no
   # clean-span gate) red 33v/4e.
   "arr_load_fwd.rs:37:40"
+  # Temp-isolation (Tier-1): single-use pure temp -> inlined use
+  # (isolate_accumulate.rs 1038 lines). Substitution agreement; 8
+  # unit-test pins. Mutant (multi-use inlines) red 17v/1e.
+  "isolate_accumulate.rs:18:40"
 )
 
 # extractor:baseline — the generator script and the file it must reproduce.
@@ -444,6 +448,7 @@ SYNCS=(
   "harness/verus-sync-coverage.sh:strip:sh2perl/proofs/verus/strip_sync.txt"
   "harness/verus-sync-coverage.sh:counted_arith_forinit:sh2perl/proofs/verus/counted_arith_forinit_sync.txt"
   "harness/verus-sync-coverage.sh:arr_load_fwd:sh2perl/proofs/verus/arr_load_fwd_sync.txt"
+  "harness/verus-sync-coverage.sh:isolate_accumulate:sh2perl/proofs/verus/isolate_accumulate_sync.txt"
   # c_decl_coverage: the FIRST TRANSCRIPTION model in this list — its
   # checker does not just pin guards, it EXTRACTS the modelled walker
   # arm chains (patterns + guards + callee sets) from c_backend.rs and

@@ -36,7 +36,7 @@ OUT="${OUT_TMP:-/dev/stdout}"
 
 fail() { echo "verus-sync-coverage($MODEL): FATAL: $*" >&2; exit 1; }
 
-[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants|direct_calls|cat_read|grep_o|c_decl_coverage|exec_call_fold|interp_lit_merge|strip|counted_arith_forinit|arr_load_fwd"
+[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants|direct_calls|cat_read|grep_o|c_decl_coverage|exec_call_fold|interp_lit_merge|strip|counted_arith_forinit|arr_load_fwd|isolate_accumulate"
 # A model may span several source files (the P6 sweep groups folds by
 # family). model_srcs lists them; SRC is the first (legacy single-file
 # uses keep working).
@@ -81,6 +81,7 @@ model_srcs() {
     strip) echo "strip" ;;
     counted_arith_forinit) echo "counted_arith_forinit" ;;
     arr_load_fwd) echo "arr_load_fwd" ;;
+    isolate_accumulate) echo "isolate_accumulate" ;;
     c_decl_coverage) echo "c_backend" ;;
     *) fail "unknown model: $1" ;;
   esac
@@ -446,6 +447,15 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     arr_load_fwd:pin_orphan_preserves) echo UNMIRRORED ;;
     arr_load_fwd:pin_key_write_refuses) echo arr_load_fwd:refuses_when_the_key_variable_is_written_in_between ;;
     arr_load_fwd:pin_trace_agrees) echo UNMIRRORED ;;
+    isolate_accumulate:pin_hash_isolates) echo isolate_accumulate:hash_isolates ;;
+    isolate_accumulate:pin_multi_use_blocks) echo isolate_accumulate:multi_use_temp_blocks ;;
+    isolate_accumulate:pin_carried_blocks) echo isolate_accumulate:carried_temp_blocks ;;
+    isolate_accumulate:pin_counter_write_blocks) echo isolate_accumulate:counter_write_blocks ;;
+    isolate_accumulate:pin_nonacc_tail_blocks) echo isolate_accumulate:nonacc_tail_blocks ;;
+    isolate_accumulate:pin_status_blocks) echo isolate_accumulate:status_temp_blocks ;;
+    isolate_accumulate:pin_chain_collapses) echo isolate_accumulate:temp_chain_collapses ;;
+    isolate_accumulate:pin_control_flow_blocks) echo isolate_accumulate:control_flow_blocks ;;
+    isolate_accumulate:pin_subst_agrees) echo UNMIRRORED ;;
     *) echo "" ;;
   esac
 }
@@ -1182,6 +1192,30 @@ case "$MODEL" in
     sgrep -q "fn drop_orphans" \
       || fail "drop_orphans not found in source"
     echo "guard orphan sweep: PRESENT"
+    ;;
+  isolate_accumulate)
+    # The body isolation entry + the temp-inlining step.
+    sgrep -q "fn isolate_body" \
+      || fail "isolate_body not found in source"
+    echo "guard body isolation: PRESENT"
+    sgrep -q "fn try_inline_temp" \
+      || fail "try_inline_temp not found in source"
+    echo "guard temp inline: PRESENT"
+    # The purity gate (movable RHS) + the substitution.
+    sgrep -q "fn movable_rhs" \
+      || fail "movable_rhs gate not found in source"
+    echo "guard purity gate: PRESENT"
+    sgrep -q "fn subst_var" \
+      || fail "subst_var not found in source"
+    echo "guard substitution: PRESENT"
+    # The single-use gate (exactly one later read).
+    sgrep -q "uses != 1" \
+      || fail "single-use gate not found in source"
+    echo "guard single-use gate: PRESENT"
+    # The self-referential-tail commit rule.
+    sgrep -q "expr_reads_var(expr, &t.var)" \
+      || fail "tail commit rule not found in source"
+    echo "guard tail commit rule: PRESENT"
     ;;
   arith_forms)
     # The let-arg gate: text extraction + parse_arith verdict.
