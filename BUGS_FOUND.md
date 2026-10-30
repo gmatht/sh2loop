@@ -245,3 +245,54 @@ analyses need loop traces, which the C generator rows already show Verus is
 for, but their obligations are Tier 3; (3) `sync-ok-loops` computes 20
 MIMEcroft verdicts that change no emitted byte, so a proof of its walker
 would guard an inert gate until the renderer hooks land.
+
+## A branch's `src/ir.rs` commit carries whole FILES, and they are not the ones it needs
+
+Measured 2026-10-30 on `fix/perl-status-idiom` (commit 2ad1c5979).
+
+The commit's real intent was ~30 lines of `src/ir.rs`. Its diff is
+**+3,138 / -401**, and the extra is not noise: it added call sites for
+**five `shir` symbols that `main` does not define at all** —
+
+| symbol | on `main` | in `49e1b8e81` |
+|---|---|---|
+| `is_pure_bool` | absent | present |
+| `clear_unread_status_writes` | absent | present |
+| `install_unread_status_writes_exit_live_stmts` | absent | present |
+| `status_write_is_unread_key` | absent | present |
+| `transforms::type_query` | absent (module + `src/transforms/type_query.rs`) | present |
+
+plus a third: `transforms::type_query`. `49e1b8e81` ("core: the working-tree
+state the shipped otranspilerl.wasm is built from") is **not an ancestor of
+`main`** — it is reachable only from `backend-c-int-reader-upgrade`. So the
+branch was authored against a core that was never published, and it builds
+only there.
+
+Three consequences worth keeping:
+
+1. **The cherry-pick reports success and then does not build.** All four of
+   the branch's commits replay onto `main` with zero conflicts, `git status`
+   is clean, and the next `cargo build` fails on five missing symbols. A
+   conflict-free cherry-pick is not evidence the branch is portable when the
+   branch's own base was not `main`.
+2. **`git log -S` reports "no branch contains this" for a symbol that is on
+   disk in the shared worktree.** `is_pure_bool` greps as present at
+   `src/shir.rs:3953` while `git show main:src/shir.rs | grep -c is_pure_bool`
+   is 0: the shared worktree is checked out on ANOTHER worker's branch
+   (`backend-c-int-reader-upgrade`) with uncommitted edits, so a plain
+   `grep src/` measures that branch, not `main`. Ask `git show main:<path>`,
+   never the worktree, when the question is "can this land on main".
+3. **Two distinct prerequisites hide behind one symptom.** Dropping just the
+   two calls that `transforms`/`shir` name directly leaves three more
+   (`install_unread_status_writes_exit_live_stmts`, `status_write_is_unread_key`,
+   and `is_pure_bool` ×3 in `ir.rs`) still unresolved — enumerate every
+   `crate::shir::` symbol the diff ADDS, then check each against `main`,
+   rather than fixing the ones the compiler reports first.
+
+Resolution needs a decision, not more porting: either port the five symbols
+into `main`'s `shir.rs` (a core change, so it belongs to the core owner —
+the shared file is single-owner during the lowering phase), or rebase the
+four commits onto `49e1b8e81`, which drags in the pre-split
+`src/fish_backend.rs`, `src/zsh_backend.rs` and the
+`pipeline_native/capabilities/{awk,cut,mktemp}.rs` that `main` has since
+removed (54 files differ between the snapshot and `main`).
