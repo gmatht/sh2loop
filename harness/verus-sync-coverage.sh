@@ -36,7 +36,7 @@ OUT="${OUT_TMP:-/dev/stdout}"
 
 fail() { echo "verus-sync-coverage($MODEL): FATAL: $*" >&2; exit 1; }
 
-[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants|direct_calls|cat_read|grep_o|c_decl_coverage|exec_call_fold|interp_lit_merge|strip|counted_arith_forinit|arr_load_fwd|isolate_accumulate|lane_private|analysis"
+[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants|direct_calls|cat_read|grep_o|c_decl_coverage|exec_call_fold|interp_lit_merge|strip|counted_arith_forinit|arr_load_fwd|isolate_accumulate|lane_private|analysis|loop_opt"
 # A model may span several source files (the P6 sweep groups folds by
 # family). model_srcs lists them; SRC is the first (legacy single-file
 # uses keep working).
@@ -84,6 +84,7 @@ model_srcs() {
     isolate_accumulate) echo "isolate_accumulate" ;;
     lane_private) echo "lane_private" ;;
     analysis) echo "analysis" ;;
+    loop_opt) echo "loop_opt" ;;
     c_decl_coverage) echo "c_backend" ;;
     *) fail "unknown model: $1" ;;
   esac
@@ -93,7 +94,7 @@ SRCS="$(model_srcs "$MODEL")"
 # analyses live in shir_passes/).
 model_dir() {
   case "$1" in
-    scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|strip|lane_private|analysis) echo "shir_passes" ;;
+    scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|strip|lane_private|analysis|loop_opt) echo "shir_passes" ;;
     # c_backend.rs lives at the crate root (src/c_backend.rs), so the
     # dir part is empty — paths below collapse to src/<file>.rs.
     c_decl_coverage) echo "" ;;
@@ -472,6 +473,15 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     # RuntimeFootprint is absent from the empty-program run list).
     # All 8 pins UNMIRRORED by design; the living tie is the guards.
     analysis:pin_*) echo UNMIRRORED ;;
+    loop_opt:pin_pure_call_derived_hoists) echo loop_opt:pure_call_and_derived_hoist_out_of_inner_loop ;;
+    loop_opt:pin_counter_derived_blocked) echo loop_opt:counter_dependent_derived_blocks_only_itself ;;
+    loop_opt:pin_arith_hoists) echo loop_opt:invariant_arith_hoists_counter_arith_stays ;;
+    loop_opt:pin_clobber_blocked) echo loop_opt:clobbered_target_blocks_hoist ;;
+    loop_opt:pin_escape_blocked) echo loop_opt:break_in_body_blocks_hoist ;;
+    loop_opt:pin_impure_blocked) echo loop_opt:echo_is_not_hoisted ;;
+    loop_opt:pin_fixpoint_noop) echo loop_opt:fixpoint_is_idempotent ;;
+    loop_opt:pin_hoist_preserves_run) echo loop_opt:invariant_arith_hoists_counter_arith_stays ;;
+    loop_opt:pin_zero_trip_diverges) echo UNMIRRORED ;;
     *) echo "" ;;
   esac
 }
@@ -1285,6 +1295,32 @@ case "$MODEL" in
     sgrep -q "fn contains_status_read" \
       || fail "contains_status_read veto not found in source"
     echo "guard no-status veto: PRESENT"
+    ;;
+  loop_opt)
+    # The leading-run hoist entry + group-length worker.
+    sgrep -q "pub fn hoist_loop_invariants" \
+      || fail "hoist_loop_invariants entry not found in source"
+    echo "guard hoist entry: PRESENT"
+    sgrep -q "fn hoist_group_len" \
+      || fail "hoist_group_len worker not found in source"
+    echo "guard group worker: PRESENT"
+    # The six guards: purity gate, control-escape veto, writer-count
+    # clobber gate, status observation veto, strict-subset bound.
+    sgrep -q "fn stmt_hoistable" \
+      || fail "stmt_hoistable purity gate not found in source"
+    echo "guard purity gate: PRESENT"
+    sgrep -q "fn has_control_escape" \
+      || fail "has_control_escape veto not found in source"
+    echo "guard escape veto: PRESENT"
+    sgrep -q "writer_count" \
+      || fail "writer_count clobber gate not found in source"
+    echo "guard clobber gate: PRESENT"
+    sgrep -q "fn observes_status" \
+      || fail "observes_status veto not found in source"
+    echo "guard status veto: PRESENT"
+    sgrep -q "group_ends >= body.len()" \
+      || fail "strict-subset bound not found in source"
+    echo "guard strict-subset bound: PRESENT"
     ;;
   analysis)
     # The footprint verdict entry + the three recursive walkers.

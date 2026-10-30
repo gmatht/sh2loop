@@ -396,6 +396,13 @@ MODELS=(
   # UNMIRRORED by design (no footprint unit test exists). Mutant
   # (redirect as pure) red 19v/2e.
   "analysis.rs:21:40"
+  # Loop-hoist (Tier-1): leading maximal pure-invariant run ->
+  # prologue (loop_opt.rs 1294 lines). Whole-loop induction,
+  # pointwise agreement (n >= 1); twin of the proved
+  # transforms/hoist_loop_invariants. 8 pins mirror the 7 unit
+  # tests (8/8 PASS live). Mutant (invariant_reads dropped) red
+  # 20v/1e. DEAD CODE: no pipeline caller (0/563 in-pipeline).
+  "loop_opt.rs:21:40"
 )
 
 # extractor:baseline — the generator script and the file it must reproduce.
@@ -461,6 +468,7 @@ SYNCS=(
   "harness/verus-sync-coverage.sh:isolate_accumulate:sh2perl/proofs/verus/isolate_accumulate_sync.txt"
   "harness/verus-sync-coverage.sh:lane_private:sh2perl/proofs/verus/lane_private_sync.txt"
   "harness/verus-sync-coverage.sh:analysis:sh2perl/proofs/verus/analysis_sync.txt"
+  "harness/verus-sync-coverage.sh:loop_opt:sh2perl/proofs/verus/loop_opt_sync.txt"
   # c_decl_coverage: the FIRST TRANSCRIPTION model in this list — its
   # checker does not just pin guards, it EXTRACTS the modelled walker
   # arm chains (patterns + guards + callee sets) from c_backend.rs and
