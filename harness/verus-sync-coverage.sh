@@ -36,7 +36,7 @@ OUT="${OUT_TMP:-/dev/stdout}"
 
 fail() { echo "verus-sync-coverage($MODEL): FATAL: $*" >&2; exit 1; }
 
-[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants|direct_calls|cat_read|grep_o|c_decl_coverage|exec_call_fold|interp_lit_merge|strip|counted_arith_forinit|arr_load_fwd|isolate_accumulate"
+[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants|direct_calls|cat_read|grep_o|c_decl_coverage|exec_call_fold|interp_lit_merge|strip|counted_arith_forinit|arr_load_fwd|isolate_accumulate|lane_private"
 # A model may span several source files (the P6 sweep groups folds by
 # family). model_srcs lists them; SRC is the first (legacy single-file
 # uses keep working).
@@ -82,6 +82,7 @@ model_srcs() {
     counted_arith_forinit) echo "counted_arith_forinit" ;;
     arr_load_fwd) echo "arr_load_fwd" ;;
     isolate_accumulate) echo "isolate_accumulate" ;;
+    lane_private) echo "lane_private" ;;
     c_decl_coverage) echo "c_backend" ;;
     *) fail "unknown model: $1" ;;
   esac
@@ -91,7 +92,7 @@ SRCS="$(model_srcs "$MODEL")"
 # analyses live in shir_passes/).
 model_dir() {
   case "$1" in
-    scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|strip) echo "shir_passes" ;;
+    scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|strip|lane_private) echo "shir_passes" ;;
     # c_backend.rs lives at the crate root (src/c_backend.rs), so the
     # dir part is empty — paths below collapse to src/<file>.rs.
     c_decl_coverage) echo "" ;;
@@ -456,6 +457,15 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     isolate_accumulate:pin_chain_collapses) echo isolate_accumulate:temp_chain_collapses ;;
     isolate_accumulate:pin_control_flow_blocks) echo isolate_accumulate:control_flow_blocks ;;
     isolate_accumulate:pin_subst_agrees) echo UNMIRRORED ;;
+    lane_private:pin_collatz_classifies) echo lane_private:collatz_classifies ;;
+    lane_private:pin_cast_collatz_classifies) echo lane_private:cast_wrapped_collatz_classifies ;;
+    lane_private:pin_uninit_write_vetoes) echo lane_private:chain_writes_uninit_vetoes ;;
+    lane_private:pin_acc_in_chain_vetoes) echo lane_private:acc_written_in_chain_vetoes ;;
+    lane_private:pin_tail_position_vetoes) echo lane_private:tail_not_last_vetoes ;;
+    lane_private:pin_forward_ref_vetoes) echo lane_private:forward_ref_init_vetoes ;;
+    lane_private:pin_call_in_chain_vetoes) echo lane_private:call_in_chain_vetoes ;;
+    lane_private:pin_output_in_chain_vetoes) echo lane_private:output_in_chain_vetoes ;;
+    lane_private:pin_counter_write_vetoes) echo lane_private:counter_write_in_chain_vetoes ;;
     *) echo "" ;;
   esac
 }
@@ -1216,6 +1226,30 @@ case "$MODEL" in
     sgrep -q "expr_reads_var(expr, &t.var)" \
       || fail "tail commit rule not found in source"
     echo "guard tail commit rule: PRESENT"
+    ;;
+  lane_private)
+    # The lane-nest classifier entry + verdict struct.
+    sgrep -q "fn classify_seq_chain" \
+      || fail "classify_seq_chain not found in source"
+    echo "guard classifier entry: PRESENT"
+    sgrep -q "struct SeqChain" \
+      || fail "SeqChain verdict not found in source"
+    echo "guard verdict struct: PRESENT"
+    # The dominating-defs gate (chain writes ⊆ inits).
+    sgrep -q "writes.iter().all(|v| init_names.contains(v))" \
+      || fail "dominating-defs gate not found in source"
+    echo "guard dominating-defs gate: PRESENT"
+    # The additive-tail gate.
+    sgrep -q 'op != "+"' \
+      || fail "additive-tail gate not found in source"
+    echo "guard additive-tail gate: PRESENT"
+    # The chain purity gate + plain-scalar check.
+    sgrep -q "fn pure_chain_arith" \
+      || fail "pure_chain_arith gate not found in source"
+    echo "guard purity gate: PRESENT"
+    sgrep -q "fn is_plain_scalar" \
+      || fail "is_plain_scalar check not found in source"
+    echo "guard plain-scalar check: PRESENT"
     ;;
   arith_forms)
     # The let-arg gate: text extraction + parse_arith verdict.
