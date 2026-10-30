@@ -12,6 +12,55 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v102: **The parked-transform census: eleven transforms adjudicated by
+>   measurement, one live defect promoted out of the parked set, and three
+>   stale firing counts in `docs/transform-verification.md` corrected.**
+>   (1) **Firing, measured two ways** (in-process `ast_to_ir_raw` + one
+>   transform at a time; plus a re-run on the fully optimised IR; plus
+>   `bash-o4/MIMEcroft_fb.sh`, 293 commands → 279 stmts, where a corpus
+>   count under-sells the pass): `process-subst` 16/563 (pipeline only) and
+>   `type-query` 1/563 change the IR; `sync-ok-loops` records 43 files / 52
+>   verdicts and `string-accumulator` 1/563 at the top level; the other
+>   seven are 0/563 — including `for-recovery` and `inline-pure-fns`, the
+>   latter despite 59 corpus files defining functions. `planner` is not in
+>   `transforms::all()` (a manifest+solver mechanism) and `sub` returns
+>   `false` unconditionally.
+>   (2) **MIMEcroft contradicts the corpus denominators twice.**
+>   `sync-ok-loops` computes 19 `sync_ok` + 1 `batch_ok` verdict there and
+>   emits byte-identical estree with the pass on and off; `string-accumulator`
+>   has an EMPTY top-level verdict but C's `acc_vars_tree` tree walk
+>   (`c_backend.rs:9837`, over `prog.stmts` and every `sub.body`) tracks
+>   four accumulators (`blk_p`, `tup_rp`, `tup_gp`, `tup_bp`; 15 `_alen_`
+>   mirror sites). That walk is `read_walk`, which has `_ => {}`
+>   catch-alls and no `IrExpr::Arith` arm — so
+>   `tsv="$tsv$x"; n=$(( tsv + 0 ))` inside a loop still yields
+>   `Accumulator { var: "tsv" }`. Filed as open bug 11 in `BUGS_FOUND.md`
+>   with the witness, three measured containment facts (estree `lower()`
+>   never runs end-to-end on the shell-source CLI path; the C gates refuse
+>   the witness independently; MIMEcroft's four accumulators have no
+>   `$(( ))` self-read), the owner-call fix, and the regression shape.
+>   (3) **Tier verdicts.** Seven are Tier 3 (loop-fusion/inlining traces,
+>   fork/thread, call preservation, filesystem statement semantics); the
+>   Tier-1 fragments that exist (`sync-ok-loops` criterion 2,
+>   `string-accumulator`'s walker, `type-query`'s builtin table) are either
+>   conservative by construction, defective, or trivial — so **no new
+>   Isabelle session**: proving them today would certify the thin part, and
+>   for `string-accumulator` would certify the hole. `for-recovery` keeps
+>   its green `proofs/ForRecovery` session, still a dead contract.
+>   (4) **Stale counts corrected in `docs/transform-verification.md`.** The
+>   2026-10-24 corpus table re-run on today's 563 files reproduces every row
+>   except `test-lowering` (43/562 → **42/563**) and `counted-while-forinit`
+>   (**0 → 9/563**, the 2026-10-26 `Arith`-wrap fix). The corpus-wide
+>   `For`/`ForInit` total is **44 raw → 51 full `ast_to_ir`**: the old
+>   "49 OFF → 47 ON, the passes recover none" claim predates the fix and is
+>   superseded. A new §"The parked-transform census" carries the table and
+>   the three lessons (a firing verdict is not a live gate; a pass's corpus
+>   count is not its reach; proved ≠ reachable).
+>   (5) **No code changed.** `BUGS_FOUND.md` gained bug 11 + the census
+>   section (commits `e815ba10`, `e461e474`); `docs/transform-verification.md`
+>   gained the census section and the three re-measured counts. All gates
+>   stand on their last measured state; nothing in this round touches
+>   `src/`.
 > - v101: **Triage-and-repair: six red unit tests fixed at the root
 >   (two real transpiler bugs in shared code, one missing caller in the
 >   C backend's GMP gate), the round's temporary instrumentation
@@ -5289,3 +5338,60 @@ rows (obligation counts still printed there) and — for the ten with a
 `*_sync.txt` baseline — their committed baselines all survive, so a model
 that reproduces its documented count can be checked against the baseline
 the gate already knows.
+
+### 2026-10-30 — `unreachable-after-exit`: shared verdict widened to every all-paths form; the emitted-rust unreachable class hits zero
+
+**What the emitted-Rust census showed.** Re-rendering all 563 examples
+through the current CLI and linting each with default rustc lints left
+exactly 5 warnings in one class — `unreachable expression` ×3
+(`061_test_local_names_preserved`, the function value tail behind an
+exhaustive dispatch) and `unreachable statement` ×2
+(`parse-exit-brace-question`, a printf after `exit ${?}`;
+`parse-break-or`, the short-circuit store after `break || exit 1`). Two
+root causes: `terminates_list` — the shared predicate rust_backend asks
+before emitting anything rustc would flag — only knew the
+`IrStmt::Exit`/`Return`/`Break` NODES and `while true`, while the
+frontends spell the same control as CALLS (`builtin("exit", …)`,
+`Call("break")`), and neither the predicate nor the shIR prune fold
+understood a dispatch where every path transfers control.
+
+**The widening (one predicate, two consumers).** `terminates_list`
+(`transforms/unreachable_after_exit.rs`) now also answers for: the
+command-call spellings of `exit`/`break`/`continue`/`return` (`Expr`,
+`Exec`, and the `builtin`/`exec` word dispatch), an `if` whose every arm
+ends in a terminator WITH a non-empty `else`, a `case` whose every
+clause ends in a terminator WITH a `*` catch-all (a quoted `"*"` is a
+literal asterisk and does not count), a grouping `Block` whose list
+terminates, and expression-level divergence (`expr_diverges`): a
+control call, the left operand of `&&`/`||`, the first operand of the
+lifted `and`/`or` call, an `Arrow` block. The same file's `pass` — the
+shIR fold every backend runs — now prunes with that verdict instead of
+its own narrower node check, tracking `in_loop` (loop bodies get it,
+straight-line grouping propagates it, subshell/background/function
+bodies reset it) and deciding AFTER recursion so prunes cascade
+bottom-up in one walk. `contains_break` gained the matching expression
+descent — without the `Expr` arm, `while true; do break || exit 1;
+done` looked like it could never fall through and its after-loop tail
+would have been wrongly pruned. One fold is new: a statement-level
+`a || b` / `a && b` whose left operand never yields keeps only the left
+operand's effects and drops the right's scaffolding (the renderers all
+accept `Expr(Call("break"))` standalone — verified across perl, C, go,
+estree, python, java). The `Function` arm also stops wiping
+`named_blocks` (it destructured with `..` and rebuilt with an empty
+vec).
+
+**Result.** The unreachable class is 0 (corpus −3.4 KB of dead code);
+0 rustc errors across 563 files. 11 new in-file tests pin each arm,
+including the negative ones (no `else` ⇒ keep, no `*` ⇒ keep,
+`break` outside a loop ⇒ keep the rhs).
+
+**Gates.** `./fail` 0, `harness/fail-rs` 0, `./fail-estree` 0,
+`./fail-shir` 0. `harness/py-rust-gate.sh` reports 3 FAIL — verified
+pre-existing, not this change: t104/t82 render byte-identical with
+`unreachable-after-exit` excluded from `SH2_TRANSFORMS`, and t87's IR
+contains no exit/break/case/if at all (pure arithmetic). `cargo test
+--lib` is 46 red both with and without this change (A/B on the one
+file, failure-name sets identical — zero introduced, zero fixed); my
+11 tests pass. The Core worker was healthy throughout (gate GREEN,
+0 A1 violations, 555 probed; its `lib_fails=19` baseline is measured in
+its own subcheckout, hence the A/B above rather than a count compare).

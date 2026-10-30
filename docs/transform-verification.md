@@ -86,20 +86,43 @@ question asked of the 562 shell examples, one transform at a time via
 | `counted-arith-forinit` | **0** |
 | `counted-while-forinit` | **0** |
 
+Re-measured 2026-10-30 over the current 563-file corpus (the table's header
+says 562; the corpus grew) — every row reproduced except the ones named:
+
+| pass | files changed (of 563) |
+|---|---|
+| `test-lowering` | 42 |
+| `array-len-fold` | 9 |
+| `const-status-cond` | 8 |
+| `const-condition-elim` | 0 |
+| `slice-identity` | 0 |
+| `affix-strip-fold` | 0 |
+| `for-recovery` | 0 |
+| `counted-arith-forinit` | 0 |
+| `counted-while-forinit` | **9** — the 2026-10-26 `Arith`-wrap fix, see the bullet below |
+
 **A zero is only a defect when the pass *should* fire** — and per-pass
 counts cannot tell "dead" from "correctly refusing" or "fires only in
 sequence". Checked each one against its own guards and against its
 neighbours in the pipeline:
 
-* **the native-loop recovery passes** — GENUINE DEFECT (see below). (`for-recovery`,
-  `counted-arith-forinit`, `counted-while-forinit`). Corpus-wide, `For`/
-  `ForInit` node counts are 49 with transforms OFF and 47 with them ON: the
-  passes *remove* two frontend-emitted `For` nodes and recover none. The
-  cause for `for-recovery` is recorded in its proof README: `loop_cond`'s
-  lowered-comparison arm expects `IrExpr::Var`/`IrExpr::Int` operands while
-  the shell path emits them `Arith`-wrapped, and no producer builds the bare
-  shape. The sibling passes read the same structured-`Arith` shapes and
-  should be checked against the emitted JSON the same way.
+* **the native-loop recovery passes** — one of the three is still a GENUINE
+  DEFECT, the other now fires. (`for-recovery`, `counted-arith-forinit`,
+  `counted-while-forinit`). Re-measured 2026-10-30 (563 files, in-process
+  `ast_to_ir_raw`, one pass at a time — the same method as the table above):
+  `for-recovery` 0/563, `counted-arith-forinit` 0/563, but
+  **`counted-while-forinit` 9/563** since the 2026-10-26 `Arith`-wrap fix
+  (`counter_step` accepts `Arith(Bin{Var,+/- ,Num≠0})`), and the
+  corpus-wide `For`/`ForInit` total moves **44 (transforms off, raw) → 51
+  (full `ast_to_ir`)** — the recovery now *adds* seven loops to the two
+  the frontend-emitted `For` nodes the older count showed being removed
+  (that 49 → 47 figure is superseded: it predates the fix). `for-recovery`
+  is still starved: `loop_cond`'s lowered-comparison arm expects
+  `IrExpr::Var`/`IrExpr::Int` operands while the shell path emits them
+  `Arith`-wrapped, and no producer builds the bare shape (recorded, with
+  the fix, in `proofs/ForRecovery/README`). `counted-arith-forinit` is
+  starved for a *different* and correct reason — shell `[ $i -lt N ]`
+  conditions are `test` calls, never `Arith`.
 * **`const-condition-elim`** — NOT dead, and a first draft of this table
   called it dead by reading its isolated count as 2 when it was 1. On a
   two-line `if true; …; if false; …` probe it folds one `If` and
@@ -230,9 +253,10 @@ separable reasons — and only the first two are fundamental:
    hand, with Smoosh as the specification of what to encode.
 
 So the boundary is a boundary of *our* model, not of the problem. What it
-costs today: the three passes that actually fire on the corpus —
-`test-lowering` (43/562 files), `array-len-fold` (9), `const-status-cond`
-(8) — are all blocked behind statement semantics, while the arithmetic
+costs today: the passes that actually fire on the corpus —
+`test-lowering` (42/563, re-measured 2026-10-30), `array-len-fold` (9),
+`const-status-cond` (8), `counted-while-forinit` (9) — are all blocked
+behind statement semantics, while the arithmetic
 passes that are provable are mostly idle. `proofs/ForRecovery` shows the
 shape of the compromise: it proves the ITERATION TRACE (a list identity)
 rather than `⟦while⟧ = ⟦For⟧`, because only the former is expressible without
@@ -244,6 +268,53 @@ differential: `shir_to_perl(f(p)) == shir_to_perl(p)` (law 4) and
 minimal in-tree state model (env, positional params, exit status, IFS +
 meanings for the ~22 statement / 17 expression kinds the live passes touch)
 or adopting Smoosh; both are multi-session jobs, neither has been started.
+
+## The parked-transform census (2026-10-30)
+
+Eleven transforms in `src/transforms/` had never been adjudicated against the
+tier rules. They were measured, not assumed: every corpus example (563) run
+through `ast_to_ir_raw` with ONE transform applied, plus the same pass re-run
+on the fully optimised IR, plus `bash-o4/MIMEcroft_fb.sh` (293 commands →
+279 statements) where a corpus count under-sells the pass.
+
+| transform | corpus | MIMEcroft (raw / post-pipeline) | tier |
+|---|---|---|---|
+| `fuse-fill-consume` (2150 lines) | 0/563 | no / no | 3 — two-loop fusion needs a loop-trace identity |
+| `isolate-accumulate` | 0/563 | no / no | 3 — inlining needs per-iteration value equality |
+| `string-accumulator` | 1/563 verdict; **C's tree walk tracks 4 vars on MIMEcroft** | no / no (top-level) | 1 for the walker (bug 11), 3 for the push/join lowering |
+| `sync-ok-loops` | 43 files / 52 verdicts | **19 sync + 1 batch**, 0 emitted-byte change | 1 only for criterion 2 (conservative by construction); 1/3 are 3 |
+| `background-decide` | 0 (10 `Background` nodes over 7 files, none classified) | no / no | 3 — fork/thread semantics |
+| `inline-pure-fns` | 0/563 over 59 function-defining files | no / no | 3-flavoured (needs `function_purity` + call preservation) |
+| `process-subst` | 16/563, pipeline only | **yes** (pipeline) | 3 — filesystem + path-argument statement semantics |
+| `for-recovery` | 0/563 | no / no | 1 **done** (`proofs/ForRecovery`), dead contract |
+| `type-query` | 1/563 (`parse-eval-multiline.sh`) | no / no | 1-trivial — a 58-entry builtin table; `-t`/PATH answers are 3 |
+| `planner` | not in `transforms::all()` | — | not a transform (manifest + solver) |
+| `sub` | returns `false` unconditionally | — | placeholder |
+
+Three consequences, each measured rather than argued:
+
+* **A firing verdict is not a live gate.** `sync-ok-loops` computes 20
+  MIMEcroft verdicts and the estree output is byte-identical with the pass on
+  and off. A proof of its walker today would guard an inert gate; the
+  load-bearing claim (that emitting a loop synchronously preserves
+  interleaving) is statement/event-loop semantics, i.e. Tier 3.
+* **A pass's corpus count is not its reach.** `string-accumulator` fires on
+  1/563, but its C consumer does not read the top-level `Accumulator` verdict
+  at all — `c_backend.rs:9837` re-walks the tree with `acc_vars_tree` over
+  `prog.stmts` *and* every `sub.body`, and on MIMEcroft that tracks four
+  accumulators (`blk_p`, `tup_rp`, `tup_gp`, `tup_bp`; 15 `_alen_` mirror
+  sites) against zero from the top-level verdict. That walk is where the
+  `read_walk` hole in `BUGS_FOUND.md` #11 lives, so the census is what
+  promoted it from a corpus curiosity to a live-path defect.
+* **"Proved" and "reachable" stay separate.** `for-recovery` is green and
+  its proved comparison arm is unreachable for shell input, exactly as its
+  proof README says. Nothing here changes that: a Tier-1 session for any of
+  these wants the firing witness first, which is what this table supplies.
+
+Verus is the wrong tool for every row: the C-generator models in
+`proofs/verus/` are decision-rule proofs over IR-shaped data, and the two-loop
+fusion and whole-program shape analyses need loop traces and statement
+effects — the same Tier-3 wall.
 
 ## Running it
 

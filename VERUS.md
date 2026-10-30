@@ -581,11 +581,24 @@ the baseline everything below also has.
 | `inline_pure_fns` | inlining | T2 | needs purity + call preservation (Tier-3-flavored) |
 | `const_status_cond` | const fold | **V** (7-row table, 35) | landed in-tree, gated; all shape pins mirrored in-module |
 | `array_len_fold` | const fold | **V** (`fold`, 10) | landed in-tree, gated; all pins mirrored in-module |
-| `test_lowering` | lowering | **V** (Tier-1 leaves, 25) + T2 (rest) | **fires most (43/562)**; full obligation needs statement semantics — leaves proved, rest Tier-2 |
+| `test_lowering` | lowering | **V** (Tier-1 leaves, 25) + T2 (rest) | **fires most (42/563, re-measured 2026-10-30)**; full obligation needs statement semantics — leaves proved, rest Tier-2 |
 | `const_condition_elim` | const fold | **V** (`elim_trio`, cce) + T2 (rest) | per-node pruning proved P9; `eval_cond` string parsing out of scope; 0/563 isolated, **3/563 in-pipeline** (measured 2026-10-26 — upstream passes mint the consts) |
-| `counted_arith_forinit`, `counted_while_forinit` | loop recovery | T2 | same dead-path defect class as `for_recovery` — check firing first |
+| `counted_arith_forinit`, `counted_while_forinit` | loop recovery | T2 | `counted_arith` 0/563 (correct: shell conds are `test` calls); `counted_while` **9/563** since the 2026-10-26 `Arith`-wrap fix — no longer dead, still T2 (see the P12 row) |
 | `slice_identity`, `affix_strip_fold` | folds | T2 (`affix` in **V** `list_folds`; `slice` below) | zeros verified as correct refusals, not bugs — see P10 |
-| everything else in `src/transforms/` (40 files: `arith_forms`, `arith_normalize`, `background_decide`, `bc_float_clean`, `brace_fold`, `builtin*` (3), `capture_node_fold`, `const_capture_fold`, `default_empty_fold`, `echo_return`, `escape_classes`, `f32_narrow`, `fbdev_gpu*` (4), `fuse_fill_consume`, `grep_pcre`, `interp_fold`, `isolate_accumulate`, `loop_return_lift`, `planner`, `process_subst`, `shir_native_stmt`, `shir_pipeline_native`, `split_set`, `str_chop_cursor`, `stray_reserved_word`, `string_accumulator`, `sub`, `sync_ok_loops`, `test_simplification`, `text_capture_fold`, `text_ops_planner`, `type_query`, `typeset_attrs`, `append_to_store`) | mixed | T2 | laws + differential only; most never fire in isolation on the corpus |
+| everything else in `src/transforms/` (40 files: `arith_forms`, `arith_normalize`, `background_decide`, `bc_float_clean`, `brace_fold`, `builtin*` (3), `capture_node_fold`, `const_capture_fold`, `default_empty_fold`, `echo_return`, `escape_classes`, `f32_narrow`, `fbdev_gpu*` (4), `fuse_fill_consume`, `grep_pcre`, `interp_fold`, `isolate_accumulate`, `loop_return_lift`, `process_subst`, `shir_native_stmt`, `shir_pipeline_native`, `split_set`, `str_chop_cursor`, `stray_reserved_word`, `string_accumulator`, `sub`, `sync_ok_loops`, `test_simplification`, `text_capture_fold`, `text_ops_planner`, `type_query`, `typeset_attrs`, `append_to_store`) | mixed | T2 | laws + differential only; most never fire in isolation on the corpus |
+
+**The 2026-10-30 census** (`docs/transform-verification.md` §"The
+parked-transform census") adjudicates the eleven that had never been tiered
+— `fuse_fill_consume`, `isolate_accumulate`, `string_accumulator`,
+`sync_ok_loops`, `background_decide`, `inline_pure_fns`, `process_subst`,
+`for_recovery`, `planner`, `sub`, `type_query` — by measurement, not by
+intent: seven are Tier 3, `planner` is a mechanism and `sub` a placeholder
+(neither is a transform), `type_query`'s Tier-1 fragment is a 58-entry table
+(fires 1/563), `for_recovery` keeps its green-but-dead session, and
+`string_accumulator`'s C consumer walks code where a `_ => {}` in
+`read_walk` hides `Arith` reads — open bug 11 in `BUGS_FOUND.md`. No new
+Isabelle session: proving a walker that misfires would certify the hole,
+and the remaining obligations are Tier 3.
 | `hoist_loop_invariants` | loop-hoist (leading invariant run → prologue) | **V** (`hoist_loop_invariants`, 22) | n ≥ 1 proviso (0-trip hole found + pinned, BUGS_FOUND.md 7 open); 8 unit-test pins |
 | `unreachable_after_exit` | elimination | **V** (`elim_trio`, uae) | per-node truncation proved P9; 0/563 both modes — only the BAT frontend constructs `Exit`/`Return` (shell `exit` lowers to a builtin call); starved by producer absence, not wiring |
 | `exec_call_fold` | carrier canonicalization | **V** (`exec_call_fold`, 8) + T2 (rest) | per-site payload preservation; carrier flag as parameter, cleanup oracle + shir gate as placement; 4 unit-test pins |
