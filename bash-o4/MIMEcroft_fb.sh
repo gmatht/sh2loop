@@ -4647,6 +4647,24 @@ render_frame() {
   done
   gtick
   g_scene=$(( g_scene + g_now - r_sc0 ))
+  # painter's algorithm WITHOUT a depth buffer: the grid sweeps below
+  # are only exact at axis-aligned yaws (whole rows share one depth).
+  # Mid-turn, depth varies WITHIN a row/diagonal (facing 45 deg: chest
+  # (6,1) w=3535 draws in the z=1 row pass while wall (5,3) w=1414 draws
+  # two rows later), so a chest paints first and the nearer wall never
+  # covers it — chests appearing in front of blocks they stand behind.
+  # Fix: bucket the visible y=1/y=2 cells by camera depth (the cull's
+  # own td_w, cell units) and draw buckets far-to-near, so every pixel
+  # overlap resolves by depth at any yaw. Buckets quantize to 2 cells:
+  # adjacent-bucket ties keep the sweep's axis ordering (exact where the
+  # old code was exact), and a 2-cell error is sub-cube. The four dyaw
+  # sweeps stay as the within-bucket order. Range -11..11 covers the
+  # worst case (corner camera, 45 deg: |w| <= ~21 cells); empty buckets
+  # cost one 256-cell filter pass each.
+  rf_bucket=11
+  while [ "$rf_bucket" -ge -11 ]; do
+    rf_b0=$((rf_bucket * 2))
+    rf_b1=$((rf_b0 + 1))
   if [ "$dyaw" -eq 0 ]; then
     # facing -z: front = z < dpz, so FAR = smallest z — draw z
     # ascending so the far "outside" cubes hit the canvas first and
@@ -4655,9 +4673,14 @@ render_frame() {
     while [ "$rf_z" -lt "$MAP_D" ]; do
       rf_x=0
       while [ "$rf_x" -lt "$MAP_W" ]; do
+        rf_ddx=$((rf_x * 1000 - dpcx_ms))
+        rf_ddz=$((rf_z * 1000 - dpcz_ms))
+        rf_w=$(( (rf_ddx * rd_sn - rf_ddz * rd_cs) / 1000 / 1000 ))
+        if [ "$rf_w" -eq "$rf_b0" ] || [ "$rf_w" -eq "$rf_b1" ]; then
         try_draw $rf_x 0 $rf_z
         try_draw $rf_x 1 $rf_z
         try_draw $rf_x 2 $rf_z
+        fi
         rf_x=$((rf_x + 1))
       done
       rf_z=$((rf_z + 1))
@@ -4668,9 +4691,14 @@ render_frame() {
     while [ "$rf_x" -ge 0 ]; do
       rf_z=0
       while [ "$rf_z" -lt "$MAP_D" ]; do
+        rf_ddx=$((rf_x * 1000 - dpcx_ms))
+        rf_ddz=$((rf_z * 1000 - dpcz_ms))
+        rf_w=$(( (rf_ddx * rd_sn - rf_ddz * rd_cs) / 1000 / 1000 ))
+        if [ "$rf_w" -eq "$rf_b0" ] || [ "$rf_w" -eq "$rf_b1" ]; then
         try_draw $rf_x 0 $rf_z
         try_draw $rf_x 1 $rf_z
         try_draw $rf_x 2 $rf_z
+        fi
         rf_z=$((rf_z + 1))
       done
       rf_x=$((rf_x - 1))
@@ -4683,9 +4711,14 @@ render_frame() {
     while [ "$rf_z" -ge 0 ]; do
       rf_x=0
       while [ "$rf_x" -lt "$MAP_W" ]; do
+        rf_ddx=$((rf_x * 1000 - dpcx_ms))
+        rf_ddz=$((rf_z * 1000 - dpcz_ms))
+        rf_w=$(( (rf_ddx * rd_sn - rf_ddz * rd_cs) / 1000 / 1000 ))
+        if [ "$rf_w" -eq "$rf_b0" ] || [ "$rf_w" -eq "$rf_b1" ]; then
         try_draw $rf_x 0 $rf_z
         try_draw $rf_x 1 $rf_z
         try_draw $rf_x 2 $rf_z
+        fi
         rf_x=$((rf_x + 1))
       done
       rf_z=$((rf_z - 1))
@@ -4696,14 +4729,21 @@ render_frame() {
     while [ "$rf_x" -lt "$MAP_W" ]; do
       rf_z=0
       while [ "$rf_z" -lt "$MAP_D" ]; do
+        rf_ddx=$((rf_x * 1000 - dpcx_ms))
+        rf_ddz=$((rf_z * 1000 - dpcz_ms))
+        rf_w=$(( (rf_ddx * rd_sn - rf_ddz * rd_cs) / 1000 / 1000 ))
+        if [ "$rf_w" -eq "$rf_b0" ] || [ "$rf_w" -eq "$rf_b1" ]; then
         try_draw $rf_x 0 $rf_z
         try_draw $rf_x 1 $rf_z
         try_draw $rf_x 2 $rf_z
+        fi
         rf_z=$((rf_z + 1))
       done
       rf_x=$((rf_x + 1))
     done
   fi
+    rf_bucket=$((rf_bucket - 1))
+  done
   # painter's algorithm, no depth buffer: the background planes first
   # (they fill the void), then the cubes paint over them. The device
   # draws payload order as draw order, exactly as the WebGL path drew
