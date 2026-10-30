@@ -101,8 +101,23 @@ a1_gate() {
 # marketplace channels (PLAN §11): transforms/offered .rs, contracts/*.json
 # specs, and bundles/ (a node + its transforms)
 pending_transforms() {
+  # TWO offer shapes, because two consumers had drifted (2026-10-30):
+  #   * a single `.rs` FILE — the shape core-requests/README.md specifies
+  #     for `offered/` ("a complete .rs module whose doc header carries the
+  #     §11.4 manifest");
+  #   * a `.rs/` DIRECTORY carrying `transform.rs` + `register` — the shape
+  #     `core-sweep.sh` stages bundles from, and the shape EVERY offer in
+  #     `offered/` actually has (affix-strip-fold, array-len-fold,
+  #     brace-fold, slice-identity, test-lowering, scalar-localize).
+  # The old loop kept only `-f`, so directory offers were invisible: the
+  # worker printed "iterating (0 offers, …)" while six sat in the dir, and
+  # none was ever gated.
   for d in "$REQS"/transforms/offered/*.rs; do
-    [ -f "$d" ] && echo "$d"
+    if [ -f "$d" ]; then
+      echo "$d"
+    elif [ -d "$d" ] && [ -f "$d/transform.rs" ]; then
+      echo "$d"
+    fi
   done 2>/dev/null | sort || true
 }
 
@@ -223,6 +238,41 @@ while true; do
       fi
       git -C "$SUB" apply "$bundle/contract.patch" >> "$LOG" 2>&1
     fi
+    # A single-FILE offer carries its source path, not a bundle dir: stage a
+    # temp dir with `transform.rs` + `register` so the integration below runs
+    # unchanged for both shapes. The register entries are derived from the
+    # module's own manifest (`//! name:` / `pub fn transform`) when it has no
+    # `register` file — an offer that does not parse is rejected loudly rather
+    # than staged half-registered.
+    if [ -f "$bundle" ]; then
+      stage=$(mktemp -d)
+      cp "$bundle" "$stage/transform.rs"
+      if [ -f "$bundle/register" ]; then
+        cp "$bundle/register" "$stage/register"
+      else
+        # three manifest spellings in the tree: `//! name: x`, `//! x — …`
+        # and a sibling `manifest`'s `name: x` — accept all, take the first
+        offname=$(sed -n 's|^//! name:[[:space:]]*\([a-z0-9_-]*\).*|\1|p;s|^//! \([a-z0-9_-]*\)[[:space:]]*[—-].*|\1|p' "$bundle" | head -1)
+        if [ -z "$offname" ] && [ -f "${bundle%.rs}/manifest" ]; then
+          offname=$(sed -n 's|^name:[[:space:]]*\([a-z0-9_-]*\)\([[:space:]].*\)\{0,1\}$|\1|p' "${bundle%.rs}/manifest" | head -1)
+        fi
+        offmod=$(printf '%s' "$offname" | tr '-' '_')
+        if [ -z "$offname" ]; then
+          echo "[$(date +%FT%T)] core: $name has no register file and no '//! name:' header — REJECT" >> "$LOG"
+          mv "$bundle" "$REQS/transforms/rejected/"
+          printf '%s core-worker: REJECTED %s (no manifest name)\n' "$(date +%FT%T)" "$name" >> "$REPORTS/core-worker.report"
+          rm -rf "$stage"
+          continue
+        fi
+        {
+          echo '### mod'
+          echo "pub mod $offmod;"
+          echo '### all'
+          echo "        (\"$offname\", $offmod::transform),"
+        } > "$stage/register"
+      fi
+      bundle="$stage"
+    fi
     # INTEGRATE the transform: copy transform.rs into the crate and apply
     # the registration lines (the bundle's `register` file carries the exact
     # `pub mod <name>;` + `("<name>-lift", <name>::transform)` entries) —
@@ -305,6 +355,25 @@ PYEOF
   # BROKEN MEASUREMENT, not a violation count: with the old missing binary
   # every example emitted nothing and check_qx_shir printed one "invalid A1
   # JSON" FAIL line each, which `grep -c FAIL` turned into "555 violations".
+  # ── REBUILD the probe binary AFTER the candidate is in place ──────
+  # step 0's build runs BEFORE the fast-forward and the bundle staging
+  # above, so DEBASHC there always links the PRE-candidate worktree: a
+  # legitimate fix could never prove green. Observed 2026-10-25: main
+  # 864bfd3f5 carried the builtins.json namespace sync, the worktree ff'd
+  # onto it, but the probe still ran the stale pre-fix binary, read its 4
+  # exec-of-builtin survivors, and rolled the candidate back every
+  # iteration — an unbreakable deadlock. Rebuild here so the gate measures
+  # the exact code it is judging (core_verify caches, so this is cheap when
+  # nothing changed).
+  DEBASHC=$(core_binary || true)
+  if [ -z "$DEBASHC" ] || [ ! -x "$DEBASHC" ]; then
+    printf '%s core-worker: NO-COMPILER (candidate build failed after staging — no verdict this iteration)\n' \
+      "$(date +%FT%T)" >> "$REPORTS/core-worker.report"
+    echo "[$(date +%FT%T)] core: candidate build FAILED after staging — skipping gate" >> "$LOG"
+    sleep "$WATCH"
+    continue
+  fi
+
   read -r v probed failed < <(a1_gate)
   echo "[$(date +%FT%T)] core: A1-native invariant — $v violations, $probed probed, $failed probe-failures" >> "$LOG"
   printf '%s core-worker: A1 violations=%s probed=%s probe-failures=%s\n' \
@@ -495,7 +564,10 @@ EOF
         "$(date +%FT%T)" "$(git -C "$SUB" rev-parse --short "$kg_commit")" "$estree_fails" "$lib_fails" >> "$REPORTS/core-worker.report"
     fi
     # Now, and only now, the staged offer is accepted.
-    if [ -n "${staged_offer:-}" ] && [ -f "${staged_offer:-}" ]; then
+    # `-e`, not `-f`: an offer may be a directory (`<name>.rs/transform.rs`),
+    # and the `-f` test silently withheld the ACCEPTED verdict from every
+    # directory-shaped offer.
+    if [ -n "${staged_offer:-}" ] && [ -e "${staged_offer:-}" ]; then
       mv "$staged_offer" "$REQS/transforms/done/"
       printf '%s core-worker: ACCEPTED %s (build + lib tests + invariants + estree corpus green)\n' \
         "$(date +%FT%T)" "$staged_name" >> "$REPORTS/core-worker.report"
