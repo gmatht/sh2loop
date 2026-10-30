@@ -86,7 +86,7 @@ Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28; t
 plus the store-forward sweep (+47), the arith-lowering sweep (+28),
 the verdict-analyses sweep (+83) and the string/cursor sweep (+28:
 str_splice_fold 11, str_chop_cursor 17) and the loop-hoist model
-(+22: hoist_loop_invariants) and the suites-then-proofs trio (+56:
+(+22: hoist_loop_invariants) and the suites-then-proofs trio (+42:
 direct_calls 19, cat_read 18, grep_o 19 — per-rewrite value models with
 explicit premise lemmas, guard-oracle inputs, and checked mutants;
 RE-AUTHORED 2026-10-30 from the surviving sources after the originals
@@ -103,7 +103,9 @@ soundness fix, re-verified under the pinned binary 2026-10-30) and the
 arith-recovery model (+12: counted_arith_forinit 12 — trace identity
 with mapped pins and a checked mutant, re-verified under the pinned
 binary 2026-10-30), for 813
-transform-side obligations. Every active model
+transform-side obligations (the suites-then-proofs trio counts toward this
+total at its RE-AUTHORED size, +42: direct_calls 19, cat_read 18, grep_o 19,
+re-verified under the pinned binary 2026-10-30). Every active model
 with checked failing mutants (see §(b).3 — 31 mutants over
 29 models; the retired exec form carries its postcondition on the executable
 function itself instead). The fifteen `c_*` rows are models of the C

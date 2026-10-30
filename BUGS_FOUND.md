@@ -134,6 +134,47 @@ hoist, or restrict to do-while/known-live shapes). The model covers
 exactly the sound fragment (n >= 1, every production firing runs
 many trips); `pin_zero_trip_diverges` is the failing-first shape.
 
+### 11a. `direct_calls`: the header's "refuse on redefinition" rule is absent (and the C renderer cannot emit redefinitions at all)
+**Found by:** modelling `direct_calls` in Verus (`direct_calls.rs`, 19
+obligations) — the obligation needed a "no later definition of this
+name" premise, and reading `transform()` to justify it showed the rule
+the header claims is not implemented.
+**Defect (a), core:** the module doc says the lift fires only when "the
+function is never redefined after this capture site (a second
+`Function { name }` definition later = refuse)". The code builds
+`fns` from every `Function` statement in order and resolves with
+`fns.iter().find(|(n, _)| n == func)` — FIRST definition wins, with no
+count and no scope. Measured on `sq() { echo 3; }; sq() { echo 4; };
+v=$(sq); echo "v=$v"`: bash prints `v=4` (a later definition replaces
+an earlier one), and `--target perl` renders `$v = sq();` against
+`sub sq { … 3 … } sub sq { … 4 … }`, which perl resolves to the LAST
+`sub` — so perl agrees with bash by accident, not because the
+transform kept the exec. Fidelity for `Capture`-of-a-redefined-function
+is held by the perl renderer, not by the pass.
+**Defect (b), C renderer:** the C lowering of the same input is not
+merely mis-ordered — it does not compile. `emit_function`
+(`c_backend.rs:17742`) emits `static void sq(void) { … }` once per
+`Function` statement, and `_sh_call_fn(sq, …)` addresses the name, so a
+redefinition is `error: redefinition of 'sq'` (measured:
+`cc` on the three-definition probe `/tmp/fndef3.sh` fails with exactly
+that, while bash prints `3`). `collect_eval_fn_defs`'s
+"already-defined names win" (`c_backend.rs:40848`) covers only the
+eval-hoist path — the `Function` statement path has no such gate. The
+same shape makes the `Capture { expr: Call }` arm `direct_calls`
+produces (`_sh_call_fn(sq, …)`) name-resolved rather than
+definition-resolved, so `v=$(sq)` after a redefinition captures
+whichever definition the C name ends up bound to.
+**Fix:** UNFIXED (open). Two independent owners: the transform should
+implement the documented rule (count the `Function` statements for the
+name; > 1 ⇒ refuse — the model's `no_later_def` conjunct is exactly
+that predicate), and the C renderer needs a first-definition-wins gate
+on the statement path (or `_sh_call_fn` must dispatch to the
+definition in scope). Both are behaviour changes behind the backend
+gate, so neither is made from a modelling session. The model proves
+the rewrite sound exactly for the fragment the header describes (one
+definition, pure body); `mutant_drop_redefinition_guard` is the
+failing-first shape for the missing rule.
+
 ## Guard-load-bearing refutations (the code was already right; the proofs
 show exactly which guard carries the soundness)
 
