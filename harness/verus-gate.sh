@@ -366,6 +366,12 @@ MODELS=(
   # denotation identity via whole-seq cons lemmas; style gate as data;
   # 6 unit-test pins. Mutant (Command style folds) red 23v/1e.
   "interp_lit_merge.rs:24:40"
+  # ForInit-lowering (Tier-1): ForInit -> Block(init + While) with the
+  # step spliced before both continue spellings (strip.rs 307 lines).
+  # Splice-shape identity over fuel-bounded loop combinators; 5
+  # unit-test pins. Lands with a soundness fix (legacy continue now
+  # splices). Mutant (step before Break) red 11v/2e.
+  "strip.rs:13:40"
 )
 
 # extractor:baseline — the generator script and the file it must reproduce.
@@ -425,6 +431,7 @@ SYNCS=(
   # in VERUS.md §(b).4. Re-add the three entries when a unit suite lands.)
   "harness/verus-sync-coverage.sh:exec_call_fold:sh2perl/proofs/verus/exec_call_fold_sync.txt"
   "harness/verus-sync-coverage.sh:interp_lit_merge:sh2perl/proofs/verus/interp_lit_merge_sync.txt"
+  "harness/verus-sync-coverage.sh:strip:sh2perl/proofs/verus/strip_sync.txt"
   # c_decl_coverage: the FIRST TRANSCRIPTION model in this list — its
   # checker does not just pin guards, it EXTRACTS the modelled walker
   # arm chains (patterns + guards + callee sets) from c_backend.rs and

@@ -79,6 +79,7 @@ Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28; t
 | `proofs/verus/grep_o.rs` | `transforms/grep_o.rs` (grep -o shapes → grepMatches) | 19 verified, 0 errors | landed, gated — suites-then-proofs trio, re-authored 2026-10-30 |
 | `proofs/verus/exec_call_fold.rs` | `transforms/exec_call_fold.rs` (payload-free Exec in carrier → canonical exec call) | 8 verified, 0 errors | landed, gated — carrier-canonicalization |
 | `proofs/verus/interp_lit_merge.rs` | `transforms/interp_lit_merge.rs` (frozen-literal Expr part → Lit + adjacent-Lit merge) | 24 verified, 0 errors | landed, gated — part-canonicalization |
+| `proofs/verus/strip.rs` | `shir_passes/strip.rs` (ForInit → Block(init + While) + continue splice) | 13 verified, 0 errors | landed, gated — forinit-lowering |
 
 492 active obligations total (504 with the 12 retired i32 obligations), 0 errors,
 plus the store-forward sweep (+47), the arith-lowering sweep (+28),
@@ -94,25 +95,29 @@ payload preservation with mapped pins and a checked mutant,
 re-verified under the pinned binary 2026-10-30) and the
 part-canonicalization model (+24: interp_lit_merge 24 — concat
 denotation identity with mapped pins and a checked mutant,
-re-verified under the pinned binary 2026-10-30), for 788
+re-verified under the pinned binary 2026-10-30) and the
+forinit-lowering model (+13: strip 13 — splice-shape identity with
+mapped pins and a checked mutant, landing with a legacy-continue
+soundness fix, re-verified under the pinned binary 2026-10-30), for 801
 transform-side obligations. Every active model
-with checked failing mutants (see §(b).3 — 29 mutants over
-27 models; the retired exec form carries its postcondition on the executable
+with checked failing mutants (see §(b).3 — 30 mutants over
+28 models; the retired exec form carries its postcondition on the executable
 function itself instead). The fifteen `c_*` rows are models of the C
 GENERATOR's own emission decisions, not of a shIR→shIR transform; they sit
 in the same gate but are counted separately from the 492 above — +398
 obligations (11/18/26/20/14/15/69/15/40/16/51/19/17/39/28, each with its own failing mutants or negative
-controls, all re-verified under the pinned binary 2026-10-28/29), for 1186
+controls, all re-verified under the pinned binary 2026-10-28/29), for 1199
 (the per-row tally of this table was re-summed on 2026-10-30 against the
-gate's MODELS list: 44 non-`c_*` rows totalling 788, of which the 12
+gate's MODELS list: 45 non-`c_*` rows totalling 801, of which the 12
 retired i32 obligations are 0 — they are out of the table — so the
-788 includes the sweep totals above; 15 `c_*` rows totalling 398)
+801 includes the sweep totals above; 15 `c_*` rows totalling 398)
 gated active obligations in total — the P12 pair (+14/+8) and the
 store-forward trio (+47) and the arith-lowering pair (+28) and the
 verdict-analyses six (+83) and the string/cursor pair (+28) and the
 loop-hoist model (+22) and the carrier-canonicalization model (+8) and the
-part-canonicalization model (+24) are included in
-the 788, the fifteen `c_*` rows counted separately as stated. Their proofs, and why Verus rather than
+part-canonicalization model (+24) and the forinit-lowering model
+(+13) are included in
+the 801, the fifteen `c_*` rows counted separately as stated. Their proofs, and why Verus rather than
 Isabelle fits them (the target is Rust that *produces* the C), are in
 `C_UB_PROOF.md` §13–§14. The eight pre-existing counts — and
 their seven mutants — were independently reproduced on 2026-10-24 with the
@@ -392,7 +397,7 @@ source outgrows its extractor patterns — but the generated
 that lands, "the model matches the code" is a statement about the day each
 file was written, reviewed by re-reading.
 
-**3. The obligations are not vacuous — every transform model has a checked mutant (29 mutants over 27 models), plus the C-generator mutants.**
+**3. The obligations are not vacuous — every transform model has a checked mutant (30 mutants over 28 models), plus the C-generator mutants.**
 Interval with a wrong product corner: 4 verified, 1 error. `Assign` writing
 a constant: 7 verified, 1 error. Inverted keep rule: 23 verified, 2 errors.
 Dropped purity gate: 43 verified, 2 errors. Restored `Arith(_) => true`
@@ -422,6 +427,7 @@ Unsigned-reduction-on-negative (shipped -3 shape as equal):
 Bare-quote splice (injection hole): 13 verified, 3 errors.
 Folded ps-tmp cleanup (cleanup loses its carrier): 7 verified, 1 error.
 Command-style part folds (unrendered substitution merged): 23 verified, 1 error.
+Step spliced before Break (wrong control effect): 11 verified, 2 errors.
 C-generator mutants are
 recorded per-model in `C_UB_PROOF.md` §13–§21 (unguarded commit ships
 wrap, intended-UB pair is UB, four one-token decimal mutants, flipped
