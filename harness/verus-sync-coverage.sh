@@ -36,7 +36,7 @@ OUT="${OUT_TMP:-/dev/stdout}"
 
 fail() { echo "verus-sync-coverage($MODEL): FATAL: $*" >&2; exit 1; }
 
-[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants|direct_calls|cat_read|grep_o|c_decl_coverage|exec_call_fold|interp_lit_merge"
+[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants|direct_calls|cat_read|grep_o|c_decl_coverage|exec_call_fold|interp_lit_merge|strip"
 # A model may span several source files (the P6 sweep groups folds by
 # family). model_srcs lists them; SRC is the first (legacy single-file
 # uses keep working).
@@ -78,6 +78,7 @@ model_srcs() {
     grep_o) echo "grep_o" ;;
     exec_call_fold) echo "exec_call_fold" ;;
     interp_lit_merge) echo "interp_lit_merge" ;;
+    strip) echo "strip" ;;
     c_decl_coverage) echo "c_backend" ;;
     *) fail "unknown model: $1" ;;
   esac
@@ -87,7 +88,7 @@ SRCS="$(model_srcs "$MODEL")"
 # analyses live in shir_passes/).
 model_dir() {
   case "$1" in
-    scc|used_before_decl|maskable|lifetime|numstr|numeric_observed) echo "shir_passes" ;;
+    scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|strip) echo "shir_passes" ;;
     # c_backend.rs lives at the crate root (src/c_backend.rs), so the
     # dir part is empty — paths below collapse to src/<file>.rs.
     c_decl_coverage) echo "" ;;
@@ -417,6 +418,13 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     interp_lit_merge:pin_heredoc_raw_refused) echo interp_lit_merge:refuses_heredoc_and_raw_styles ;;
     interp_lit_merge:pin_non_literal_untouched) echo interp_lit_merge:refuses_non_literal_expr_and_is_idempotent ;;
     interp_lit_merge:pin_merge_invisible_at_runtime) echo UNMIRRORED ;;
+    strip:pin_top_continue_spliced) echo strip:forinit_lowers_to_while_with_step_and_continue_splice ;;
+    strip:pin_legacy_continue_spliced) echo strip:legacy_continue_call_gets_the_step_splice ;;
+    strip:pin_break_kept) echo strip:forinit_lowers_to_while_with_step_and_continue_splice ;;
+    strip:pin_if_arm_continue_spliced) echo UNMIRRORED ;;
+    strip:pin_nested_opaque) echo UNMIRRORED ;;
+    strip:pin_normal_path_runs_step) echo strip:forinit_lowers_to_while_with_step_and_continue_splice ;;
+    strip:pin_both_spellings_continue) echo strip:legacy_continue_call_gets_the_step_splice ;;
     *) echo "" ;;
   esac
 }
@@ -1069,6 +1077,30 @@ case "$MODEL" in
     sgrep -q "StrStyle::Raw" \
       || fail "Raw-style refusal not found in source"
     echo "guard Raw-style refusal: PRESENT"
+    ;;
+  strip)
+    # The ForInit lowering entry + statement walker + continue splice.
+    sgrep -q "fn strip_cfor" \
+      || fail "strip_cfor entry not found in source"
+    echo "guard lowering entry: PRESENT"
+    sgrep -q "fn strip_stmt" \
+      || fail "strip_stmt walker not found in source"
+    echo "guard statement walker: PRESENT"
+    sgrep -q "fn splice_continue" \
+      || fail "splice_continue not found in source"
+    echo "guard continue splice: PRESENT"
+    # Both continue spellings (the fixed verdict: first-class Continue
+    # AND the legacy Expr(Call("continue"))).
+    sgrep -q "fn is_continue" \
+      || fail "is_continue verdict not found in source"
+    echo "guard continue verdict: PRESENT"
+    sgrep -q 'func == "continue"' \
+      || fail "legacy-continue splice arm not found in source"
+    echo "guard legacy-continue splice arm: PRESENT"
+    # The Block(init ++ [While]) lowering shape.
+    sgrep -q "IrStmt::Block(" \
+      || fail "Block lowering shape not found in source"
+    echo "guard Block lowering shape: PRESENT"
     ;;
   arith_forms)
     # The let-arg gate: text extraction + parse_arith verdict.
