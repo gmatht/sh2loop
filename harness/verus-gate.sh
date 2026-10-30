@@ -342,18 +342,30 @@ MODELS=(
   # Suites-then-proofs trio (Tier-1): capture-of-pure-function ->
   # direct call (direct_calls.rs 255 lines); statement cat ->
   # ForEachLine (cat_read.rs 171 lines); grep -o shapes ->
-  # grepMatches (grep_o.rs 237 lines). Unit suites written first
-  # (4/6/6 green), then per-rewrite value models. Mutants red
-  # 6v/1e, 9v/1e, 9v/1e.
-  "direct_calls.rs:7:40"
-  "cat_read.rs:11:40"
-  "grep_o.rs:10:40"
+  # grepMatches (grep_o.rs 237 lines). Unit suites were written first
+  # (4/6/6 green, ed4b3184f). The three models below were RE-AUTHORED
+  # on 2026-10-30 after the originals were lost from the working tree
+  # with the rest of the sweep files: per-rewrite value models with the
+  # purity / no-redefinition premises stated as lemmas (direct_calls,
+  # 19), the argv parse + line-stream obligations over the plain and
+  # numbered forms (cat_read, 18), and the argv table + match
+  # enumeration rename (grep_o, 19). Load-bearing guards are refuted
+  # in-file (direct_calls' two premise lemmas; cat_read's argv refusals;
+  # grep_o's flag/operand refusals).
+  "direct_calls.rs:19:40"
+  "cat_read.rs:18:40"
+  "grep_o.rs:19:40"
   # Carrier-canonicalization (Tier-1): payload-free Exec in a command
   # carrier -> canonical exec call (exec_call_fold.rs 384 lines).
   # Per-site payload preservation + idempotence; carrier flag as
   # parameter; 4 unit-test pins. Mutant (cleanup refusal dropped)
   # red 7v/1e.
   "exec_call_fold.rs:8:40"
+  # Part-canonicalization (Tier-1): frozen-literal Expr part -> Lit +
+  # adjacent-Lit merge (interp_lit_merge.rs 494 lines). Concat
+  # denotation identity via whole-seq cons lemmas; style gate as data;
+  # 6 unit-test pins. Mutant (Command style folds) red 23v/1e.
+  "interp_lit_merge.rs:24:40"
 )
 
 # extractor:baseline — the generator script and the file it must reproduce.
@@ -407,10 +419,12 @@ SYNCS=(
   "harness/verus-sync-coverage.sh:str_splice_fold:sh2perl/proofs/verus/str_splice_fold_sync.txt"
   "harness/verus-sync-coverage.sh:str_chop_cursor:sh2perl/proofs/verus/str_chop_cursor_sync.txt"
   "harness/verus-sync-coverage.sh:hoist_loop_invariants:sh2perl/proofs/verus/hoist_loop_invariants_sync.txt"
-  "harness/verus-sync-coverage.sh:direct_calls:sh2perl/proofs/verus/direct_calls_sync.txt"
-  "harness/verus-sync-coverage.sh:cat_read:sh2perl/proofs/verus/cat_read_sync.txt"
-  "harness/verus-sync-coverage.sh:grep_o:sh2perl/proofs/verus/grep_o_sync.txt"
+  # (direct_calls / cat_read / grep_o have no sync baseline: their
+  # sources are suites-less, and a baseline without an executed pin
+  # would be green-by-absence. Their model pins are recorded UNMIRRORED
+  # in VERUS.md §(b).4. Re-add the three entries when a unit suite lands.)
   "harness/verus-sync-coverage.sh:exec_call_fold:sh2perl/proofs/verus/exec_call_fold_sync.txt"
+  "harness/verus-sync-coverage.sh:interp_lit_merge:sh2perl/proofs/verus/interp_lit_merge_sync.txt"
   # c_decl_coverage: the FIRST TRANSCRIPTION model in this list — its
   # checker does not just pin guards, it EXTRACTS the modelled walker
   # arm chains (patterns + guards + callee sets) from c_backend.rs and

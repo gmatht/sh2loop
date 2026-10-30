@@ -36,7 +36,7 @@ OUT="${OUT_TMP:-/dev/stdout}"
 
 fail() { echo "verus-sync-coverage($MODEL): FATAL: $*" >&2; exit 1; }
 
-[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants|direct_calls|cat_read|grep_o|c_decl_coverage|exec_call_fold"
+[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants|direct_calls|cat_read|grep_o|c_decl_coverage|exec_call_fold|interp_lit_merge"
 # A model may span several source files (the P6 sweep groups folds by
 # family). model_srcs lists them; SRC is the first (legacy single-file
 # uses keep working).
@@ -77,6 +77,7 @@ model_srcs() {
     cat_read) echo "cat_read" ;;
     grep_o) echo "grep_o" ;;
     exec_call_fold) echo "exec_call_fold" ;;
+    interp_lit_merge) echo "interp_lit_merge" ;;
     c_decl_coverage) echo "c_backend" ;;
     *) fail "unknown model: $1" ;;
   esac
@@ -409,6 +410,13 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     exec_call_fold:pin_capture_kept) echo exec_call_fold:payload_bearing_exec_refuses ;;
     exec_call_fold:pin_ps_tmp_cleanup_kept) echo exec_call_fold:ps_tmp_cleanup_keeps_its_carrier ;;
     exec_call_fold:pin_fold_invisible_at_runtime) echo UNMIRRORED ;;
+    interp_lit_merge:pin_frozen_literal_folds_and_merges) echo interp_lit_merge:folds_frozen_literal_expr_part_and_merges ;;
+    interp_lit_merge:pin_adjacent_lits_merge) echo interp_lit_merge:merges_preexisting_adjacent_lits ;;
+    interp_lit_merge:pin_middle_literal_merges) echo interp_lit_merge:middle_literal_between_expr_parts_merges_after_the_fold ;;
+    interp_lit_merge:pin_command_style_refused) echo interp_lit_merge:refuses_command_style ;;
+    interp_lit_merge:pin_heredoc_raw_refused) echo interp_lit_merge:refuses_heredoc_and_raw_styles ;;
+    interp_lit_merge:pin_non_literal_untouched) echo interp_lit_merge:refuses_non_literal_expr_and_is_idempotent ;;
+    interp_lit_merge:pin_merge_invisible_at_runtime) echo UNMIRRORED ;;
     *) echo "" ;;
   esac
 }
@@ -1036,6 +1044,31 @@ case "$MODEL" in
     sgrep -q '"exec"' \
       || fail "canonical exec call spelling not found in source"
     echo "guard canonical exec spelling: PRESENT"
+    ;;
+  interp_lit_merge)
+    # The two-phase part rewrite: frozen-literal Expr fold + Lit merge.
+    sgrep -q "fn merge_parts" \
+      || fail "merge_parts not found in source"
+    echo "guard part rewrite: PRESENT"
+    # The plain-quoting gate (the load-bearing half: only DoubleQuoted |
+    # SingleQuoted carry their text as the value).
+    sgrep -q "StrStyle::DoubleQuoted | StrStyle::SingleQuoted" \
+      || fail "plain-quoting gate not found in source"
+    echo "guard plain-quoting gate: PRESENT"
+    # The left-associative Lit merge.
+    sgrep -q "prev.push_str(cur)" \
+      || fail "lit-merge append not found in source"
+    echo "guard lit-merge append: PRESENT"
+    # The Command/Heredoc/Raw style refusals (renderer-visible semantics).
+    sgrep -q "StrStyle::Command" \
+      || fail "Command-style refusal not found in source"
+    echo "guard Command-style refusal: PRESENT"
+    sgrep -q "StrStyle::Heredoc" \
+      || fail "Heredoc-style refusal not found in source"
+    echo "guard Heredoc-style refusal: PRESENT"
+    sgrep -q "StrStyle::Raw" \
+      || fail "Raw-style refusal not found in source"
+    echo "guard Raw-style refusal: PRESENT"
     ;;
   arith_forms)
     # The let-arg gate: text extraction + parse_arith verdict.
