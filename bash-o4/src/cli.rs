@@ -329,6 +329,10 @@ pub fn run(args: &[String]) -> i32 {
         "SH2_NO_SPLIT_FOLD",
         "SH2_NO_LOOP_OPT",
         "SH2_NO_INT_ELEM",
+        // MOVE-vs-copy store of a private build buffer: same silent-A/B
+        // prevention — without it an SH2_NO_MOVESTORE=1 "baseline" build
+        // is served from the MOVE build's cache entry.
+        "SH2_NO_MOVESTORE",
         "SH2_TRUE64",
     ] {
         if let Ok(x) = std::env::var(v) {
