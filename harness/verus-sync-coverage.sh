@@ -36,7 +36,7 @@ OUT="${OUT_TMP:-/dev/stdout}"
 
 fail() { echo "verus-sync-coverage($MODEL): FATAL: $*" >&2; exit 1; }
 
-[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants|direct_calls|cat_read|grep_o|c_decl_coverage|exec_call_fold|interp_lit_merge|strip|counted_arith_forinit|arr_load_fwd|isolate_accumulate|lane_private|analysis|loop_opt"
+[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants|direct_calls|cat_read|grep_o|c_decl_coverage|exec_call_fold|interp_lit_merge|strip|counted_arith_forinit|arr_load_fwd|isolate_accumulate|lane_private|analysis|loop_opt|restructure"
 # A model may span several source files (the P6 sweep groups folds by
 # family). model_srcs lists them; SRC is the first (legacy single-file
 # uses keep working).
@@ -85,6 +85,7 @@ model_srcs() {
     lane_private) echo "lane_private" ;;
     analysis) echo "analysis" ;;
     loop_opt) echo "loop_opt" ;;
+    restructure) echo "restructure" ;;
     c_decl_coverage) echo "c_backend" ;;
     *) fail "unknown model: $1" ;;
   esac
@@ -94,7 +95,7 @@ SRCS="$(model_srcs "$MODEL")"
 # analyses live in shir_passes/).
 model_dir() {
   case "$1" in
-    scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|strip|lane_private|analysis|loop_opt) echo "shir_passes" ;;
+    scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|strip|lane_private|analysis|loop_opt|restructure) echo "shir_passes" ;;
     # c_backend.rs lives at the crate root (src/c_backend.rs), so the
     # dir part is empty — paths below collapse to src/<file>.rs.
     c_decl_coverage) echo "" ;;
@@ -482,6 +483,14 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     loop_opt:pin_fixpoint_noop) echo loop_opt:fixpoint_is_idempotent ;;
     loop_opt:pin_hoist_preserves_run) echo loop_opt:invariant_arith_hoists_counter_arith_stays ;;
     loop_opt:pin_zero_trip_diverges) echo UNMIRRORED ;;
+    restructure:pin_backward_span) echo restructure:backward_goto_becomes_while ;;
+    restructure:pin_forward_inversion) echo restructure:forward_goto_becomes_inverted_if ;;
+    restructure:pin_flag_protocol) echo restructure:nested_goto_becomes_flag_break ;;
+    restructure:pin_block_not_loop) echo restructure:nested_goto_through_block_wrapper_does_not_escape ;;
+    restructure:pin_empty_noop) echo restructure:empty_list_noop ;;
+    restructure:pin_forward_skip_no_flag) echo restructure:goto_inside_a_switch_inside_the_loop_body_reaches_its_tail ;;
+    restructure:pin_tail_guarded) echo restructure:goto_out_of_a_top_level_loop_guards_the_tail ;;
+    restructure:pin_shapes_agree) echo UNMIRRORED ;;
     *) echo "" ;;
   esac
 }
@@ -1321,6 +1330,30 @@ case "$MODEL" in
     sgrep -q "group_ends >= body.len()" \
       || fail "strict-subset bound not found in source"
     echo "guard strict-subset bound: PRESENT"
+    ;;
+  restructure)
+    # The goto-elimination entry + per-shape handlers.
+    sgrep -q "fn handle_bare_goto" \
+      || fail "handle_bare_goto not found in source"
+    echo "guard bare-goto handler: PRESENT"
+    sgrep -q "fn handle_guarded_goto" \
+      || fail "handle_guarded_goto not found in source"
+    echo "guard guarded-goto handler: PRESENT"
+    sgrep -q "fn handle_nested" \
+      || fail "handle_nested not found in source"
+    echo "guard nested handler: PRESENT"
+    sgrep -q "fn forward_skip_site" \
+      || fail "forward_skip_site not found in source"
+    echo "guard skip-site analysis: PRESENT"
+    sgrep -q "fn fresh_flag" \
+      || fail "fresh_flag not found in source"
+    echo "guard flag freshness: PRESENT"
+    sgrep -q "fn convert_successor_exits" \
+      || fail "convert_successor_exits not found in source"
+    echo "guard successor-exit fold: PRESENT"
+    sgrep -q "pub fn program_has_goto" \
+      || fail "program_has_goto ingress gate not found in source"
+    echo "guard ingress gate: PRESENT"
     ;;
   analysis)
     # The footprint verdict entry + the three recursive walkers.

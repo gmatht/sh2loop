@@ -403,6 +403,13 @@ MODELS=(
   # tests (8/8 PASS live). Mutant (invariant_reads dropped) red
   # 20v/1e. DEAD CODE: no pipeline caller (0/563 in-pipeline).
   "loop_opt.rs:21:40"
+  # Goto-restructure (Tier-1 carve-out): per-shape structural
+  # identities (restructure.rs 1372 lines). Span/branch/dead/skip/
+  # flag-order sequence identities + jump elimination; full
+  # run-preservation is Tier-3 (out of scope). 7 pins mirror 7 of
+  # 8 unit tests (7/7 PASS live). Mutant (spurious skip flag) red
+  # 19v/1e.
+  "restructure.rs:20:40"
 )
 
 # extractor:baseline — the generator script and the file it must reproduce.
@@ -469,6 +476,7 @@ SYNCS=(
   "harness/verus-sync-coverage.sh:lane_private:sh2perl/proofs/verus/lane_private_sync.txt"
   "harness/verus-sync-coverage.sh:analysis:sh2perl/proofs/verus/analysis_sync.txt"
   "harness/verus-sync-coverage.sh:loop_opt:sh2perl/proofs/verus/loop_opt_sync.txt"
+  "harness/verus-sync-coverage.sh:restructure:sh2perl/proofs/verus/restructure_sync.txt"
   # c_decl_coverage: the FIRST TRANSCRIPTION model in this list — its
   # checker does not just pin guards, it EXTRACTS the modelled walker
   # arm chains (patterns + guards + callee sets) from c_backend.rs and
