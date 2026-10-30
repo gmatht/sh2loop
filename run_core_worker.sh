@@ -282,7 +282,13 @@ while true; do
       # the module name comes from the register file (`pub mod <name>;`) —
       # the bundle DIR may be hyphenated (builtin-lift) while the module is
       # underscored (builtin_lift); the file must match the module name
-      modname=$(sed -n 's/^pub mod \([a-z_0-9]*\);$/\1/p' "$bundle/register" | head -1)
+      # NOT anchored at `$`: a register file MAY carry a trailing comment
+      # (`pub mod affix_strip_fold; // OFFER ...` is exactly how the offer
+      # shipped), and the `;$/` anchor then matched NOTHING — modname was
+      # empty, the copy landed as `affix-strip-fold.rs` while the registered
+      # module was `affix_strip_fold`, and every gate died on E0583 'file
+      # not found for module'. Allow anything after the `;`.
+      modname=$(sed -n 's/^pub mod \([a-z_0-9]*\);.*$/\1/p' "$bundle/register" | head -1)
       cp "$bundle/transform.rs" "$SUB/src/transforms/${modname:-$(basename "$bundle")}.rs"
       if [ -f "$bundle/register" ]; then
         # the register file carries two sections inserted at their proper
@@ -290,6 +296,19 @@ while true; do
         # `pub mod` line; the all() entries go before the vec's closing `]`
         mods=$(sed -n '/^### mod$/,/^### all$/p' "$bundle/register" | grep -v '^###' || true)
         entries=$(sed -n '/^### all$/,$p' "$bundle/register" | grep -v '^###' || true)
+        # ...and the file is not pure key/value: an offer may document itself
+        # inline (`### all` may say "No mod-line change: ..." before the entry,
+        # and a bundle may add its own `### reset_verdicts` hook section).
+        # Every such line was inserted VERBATIM into transforms.rs, which is
+        # where 'no rules expected keyword `mod`' and the `'` in "pub mod'"
+        # came from. Keep only what is valid Rust in the target section.
+        mods=$(printf '%s\n' "$mods" | grep -E '^pub mod [a-z_0-9]+;' || true)
+        entries=$(printf '%s\n' "$entries" | grep -E '^\s*\(\"[a-z_0-9-]+\", [a-z_0-9]+::transform\),' || true)
+        # `### reset_verdicts` is the third section an analysis-only offer
+        # needs: it is deliberate NOT in all() (a statement-list caller cannot
+        # see program scope), so it instead ships the call that drops its cache
+        # after every all() pass. Accepted offers must stay reachable.
+        resets=$(sed -n '/^### reset_verdicts$/,$p' "$bundle/register" | grep -v '^###' | grep -E '^\s*[a-z_0-9]+::[a-z_0-9_]+\(\);' || true)
         # IDEMPOTENT, and duplicate-aware (2026-10-30). Blindly inserting
         # after the last `pub mod` / last `("...::transform),` is what killed
         # five of six offers:
@@ -322,6 +341,28 @@ for m in mods.strip().split(chr(10)):
         continue
     lines.insert(last + 1, m)
     last += 1
+open(path, 'w').write(chr(10).join(lines))
+PYEOF
+        fi
+        if [ -n "$resets" ]; then
+          # The hook lives at the TOP of apply(), before the all() loop that
+          # recomputes every verdict: an analysis-only transform's cache is
+          # repopulated by the pass that follows, so clearing it at entry keeps
+          # run N from observing run N-1 (the clear_verdicts contract).
+          python3 - "$SUB/src/transforms.rs" "$resets" <<'PYEOF'
+import sys
+path, resets = sys.argv[1], sys.argv[2]
+lines = open(path).read().split(chr(10))
+have = set(l.strip() for l in lines)
+anchor = next((i for i, l in enumerate(lines)
+               if l.strip() == 'let enabled = enabled_names();'), None)
+if anchor is None:
+    sys.stderr.write('register: no apply() anchor for reset_verdicts — hook NOT installed\n')
+else:
+    add = [r.strip() for r in resets.strip().split(chr(10)) if r.strip() and r.strip() not in have]
+    for k, r in enumerate(add):
+        lines.insert(anchor + k, '    ' + r)
+    sys.stderr.write('register: installed %d reset hook(s)\n' % len(add))
 open(path, 'w').write(chr(10).join(lines))
 PYEOF
         fi
