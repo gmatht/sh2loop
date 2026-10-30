@@ -36,7 +36,7 @@ OUT="${OUT_TMP:-/dev/stdout}"
 
 fail() { echo "verus-sync-coverage($MODEL): FATAL: $*" >&2; exit 1; }
 
-[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants|direct_calls|cat_read|grep_o|c_decl_coverage|exec_call_fold|interp_lit_merge|strip|counted_arith_forinit|arr_load_fwd|isolate_accumulate|lane_private"
+[ -n "$MODEL" ] || fail "usage: $0 <model>   # model: copy_propagation|function_purity|test_lowering|string_folds|arith_folds|test_folds|capture_folds|list_folds|textop_folds|not_folds|const_cmp_folds|elim_trio|slice_identity|case_lowering|elseif_flatten|seq_range|ternary_desugar|escape_classes|f32_narrow|append_store|split_set|echo_return|arith_forms|counted_while_forinit|scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|str_splice_fold|str_chop_cursor|hoist_loop_invariants|direct_calls|cat_read|grep_o|c_decl_coverage|exec_call_fold|interp_lit_merge|strip|counted_arith_forinit|arr_load_fwd|isolate_accumulate|lane_private|analysis"
 # A model may span several source files (the P6 sweep groups folds by
 # family). model_srcs lists them; SRC is the first (legacy single-file
 # uses keep working).
@@ -83,6 +83,7 @@ model_srcs() {
     arr_load_fwd) echo "arr_load_fwd" ;;
     isolate_accumulate) echo "isolate_accumulate" ;;
     lane_private) echo "lane_private" ;;
+    analysis) echo "analysis" ;;
     c_decl_coverage) echo "c_backend" ;;
     *) fail "unknown model: $1" ;;
   esac
@@ -92,7 +93,7 @@ SRCS="$(model_srcs "$MODEL")"
 # analyses live in shir_passes/).
 model_dir() {
   case "$1" in
-    scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|strip|lane_private) echo "shir_passes" ;;
+    scc|used_before_decl|maskable|lifetime|numstr|numeric_observed|strip|lane_private|analysis) echo "shir_passes" ;;
     # c_backend.rs lives at the crate root (src/c_backend.rs), so the
     # dir part is empty — paths below collapse to src/<file>.rs.
     c_decl_coverage) echo "" ;;
@@ -466,6 +467,11 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     lane_private:pin_call_in_chain_vetoes) echo lane_private:call_in_chain_vetoes ;;
     lane_private:pin_output_in_chain_vetoes) echo lane_private:output_in_chain_vetoes ;;
     lane_private:pin_counter_write_vetoes) echo lane_private:counter_write_in_chain_vetoes ;;
+    # analysis: ANALYSIS-ONLY verdict walk with no dedicated unit
+    # test (the 3 analysis.rs tests never exercise needs_runtime —
+    # RuntimeFootprint is absent from the empty-program run list).
+    # All 8 pins UNMIRRORED by design; the living tie is the guards.
+    analysis:pin_*) echo UNMIRRORED ;;
     *) echo "" ;;
   esac
 }
@@ -1279,6 +1285,33 @@ case "$MODEL" in
     sgrep -q "fn contains_status_read" \
       || fail "contains_status_read veto not found in source"
     echo "guard no-status veto: PRESENT"
+    ;;
+  analysis)
+    # The footprint verdict entry + the three recursive walkers.
+    sgrep -q "pub fn needs_runtime" \
+      || fail "needs_runtime entry not found in source"
+    echo "guard walk entry: PRESENT"
+    sgrep -q "fn stmt_needs" \
+      || fail "stmt_needs walker not found in source"
+    echo "guard stmt walker: PRESENT"
+    sgrep -q "fn expr_needs" \
+      || fail "expr_needs walker not found in source"
+    echo "guard expr walker: PRESENT"
+    sgrep -q "fn arith_needs" \
+      || fail "arith_needs walker not found in source"
+    echo "guard arith walker: PRESENT"
+    # The pure-call table (the PureCall oracle).
+    sgrep -qF '"builtin" | "exec"' \
+      || fail "pure-call table not found in source"
+    echo "guard pure-call table: PRESENT"
+    # The Output-target rule (fd target forces runtime).
+    sgrep -q "target.is_some()" \
+      || fail "Output-target rule not found in source"
+    echo "guard output-target rule: PRESENT"
+    # The fail-closed catch-alls (unknown/extension nodes force runtime).
+    sgrep -q '_ => \*out = true,' \
+      || fail "fail-closed catch-all not found in source"
+    echo "guard fail-closed arm: PRESENT"
     ;;
   c_decl_coverage)
     # THE MECHANICAL TIE: extract the three censuses' arm chains

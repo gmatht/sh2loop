@@ -390,6 +390,12 @@ MODELS=(
   # (lane_private.rs 500 lines). Dominating-defs + tail + acc-clean;
   # 9 unit-test pins. Mutant (uninit write admitted) red 10v/2e.
   "lane_private.rs:12:40"
+  # Footprint-verdict (Tier-1): RuntimeFootprint walk soundness
+  # (analysis.rs 686 lines). False implies all-pure (the consumer's
+  # licence for plain host code); true claims nothing. 8 pins, all
+  # UNMIRRORED by design (no footprint unit test exists). Mutant
+  # (redirect as pure) red 19v/2e.
+  "analysis.rs:21:40"
 )
 
 # extractor:baseline — the generator script and the file it must reproduce.
@@ -454,6 +460,7 @@ SYNCS=(
   "harness/verus-sync-coverage.sh:arr_load_fwd:sh2perl/proofs/verus/arr_load_fwd_sync.txt"
   "harness/verus-sync-coverage.sh:isolate_accumulate:sh2perl/proofs/verus/isolate_accumulate_sync.txt"
   "harness/verus-sync-coverage.sh:lane_private:sh2perl/proofs/verus/lane_private_sync.txt"
+  "harness/verus-sync-coverage.sh:analysis:sh2perl/proofs/verus/analysis_sync.txt"
   # c_decl_coverage: the FIRST TRANSCRIPTION model in this list — its
   # checker does not just pin guards, it EXTRACTS the modelled walker
   # arm chains (patterns + guards + callee sets) from c_backend.rs and

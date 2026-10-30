@@ -84,6 +84,7 @@ Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28; t
 | `proofs/verus/arr_load_fwd.rs` | `transforms/arr_load_fwd.rs` (single-def element load → forwarded reads) | 37 verified, 0 errors | landed, gated — element-forward |
 | `proofs/verus/isolate_accumulate.rs` | `transforms/isolate_accumulate.rs` (single-use pure temp → inlined use) | 18 verified, 0 errors | landed, gated — temp-isolation |
 | `proofs/verus/lane_private.rs` | `shir_passes/lane_private.rs` (lane-nest classification verdict) | 12 verified, 0 errors | landed, gated — lane-verdict |
+| `proofs/verus/analysis.rs` | `shir_passes/analysis.rs` (RuntimeFootprint verdict) | 21 verified, 0 errors | landed, gated — footprint-verdict |
 
 492 active obligations total (504 with the 12 retired i32 obligations), 0 errors,
 plus the store-forward sweep (+47), the arith-lowering sweep (+28),
@@ -112,21 +113,24 @@ temp-isolation model (+18: isolate_accumulate 18 — substitution
 agreement with mapped pins and a checked mutant, re-verified under
 the pinned binary 2026-10-30) and the lane-verdict model (+12:
 lane_private 12 — classification soundness with mapped pins and a
-checked mutant, re-verified under the pinned binary 2026-10-30), for 880
+checked mutant, re-verified under the pinned binary 2026-10-30) and the
+footprint-verdict model (+21: analysis 21 — walk soundness with
+UNMIRRORED pins and a checked mutant, re-verified under the pinned
+binary 2026-10-30), for 901
 transform-side obligations (the suites-then-proofs trio counts toward this
 total at its RE-AUTHORED size, +42: direct_calls 19, cat_read 18, grep_o 19,
 re-verified under the pinned binary 2026-10-30). Every active model
-with checked failing mutants (see §(b).3 — 34 mutants over
-32 models; the retired exec form carries its postcondition on the executable
+with checked failing mutants (see §(b).3 — 35 mutants over
+33 models; the retired exec form carries its postcondition on the executable
 function itself instead). The fifteen `c_*` rows are models of the C
 GENERATOR's own emission decisions, not of a shIR→shIR transform; they sit
 in the same gate but are counted separately from the 492 above — +398
 obligations (11/18/26/20/14/15/69/15/40/16/51/19/17/39/28, each with its own failing mutants or negative
 controls, all re-verified under the pinned binary 2026-10-28/29), for 1278
 (the per-row tally of this table was re-summed on 2026-10-30 against the
-gate's MODELS list: 49 non-`c_*` rows totalling 880, of which the 12
+gate's MODELS list: 50 non-`c_*` rows totalling 901, of which the 12
 retired i32 obligations are 0 — they are out of the table — so the
-880 includes the sweep totals above; 15 `c_*` rows totalling 398)
+901 includes the sweep totals above; 15 `c_*` rows totalling 398)
 gated active obligations in total — the P12 pair (+14/+8) and the
 store-forward trio (+47) and the arith-lowering pair (+28) and the
 verdict-analyses six (+83) and the string/cursor pair (+28) and the
@@ -134,8 +138,8 @@ loop-hoist model (+22) and the carrier-canonicalization model (+8) and the
 part-canonicalization model (+24) and the forinit-lowering model
 (+13) and the arith-recovery model (+12) and the element-forward
 model (+37) and the temp-isolation model (+18) and the lane-verdict
-model (+12) are included in
-the 880, the fifteen `c_*` rows counted separately as stated. Their proofs, and why Verus rather than
+model (+12) and the footprint-verdict model (+21) are included in
+the 901, the fifteen `c_*` rows counted separately as stated. Their proofs, and why Verus rather than
 Isabelle fits them (the target is Rust that *produces* the C), are in
 `C_UB_PROOF.md` §13–§14. The eight pre-existing counts — and
 their seven mutants — were independently reproduced on 2026-10-24 with the
@@ -415,7 +419,7 @@ source outgrows its extractor patterns — but the generated
 that lands, "the model matches the code" is a statement about the day each
 file was written, reviewed by re-reading.
 
-**3. The obligations are not vacuous — every transform model has a checked mutant (34 mutants over 32 models), plus the C-generator mutants.**
+**3. The obligations are not vacuous — every transform model has a checked mutant (35 mutants over 33 models), plus the C-generator mutants.**
 Interval with a wrong product corner: 4 verified, 1 error. `Assign` writing
 a constant: 7 verified, 1 error. Inverted keep rule: 23 verified, 2 errors.
 Dropped purity gate: 43 verified, 2 errors. Restored `Arith(_) => true`
@@ -450,6 +454,7 @@ Accepting a +2 step (one-gate dropped): 9 verified, 3 errors.
 Folding without the clean-span gate (store-break dropped): 33 verified, 4 errors.
 Inlining a multi-use temp (single-use gate dropped): 17 verified, 1 error.
 Admitting an uninit chain write (dominating-defs gate dropped): 10 verified, 2 errors.
+Treating a redirect as pure (redirect arm dropped): 19 verified, 2 errors.
 C-generator mutants are
 recorded per-model in `C_UB_PROOF.md` §13–§21 (unguarded commit ships
 wrap, intended-UB pair is UB, four one-token decimal mutants, flipped
