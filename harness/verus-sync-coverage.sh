@@ -1125,6 +1125,8 @@ case "$MODEL" in
     sgrep -q 'Bin { op, lhs, rhs } if op ==' \
       || fail "Bin+ spelling not found in source"
     echo "guard Bin+ spelling: PRESENT"
+    ;;
+  counted_arith_forinit)
     # The Arith-cond mention gate + the status veto.
     sgrep -q "fn arith_mentions" \
       || fail "arith_mentions gate not found in source"
