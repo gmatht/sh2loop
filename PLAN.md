@@ -12,6 +12,53 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v105: **One shared verdict replaced three copies of "does this list
+>   fall through", and the Perl gate caught the first version being
+>   UNSOUND.** rustc-warning census over the 563-file emitted corpus: 91 →
+>   74 (`while_true` 3 → 0, assigned-value parens 10 → 5, unreachable
+>   statement 6 → 3).
+>   (1) **`shir::{stmt_terminates, list_terminates, loop_escapes}`.** One
+>   definition of "terminator" — `exit`/`die`/`break`/`continue`,
+>   `return` inside a function, and an INFINITE loop (`while true` /
+>   `for ((;;))`) that no `break` can escape — consumed by the
+>   unreachable-tail transform AND by the Rust renderer (epilogue, redirect
+>   restore), so "dead after `exit`" and "dead after `while true`" cannot
+>   drift apart.
+>   (2) **`unreachable-after-exit` → unreachable-after-terminator.** It now
+>   prunes after `die`, `break`/`continue` (for the list they sit in) and an
+>   infinite loop, and it recurses into a function's `named_blocks` — the
+>   old code rebuilt `Function` with `named_blocks: Vec::new()`, DELETING a
+>   Go-style named return block (statements and all) on every program the
+>   transform touched. 7 new tests, including the nested-loop case (a
+>   `break` in a deeper loop does not escape) and the `case` case (bash's
+>   `case` captures nothing, so a `break` in a clause still breaks the
+>   loop).
+>   (3) **The unsoundness, found by `./fail`.** `while true; do break ||
+>   exit 1; done` keeps `break` as a CONTROL CALL inside a `BinOp`
+>   (`func: "break"`, purity Control), NOT as `IrStmt::Break` — so the
+>   loop looked infinite and the transform pruned everything after it:
+>   `parse-break-or` printed nothing where bash prints `parsed OK` /
+>   `exit: 0`. The scan now recurses into `If`/`Case`/`Block` bodies and
+>   falls back to the statement's Debug form for the call spelling. An
+>   over-approximation only keeps a tail that is dead anyway; an
+>   under-approximation deletes live code, which is what the gate caught.
+>   (4) **A TLS numeric read no longer clones.** `read_num_of_str` parses
+>   INSIDE the borrow — `__SHV_x.with(|v| v.borrow().trim().parse::<i64>()…)`
+>   — where the `read_str`-based form cloned a String per read (88 corpus
+>   sites: `__SHV_y.with(|v| v.borrow().clone()).trim()…`).
+>   (5) **`while true {` → `loop {`** (rustc's `while_true`; the programs are
+>   identical, a plain `break` leaves both as `()`), and **`let x =
+>   (EXPR);` → `let x = EXPR;`** via a new `let_value` helper that strips
+>   one pair only when it encloses the whole initializer (refusing a tuple
+>   or an early depth return).
+>   (6) **Epilogue / restore after a diverging body.** The implicit
+>   `std::process::exit(__SH_RC…)` and the `__SH_OUTFILE_TL` restore are
+>   skipped when the body never falls through (the shared verdict, plus a
+>   guard for the case where another layer already emitted the exit).
+>   Gates: `./fail` 563/563, fail-rs 556/0/7, fail-estree 563/563 (100%),
+>   fail-shir green; `cargo test --lib` 1727 pass / 45 fail — unchanged, no
+>   new reds (the 45 are the pre-existing backlog in
+>   c_backend/estree/shir/fish/zsh/shir_json_in/zig/go).
 > - v104: **Analysis of the emitted Rust found two RENDERING BUGS (not idiom
 >   gaps) plus two needless allocations; nine stale expectations refreshed.
 >   fail-rs 543/13 → 556/0/7, every other gate green.**
