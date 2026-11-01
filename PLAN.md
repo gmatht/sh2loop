@@ -12,6 +12,53 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v104: **Analysis of the emitted Rust found two RENDERING BUGS (not idiom
+>   gaps) plus two needless allocations; nine stale expectations refreshed.
+>   fail-rs 543/13 → 556/0/7, every other gate green.**
+>   (1) **A const-folded `elsif` ran the `else` too.** A `case` on a constant
+>   subject lowers to an if/elsif chain whose conditions all render as
+>   constants, so the Rust renderer decides the chain at emit time. When an
+>   `elsif` is proven TRUE the code took that body but never cleared `alt`,
+>   which still held the `else_` body — so BOTH were spliced inline and both
+>   ran: `000__04h_complex_examples` printed its matching arm and its `*`
+>   default back to back (Perl, which folds in the IR, was correct, so only
+>   the Rust arm diverged). One line: `alt = &[]`; test
+>   `const_case_takes_exactly_one_arm`.
+>   (2) **`typeset -f` lost a folded `echo`.** `echo_fold` lowers a literal
+>   `echo` to the native `Output` statement, but `fn_body_line_text` (the
+>   `typeset -f` / `declare -f` definition display) had no `Output` arm, so
+>   the body line printed empty: `myfunc () \n{ \n    ;\n…}` where bash
+>   prints `    echo "Inside myfunc";`. The arm puts the `echo` back (quote
+>   when the text carries a space or an expansion); test
+>   `typeset_f_shows_a_folded_echo`. This was fail-rs's last red.
+>   (3) **`echo "$n"` on a numeric var allocated a String.** The `Output`
+>   arm's numeric test was `echo_fold::numeric_word`, the TARGET-FREE verdict
+>   (literals, arith, lengths) — a numerically-homed VAR is only visible to
+>   the renderer, so the word list rendered `vec![n.to_string()]` and the
+>   inlining pass collapsed it to `println!("{}", n.to_string())`. The arm
+>   now also consults `word_is_numeric`, and `word_is_numeric` sees through a
+>   one-part `Interpolate` (a QUOTED lone expansion arrives wrapped, so
+>   `echo "$n"` printed `.to_string()` while `echo "n=$n"` printed `n`).
+>   (4) **`.clone()` before a borrowing `.trim()`.** `read_num_of_str`
+>   appended `.trim()` to an OWNED read, so every numeric read of a
+>   string-homed var carried a clone: `x.clone().trim().parse::<i64>()` →
+>   `x.trim().parse::<i64>()` (reuses `drop_trailing_clone`, which refuses a
+>   call/index receiver, so only a bare path is un-cloned).
+>   (5) **Nine stale `rust_backend` expectations, invariants kept.** They
+>   pinned the older, heavier emission: `__sh_puts` → `__sh_print_words`;
+>   a literal-path redirect is now a bare `std::fs::write` with NO sink
+>   runtime (the run-time-path variant `> "$1"` keeps `__SH_OUTFILE_TL` and
+>   the sink-aware printer, which is what those tests now assert); and a
+>   const-folded condition/arith cannot exhibit the shape it pins, so the
+>   numeric tests use a run-time operand (`x=$1`) — `exit $((x+1))` keeps
+>   `as i32` only when the value is not folded, `x=1` folds to `exit 2`.
+>   Gates: fail-rs 556 pass / 0 fail / 7 skip (was 543/13/7 — the earlier
+>   "13" reading was a RESUMED verdict log, not a live run: `RS_GATE_OUT`
+>   must be cleared between rounds); `./fail` 563/563; fail-estree
+>   563/563 (100%); fail-shir green (7 shell-out sites, 311 body bytes);
+>   `cargo test --lib` 1718 pass / 45 fail — `rust_backend::` is now 0 reds
+>   (was 10) and every remaining red is the pre-existing backlog in
+>   c_backend/estree/shir/fish/zsh/shir_json_in/zig/go.
 > - v103: **The first Tier-1 Isabelle session for a pass MIMEcroft actually
 >   fires: `string-accumulator`, and the bug it exposed is fixed with a
 >   failing-first test.**
