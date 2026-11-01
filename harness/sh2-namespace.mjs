@@ -3945,6 +3945,38 @@ captureSync(fn) {
     this._objStore.set(id, { kind: 'list', items: parts });
     return id;
   },
+
+  // strChars(s) — Rust `s.chars()`: Unicode SCALAR VALUES, so a char
+  // outside the BMP is ONE element where split("") would yield the two
+  // UTF-16 surrogate halves ("😀" → 1 element, not 2), and the empty
+  // string yields zero elements. Returns a native array: the caller
+  // adopts it through setArray's Array.isArray splice, so no element
+  // ever passes through expandWord (a line containing `$(` stays
+  // literal text).
+  strChars(s) {
+    return [...String(s ?? '')];
+  },
+
+  // strLines(s) — Rust `s.lines()` exactly (verified against rustc):
+  // split on `\n`, strip a `\r` only when it is part of a `\r\n`
+  // terminator, and a final newline does NOT yield a trailing empty
+  // line — `""` → 0 lines, `"a\r\n\nb\r"` → ["a", "", "b\r"] (the
+  // unterminated final `\r` is content, not a terminator), `"a\n"` →
+  // ["a"]. Native array, same splice rule as strChars.
+  strLines(s) {
+    const t = String(s ?? '');
+    if (t === '') return [];
+    const parts = t.split('\n');
+    const strip = (l) => (l.endsWith('\r') ? l.slice(0, -1) : l);
+    if (t.endsWith('\n')) {
+      parts.pop();                       // the final terminator is optional
+      return parts.map(strip);           // every kept line ended in `\n`
+    }
+    const last = parts.pop();            // unterminated: its `\r` is content
+    const out = parts.map(strip);
+    out.push(last);
+    return out;
+  },
   // num_add / num_sub / num_mul: arithmetic over arbitrary WORDS
   // (object-field reads, captures) — operands coerce through Number()
   // like bash's (( )).
