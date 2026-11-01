@@ -248,6 +248,57 @@ MODELS=(
   # guard) — C_UB_PROOF.md §25.
   "c_vbuf.rs:39:40"
   "c_sparse_array.rs:28:40"
+  # The C generator's ASSOCIATIVE-ARRAY faces (c_backend.rs:
+  # `_sh_assoc_set`/`_sh_assoc_get`/`_sh_assoc_unset`, the value join
+  # `_sh_join_arr`, the `{id}_n` count arm, the `m[k]+=v` RMW — all
+  # measured red before 2026-10-30's fixes). THE DENOTATIONAL
+  # EXTENSION: a bash assoc array is a finite Map<Str,Str> over the
+  # parallel (keys, vals) storage with wf = equal length AND pairwise
+  # distinct keys; the theorems are the per-face correspondences:
+  # get = map lookup ("" off the map), set = insert (first-match
+  # replace / append), unset = remove with survivors in order, count
+  # = keys.len() == bash's distinct count, the key set == dom, the
+  # emitted fold == bash's space join (newline join retired as M1),
+  # plus the int-attr arm at INTEGER level and the homing veto.
+  # Set-level bridges (sset membership, distinct_cons,
+  # insert/remove commute) carry the wf restoration in both mutation
+  # frames. Pins the measured b1-b4 probe scenarios; four mutants
+  # (newline join, no-op unset, concat-as-sum, veto miss) each kill
+  # one obligation. Evaluation discipline is part of the model:
+  # `by (compute)` over a LET-BOUND recursion result diverges — every
+  # compute assert takes the full concrete call term, and counts are
+  # stated on `.0.len()` (the emitted `{id}_n` arm), never on
+  # `dom().len()` (uninterp for the evaluator).
+  "c_assoc_array.rs:41:40"
+  # The C generator's IFS JOINS (c_backend.rs: `_sh_join_arr_ifs`,
+  # `_sh_join_arr_rng`, the `star` slice dispatch in `param_call`,
+  # `_sh_join_arr` for the `[@]` face, and `emit_var_decl`'s const-lift
+  # VETO for IFS — 064_07's `${config[*]}` fed `sort` one space-joined
+  # line before the fix). THE DENOTATIONAL EXTENSION: ifs_sep = first
+  # char of IFS, "" → NO separator, never-assigned = the decl's startup
+  # space; present(slots) presence protocol (holes dropped, empty words
+  # kept); rng_slice bounds count ELEMENTS (bash ground truth measured
+  # 2026-10-30: `a=(a b c); a[5]=z; ${a[*]:1:3}` → `b c z`). The `[@]`
+  # face provably never reads IFS; the whole-slice short-circuit equals
+  # the range path (rng_whole_is_all). Pins the 29-case probe battery
+  # (c01-c29). Five mutants each kill one obligation: hardcoded space,
+  # join-then-space-split (the retired `_sh_arr_slice` route), const-lift
+  # without the veto, `[@]` on IFS, dense-index slicing.
+  "c_join_ifs.rs:44:40"
+  # The C generator's REDIRECT REORDER + word quoting
+  # (c_backend.rs redirect arm + `_sh_word`): the fd-prefix parse round
+  # trip, the `'`-splice quoter over the `run`/`esc` state machine
+  # (structural `run_one`+`run_concat` chain — `by (compute)` over `run`
+  # with a symbolic state diverges, same discipline as c_assoc_array),
+  # the dup/close raw arm's quote-freedom, THEOREM `reorder_safe`
+  # (`emit_order` preserves the fd table under `safe(rds)`) with
+  # `n1_fd0_conflict` proving the side condition necessary (measured
+  # 2026-11-01 /tmp/redprobe: bash FROM_FILE vs generated
+  # FROM_HEREDOC), and the ps-flip monotonicity. Also carries the
+  # `reads0` model fix (Wc|A widened to the mode set `written`
+  # consults — `written_frame` was provably false without it).
+  # Named mutants m1-m3+, each killing one obligation.
+  "c_redirect.rs:46:40"
   # Store-forward sweep (Tier-1): counted-loop append -> indexed store
   # (append_to_store.rs 590 lines). Per-trip + whole-loop induction
   # under the guard-verdict oracles (exactly-one site, empty init, no
