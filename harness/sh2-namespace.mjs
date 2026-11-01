@@ -3946,6 +3946,29 @@ captureSync(fn) {
     return id;
   },
 
+  // strStripPrefix(s, p) / strStripSuffix(s, p) — Rust's
+  // `str::strip_prefix` / `strip_suffix`: Some(rest) after an exact
+  // affix, None otherwise. The store's option model is Some(v) ≡ v /
+  // None ≡ "" (t109), so a miss answers "" — what the caller's
+  // if-let/matches! already reads as None. Exact for any affix,
+  // including the empty one (startsWith("") is true and slice(0) is
+  // the whole string, the same Some(s) Rust answers).
+  strStripPrefix(s, p) {
+    const t = String(s ?? ''), q = String(p ?? '');
+    return t.startsWith(q) ? t.slice(q.length) : '';
+  },
+  strStripSuffix(s, p) {
+    const t = String(s ?? ''), q = String(p ?? '');
+    return t.endsWith(q) ? t.slice(0, t.length - q.length) : '';
+  },
+
+  // strIsAsciiAlnum(s) — Rust's `str::is_ascii_alphanumeric`: EVERY
+  // char is in [0-9A-Za-z], vacuously true for the empty string (the
+  // one edge a naive regex-with-+ would invert).
+  strIsAsciiAlnum(s) {
+    return /^[0-9A-Za-z]*$/.test(String(s ?? ''));
+  },
+
   // strChars(s) — Rust `s.chars()`: Unicode SCALAR VALUES, so a char
   // outside the BMP is ONE element where split("") would yield the two
   // UTF-16 surrogate halves ("😀" → 1 element, not 2), and the empty
