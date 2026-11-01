@@ -12,6 +12,37 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v106: **Every `unused_parens` class in the emitted Rust is gone — one
+>   helper at the `emit` choke point instead of a hunt per template.**
+>   rustc census over the 563-file corpus: 74 → 48 (all four paren classes
+>   to zero).
+>   (1) **`strip_let_parens` at `emit`.** A `let` takes any expression, so
+>   the pair the renderer wraps around a compound value is pure text there
+>   — "unnecessary parentheses around assigned value" (5 sites). Fixing it
+>   where EVERY statement is pushed means no future template can regress it
+>   (the previous round's per-site `let_value` call was whack-a-mole: the
+>   array-store template had its own `let __k = (…);` left over). The scan
+>   refuses a tuple (`let (a, b) = (x, y);` must keep its pair) and a `==`
+>   that is not the binding's `=`, and touches only a pair that closes
+>   right before the `;`.
+>   (2) **`unparen_deep` for conditions.** `unparen` strips ONE pair, but a
+>   glob test renders `(__sh_fnmatch(…))` and the case chain adds another,
+>   so `} else if (…)` survived a single strip (4 sites). Repeated
+>   stripping is sound exactly in a condition (a bool cannot be a tuple).
+>   (3) **`__sh_div`/`__sh_mod`/`__sh_pow` arguments** go through the
+>   comma-safe helper — an argument takes any expression too (4 sites).
+>   (4) **A `{{`/`}}` template that was never a `format!`.** The `$!`
+>   value is a plain `String` other templates splice with `{}`, so its
+>   escaped braces were emitted VERBATIM — `*v.borrow_mut() = {{ let __p =
+>   … }}`, a doubled block rustc flagged at 4 sites (grep_p, dollar-bang).
+>   Same class as the `"!"` arm fixed in v103; both now single-braced.
+>   Gates: `./fail` 563/563, fail-rs 556/0/7, fail-estree 563/563 (100%),
+>   fail-shir green. `cargo test --lib` 1728 pass / 46 fail: the 45-red
+>   backlog plus ONE new c_backend red
+>   (`unsigned_mod_refuses_unranged`) that is NOT this round —
+>   `src/c_backend.rs` and `src/shir_passes/numeric_observed.rs` are
+>   modified in the shared checkout by another worker's in-flight work, and
+>   this round committed `src/rust_backend.rs` alone.
 > - v105: **One shared verdict replaced three copies of "does this list
 >   fall through", and the Perl gate caught the first version being
 >   UNSOUND.** rustc-warning census over the 563-file emitted corpus: 91 →
