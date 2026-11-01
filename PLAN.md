@@ -44,7 +44,15 @@ Covers three related work items:
 >   string-homed var carried a clone: `x.clone().trim().parse::<i64>()` →
 >   `x.trim().parse::<i64>()` (reuses `drop_trailing_clone`, which refuses a
 >   call/index receiver, so only a bare path is un-cloned).
->   (5) **Nine stale `rust_backend` expectations, invariants kept.** They
+>   (5) **`$?` / `$$` / `$#` stringified an integer.** `expr_any` appended
+>   `.to_string()` to reads that `getvar_num` renders as an integer — the rc
+>   load, the pid, the argv length — so `echo "rc=$?"` allocated a String for
+>   every status echo. `word_is_numeric`'s `getVar` arm now accepts those
+>   three names (they are integers BY CONSTRUCTION, so the verdict cannot
+>   drift from the reader). Corpus-wide: rc stringifications 177 → 17, pid
+>   4 → 0, argv-length 3 → 2 (the 17 are `$?` reads reached through a shape
+>   that is not a bare `getVar` word).
+>   (6) **Nine stale `rust_backend` expectations, invariants kept.** They
 >   pinned the older, heavier emission: `__sh_puts` → `__sh_print_words`;
 >   a literal-path redirect is now a bare `std::fs::write` with NO sink
 >   runtime (the run-time-path variant `> "$1"` keeps `__SH_OUTFILE_TL` and
