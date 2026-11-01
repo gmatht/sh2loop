@@ -12,6 +12,31 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v107: **Two lint classes normalised by changing the SHAPE, not by
+>   renaming or allow-ing around it.** rustc census: 48 → 22.
+>   (1) **`__sh_printf`'s dead initializer (9 sites).** The helper declared
+>   `let mut piece = String::new();` and then assigned it in EVERY match
+>   arm, so rustc reported "value assigned to `piece` is never read" once
+>   per arm. The match now IS the initializer — the arms that also apply a
+>   `.prec` truncation get a local `t`, the rest return their value — and
+>   the helper is emitted with no warnings at all (`printf '%s|%d|%05.2f|%q'`
+>   verified byte-for-byte against bash).
+>   (2) **A user function keeps its shell name, with the attribute it needs.**
+>   `exitScript`, `INFO`, `test` are the SOURCE's names: callers use them and
+>   `typeset -f` prints them, so renaming to snake_case would be a
+>   miscompile. An uncalled definition is legal shell too (and observable via
+>   `declare -f`), which is exactly why dead_fn_elim refuses to drop it — so
+>   the definition carries `#[allow(non_snake_case, dead_code)]` (the
+>   snake-case half only when the name has an uppercase letter). Pipeline
+>   helpers deliberately keep `dead_code`, so a genuinely orphaned runtime
+>   helper still trips the lint.
+>   Gates: `./fail` 563/563, fail-rs 556/0/7, fail-estree 563/563 (100%),
+>   fail-shir green. `cargo test --lib` 1733 pass / 46 fail — the same 45-red
+>   backlog plus the one c_backend red from the other worker's in-flight
+>   changes (`src/c_backend.rs`, `src/shir_passes/numeric_observed.rs`,
+>   `src/transforms.rs` and `src/transforms/dead_store_elim.rs` are dirty in
+>   the shared checkout and were NOT staged; this round committed
+>   `src/rust_backend.rs` alone).
 > - v106: **Every `unused_parens` class in the emitted Rust is gone — one
 >   helper at the `emit` choke point instead of a hunt per template.**
 >   rustc census over the 563-file corpus: 74 → 48 (all four paren classes
