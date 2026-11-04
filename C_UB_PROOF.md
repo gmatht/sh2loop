@@ -4,8 +4,8 @@ Status: **P1, P2 and P3 mechanized and green; §2a's `ov`-flag obligation
 mechanized in Verus and in Isabelle (§13); the Eq/Ne render decision and
 the decimal renderers mechanized in Verus, the decimal round trip also in
 Isabelle (§14); the width/buffer/arith operator/promotion/string-helper/
-capture/decl-coverage/escaper emission decisions mechanized in Verus
-(§15–§23); P4 blocked on the absent
+capture/decl-coverage/escaper/write-arm/growth-helper/sparse-array
+emission decisions mechanized in Verus (§15–§29); P4 blocked on the absent
 `C-Parser`/`AutoCorres` toolchain** (§12). Written 2026-10-22 against
 `sh2perl/backends/c` @ `5b1524085` (`src/c_backend.rs`, 50,747 lines);
 §13 added 2026-10-27, §14 added 2026-10-28.
@@ -677,6 +677,93 @@ not cosmetic.
 
 
 
+- v20 (2026-10-29): **the sparse-array read family** — a nine-face
+  probe through the real pipeline (shir → C → cc → bash-diff) exposed
+  six red faces: `${!arr[@]}` on ANY indexed array was a cc red (the
+  read-driven `assoc_arrays.insert` in THREE places flipped storage
+  class while the writes stayed indexed — `arr_len undeclared, did you
+  mean arr_n`), `${#arr[@]}` reported the dense extent (6 vs bash 4),
+  `${arr[*]}` emitted the separator before the NULL skip (`a b c   z`),
+  the for-in visited holes as empty strings, and the
+  `for ((i<${#arr[@]}))` bound read
+  `atoll(_sh_env("((long long)arr_len)"))` → 0 iterations for DENSE
+  arrays too (never worked). Fixed in `src/c_backend.rs` (class from
+  writes; `_sh_join_ikind`/`_sh_icount`/`_sh_join_idx` helpers;
+  separator-after-skip; for-in hole skip; NULL-after-free in all seven
+  free loops; `apply_array_counts` gained the `_sh_env("T")` wrapper
+  rewrites + the element-count branch). Gate 588/56/7 → 590/54/7 with
+  an EMPTY newly-failing set; two corpus files flipped green. §26,
+  `c_sparse_array.rs` (28 obligations, mutants m1–m3 + the
+  coverage-old pin), registered `c_sparse_array.rs:28:40`.
+- v19 (2026-10-29): §22's extractor — the FIRST MECHANICAL SYNC for
+  a transcription model. `harness/declcov-extract.py` extracts the
+  modelled walkers' arm chains verbatim from `sh2perl/src/c_backend.rs`
+  (exact arm-pattern text with guards, plus the walker calls each arm
+  body carries; INV + Hoist + Veto, 8 functions incl. the veto's seq
+  dispatcher), emitted into the manifest by a new
+  `verus-sync-coverage.sh c_decl_coverage` dispatch — pin map: the 8
+  pins → UNMIRRORED (the §22 living tie is the probe battery + corpus,
+  which cargo cannot run), a region-stable sha header (a whole-file
+  sha would false-fail on every other lane's c_backend edit), and a
+  crate-root test filter so [exec] still compile-checks the lib.
+  Baseline committed as `proofs/verus/c_decl_coverage_sync.txt`
+  (140 lines), registered in `harness/verus-gate.sh` SYNCS. Negative
+  control: deleting the hoist If arm's elsif-cond walk moved exactly
+  its line (`collect_assigned_exprx2` → `x1`) and the region sha →
+  red; restored → the baseline reproduces the live source.
+  Side-repair: HEAD's `harness/verus-gate.sh` had LOST the `MODELS=(
+  … )` closing paren (a registration commit), so the gate had not
+  parsed since — `bash -n` green, gate runs again.
+
+- v18 (2026-10-29): **the decl-coverage source fixes rebuilt**, plus
+  one render fix the probe battery forced. The 2026-10-28 working tree
+  carrying v10b's and the (0)(a)-(d) audit fixes was overwritten back
+  to committed state at 23:10 (never committed — no stash, reflog, or
+  surviving copy held them), so the source re-landed from the one
+  artifact that survived intact and gated green: the model
+  `c_decl_coverage.rs`, whose arm chains and pins are the verbatim
+  spec. In `sh2perl/src/c_backend.rs`:
+  1. HOIST (`collect_assigned_vars`/`_expr`): fix (0) Try arms; (a)
+     elsif-cond walk; (b) For-iter walk; the While/DoWhile-cond walk;
+     the Case discriminant; the Select ch/value exprs (top-level menu
+     write); stmt arms for Output/DeclareArray/Die/Warn/SetChildError/
+     Return(v10b #2)/WriteFile/Redirect/Pipeline/Exec; expr-position
+     (c) `printf -v`, (d) `let`, v10's `param` `=`/`:=` arm, the
+     raw-text `${NAME:=…}` scan (v10b #3), and the generic/BinOp/
+     Interp/Array/Arrow forwarders the old `_ => {}` swallowed.
+  2. INVENTORY (`collect_vars_full`/`_expr`): Try (0),
+     While/DoWhile-cond, v10's `param` arm, the raw scan.
+  3. STORE (`collect_store_names`/`_expr`): Try (0), the writing-param
+     arm, the raw scan.
+  4. VETO: `collect_param_write_targets`/`_stmt`/`_expr` re-created
+     from the model's `paramw` chains and wired into
+     `const_assign_rhs`'s poison set (a `${NAME:=…}` target is never
+     const-liftable).
+  5. `vbuf_temp` forces `need_sh` (v10b #4 — the `_sh_vbuf` typedef
+     exists only inside the helper block).
+  6. **RENDER FIX THE PROBES FOUND (new — not in v10b):** the `=`/`:=`
+     arm's non-buf scalar path stored the default word's LITERAL
+     pointer in a var the end-of-scope cleanup `free()`s
+     (`is_heap_store_var`) — p13/p11/p14 printed the right bytes then
+     died `munmap_chunk(): invalid pointer` (rc 134 vs bash 0) as soon
+     as the census fixes made those vars declared at all. The store
+     arm now `_sh_xstrdup`s the DEFAULT only (the value arm re-reads
+     the var — same bytes; the double-eval count matches the old
+     `(y = v, v)`). Buf'd vars already `strcpy`d; numeric vars never
+     hold pointers.
+  Verification: the 14-case statement-position battery
+  (`/tmp/decl_probe.sh`) is **14/14** (compile + stdout vs bash);
+  `c_decl_coverage.rs` re-verifies **51v/0e**; full gate measured as
+  an A/B against the SAME tree with HEAD's `c_backend.rs` swapped in:
+  mine **588/56/7** vs HEAD **573/71/7** — 15 files fixed (the
+  undeclared-ident `cc` class these fixes target, plus the
+  process-substitution trio), **zero new failing files** (one class
+  change: `parse-arithmetic-extra-paren` cc→exec/diff, still red —
+  known lexer-gap class); `cargo test --lib c_backend::` fails exactly
+  the same 9 tests as the pre-change 00:08 baseline. The 5 reds worse
+  than v17's 593/51 are all reproduced under HEAD too — other lanes'
+  committed Eq/Ne + transform work landed after that measurement.
+
 - v17 (2026-10-28): §23 — the string-literal escaper
   (`c_str_lit.rs`, 19 obligations, three mutants red at their pins →
   restored 19v/0e): FINITE-STATE C-lexer denotation + round-trip +
@@ -910,15 +997,13 @@ goes red (14v/1e, restored to 15v/0e) — the abort-preservation rule is
 load-bearing: a folded `/` would turn a runtime SIGFPE-guard into a
 compile error.
 
-## 20. The `_sh_*` string helpers — `c_str_helpers.rs` (40 obligations)
+## 20. The `_sh_*` string helpers — `c_str_helpers.rs` (103 obligations)
 
 The `need_sh` runtime block's string core: the shared b/e clamp, the
 byte-exact readers, the literal march, the oracle-consistent strips,
 the argv words, the split spans. Each helper writes into a grown vbuf
-(capacity assumed — P3's domain) and NUL-terminates; what is proved is
-the COMPUTE side (indices in-bounds, bytes exact).
-
-What is proved (28 proof fns, 40 verified): `clamp_total` (THE
+(capacity discharged in §25 — `c_vbuf.rs`) and NUL-terminates; what
+is proved is the COMPUTE side (indices in-bounds, bytes exact). What is proved (43 proof fns, 56 verified): `clamp_total` (THE
 CLAMP — total and in-bounds for every off/len over every n — the
 property every helper's loop depends on); `substr_exact` (byte-exact
 span with the bash sign conventions); `substr_edges` (empty, past-end,
@@ -936,14 +1021,43 @@ are the maximal non-blank spans) + `split_count_sound`; pins
 (substr `${s:1:3}`, replace-all `"aa"→"bb"` by the two-step march,
 replace-first, the `"a b  c"` 3-word walk unfolded innermost-first).
 
+**The positional join's FACE (2026-11-03).** `_sh_argv_join` used to
+hard-code a space: right for `"$@"`, silently wrong for `$*` under
+any non-default IFS. bash (MEASURED, same run): `IFS=:; set -- p q r;
+v="$*"` → `p:q:r`, `v="$@"` → `p q r`; `IFS=""` → `pqr`. The helper
+now takes the joiner from the CALL SITE (`*` → IFS[0], `@` → `' '`),
+and the model's extension is the denotation of that face:
+`ifs0(ifs)` (first char; None when IFS is empty — the NUL the emitted
+`if (i > 1 && sep)` guard reads as "no separator") and
+`join2(sep,a,b)` (one separator BETWEEN words). Obligations:
+`argv_join_sound` (len ≤ 1 ⟹ empty — $0 is never joined — else the
+sep-fold over $1..); `join_seq_sep_none` (empty IFS ⟺ the fold
+CONCATENATES, by induction on the item count — the meaning of the
+`&& sep` guard); the measured pins `argv_join_star_colon` (`p:q:r`),
+`argv_join_star_empty` (`pqr`), `argv_join_at_face_ignores_ifs`
+(`p q r` under colon IFS, and identical under the startup IFS), and
+`argv_join_faces_differ` (the two faces are OBSERVABLY different under
+a colon IFS — before the fix the model had no sep, so it could not
+have expressed the divergence, let alone caught it); the `len ≤ 1` arm
+(`argv_join_single_positional`); `ifs0_bridge` (first-char-only read,
+empty ⟺ None). Battery: `harness/ifs-probe.sh` cases 27–30 are green
+against bash; case 31 pins a RETAINED divergence as an xfail, never a
+blessed pass — `unset IFS` (bash reverts to the startup space, the
+C unset arm empties the fixed buffer, so `$*` then joins with nothing).
+
 House lessons recorded in the file: `Seq::len()` is nat — the
 int-domain helpers take int, so one `slen` cast site; spec-function
 calls on literal push-chains need the sub-evaluations bound to names
 before the match unfolds; the no-match identity needs the hypotheses
 threaded per search (a bare assert does not fire); the word-walk pin
-unfolds innermost-first with index bridges.
+unfolds innermost-first with index bridges; `decreases` comes AFTER
+`ensures` in a proof-fn signature (the reverse is a parse error); and
+an induction over a recursive `open spec fn` needs each branch's
+unfold written as an explicit assert — an EMPTY branch body leaves the
+postcondition unproved even with the IH in scope.
 
-Honest: vbuf growth assumed (capacity is P3's property); the
+Honest: vbuf growth now proved in §25 (`c_vbuf.rs`, under its
+stated size domain); the
 `fnmatch` glob ENGINE is an oracle called identically on both sides
 (the case_lowering glob-arm shape); traversal per-site.
 
@@ -951,6 +1065,392 @@ Negative control: flipping the clamp (e<b allowed, the
 out-of-bounds shape) goes red (39v/1e, restored to 40v/0e) — the
 clamp is load-bearing: without it a negative length reads past the
 NUL.
+
+### 20b. Field splitting is IFS-driven (2026-11-04)
+
+The join faces (§28b) read IFS; the **split** that undoes them did not.
+`_sh_split` split on space/tab/newline, hard-coded:
+
+```c
+while (*p == ' ' || *p == '\t' || *p == '\n') p++;   /* no IFS read */
+```
+
+so `IFS=':'; for w in $v` over `a::b: c` produced TWO fields where bash
+produces four. Ground truth (real bash, `harness/ifs-probe.sh` 41-50):
+
+| value | IFS | fields |
+|---|---|---|
+| `a::b: c` | `:` | `a`, ``, `b`, ` c` (4) |
+| `:a:` | `:` | ``, `a` (leading delimiter → an EMPTY first field) |
+| `a:b:` | `:` | `a`, `b` (a trailing delimiter adds nothing) |
+| `:` | `:` | one empty field |
+| `  a  b  ` | startup | `a`, `b` (whitespace runs collapse) |
+| `a , b` | ` ,` | `a`, `b` (ws + ONE non-ws + ws is one delimiter) |
+| ` a:: b ` | ` :` | `a`, ``, `b` (the space after `::` joins that delimiter) |
+| `a::b` | `""` | one field (an empty IFS disables splitting) |
+| `a\tb` | `' '` | one field (a tab is ordinary unless IFS lists it) |
+| `a\tb` | startup | `a`, `b` |
+
+The last two rows are why the **decl** had to change as well: bash's
+startup IFS is three chars (`" \t\n"`) and the pre-fix decl held one
+space, which the hard-coded splitter silently compensated for. The decl
+now holds the real value; `IFS[0]` is still `' '`, so every join face
+(§28, §28b) is unchanged.
+
+Source: `_sh_split` is now driven by two membership probes
+(`_sh_ifs_ws`: `' '/\t/\n` **and** listed in IFS; `_sh_ifs_nw`: listed
+and not whitespace) and the loop is the POSIX delimiter-unit algorithm —
+scan a body, terminate the field in place, then consume one unit
+(`ws* nw? ws*`), with an empty IFS returning the whole value as one
+field.
+
+The denotation (`fields_fuel` / `ifs_fields`): `has_ch` (IFS
+membership), `ifs_ws` / `ifs_nw` / `ifs_delim`, `skip_ws`,
+`field_end`, `unit_after` (the delimiter unit), and the loop over an
+explicit fuel. **Fuel is exact, not an approximation**: `fields_saturated`
+proves any `k >= len - i` gives the same field list as `len - i`,
+off the progress lemmas `skip_ws_ge/le`, `field_end_ge/le`,
+`unit_after_gt/le`, `nxt_gt`.
+
+One proof-engineering finding worth recording: `s[i]` written directly
+in a recursive spec's body makes that term **stuck** whenever `i` is not
+provably in range, and a stuck term means the recursive spec never
+unfolds — no lemma about it can be proved, with or without
+`--triggers-mode silent` (bisected on a one-file reduction: the same
+function with the index hidden behind a total predicate `ws_at(s,ifs,i)`
+verifies immediately). Every index inspection therefore goes through
+`ws_at` / `nw_at` / `delim_at`, each guarded `i < 0` / `i >= len`
+first. The `i < 0` arms also keep the specs total.
+
+Pins `f1`-`f11` are the table above, `by (compute)` over literal
+sequences; `f11` is the mutant — `blank_runs` transcribes the RETIRED
+splitter (`skip_blank`/`blank_end`/`blank_count`, no IFS read) and the
+obligation is that the two denotations **differ** on `a::b: c` under
+`':'` (4 vs 2). Negative control: changing `f2`'s expected field list
+turns the file red (91v/1e, restored to 92v/0e), so the pins are not
+vacuous.
+
+Measured: `harness/ifs-probe.sh` **53 PASS / 0 FAIL / 6 XFAIL / 0 XPASS**
+(cases 41-50 are the splitter, 51-51c the `$IFS` read, 52/52b the empty
+word, 53-53c the fallback slice, 32-40 the slice faces of §28b); the C corpus gate **PASS=605 FAIL=39 SKIP=7 with a
+failure list byte-identical to the pre-change run**, which is the result that matters here —
+`_sh_split` sits on the common unquoted-expansion path.
+
+**One of the two adjacent gaps found here is now closed** (same
+round). An IFS the program never ASSIGNED used to read `""` through the
+variable face, because those reads reach `_sh_env` = `getenv`, not the
+buffer the splits consume — so `$IFS` DISPLAYED a different value than
+the one splitting used, and `${#IFS}` said 0 where bash says 3. Two
+fixes, because the read arrives by two routes: `store_ref` returns the
+bare `IFS` ident for that name (the buffer IS its store; the per-var
+hoist deliberately skips it, so `has_c_decl` was false), and `_sh_env`
+itself answers `"IFS"` from the buffer, which covers the shapes that
+bypass the store path entirely (`${#IFS}`, `getVar`, indirect reads).
+`getenv` was never the right source: bash IGNORES an inherited IFS at
+startup and re-creates its three characters. Measured: `${#IFS}` = 3 and
+`$IFS` renders `" \t\n"` unassigned, 1 and `":"` after `IFS=:`, and the
+split of `a::b` is still `a`, ``, `b`. Model: `f12` (the startup buffer
+is exactly three chars, each IFS whitespace) and `f13` (it holds nothing
+else — `:`, `,`, `a` are not delimiters of it), so the value the
+splitter consumes is proved to be the value the variable face publishes.
+
+The remaining adjacent gap stays pinned as `xfail` — and it turned out
+to be **out of a backend's reach**, which is worth recording precisely.
+An empty UNQUOTED expansion must contribute ZERO fields (bash:
+`e=""; for w in $e` iterates 0 times) while a QUOTED `""` is one empty
+field; the C `for` lowering emits a one-element list for both. The two
+programs lower to **byte-identical shIR**:
+
+```json
+{"type":"For","var":"w","iter":{"type":"Array","elements":[
+    {"style":"DoubleQuoted","type":"Str","value":""}]}}
+```
+
+`StrStyle` is `SingleQuoted | DoubleQuoted | Command | Heredoc | Raw`
+(`ir.rs:304`) — there is no value for "came from an unquoted expansion",
+so the origin is already lost when a backend sees the word. Doing this
+in the renderer would be a guess, and adding the variant to the shared
+enum is a single-owner core change (`AGENTS.md`: the core stays
+single-owner during the lowering phase; transforms are the marketplace).
+So it is filed as `core-requests/c-20261104-unquoted-empty-word.md` with
+the repro, the identical-shIR evidence, the minimal patch
+(`StrStyle::Unquoted`, carried through the `copy_propagation`/
+`interp_fold` folds) and the acceptance test. The model states the
+contract that fix must meet: `f14` (an empty value splits to ZERO
+fields) and `f15` (the one-element empty list the renderer emits is
+provably different from it) — both `by (compute)`, so the day the fold
+carries the origin, the pins are already there to check it against.
+Battery case `52b` guards the half that must NOT change: a quoted empty
+word stays ONE field. `_sh_arr_slice`'s own helper still splits on a
+space only, so `word_spans`/`arr_slice` above keep modelling it
+unchanged.
+
+### 20c. The fallback slice is the inverse of its OWN join (2026-11-04)
+
+`_sh_arr_slice` is the arm taken by an array whose storage the emitter
+cannot walk: `array_join_all_face` produces a string and this helper
+slices it back into words. The join uses IFS[0] for `${a[*]}` and a
+literal space for `${a[@]}`; the helper split on a space
+unconditionally, so with `IFS=:` the word COUNT was wrong:
+`a=(x y z); ${a[*]:1:2}` joined to `x:y:z`, then split into ONE word and
+returned the empty value (`bash`: `y:z`).
+
+The helper now takes `sep` and splits on exactly it. Two details are
+load-bearing and are stated, not assumed:
+
+- **it is the inverse of its own join, not bash's field splitting.** The
+  join only ever inserts `sep` BETWEEN words, so words = 1 + occurrences
+  and `:x` is two words (`""`, `x`) while `x:` is two (`x`, `""`). That
+  is the OPPOSITE of `_sh_split`, where a trailing delimiter adds
+  nothing — the two functions consume different things (user text vs its
+  own join) and the model keeps them apart: `sep_fields` (keeps empty
+  fields) vs `ifs_fields` (§20b, drops them).
+- **empty fields are kept.** The retired scan skipped leading spaces, so
+  `a=("" x)` joined on `:` came back as one word.
+
+Denotation: `sep_at`, `sep_end`, `sep_fields_fuel` (fields <= len + 1),
+`sep_fields`, `arr_slice_sep` (the same b/e arithmetic as the store
+arms, then the selection re-joined with `sep`). Pins: `g1` (`x:y:z` on
+`:` is three words; `[1,2)` is `y:z`; `[1,1)` is `y` — the reported
+defect), `g2` (the whole range round-trips, and a SPACE split of `x:y:z`
+is one word — why the separator must match), `g3` (`:x` keeps its empty
+field), `g4` (the default IFS is unchanged: `x y z` slices to `y z`),
+`g5` (an empty join has NO fields, so any slice is the empty value).
+Negative control: `g2`'s space-count flipped to 3 goes red
+(`expression simplifies to 1 == 3`, restored 103v/0e).
+
+The output FACE (`IFS[0]` for `*`, IFS[0]-else-space for `@`, §28b)
+stays with the exact store-based arm `_sh_join_arr_rng`; this arm
+re-joins with the separator it split on, which is the faithful round
+trip for an array whose storage it cannot walk.
+
+Measured: battery `harness/ifs-probe.sh` **53 PASS / 0 FAIL / 6 XFAIL /
+0 XPASS** (cases 53-53c take the fallback through a function-local
+array; with `IFS=:` the pre-fix arm returned `""` where bash returns
+`q:r`); the C corpus gate **PASS=605 FAIL=39 SKIP=7, failure list
+unchanged**. A TYPED array (`declare -ia`) turned out to CRASH — dense
+`long long[]` storage handed to `_sh_join_arr_sep`, which walks `char
+**` (ASAN: SEGV in `_sh_join_arr_sep`, read at 0x1). That is
+pre-existing and independent of *this* fix, so it was pinned as
+`54_xfail_dense_int_array` in the round that found it; the next section
+closes it.
+
+### 20d. The dense-value join, and closing the SIGSEGV (2026-11-04)
+
+`declare -ia a=(1 2 3); echo "${a[*]}"` lowered to C that **compiled and
+then died** (rc 139): the width analysis gives a typed array DENSE
+integer storage (`long long[]`, or the narrowest width that fits the
+elements, or the growable-vec pointer form), while the whole-expansion
+join routed every non-assoc array through `_sh_join_arr_sep(_sh_vbuf *,
+`char **a`, `size_t`, `char`)`. Slot 0 held `1`, so the helper dereferenced
+`(char *)1` — ASAN reports the read at `0x1`.
+
+**Why the fix is in the renderer and not the helper.** A `const long
+long *` parameter cannot serve the site: the element type is per-array
+(`long long` / `int` / `int32_t`, plus the vec form), and casting `int
+*` to `long long *` reinterprets 4-byte slots as 8-byte ones. So
+`array_join_all_face` emits the fold INLINE, converting each element
+with `_sh_ll2s` (exact for every width; the trim pass keeps the helper
+because the rendered text names it). The separator discipline is the
+SAME fold the char** helper uses — `if (_jdi)` writes the separator on
+every element except the first, and `sep == 0` (an empty IFS) writes
+none — which is what makes this a routing change rather than a second
+join. The `mpz_t[]` array-return storage shares the old type confusion;
+it takes the same inline arm via `mpz_get_str` instead of falling
+through to `char **`. That arm is NOT measured end-to-end (reaching it
+needs a program that both lifts an array-returning function and joins
+its result; no example does), and is written so the shape cannot reach
+the pointer helper if one ever does.
+
+**Denotation extension** (`c_join_ifs.rs`, §28's model): `dense_join(sep,
+xs)` = `join_sep(sep, xs)` over the DENSIFIED element list, and
+`dense_face(star, xs, ifs)` selects `ifs_sep(ifs)` for `[*]` and
+`Some(' ')` for `[@]`. The distinction from the char** faces is the
+ELEMENT LIST, not the separator: `star_join`/`at_join` take
+`present(slots)` (a NULL slot IS unset), dense storage has no presence
+marker so its list is `densify`'s (a zeroed slot is the integer 0).
+Mutants each kill one obligation.
+
+Pins (bash MEASURED 2026-11-04):
+
+- `d1` — `${a[*]}` on the startup IFS is `1 2 3` (the defect itself);
+- `d2` — `IFS=` joins with NOTHING (`123`), so the separator cannot be a
+  literal;
+- `d3` — `[@]` is a space under `IFS=:` (`1 2 3`) while `[*]` is `1:2:3`,
+  and the two faces therefore DISAGREE on one array;
+- `d4` — the dense list and the presence list of the same array differ
+  (`7:0:9` vs `7:9`): the value half of the type confusion, and the
+  obligation a future "unify the two joins" refactor fails;
+- `d5` — the boundaries: zero elements join to the empty string (both
+  faces), one element keeps no separator, an empty IFS on one element is
+  the element;
+- `d6` — the k-1 separator count, on the total length (`+2` for three
+  elements on a one-char separator, `+0` for an empty IFS);
+- `d7` — the dense join IS the shared fold (`dense_join(s, xs) ==
+  join_sep(s, xs)`, plus the `forall` on `None`).
+
+**Scope, stated plainly.** Verus cannot see C types, so it cannot state
+"this pointer is the wrong type". Nor did the C gate catch it at compile
+time: MEASURED on the gate's own compiler (GCC 13.3) the old shape is a
+`-Wincompatible-pointer-types` **warning**, not an error — it compiled
+and then died at runtime (rc 139); GCC 14+ promotes that diagnostic to
+an error. So the type side is a RUNTIME check here, and the probe
+battery is what catches it. What the model states is why the routing is
+*required* rather than cosmetic (`d4`) and what the dense face must
+compute (`d1`-`d3`, `d5`-`d7`). Negative control: collapsing
+`dense_face`'s `[@]` arm into the IFS arm fails `d3` ("`['1',':','2',':','3'] ==
+['1',' ','2',' ','3']` evaluates to false"), restored 61v/0e.
+
+Measured: battery `harness/ifs-probe.sh` **59 PASS / 0 FAIL / 6 XFAIL /
+0 XPASS** — the old `54_xfail_dense_int_array` is retired to a PASS
+(`1 2 3`), 54b-54f add the faces (colon, empty IFS, `[@]`), the integer
+extremes (`-1 0 -9223372036854775807`) and the dense SLICE, which takes
+the §20c fallback and so also checks that the fallback's separator
+agrees with the dense join's; 55 pins the REMAINING documented dense
+edge, which is not a join bug: value storage has no presence marker, so
+`n[0]=7; n[2]=9` is `3 7 0 9` where bash says `2 7 9` (that case was a
+crash before, and is now merely the documented wrong). Nine direct
+probes agree with bash except that same sparse case, and all nine are
+**ASAN+UBSAN clean** (`-fsanitize=address,undefined
+-fno-sanitize-recover=all`, `detect_leaks=0`) — the check that matters
+for a memory defect.
+
+Corpus gate: **PASS=606 FAIL=38 SKIP=7**. Diffing the failure NAMES
+against the previous round's run (`PASS=605 FAIL=39 SKIP=7`) gives
+exactly one recovered example, `064_18_array_slicing_manipulation.sh`,
+and **no** new failure — and that one is the §20c fallback-slice fix,
+not this one: no corpus example uses `declare -ia`, so the dense join's
+corpus delta is zero by construction (it removes a crash no example
+reaches, which is exactly why the probe battery is the instrument for
+it). An earlier gate run (599/45/7) was taken WHILE the CLI was being
+rebuilt and is invalid: seven of its failures were "stub", the signature
+of a binary replaced mid-run — do not rebuild during a gate.
+
+### 20e. Dense storage gains a presence marker; `${!arr[@]}` compiles again (2026-11-04)
+
+The §20d round closed the type confusion but left the documented dense
+edge standing: value storage has no per-slot marker, so a hole was
+indistinguishable from the integer 0. Bash tracks the SET, and the
+divergence was measurable in four places — count, join, keys and element
+reads:
+
+```
+declare -ia n; n[0]=7; n[2]=9
+  ${#n[@]}   bash 2   C 3
+  ${n[*]}    bash `7 9`   C `7 0 9`
+  ${!n[@]}   bash `0 2`   C `0 1 2`
+  ${n[1]}    bash ""    C "0"
+```
+
+Fixed dense integer arrays now emit a parallel byte-per-slot marker
+`{id}_set[{cap}] = {0}`, and every reader consults it: count is
+`_sh_ccount` (a popcount over the extent), the join skips unset slots
+(and rides a FIRST-PRESENT flag, since the separator can no longer be
+`if (i)`), the key list is `_sh_join_idx` over the marker, and an element
+read of an unset slot is EMPTY rather than `0`. Writes mark
+(`{id}_set[k] = 1` at the three int store sites), `unset 'n[i]'` clears
+the bit, and every reset (`arr=()`, `unset arr`, the empty literal)
+memsets the marker — without that, a later write past a former hole
+exposes a phantom element.
+
+**Why the marker and not a smarter value check.** A present element can
+hold 0: `declare -ia a=(0 0 0)` counts 3 and prints `0 0 0` (MEASURED),
+so presence cannot be derived from the value — this is pin `e6`.
+
+**One `${!arr[@]}` finding that is not the renderer's.** The expansion
+was a hard COMPILE error before this round: `array_keys_join` forced
+every var into `assoc_arrays`, so `${!n[@]}` on dense storage emitted
+`n_k`/`n_v`/`n_n` — storage the decl never declared (and the assoc
+classification then poisoned every later reader). It now dispatches on
+the storage class (assoc key list / char** set slots / dense indices).
+
+The FACE of that expansion is still lost upstream: `${!n[*]}` and
+`${!n[@]}` lower to the SAME shIR (`param("slice", "!n", "@", "")`)
+while the values face keeps its distinction, so the keys join cannot
+know it was `[*]` and uses the `[@]` space (`bash` with `IFS=:`:
+`0:2`). That is core territory (`shIR` lowering, single owner), filed as
+[core-requests/c-20261104-keys-face.md](core-requests/c-20261104-keys-face.md)
+and pinned as `56_xfail_keys_star_face`; `array_keys_join` already takes
+the face, so it goes green when the face survives.
+
+**Denotation** (`c_join_ifs.rs`): `dense_marked_join` = `join_sep` over
+`present(slots)` — with the marker the dense element list IS the char**
+list — so `dense_marked_face` is provably `join_face` for both faces
+and any IFS (`e4`). `dense_count` = `|present|`, `dense_get` = the slot
+or empty, `dense_clear` = the slot removed, `present_idx` = the set
+indices ascending. Pins: `e1` the whole sparse reading, `e2`
+popcount-vs-extent, `e3` keys `0 2`, `e5` `unset` removing the element,
+`e6` a real 0 being present, `e7` the RETIRED extent protocol
+disagreeing on the same array. Mutant: routing `dense_marked_join` back
+through `densify` fails `e1`/`e4`/`e7`. Model 69v/0e.
+
+**Scope, stated plainly.** The growable-VEC form (`static T *id` +
+len/cap) and `mpz_t[]` array-return storage keep the extent rule: their
+presence buffer would need the same realloc dance at every growth site,
+so `dense_presence` excludes them and the documented edge survives
+there. Two further divergences the probe battery exposed are pinned,
+NOT caused here: `arr+=(x)` on a sparse array re-literalises the whole
+array (the hole becomes a real 0), `arr+=(a b)` on a dense array drops
+the appended elements, and an ARITHMETIC subscript write
+(`n[$((i*2))]=5`) routes the array to assoc storage so the C does not
+compile (a bare `$i` subscript works).
+
+Measured: battery `harness/ifs-probe.sh` **65 PASS / 0 FAIL / 9 XFAIL /
+0 XPASS**, rc 0 — `55_xfail_dense_sparse` retired to a PASS and 55b-55e
+added (unset, key loop, reset-then-write, a real zero); six dense shapes
+ASAN+UBSAN clean; corpus gate **PASS=606 FAIL=38 SKIP=7**, unchanged
+from §20d (no corpus example uses `declare -ia`, so this round's corpus
+delta is zero by construction and the battery is the instrument). The
+battery's cc-failure branch now counts an `*xfail*` case's compile
+failure as XFAIL — a pinned "the C does not compile" gap is a known
+failure, not a regression.
+
+### 20f. `arr+=(…)` on dense storage: two defects (2026-11-04)
+
+The §20e round pinned `declare -ia a=(1 2); a+=(3 4)` as a known red.
+Two separate causes, both in the renderer:
+
+1. **The appended elements were stored but never MARKED.**
+   `emit_set_array_append` emits the stores and raises `_len` but set no
+   presence bits, so the count and the join (which now read the marker)
+   could not see them: `2 [1 2]` against bash's `4 [1 2 3 4]`. This was
+   introduced by §20e itself — the literal store sets its bit, the
+   append store did not — and is exactly the class of gap the probe
+   battery exists to catch (no corpus example uses `declare -ia`).
+2. **The append base is the last SET element, not `_len`.** MEASURED:
+   `i=(5); unset 'i[0]'; i+=(6)` appends at index **0** (bash: `1 [6]`,
+   keys `0`) while `_len` is still 1; `d=(1); d[3]=9; d+=(5)` appends at
+   **4** (bash `3 [1 9 5]`, keys `0 3 4`). A marked array therefore
+   scans back for the last present slot, and its extent becomes
+   max(base + n, `_len`) rather than `_len + n`.
+
+Along the way the cap estimate turned out to compete with appends
+instead of adding to them: `max(reset + appends, idx)` gave 4 for
+`d=(1); d[3]=9; d+=(5)`, which needs 5, so the runtime guard exited 127
+where bash has three elements. It is now
+`max(reset, idx, counter_idx) + appends` — appends come AFTER whatever
+the other terms leave. Growing a cap is always the safe direction: the
+guard still exits 127 loudly if the estimate is ever short.
+
+**Denotation** (`c_join_ifs.rs`): `last_set` (an index recursion, so the
+`compute` obligations unfold), `append_base` = last_set + 1,
+`append_count` = popcount + k. Pins: `f1` the five bases (dense, sparse,
+emptied, literal, empty array), `f2` `_len` is NOT the base — the
+emptied case is exactly where they split (using the extent would leave a
+phantom slot 0, count 2 where bash says 1), `f3` the post-append count.
+Mutant: `append_base := slots.len()` fails f1/f2 (`1 == 0`). Model
+73v/0e.
+
+Measured: battery **69 PASS / 0 FAIL / 9 XFAIL / 0 XPASS** —
+`58_xfail_dense_append` retired to a PASS, 58b-58d added (chained
+appends, append-after-unset, the cap case); the six append shapes are
+ASAN+UBSAN clean; corpus gate **PASS=606 FAIL=38 SKIP=7**, unchanged
+from §20e, i.e. the wider caps changed no example's verdict. Still
+pinned: `arr+=(x)` on a SPARSE array (the `+=` routes the array to the
+growable VEC form, which `dense_presence` excludes, so it keeps the
+extent rule), and an append whose items are expansions
+(`e+=($x $((x+1)))`), which falls into a malformed `bash -c` emission
+(rc 2) — pre-existing and shared with string arrays.
 
 - v10b (2026-10-28): **the decl-coverage family closed** — v10's single
   `param`-arm fix extended to every place a `${NAME:=…}` write can hide,
@@ -1095,8 +1595,8 @@ splice-length chain); strip unfolds need the last-char + subrange
 bridges; the pin's 8 was wrong and the proof corrected it to 9
 (d,o,n literal + 5-char splice + t) — recorded, not hidden.
 
-Honest: vbuf growth assumed; `system`/`popen` execution is the OS
-contract; argv-tail gating unmodelled.
+Honest: vbuf growth proved in §25 (`c_vbuf.rs`); `system`/`popen`
+execution is the OS contract; argv-tail gating unmodelled.
 
 Negative control: the bare-quote splice (a `'` mapping to itself —
 the injection hole: a quote in cmd terminates the word) goes red
@@ -1155,10 +1655,18 @@ flipping `:=` out of the shared write-op gate goes red (50v/1e — the
 pins die). Restored: 51v/0e each.
 
 Honest: the walkers are modelled as transcribed from the source on
-2026-10-28 — the arm chains are mirrors of `c_backend.rs`, not
-extracted (no mechanical extractor bridges a transcription; the
-pin↔corpus mapping is the living tie, as in VERUS.md §(b)); traversal
-is per-position, not end-to-end.
+2026-10-28; traversal is per-position, not end-to-end. (Source-side:
+the working tree first carrying these fixes was lost 2026-10-28 and
+re-landed from this model — see v18.) **The "no mechanical extractor
+bridges a transcription" proviso below is CLOSED (v19):**
+`harness/declcov-extract.py` now extracts the modelled walkers' arm
+chains (exact pattern text incl. guards + the walker calls each arm
+body carries) from the live `c_backend.rs`, and the gate diffs them
+against the committed `proofs/verus/c_decl_coverage_sync.txt` — a
+dropped elsif-cond arm was caught line-exactly as the negative
+control. The pin↔corpus mapping remains the value-level tie (pins are
+UNMIRRORED in the sync's pin map by design: the probe battery +
+corpus shapes are what cargo cannot run).
 
 ## 23. The string-literal escaper — `c_str_lit.rs` (19 obligations)
 
@@ -1228,3 +1736,676 @@ not a compiler; non-ASCII Unicode chars are out of `valid_c` (raw
 UTF-8 passthrough is byte-identity, stated not proved); NUL
 round-trips here but bash values are NUL-free; `%` doubling lives in
 `heredoc_body_c`, upstream of `cstr`.
+
+## 24. The `${name=word}` write arm — `c_write_arm.rs` (17 obligations)
+
+The `"=" | ":="` branch of the `${...}` param renderer
+(`c_backend.rs`, `match op.as_str()` in the expansion emitter) is the
+one C-generator emission where the rendered expression decides, on the
+spot, whether a name's storage is a fixed buffer, a heap cell the
+program must own, or nothing at all. The structure it emits:
+
+    v = (nonempty_test(name) ? <cur> : <word>);        // the value
+    if is_num(name) || name empty  ->  v               // NO store
+    else if buf_bound(name) = Some(b)  ->  (strcpy(buf, v), v)
+    else -> (name = (test ? name : _sh_xstrdup(v)), v) // heap-owned
+
+Four measured defects sat on this path (probe battery `/tmp/wam*`,
+every probe compiled and diffed against bash):
+
+1. GLUE (parser, FIXED): the quoted chain glued a bare `=` operator
+   into the NAME — `param("", "v1=d")` — so every backend wrote a
+   variable literally named `v1=d` and the probe printed
+   `unset1=[] z=[]` where bash printed `unset1=[f] z=[f]`. A `/` or
+   `-` inside the default word (`${v=/usr/local}`, `${v=b-c}`) was
+   mis-read as the operator. Fix: ident-guarded split ahead of the
+   pattern/suffix arms in BOTH parse chains
+   (`parse_variable_expansion_inner`,
+   `parse_parameter_expansion_content_inner`); unit tests
+   `parser::words::bare_assign_tests`.
+2. BOUNDS (census, FIXED): `analyze_string_lengths` collected neither
+   `Declare` inits nor any `${NAME=word}` write, so `local x=1; x=`
+   yielded `max_len 0` -> `char x[1]` -> `assert(strlen("1") <= 0)`
+   aborts at STARTUP (wam5), and an `:=` default longer than the
+   bound `strcpy`s past the buffer (wam4). Fix:
+   `supplement_write_lengths` MAX-folds both store shapes into the
+   core census before any consumer runs (right after
+   `analyze_string_lengths`).
+3. STALE FOLD (copy-propagation, FIXED): `count_stmt_assigns` never
+   walked an Assign's RHS, so the write inside `v=${x:=d}` was
+   invisible to def-counting, `x=""` kept count==1, and reads after
+   the write folded to the pre-write literal (wam4 printed
+   `colon:[d][]` for bash's `colon:[d][d]`). Fix: Assign-RHS
+   recursion in `count_stmt_assigns` plus a param-write site in
+   `count_expr_assigns`' Call arm (deliberately without an ident
+   gate: an extra site only makes a var less foldable).
+4. NORMALIZATION (known gap, PINNED — not fixed): `param_ir`
+   normalizes bare `=` to `:=`, so bash's unset-only rule for
+   `${n=w}` is unrepresentable downstream: with x SET-EMPTY bash
+   leaves it empty (`bare:[][]`) while the C arm assigns
+   (`bare:[d][d]`). Corpus impact ZERO — 0 bare-`=` shapes in 651
+   corpus files (only `:=`, 3 occurrences). Proved as
+   `bare_setempty_gap` rather than hidden.
+
+Denotation extension (the "extend as convenient" half): the store
+distinguishes UNSET (`None`) from SET-EMPTY (`Some("")`), and cells
+carry provenance — a literal stays `Static`, the heap arm's store is
+`Owned(word, id)`. `heap_valid` / `buf_valid` are the ownership
+invariants: the scope-end `free` is sound only for slots the arm
+actually allocated, which is exactly what the `xstrdup` adoption
+buys.
+
+What is proved (17 verified):
+
+- `needs_eq_test` + `value_agrees` — the arm's value equals bash's
+  `denote_val` for both ops (the `!test` ⇔ nonempty bridge);
+- `heap_sound` (+`heap_double_eval`) — the heap arm keeps the value
+  AND the ownership, and its double evaluation of the test is the
+  same value each time (the invariant `t == nonempty_test(cur)` —
+  without it the stated postcondition was false for arbitrary `t`);
+- `buf_sound` — the fixed-buffer arm keeps the value with
+  `strcpy_fits` (|src| ≤ b into `char buf[b+1]`);
+- `num_sound` — the no-store arm;
+- `bump_never_shrinks` + `bound_routes` — the census supplement only
+  grows a bound, and after folding the word in either the name stays
+  unbounded (heap path, no buffer to overflow) or the buffer FITS
+  the default — including the CAP filter (beyond `cap()` = 1024 →
+  None → heap);
+- fidelity pins (`by (compute)`): wam5's bound, unset-`:=` assign,
+  set-empty-`:=` buf, set-nonempty no-write, the double-eval
+  instances, the path-word value;
+- `bare_setempty_gap` — the normalization gap's exact shape;
+- two in-file mutants: `mutant_static_store` (drop `xstrdup` → a
+  Static literal sits in a slot the cleanup frees — `heap_valid`
+  fails, the free-of-static line) and `mutant_flip_colon` (`:=`
+  treated as unset-only — contradicts the denotation exactly where
+  colon and bare differ).
+
+Negative controls, measured in source (both restored; the C gate is
+back at baseline 588/56/7): dropping `_sh_xstrdup` from the literal
+default in `c_backend.rs` turned the gate from PASS 588 to PASS 313
+(277 files red — the ownership discipline is load-bearing
+corpus-wide); flipping `test_lowering`'s `:=` empty-check gate added
+exactly one red (`eq_char_lit`).
+
+Honest: `cap()` is the fixed 1024 ceiling (bigger defaults route to
+the heap path rather than being proved smaller); allocation success
+is assumed (OOM handling is the runtime's); the bare-`=` gap is
+pinned not fixed, and `=` vs `":="` agree only when the name is
+unset-or-nonempty — that half IS proved. Gate-registered
+(`c_write_arm.rs:17:40`); like the other `c_*` models it is an
+emission decision, so it carries no `verus-sync-coverage.sh`
+baseline — its living tie is the pin↔probe mapping above.
+
+## 25. The growth-helper family — `c_vbuf.rs` (39 obligations)
+
+`_sh_grow`, `_sh_vgrow`, `_sh_grow_str`/`_sh_grow_<t>`,
+`_sh_reserve_*` — the emitted runtime's dynamic-buffer protocol,
+transcribed from c_backend.rs (≈11604 / 11619 / 11925 / 11957)
+together with the five consumer shapes that lean on it:
+`_sh_add`/`_sh_addc` (≈11630), `_sh_fa` (ECHO_FAST_C ≈9126), the
+`snprintf_grow` loop (≈10335, the grow-until-sprintf-fits idiom
+behind every vbuf temp), the vec-slot guard `while (len+1 > cap)
+_sh_grow_str(&id, &id_cap)` (≈32040), and `_sh_fgets_line`
+(≈12553).
+
+WHY THIS EXISTS: §20 and §21 both shipped with "vbuf growth assumed"
+in their honest sections — the one REPEATED assumption across the
+C-generator models (both provisos updated above). Discharging it
+also exposes the family's asymmetry: D (`_sh_reserve_*`) guards its
+size arithmetic with `need > (size_t)-1 / sizeof …` BEFORE
+multiplying, while A/B/C multiply and double unguarded.
+
+THE SEMANTICS EXTENSION (the "extend as convenient" half): size_t
+arithmetic made WRAP-EXPLICIT — `u64(x) = x mod 2^64` — so every
+capacity theorem carries its exact domain instead of assuming
+arithmetic C does not give us. Two thresholds become measured facts
+(pins): `_sh_grow`'s `need * 2` wraps to 0 at need = 2^63 (cap := 0
+while the caller still writes at need — `pin_grow_wrap_threshold`
+exhibits the state where the fast path would later "fit" an
+oversized write), and `_sh_vgrow`'s `while (ncap < need) ncap *= 2`
+stalls at 2^63 (the model returns the stall as the divergence
+witness; the fuel-form pin shows the RAW loop wraps to 0 — i.e. the
+emitted `while` spins — at 2^63+1). Both need an exabyte-class
+string: honest-unreachable, like c_width_store's range provisos.
+
+What is proved (39 verified):
+
+- family core: `grow_fastpath` (identity), `grow_room` (cap >= need
+  + wf), `vgrow_fastpath`, `vgrow_nonnull` — THE deref-safety:
+  alloc ⇔ cap ≥ 1 ⇔ p non-null whatever the input state, which is
+  the reason `_sh_vgrow`'s fast path tests `&& b->p` — `vgrow_wf`,
+  and `vgrow_amortized` (cap ≤ max(base, 2·need): doubling never
+  over-allocates past 2×);
+- appends: `add_content`/`add_wf`, `addc_wf`, `fa_matches_add` —
+  content, terminator position and bounds for `_sh_add`/`_sh_addc`,
+  and the two append emissions (`_sh_add`'s memcpy n+1 vs `_sh_fa`'
+  s memcpy n + explicit NUL) agreeing byte-for-byte (the `+1` in
+  the need is what M1 kills);
+- the doubling loop: `dbl_reaches`, `dbl_cap_ok`, `dbl_bound`
+  (the amortization lemma under `need ≤ 2^63`);
+- `snprintf_grow`: `snpr_init_room` (size ≥ 256, p non-null for the
+  first snprintf), `snpr_progress` (every non-break step strictly
+  increases cap), `snpr_break_exact` (m < cap ⟹ the buffer holds
+  EXACTLY the formatted value + NUL in bounds), and
+  `snpr_run_props` — termination over ANY int-typed return
+  sequence: within `imax - cap + 2` formatter calls the loop must
+  break, because growths push cap past imax and int returns are
+  capped there;
+- `_sh_grow_str`: `grow_str_cap` (exact doubling + byte fit),
+  `grow_str_zeroed` (fresh region entirely NULL — the
+  free-of-garbage guard — plus old slots preserved), `grow_t_cap`,
+  and `vecgrow_post` (the guard loop terminates under
+  `len+1 ≤ 2^63` and lands with room for the following
+  `id[id_len++]` store);
+- `_sh_reserve_*`: `reserve_guard` (fires on oversized requests)
+  and `reserve_no_wrap` (a request that passes multiplies EXACTLY —
+  no wrap and NO domain proviso: the asymmetry A/B/C cannot claim);
+- `_sh_fgets_line`: `fgl_capacity` (after `vgrow(n+512)` the fgets
+  size is ≥ 512 and its NUL lands at cap-1 — in bounds; the
+  `(int)` cast domain `cap - n ≤ imax` stated honestly) and
+  `fgl_final_nul` (the final `vgrow(n+1); p[n] = 0` in bounds);
+- pins: `pin_grow_wrap_threshold`, `pin_vgrow_stall`,
+  `pin_raw_wrap_to_zero`, `pin_add_fresh` (a fresh `_sh_add` grows
+  to exactly 2·(l+n+1)), `pin_snpr_init`.
+
+Negative controls: three in-file mutants, each killing a named
+obligation — M1 `mutant_add_no_plus1` (drop the `+1`: at the
+boundary cap == l+n the fast path skips the grow and the NUL lands
+one byte past the allocation; the same state under the real
+`_sh_add` grows to 6 and fits), M2 `mutant_grow_str_no_zero`
+(delete the zero-fill: the first fresh slot comes back Some(dangling)
+where `grow_str_zeroed` promises None), M3
+`mutant_reserve_unguarded` (2^61 × 8 = 2^64 wraps to 0 — the exact
+request D's guard rejects). Source-level control (measured
+2026-10-29): deleting the zero-fill emit line from c_backend.rs
+changes the rendered C by exactly that one line (vec-probe render
+diff `302d301`) but leaves the C gate at PASS=588 FAIL=56 SKIP=7 —
+the deletion is corpus-UNOBSERVABLE (fresh realloc pages arrive
+zeroed from the kernel and no corpus element-store frees a fresh
+sparse slot before writing), so M2's in-file mutant remains the
+registered control. The mutant was built to a separate
+CARGO_TARGET_DIR; a neighbouring lane's rebuild picked the mutation
+up in the shared binary for ~14 min — both restored (source and
+shared binary verified back to the zero-fill at 13:23:58).
+
+Honest: the allocator contract — a successful realloc preserves
+bytes — is the premise here in the role `system`/`popen` plays for
+§21; OOM exits 127 (an abort: defined behaviour, outside every
+theorem — also why `_sh_grow` writing *cap BEFORE the realloc check
+is unobservable). The formatter's VALUE is the oracle (its spelling
+is §14b/§23's business); only the return/length contract is used,
+and encoding error (snprintf < 0, unspecified contents in C) is
+modelled break-with-unchanged-content — the emitted formats are
+%s/%d-class and cannot fail. Typed-grow slots beyond ocap stay
+UNINITIALIZED by design (no zero-fill): reads are len-guarded by
+the render layer (c_backend.rs:11921 comment) — that guard is the
+render-discipline layer's business. `_sh_fgets_line`'s loop
+termination rests on fgets' file-bounded progress — stated, not
+proved. Gate-registered (`c_vbuf.rs:39:40`); like the other `c_*`
+models it is an emission decision, no sync baseline — its living
+tie is the pin↔probe mapping (and the source control above).
+
+## 26. The sparse-array read faces — `c_sparse_array.rs` (28 obligations)
+
+The C backend stores an indexed array DENSE (`static char *arr[N]` +
+`arr_len`, a NULL slot = an unset index) while bash's indexed array is
+SPARSE: `arr=(a b c); arr[5]=z` sets four elements at {0,1,2,5}. A
+nine-face probe through the real pipeline (shir → C → cc → run vs
+bash) measured every read face before and after the fix; six were red:
+
+| face | bash | C before | after |
+|---|---|---|---|
+| `echo "${!arr[@]}"` (ANY indexed array) | works | **cc red**: `arr_len undeclared (did you mean arr_n?)` | PASS |
+| `${#arr[@]}` sparse | 4 | 6 (dense extent) | PASS |
+| `${arr[*]}` | `a b c z` | `a b c   z` (separator before the NULL skip) | PASS |
+| `for x in "${arr[@]}"` | a b c z | visits holes as `""` | PASS |
+| `for ((i<${#arr[@]}))` bound | loops 0..3 | `atoll(_sh_env("((long long)arr_len)"))` → 0 iterations — DENSE too, never worked | PASS |
+
+Five source changes, one invariant each side of the store — **a read
+never decides storage class; a hole is never an element** (all in
+`src/c_backend.rs`):
+
+1. The read-driven `assoc_arrays.insert` removed in all three places
+   that had it: `array_keys_join`, the for-in keys arm, and
+   `collect_assoc_expr`'s `param` arm. The class comes from the
+   WRITES (`declare -A` / string-key stores / `setArray(...,true)`);
+   the keys read now dispatches like every other read: assoc →
+   `_sh_join_keys`, char** → the new `_sh_join_ikind` (non-NULL slots
+   ascending — exactly bash's key set), value storage → `_sh_join_idx`
+   (dense; no presence marker exists).
+2. `_sh_join_arr` emits the separator AFTER the NULL skip (the `_f`
+   flag preserves set-but-EMPTY elements' separators: `arr=(a "" c)`
+   → `a  c` on both sides); the for-in values loop skips holes —
+   char** only, value storage keeps dense iteration (0 is a value).
+3. `${#arr[@]}` counts elements: `array_len` and
+   `apply_array_counts`' indexed branch emit `_sh_icount` for char**
+   (value storage stays dense — the documented coverage edge).
+4. All seven free loops NULL after free (`{ free(a[i]); a[i] = 0; }`)
+   — the hole invariant's foundation: after `arr=()` no stale
+   non-NULL slot can survive into a later sparse write's growth gap.
+5. `apply_array_counts` gained the `_sh_env("T")` rewrites (the
+   FUNCTION-call wrapper the arith/let fallbacks emit — only the
+   inline-`getenv` forms were handled): without them the bare-token
+   replace landed INSIDE the quoted key and the c-style-for bound
+   read `atoll(getenv("((long long)arr_len)"))` = 0 forever, for
+   dense and sparse arrays alike.
+
+MEASUREMENT: full C gate 588/56/7 → **590/54/7 with the
+newly-failing set EMPTY** (`comm` against the baseline FAIL list —
+a net +2 cannot hide a swap). The two wins:
+`parse-arithmetic-nested-array.sh` (exec/diff → PASS; it contains
+`$((j+(100/${#arr[@]})))` — the arith count splice) and
+`063_07_nested_if_statements.sh` (cc → PASS). The 8 failing
+`c_backend` unit tests are PRE-EXISTING in this tree: only today's
+edits were reverted (a scripted reverse-apply with count checks),
+the suite re-run — **identical 162 passed / 8 failed both ways** —
+then the file restored byte-exact (matching sha256).
+
+CONTROL (source-level): a mutant COPY of the crate (isolated
+`CARGO_TARGET_DIR` in /tmp; the shared source and binary never
+touched) re-adds ONLY the `collect_assoc_expr` param-arm insert: the
+keys faces p1/p7 revert to the exact original cc red
+(`arr_len undeclared ... did you mean arr_n?`) while count, join,
+for-in and the bound face stay green — the fix is load-bearing and
+specific.
+
+What is proved (28 verified): `icount_is_len`/`count_face` (count =
+|elements|), `join_as_fold`/`fold_join_lead`/`values_face`
+(separator-after-present ≡ bash's space join, empty elements and all),
+`keys_as_fold`/`keys_face` (the key enumeration = the set indices,
+ascending), `forin_is_elems`, `get_outside` (element reads outside
+[0,len) are `""`), `free_null_clears` + `arr_set_keeps_tail` (both
+state ops preserve `tail_clear`), `sparse_probe` (the canonical
+vector's five faces), `coverage_new`/`coverage_old_broken` (dispatch
+and decl read the SAME class field ⇒ refs ⊆ decls; the pre-fix read
+flip violates it — the measured cc red), and the mutants:
+`m1_join_sep_before` (the old fold yields the measured
+`a b c   z`), `m2_dense_count` (6 ≠ 4), `m3_free_no_null` (a stale
+freed word stays visible after reassign), plus `concat1_skip`
+(singleton-concat algebra the folds rest on).
+
+THE SEMANTICS EXTENSION: the shIR/bash indexed array — a partial map
+index → word — is denoted here as `Seq<Option<Str>>` slots + `len`,
+with `bash_elems` / `key_elems` / `bash_len` as the denotational
+faces, `inter_ws` as the join, and `tail_clear` (every slot ≥ len is
+None) as the correspondence invariant that init-`{0}`, free+NULL and
+the growth gap maintain. `dec` (the decimal spelling) is
+UNINTERPRETED here on purpose — byte-exact itoa is §14b's
+`ll2s_exact` / ArithDec — this file pins WHICH indices appear, in
+WHAT order, with WHICH separators.
+
+HONEST EDGES (measured, NOT fixed — next increments):
+
+- **assoc family (probe p5/p9)** — RESOLVED in §27: the newline join
+  is retired (M1), `unset 'm[a]'` removes the entry (b1/b2/b3 probe
+  faces green); only bash's hash ORDER remains (documented edge).
+  bash's `${!m[@]}` order is hash order (unspecified — deliberately
+  not chased).
+- **`set -u` unbound variables (p6/p8)**: bash aborts with
+  `unbound variable`, we print empty — a pre-existing set-u
+  emulation gap, outside the storage family.
+- **value-storage arrays**: no presence marker, so count/keys/for-in
+  are dense (`dense_value_storage`) — an out-of-order write on an
+  int-homed array still reports the dense extent.
+- **`${arr[@]:off:len}`** slices the space-joined string: agrees with
+  bash on the probe shapes, not established generally.
+
+Gate-registered (`c_sparse_array.rs:28:40`); like the other `c_*`
+models, an emission decision with no sync baseline — its living tie
+is the pin↔probe mapping (the nine-face probe) and the source
+control above.
+
+## 27. The associative-array faces — `c_assoc_array.rs` (41 obligations)
+
+The C backend stores an associative array as two parallel DENSE arrays
+plus a count (`static char *m_k[N]; char *m_v[N]; size_t m_n` via
+`_sh_assoc_set/get/unset`), while bash's `declare -A` is a finite MAP
+string → string with hash-order iteration. The denotational extension
+(the model): the storage IS the map under
+
+- **wf** — `keys.len() == vals.len()` AND keys pairwise distinct
+  (init `{0}` plus the first-match-replace / append-only-insert paths
+  preserve it), and
+- **the_map** — the forward-scan fold `the_map(tail).insert(head)`.
+
+Faces proved (each tied to a face measured red before 2026-10-30's
+fixes):
+
+| face | theorem |
+|---|---|
+| `${m[k]}` | `get_sound`: `_sh_assoc_get` == map lookup, `""` off the map |
+| `m[k]=v` / `m[k]+=v` | `set_sound`: first-match replace or append IS map insert (+ wf + key-set postcondition) |
+| `unset 'm[k]'` | `unset_sound`: `_sh_assoc_unset` == map remove, survivors in order (+ count/len + key-set postcondition) |
+| `${#m[@]}` | `count_face`: `keys.len()` == bash's distinct-key count |
+| `${!m[@]}` | `keys_set_face`: the key SET == dom |
+| `${m[@]}` | `join_vals_sound`: the emitted fold == bash's space join |
+| int-attr RMW | `int_attr_face` / M3: `declare -i n; n+=3` routes to the arithmetic arm (INTEGER level — byte-exact itoa is §18's `c_int_helpers`/`c_dec_str`) |
+| homing veto | `veto_covers_param_join`: a `param("slice",…,"@")` whole-array join vetoes native `long long[]` homing (a6 SIGSEGV face) |
+
+Four measured probes pin the scenarios (b1 string-key unset, b2
+numeric-key unset, b3 interpolated key, b4 append + replace) and four
+mutants each kill one obligation (M1 newline join, M2 no-op unset,
+M3 concat-as-sum, M4 veto miss).
+
+Source fixes alongside (all `sh2perl/src/c_backend.rs`):
+
+1. `_sh_assoc_unset`'s head-frame reconstruction — survivors in
+   order; the pre-fix arm had no non-numeric-key path (M2's shape).
+2. The join separator — `_sh_join_arr_nl` retired for string
+   contexts (M1: `echo "${m[@]}"` printed one value per line).
+3. **a3 — For-iterator array state**: `sh_array_inits` collected refs
+   from the loop BODY only, and `collect_array_refs_expr`'s `param`
+   arm missed the split shape `param("slice", NAME, "@"|"*", LEN)` —
+   the child shell never received `m`, so `for x in "${m[@]}"`
+   iterated ZERO times (probe a3: empty output). Both the iter/cond
+   EXPRS and the split shape are now collected.
+4. **a5 — printf spread**: `printf … "${m[@]}"` in ARG position is
+   bash's quoted-spread (N words with format recycling); the native
+   printf joined it into ONE arg (`<1 2>` vs bash's two lines).
+   `try_native_printf_into` now refuses whole-array slices (the t62
+   `split` precedent — shell out, which splits correctly), and
+   `sh_word`'s whole-array command-word arm — previously indexed-only
+   — now expands ASSOC tables through their dense `m_v`/`m_n`
+   storage as separately quoted words (the BASHC_FIX realpath loop,
+   extended).
+
+HONEST EDGES (measured, NOT chased):
+
+- **hash ORDER**: bash iterates its own hash table, so `${m[@]}` /
+  `${!m[@]}` spell the same words in an order that is not our
+  insertion order. The string-level theorems pin OUR spelling, the
+  set-level theorems pin the bash agreement; the probe harness
+  classifies those faces SORTONLY/ORDEREDGE (a1/a2/a4/a7/b1/c5).
+  Relating the spellings as multisets would need a split/join
+  round-trip lemma — deliberately not claimed.
+- The capacity guard (`*n < cap` → exit 127), value ownership
+  (xstrdup/free), and the capacity-growth arithmetic are outside the
+  model (as in §26; growth itself is discharged in §25).
+- `set -u` unbound-variable abort remains the pre-existing gap.
+
+EVALUATION DISCIPLINE is part of the model's contract: `by (compute)`
+over a LET-BOUND recursion result DIVERGES (the evaluator cannot head
+reduce `the_map(rks, …)` with `rks` symbolic — this hung the full run
+>550 s with no output), and `.dom().len()` is uninterp for the
+evaluator, so counts are stated on `.0.len()` — the `{id}_n` arm the
+backend actually emits. Every compute assert therefore takes the FULL
+concrete call term; set facts over literal tables compute, set facts
+over symbolic tables go through the sset bridges (`sset_member`,
+`distinct_cons`, `set_insert_commute`, `set_remove_insert_commute`,
+`insert_remove_fresh`). The model also needs vstd's broadcast groups
+opted in explicitly (`group_seq_axioms`, `group_map_lemmas`,
+`group_set_lemmas` + set_lib/iset) — without them the remove axioms
+and seq-length bridges are simply absent.
+
+Gate-registered (`c_assoc_array.rs:41:40`); like the other `c_*`
+models, an emission decision with no sync baseline — its living tie
+is the pin↔probe mapping (the a/b/c probe battery) and the source
+control above.
+
+## 28. The IFS joins — `c_join_ifs.rs` (54 obligations)
+
+The `${a[*]}` separator read and the `${a[*]:off:len}` element slice —
+the faces behind 064_07's `sort` receiving ONE space-joined line, and
+the slice probes c10/c16 that lost `:off:len` entirely. The
+DENOTATIONAL EXTENSION: `ifs_sep(ifs)` is the FIRST char of IFS with
+`""` → NO separator, and the never-assigned case IS the decl's startup
+space (`char IFS[N] = " "` — bash resets inherited IFS at startup).
+That last identity is exactly why `emit_var_decl` vets the const-lift
+for IFS (`let ok = ok && v != "IFS"`): const-lift bakes the assigned
+literal into the declaration AND suppresses the assignment statement,
+so probe c09 (`a=(x y z); echo "[${a[*]}]"; IFS=:; echo "[${a[*]}]"`)
+printed `x:y:z` on both lines (bash: `x y z` then `x:y:z`).
+
+The slice denotation is PRESENCE-ORDER: `present(slots)` drops holes
+and keeps set-but-empty words (`_f` tracks presence, not emptiness),
+and `rng_slice` computes its bounds over the ELEMENT count — bash
+ground truth, measured: `a=(a b c); a[5]=z; echo "${a[*]:1:3}"` →
+`b c z` (offset/length count elements, not slot indices). The `[@]`
+face joins with a space under any IFS and is PROVED independent of it
+(`at_face_ignores_ifs`); `rng_whole_is_all` proves the whole-slice
+short-circuit (BASHC_OPT item 28) returns exactly what the range path
+would.
+
+Fixed alongside the model (all measured red before):
+
+1. `_sh_join_arr_sep` — `[*]` reads IFS[0] at RUNTIME (064_07:
+   `IFS=$'\n' sorted=($(sort <<<"${config[*]}"))` fed sort the whole
+   join as one line, so `sorted` was whatever the store returned);
+2. the parser DROPPED `:off:len` from `${a[*]:off:len}` — both
+   word-parse sites returned the plain-join shape
+   (`param("", "a[*]")`) and the slice never reached the IR (c16:
+   `[b a c]` vs bash `[a c]`). Both sites now emit
+   `param("slice", "a[*]", off, len)` — the `[*]` suffix rides in the
+   name so the star face survives to every backend (their slice arms
+   already strip it), and `ast_words`' Display no longer double-wraps
+   a subscripted variable;
+3. `_sh_join_arr_rng` — a store-based ELEMENT slice for BOTH faces,
+   replacing join-then-`_sh_arr_slice`, which re-split the joined
+   string on a SPACE and was lossy three ways: no boundary at all
+   under `IFS=$'\n'` (c10), a skipped empty LEADING element (c26:
+   `a=("" x y); ${a[@]:0:2}` → bash `[ x]`, rendered `[x y]`), and an
+   element CONTAINING a space splitting into extra words (c27:
+   `a=("x y" z); ${a[@]:1:1}` → bash `[z]`, rendered `[y]`);
+4. the IFS DECLARATION sits OUTSIDE the `need_sh` runtime block —
+   `emit_var_decl` skips the name unconditionally, so the decl used to
+   live only where the runtime helpers do, and `IFS=$'\n\t'` in a
+   program with NO array join rendered `strncpy(IFS, …)` against an
+   undeclared identifier (`parse-dollar-single-quote.sh` failed to
+   COMPILE the first time the prologue decl landed inside that block;
+   it is also trimmed with the runtime otherwise, which would have
+   dropped the declaration while keeping the write).
+
+Obligations: the three `ifs_sep` cases; the join faces at the measured
+probes c01–c08 (default/newline/colon/empty/multichar IFS, holes,
+empty element, `[@]` space); the decl veto and c09's two lines; the
+slice arithmetic and probes c16–c28 (default, offset-only, negative
+offset, colon, empty IFS, empty element, holes, assoc, int array,
+empty-lead `[@]`, embedded-space `[@]`, holes-with-offset, `[@]` under
+IFS). Five mutants each kill one obligation: m1 a hardcoded space
+separator, m2 the retired join-then-space-split route (under
+`IFS=$'\n'` the slice comes out EMPTY — no boundary exists), m3 the
+const-lift without the veto, m4 the `[@]` face routed through IFS, m5
+DENSE-index slicing (holes as empty words → `\n\nz` for `${a[*]:3}`).
+
+Not modelled (fidelity, checked against bash): negative LENGTH. The
+split is by FACE and it is exact (measured 2026-10-31):
+
+- ARRAY faces — `${a[@]:1:-2}` and `${a[*]:1:-2}` both print
+  `<script>: line N: -2: substring expression < 0` to stderr, run
+  NEITHER the failing command NOR anything after it on that `;` line,
+  and leave later lines running (status 1 for the aborted line).
+- SCALAR — `${x:1:-2}` is ACCEPTED and end-counts (`x=abcdef` →
+  `bcd`).
+- `${a[@]:-2}` is not a negative offset at all: bash parses `:-` as
+  the DEFAULT-value operator, so it yields the whole array.
+
+Both C arms end-count in every case, so for the array faces the
+renderer is silently wrong where bash has no value; the model states
+the arithmetic only where bash has a value. Reproducing the abort is
+not a one-arm fix: it needs statement-level skipping keyed on the IR's
+`stmt_lines` line grouping (the C emitter does not thread line
+boundaries into emission today) and an expansion-error idiom, which
+the emitter has none of — its only fatal paths are the OOM/profile
+`exit(127)`s. There are ZERO occurrences of a negative array length in
+the corpus, so this stays a documented boundary rather than a gate
+red; `${!m[*]:o:l}` key-list slices keep the pre-fix path
+(the parser declines the shape); dense VALUE storage (`long long[]` /
+`mpz_t[]`) keeps `_sh_arr_slice` behind the `dense_value_storage`
+guard; assoc is modelled as a dense Seq (unset compacts `_v`/`_n`).
+
+Also measured red and NOT yet fixed (neither is a face bug, so neither
+is modelled — both are pinned as `xfail` cases in the battery):
+
+- the `[@]` face in a MULTI-WORD context: bash passes one ARG PER
+  ELEMENT (`printf '[%s]\n' "${a[@]}"` prints three lines) while the
+  renderer joins into ONE string — the join itself is right, the
+  cardinality is not (`07`, `20`);
+- `for w in "${a[*]}"` lowers to `TODO(unsupported): for item type`
+  and the whole loop is DROPPED (zero iterations where bash iterates
+  once with the join) — a pre-existing loop-lowering gap (`19`).
+
+Measured this round (the battery is committed as
+`harness/ifs-probe.sh`, 22 cases, `CORE_BIN` overridable — it used to
+live in `/tmp` and die with every restart):
+
+- **17 PASS, 0 FAIL, 5 XFAIL, 0 XPASS** — every star face green,
+  including `${a[*]:1:2}` under `IFS=':'` (which only started working
+  when the face began riding in the name);
+- the C gate **PASS=605 FAIL=39 SKIP=7 with a FAIL set byte-identical
+  to the pre-change baseline** (`harness/c_gate_main.sh`);
+- `cargo test --lib`: **the same 61 failures before and after** (a
+  HEAD-vs-tree A/B on `c_backend.rs`/`words.rs`/`ast_words.rs`), i.e.
+  none of them is this work;
+- `c_join_ifs.rs:50:40` now **50 verified, 0 errors** (was 44 — the outcome
+  layer: six new obligations for the `negative -> expansion error` arm).
+
+Gate-registered (`c_join_ifs.rs:50:40`); like the other `c_*` models,
+an emission decision with no sync baseline — the pin↔probe mapping
+(`harness/ifs-probe.sh`) and the source guards above are its living
+tie.
+
+### 28b. The SLICE face is NOT the WHOLE face (2026-11-04)
+
+§28 modelled the whole-expansion faces and assumed the SLICE took the
+same joiner. Measured on real bash this round, it does not — and the
+positional slice (`_sh_argv_slice`) had a hard-coded space that no
+example could catch, because the default IFS *is* a space.
+
+Ground truth (`set -- p q r s`; `a=(x y z)`; single-word/assignment
+context, which is the only place the join is observable):
+
+| expansion | `IFS=:` | `IFS=""` | default |
+|---|---|---|---|
+| `${*:2:2}` | `q:r` | `qr` | `q r` |
+| `${@:2:2}` | `q:r` | `q r` | `q r` |
+| `${a[*]:1:2}` | `y:z` | `yz` | `y z` |
+| `${a[@]:1:2}` | `y:z` | `y z` | `y z` |
+| `$*` / `${a[*]}` (whole) | `p:q:r` / `x:y:z` | `pqr` / `xyz` | space |
+| `$@` / `${a[@]}` (whole) | **space** | space | space |
+
+The rule, in one line: **a SLICE joins on `IFS[0]` for both faces, and
+the two faces diverge only on an EMPTY IFS** — `*` concatenates (the
+emitted `&& sep` guard reads the NUL), `@` falls back to a space
+(bash joins the resulting multiple words, and a null IFS has no
+separator, so the fallback is the space). The whole-expansion `[@]` is
+the odd one out: it is space-joined unconditionally, which is exactly
+why one `' '` literal served both forms and looked correct.
+
+Two source fixes in `sh2perl/src/c_backend.rs`:
+
+- `_sh_argv_slice(d, off, len, sep)` — the separator is written under
+  `if (i > b && sep)`, so `sep == 0` inserts nothing. Both the star and
+  the at face now pass `IFS[0]`, the at face as `(IFS[0] ? IFS[0] : ' ')`.
+  The face had to be read from TWO places: `param("slice", NAME, "@"|"*",
+  off, len)` carries it in `args[2]` (`face_star`), while a positional
+  `param("slice", "*", off, len)` carries it in the NAME — reading only
+  the first left `IFS=''; v="${*:2:2}"` rendering `q r` where bash gives
+  `qr` (caught by the probe, not by the model).
+- the two `_sh_join_arr_rng` slice call sites (`param_call` and the
+  array-value arm) replaced `' '` with `(IFS[0] ? IFS[0] : ' ')` for the
+  `[@]` face; `star_face` already passed `IFS[0]`.
+
+The denotation also had to change SHAPE, not just gain a parameter:
+`VOut::Val` carried a word LIST, but the emitted helper joins as it
+writes, so the honest payload is the joined `Str` — `argv_out(argv, off,
+len, sep)` now returns `join_seq_sep(argv_slice(…), sep)`, and the
+empty/out-of-range arm is the empty STRING (the early return writes no
+separator at all), which `s14` pins for both faces. New spec:
+`slice_at_sep(ifs)` (array slice face) and `pos_slice_sep(star, ifs)` +
+`pos_slice` (positional), each with the fallback stated as a total
+function so the empty-IFS arm is a *value*, not a side condition.
+
+Obligations added (all `by (compute)` over literal sequences):
+
+- `c_join_ifs.rs` **50 → 54**: c17 REVISED (it had asserted the retired
+  space — under `IFS=$'\n'` an `@`-slice is now `a\nc`), c33 (colon:
+  `a:c`), c34 (empty IFS falls back to a space), c35 (the contrast that
+  hid the bug: the same range, whole vs slice, differs under a colon
+  IFS), m7 = the retired hard-coded space;
+- `c_str_helpers.rs` **56 → 65**: s8/s9 (both faces `q:r` under `IFS=:`),
+  s10/s11 (`qr` vs `q r` on an empty IFS), s12 (behaviour-neutral on the
+  startup IFS), s13 (the faces differ ONLY on an empty IFS), s14 (guard
+  order is separator-independent), s15 (open form `${*:2}` = `q:r:s`),
+  m8 = the retired space.
+
+Measured: battery `harness/ifs-probe.sh` **36 PASS / 0 FAIL / 4 XFAIL /
+0 XPASS** (cases 32-40 are new; case 21 `21_xfail_at_sl_colon` left the
+xfail list as `21_at_sl_colon` — an XPASS, retired); C gate **PASS=605
+FAIL=39 SKIP=7**, and NO corpus example uses `${x:o:l}` at all (`grep`
+over `sh2perl/examples` and the frontend testdata), so this change cannot
+move that gate and its delta belongs to other work in the tree.
+
+Not modelled, stated plainly: the `@` face still collapses to ONE word
+in a multi-word context (the pre-existing cardinality gap above), so
+these pins speak about the assignment/single-word context where the
+join is observable; `$0` differs by construction between `bash <file>`
+and the compiled binary, so the offset-0 case strips the `$0` field
+rather than blessing either value.
+
+## 29. The redirect reorder and the word quoter — `c_redirect.rs` (46 obligations)
+
+```
+    verus --triggers-mode silent --rlimit 40 c_redirect.rs
+    -> verification results:: 46 verified, 0 errors
+```
+
+**What is proved.** Standalone model of the C backend's REDIRECT
+EMISSION and WORD QUOTING (`c_backend.rs` redirect arm + `_sh_word`):
+
+- `fd_parse` — the emitted fd prefix parses back to the fd it was
+  rendered from (the `unwrap_or(1)` + empty-prefix rule);
+- `quote_roundtrip` / `esc_in_sq` — THE WORD QUOTING: the bytes the
+  child shell word-parses out of `_sh_word(v)` are exactly `v`, for
+  every string; the `'`-splice walks `'` `"` `'` `"` `'` back into Sq.
+  `m1` is the negative control: the UNescaped spelling loses everything
+  after an embedded `'` (the word closes early);
+- `raw_arm_no_quotes` — the dup/close arm (`2>&1`, `2>&-`) emits NO
+  quote characters; `m2` shows what quoting it would produce
+  (`>&'1'` names a file in bash);
+- `heredoc_last_forced` — appending a non-heredoc after a heredoc frag
+  moves the terminator (`ends_with(a+b, d) == ends_with(b, d)` under
+  `|d| <= |b|`, the guard the proof exposed: without it the claim is
+  false — `pre` itself can end in the delimiter); `m3` computes the
+  concrete `cat <<EOF` + `0< 'in.txt'` pair;
+- `commute_here` + `fold_commute`/`fold_concat` + `reorder_safe` — THE
+  REORDER THEOREM: if `safe(rds)` (no non-heredoc touching fd 0 at or
+  after the FIRST heredoc) then `emit_order` — non-heredocs in source
+  order, heredocs last — preserves the fd table for EVERY starting
+  table;
+- `n1_fd0_conflict` — the side condition is NECESSARY, not decorative:
+  at fd 0 the two orders disagree for every starting table. MEASURED
+  2026-11-01 (`/tmp/redprobe`): `bash src1.sh` (`cat <<EOF < in.txt`)
+  → FROM_FILE, the generated C → FROM_HEREDOC, and the swapped src2
+  agrees in both;
+- `n2_close_is_a_file` — MEASURED: `echo hi 2>&-` and `echo hi 2>-`
+  render byte-identical C (the IR has no Close mode, `ir.rs:569`), so
+  the close source diverges from bash by construction (rc 1 vs a file
+  named `-`);
+- `flip_safe_mono` / `flip_frame` / `first_here_*` — the process-sub
+  flip pass preserves safety: `is_here` pointwise, `first_here` by
+  extensionality, monotone under the flip.
+
+**Model defect found by the proof (fixed).** `reads0` covered only
+`W|R|Rplus`, but `written` matches `W|Wc|A|R|Rplus` before consulting
+the dup form — a `Wc`/`A` Rd whose target is `&0` had
+`reads0 == false` while `written` still read `t.get(0)`, so
+`written_frame`'s frame rule was provably FALSE. `reads0` now covers
+exactly the modes `written` consults (strictly more conservative for
+`safe`/`touches0`, i.e. the sound direction).
+
+**Evaluation discipline.** `by (compute)` over `run` with a symbolic
+state diverges — measured spinning in the verifier's interpreter
+thread for >15 minutes, the same discipline `c_assoc_array.rs` records
+for let-bound recursion results. The quoter proves through the
+structural `run_one` + `run_concat` chain instead; ground `skip`/
+index facts on seq literals are stated as explicit asserts (they do
+not normalize on their own inside a recursive call).
+
+**Scope.** Word splitting by the child beyond the quoting layer is
+bash's contract; `exec`-style and process-substitution redirects beyond
+`is_ps_read` are out of scope; `ends_with_concat` is guarded
+(`|suf| <= |s|`) — the unguarded form is refuted in-file. Gate-
+registered (`c_redirect.rs:46:40`); like the other `c_*` models it has
+no sync baseline — the pin↔probe mapping (`/tmp/redprobe`, 2026-11-01)
+is its living tie.

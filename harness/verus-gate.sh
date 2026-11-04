@@ -172,9 +172,46 @@ MODELS=(
   # contract; replace-all first-hit splice + fuel-sufficient unfold +
   # empty-pat identity; strip pre/suf soundness (oracle consistency,
   # greedy/longest vs lazy/shortest) with the no-match identity;
-  # argv slice/join soundness; split word spans + split_count.
+  # argv slice/join soundness; split word spans + split_count. The
+  # 2026-11-03 extension models the POSITIONAL JOIN'S FACE: `$*` joins
+  # on IFS[0], `"$@"` always on a space (bash-measured), the empty-IFS
+  # arm concatenates with no separator (induction), and the lone-$0
+  # arm is empty — the source fix that gave `_sh_argv_join` its `sep`
+  # argument (9 call sites) is pinned by the face-difference
+  # obligation. The 2026-11-04 extension models the positional SLICE's
+  # face (`_sh_argv_slice`): both `${*:o:l}` and `${@:o:l}` join on
+  # IFS[0] and differ ONLY on an empty IFS (`*` concatenates, `@` falls
+  # back to a space) — NOT the whole-`$@` rule, which stays space-joined
+  # — pinned by s8-s15 plus m8 (the retired hard-coded space, invisible
+  # on the default IFS). The second 2026-11-04 extension models FIELD
+  # SPLITTING (`_sh_split`), which is the inverse face: IFS whitespace
+  # runs are one delimiter stripped at both ends, each IFS non-whitespace
+  # char delimits one field (`a::b` -> a,'',b), an empty IFS disables
+  # splitting, and a char is IFS whitespace only if ' '/\t/\n AND IFS
+  # lists it. `fields_fuel`/`ifs_fields` over `skip_ws`/`field_end`/
+  # `unit_after`, with fuel saturation PROVED (exact, not approximate) and
+  # pins f1-f11 + the `blank_runs` mutant (the retired space-only
+  # splitter). All index inspection goes through the total `ws_at`/
+  # `nw_at`/`delim_at` — a direct `s[i]` in a recursive spec makes the
+  # term stuck and the spec never unfolds (bisected, one-file reduction).
+  # f12/f13 pin the `$IFS` READ fix: the startup buffer is exactly three
+  # chars (space, tab, newline), all IFS whitespace, and holds nothing
+  # else — the value the splitter consumes is now the value the variable
+  # face publishes (`_sh_env` answers "IFS" from the buffer instead of
+  # getenv, which was never right since bash ignores an inherited IFS).
+  # f14/f15 pin the EMPTY-word contract: an empty value splits to ZERO
+  # fields, and the one-element list the C `for` lowering emits for an
+  # empty UNQUOTED word is provably different from it. That renderer gap
+  # cannot be closed here — the two programs lower to byte-identical shIR
+  # because `StrStyle` has no "unquoted" value — so it is filed as
+  # core-requests/c-20261104-unquoted-empty-word.md.
+  # g1-g5 model the FALLBACK slice (`_sh_arr_slice`, sep-parameterised): a
+  # join-then-split arm whose separator must match the JOIN's (IFS[0] for
+  # `[*]`, a literal space for `[@]`). It is the INVERSE OF ITS OWN JOIN,
+  # not bash's field splitting — `sep_fields` keeps every empty field
+  # (the join only inserts between words) while `ifs_fields` does not.
   # Honest: vbuf growth assumed (P3); fnmatch engine is an oracle.
-  "c_str_helpers.rs:40:40"
+  "c_str_helpers.rs:103:40"
   # The C generator's capture/wrap quoting
   # (sh2perl/src/c_backend.rs `_sh_wrap_cmd` + `_sh_system_rc` +
   # `_sh_capture` + the word-quoting family). Proves injection-freedom
@@ -279,12 +316,51 @@ MODELS=(
   # space; present(slots) presence protocol (holes dropped, empty words
   # kept); rng_slice bounds count ELEMENTS (bash ground truth measured
   # 2026-10-30: `a=(a b c); a[5]=z; ${a[*]:1:3}` → `b c z`). The `[@]`
-  # face provably never reads IFS; the whole-slice short-circuit equals
-  # the range path (rng_whole_is_all). Pins the 29-case probe battery
-  # (c01-c29). Five mutants each kill one obligation: hardcoded space,
-  # join-then-space-split (the retired `_sh_arr_slice` route), const-lift
-  # without the veto, `[@]` on IFS, dense-index slicing.
-  "c_join_ifs.rs:44:40"
+  # face of the WHOLE expansion provably never reads IFS; the whole-
+  # slice short-circuit equals the range path (rng_whole_is_all). The
+  # 2026-11-04 extension splits the slice face from it: an `[@]` SLICE
+  # joins on IFS[0] with a space fallback (`slice_at_sep`), so under a
+  # colon IFS `${a[@]}`=`x y z` but `${a[@]:1:2}`=`y:z` — c17 revised
+  # (it had claimed a space), c33-c35 added, m7 = the retired hard-coded
+  # space; ifs-probe case 21 was the xfail this retires. Pins the
+  # 40-case probe battery (c01-c35). Six mutants each kill one
+  # obligation: hardcoded space, join-then-space-split (the retired
+  # `_sh_arr_slice` route), const-lift without the veto, `[@]` on IFS,
+  # dense-index slicing, and the retired `[@]`-slice space.
+  #
+  # PLUS the DENSE-VALUE join (`declare -ia a=(1 2 3)`): `dense_face`
+  # takes the densified ELEMENT LIST (value storage keeps no presence
+  # marker) rather than `present(slots)`, sharing `join_sep`'s separator
+  # invariant (d7), so d1/d2/d3 pin the three measured faces (startup
+  # space, empty IFS concatenates, `[@]` always a space), d4 pins that
+  # the dense list and the presence list of the same array DIFFER (the
+  # value half of the C type confusion that SIGSEGVed: rc 139, fixed
+  # 2026-11-04 by converting inline in the renderer), d5 the empty/one/
+  # empty-IFS boundaries, d6 the k-1 separator count. Mutant: collapsing
+  # the `[@]` arm into the IFS arm fails d3. Verus cannot see C types,
+  # and cc does not catch this one either (GCC 13.3 only WARNS,
+  # -Wincompatible-pointer-types; measured) — so the type side is the
+  # probe battery's runtime diff (ifs-probe 54-54f), stated in the
+  # model's SCOPE note.
+  #
+  # PLUS the PRESENCE MARKER (`{id}_set[]`, 2026-11-04): a fixed dense
+  # int array now carries a byte-per-slot marker, so its element list is
+  # `present(slots)` again and `dense_marked_face` is PROVABLY the char**
+  # face for both faces and any IFS (e4) — nothing dense-specific is left
+  # in the join semantics. e1 pins bash's sparse readings (count 2,
+  # `7 9`, `${n[1]}` empty), e2 count=popcount vs extent, e3 the key set
+  # `0 2`, e5 `unset` removing the element, e6 a real 0 being present
+  # (why presence cannot be derived from the value), e7 the retired
+  # extent protocol disagreeing on the same array. Mutant: routing
+  # `dense_marked_join` back through `densify` fails e1/e4/e7.
+  #
+  # PLUS the APPEND base (2026-11-04): `arr+=(…)` lands one past the last
+  # SET element (`append_base`), which is the extent for a dense array but
+  # NOT for one emptied by `unset` (there `_len` is 1 and bash appends at 0).
+  # f1 pins the three measured bases, f2 that the extent is not the base,
+  # f3 the post-append count. Mutant: `append_base` replaced by
+  # `slots.len()` fails f1/f2 (`1 == 0`).
+  "c_join_ifs.rs:73:40"
   # The C generator's REDIRECT REORDER + word quoting
   # (c_backend.rs redirect arm + `_sh_word`): the fd-prefix parse round
   # trip, the `'`-splice quoter over the `run`/`esc` state machine
