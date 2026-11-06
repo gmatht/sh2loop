@@ -314,6 +314,11 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     # select-menu / …), which cargo cannot run. Conscious UNMIRRORED
     # entries per pin (VERUS.md §(b).4); the [exec] stage still
     # COMPILE-checks the lib target for this model's source file.
+    # ... EXCEPT the one pin that has a real unit test: the expr-position
+    # `assign` arm (measured `true && x=v || y=w`; the test is a proven
+    # TRIPWIRE — disabling the arm makes it fail with `_sh_env("x")` in
+    # the output).
+    c_decl_coverage:pin_assign_chain) echo c_backend:expr_position_assign_routes_to_the_variable ;;
     c_decl_coverage:pin_*) echo UNMIRRORED ;;
     # Verdict-analyses sweep: verdict-soundness over oracle censuses.
     scc:pin_mutual_pair) echo scc:mutual_recursion_is_one_scc ;;

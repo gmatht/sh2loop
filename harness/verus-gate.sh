@@ -236,7 +236,7 @@ MODELS=(
   # while-cond printf, elsif-cond-in-fn, return-collect, select-menu
   # param write, printf/let in fn scope). Three one-token mutants, each
   # killing a named obligation.
-  "c_decl_coverage.rs:51:40"
+  "c_decl_coverage.rs:54:40"
   # The C generator's STRING-LITERAL ESCAPER (sh2perl/src/c_backend.rs
   # `cstr`, the single funnel for every emitted literal incl. printf
   # format strings). Models the C lexer as a finite-state machine over
@@ -284,7 +284,16 @@ MODELS=(
   # mutants (drop the +1, drop the zero-fill, drop the reserve
   # guard) — C_UB_PROOF.md §25.
   "c_vbuf.rs:39:40"
-  "c_sparse_array.rs:28:40"
+  # +9 (2026-11-05): the NO-COLON SET-NESS faces on an ELEMENT. bash's
+  # predicate is "index i is an element" = `slot.is_Some()` — a set-but-
+  # EMPTY element IS set — so the three value faces resolve through
+  # `presence_override` in `param_call` (in range AND `_sh_pres_arr[i]`,
+  # or range alone for marker-less VALUE storage) and the `?` face aborts
+  # on its negation. Proved exact under `pres_wf` (the marker byte is
+  # `is_Some` for every real element) and under `value_wf` (range alone,
+  # for `long long a[]` storage); four mutants kill the emptiness test
+  # (`c_dash_empty`) that shipped before it.
+  "c_sparse_array.rs:45:40"
   # The C generator's ASSOCIATIVE-ARRAY faces (c_backend.rs:
   # `_sh_assoc_set`/`_sh_assoc_get`/`_sh_assoc_unset`, the value join
   # `_sh_join_arr`, the `{id}_n` count arm, the `m[k]+=v` RMW — all
@@ -306,7 +315,15 @@ MODELS=(
   # compute assert takes the full concrete call term, and counts are
   # stated on `.0.len()` (the emitted `{id}_n` arm), never on
   # `dom().len()` (uninterp for the evaluator).
-  "c_assoc_array.rs:41:40"
+  # +8 (2026-11-05): KEY PRESENCE for the same four faces on `${m[k]}`.
+  # `_sh_assoc_get` returns a NON-NULL "" for a MISSING key, so the value
+  # cannot answer set-ness; the new `_sh_assoc_has(k, n, key)` scans the
+  # key list, which `has_is_dom` proves equals `dom(the_map)`. Mutants
+  # pin the three measured rows (`m[k]=` present-empty, absent, `+`). +4
+  # more (same day): the `=`/`:=` faces INSERT through `assoc_set`
+  # (`assign_table`/`colon_assign_table`), so `{id}_n` grows exactly when
+  # bash's key count does; m13 kills "yield without inserting".
+  "c_assoc_array.rs:54:40"
   # The C generator's IFS JOINS (c_backend.rs: `_sh_join_arr_ifs`,
   # `_sh_join_arr_rng`, the `star` slice dispatch in `param_call`,
   # `_sh_join_arr` for the `[@]` face, and `emit_var_decl`'s const-lift
@@ -360,7 +377,191 @@ MODELS=(
   # f1 pins the three measured bases, f2 that the extent is not the base,
   # f3 the post-append count. Mutant: `append_base` replaced by
   # `slots.len()` fails f1/f2 (`1 == 0`).
-  "c_join_ifs.rs:73:40"
+  #
+  # PLUS the SLICE WINDOW (`rng_slice` / `take_present`, 2026-11-05): an
+  # (off, len) grid over four sparse shapes (476 measured rows) showed the
+  # two bounds are of DIFFERENT KINDS — the OFFSET indexes SLOTS (negative
+  # counts slots back from last_index+1, out of range is EMPTY, never a
+  # clamp) while the LENGTH counts PRESENT ELEMENTS, scanned forward with
+  # holes skipped and unspent. The retired `slot_window` (bounded by
+  # `b + len` SLOTS) is kept in the model as the transcription of the
+  # pre-fix helper, and mw1-mw6 are the measured rows where it and
+  # `rng_slice` disagree: `a=(a b c); a[5]=z` `${a[*]:1:3}` = `b c z` (was
+  # `b c`), `a[3]=x; a[7]=y` `${a[*]:0:2}` = `x y` (was EMPTY), `: -4:1` =
+  # `c` (was `a`, an element-counted offset), `:6` EMPTY, and both faces
+  # agreeing under IFS=: . This is the row the model LACKED while the
+  # helper shipped — it stated the bounds as one slot window, so nothing
+  # there could contradict the code.
+  #
+  # PLUS the ASSOC and KEY faces (2026-11-05). Three join rules, measured in
+  # a ONE-WORD context (an assignment, so echo's own argument joining cannot
+  # be mistaken for the expansion's): (a) the assoc VALUE `[*]` face is the
+  # shared fold — IFS[0], concatenating on an empty IFS — and `[@]` is a
+  # space join even under `IFS=:` (k2/k3); (b) the KEY face reads IFS[0] for
+  # both faces and both storages, falling back to a space only for `[@]` on
+  # an EMPTY IFS (k1a); (c) an ASSOC slice's positive offset is ONE-BASED —
+  # `:0:1` and `:1:1` both take the first element, `:2:1` the second — an
+  # offset past the end is EMPTY, a negative one CLAMPS at 0 (`: -9` on three
+  # elements is the whole list), the length counts elements, and a negative
+  # length errors only for an in-range offset (a1-a6). The retired newline
+  # assoc join is kept as `nl_join`, with the proof that 064_07 — which sets
+  # `IFS=$'\n'` — passed for the reason the code was wrong.
+  #
+  # PLUS the `!` FAMILY's COLLAPSE (k1b/k1c/k1d): `${!a[*]}`, `${!a[@]}`,
+  # `${!a[*]:o:l}`, `${!a[@]:o:l}` and `${!a[1]}` all lower to
+  # `param("slice", "!a", "@", "")` — face, bounds and subscript erased —
+  # while bash gives four behaviours (whole join on IFS[0], ERROR for the
+  # slice spellings, empty for the single-key one). So NO renderer of that
+  # node is exact (k1c, witness = the `[@]` reading against the slice's
+  # error) and k1d states the exactness DOMAIN that still holds: the shipped
+  # rule is exact for `[@]` under every IFS and for `[*]` whenever IFS is
+  # non-empty, leaving the empty-IFS `[*]` row as the erasure's only cost.
+  # The fix is a contract change, so it is filed as an OFFER:
+  # core-requests/c-20261105-keys-face-collapse.md.
+  "c_join_ifs.rs:104:40"
+  # The C generator's WORD-EXPANSION ORDER (c_backend.rs: `stmt` /
+  # `stmt_inner` / `stmt_has_elem_assign` / `snap_elem` / `array_index_read`,
+  # plus the `set --` arm's field splitting). THE DENOTATIONAL EXTENSION: a
+  # command's word list is a LIST OF FACES expanded LEFT TO RIGHT, each
+  # evaluated against the store as it stands at ITS position — bash shows a
+  # `${a[i]:=w}` store to every LATER face and to no EARLIER one. MEASURED
+  # 2026-11-05: `a=(''); echo "${a[0]}" "${a[0]:=z}"` printed `[z] [z]`
+  # (the store's statements are emitted while the LATER word renders, so the
+  # argument vector evaluated the inline read after the store); the fix
+  # materialises plain element reads into statement temps, so the fold is
+  # positional. Two carrier holes the first attempt left red — `printf`
+  # folds to `IrStmt::Output` and a shell function's `echo` arrives as
+  # `Return(Some(..))` — are proved, not narrated (`m2_narrow_walk`).
+  # `set --` also gains the split it was dropping: `set -- $x` with
+  # `x='a b'` is TWO positionals (`fields_two`), `x=''` is ZERO
+  # (`fields_drop_empty`), `IFS=:; x='a::b'` is THREE with an empty middle
+  # (`fields_ifs_colon`, and `m3_one_rule_for_both` proves the whitespace
+  # rule is not a substitute). Pinned residual: an unquoted `${a[i]}` carries
+  # NO `split` marker (`arrayindex_arrives_unsplit`) — a parser erasure, so no
+  # renderer of that IR can split it.
+  # §6 generalises that to the QUOTEDNESS bit, measured 2026-11-05 as
+  # BYTE-IDENTICAL shIR: `z=""; set -- $z` and `z=""; set -- "$z"` both
+  # lower to `["--", Str ""]` while bash counts 0 and 1 words; likewise
+  # `x=""; set -- $x a` (1) and `set -- "" a` (2) are one `Str ""` word
+  # (`same_ir_for_both_spellings`, `const_fold_is_the_same_erasure`).
+  # `no_renderer_of_collapsed_words_is_exact` therefore proves the renderer
+  # CANNOT be finished on this IR, and `kept_flag_makes_it_exact` proves the
+  # contract change (a quotedness bit on the word node) IS sufficient — so
+  # this is an OFFER per PLAN §11, not a C-arm patch. §7 records the LANDED
+  # side: the collapse's author was the shared pass (`split_fold` folded on
+  # whitespace-freedom ALONE, unsound exactly on the empty value), which now
+  # keeps the marker unless the word is provably NON-EMPTY — so the marker IS
+  # the quotedness bit and the existing C arms are exact
+  # (`fix_is_exact_for_both_spellings`, `fold_is_sound_iff_nonempty`).
+  # MEASURED after the fix: `x=""; set -- $x` → 0 words, `x=""; set -- "$x"`
+  # → 1, `for w in $e` → 0 iterations; C gate 625/19/7 byte-identical,
+  # ./fail 563/563, fail-estree 563/563.
+  "c_expand_order.rs:36:40"
+  # The C generator's STATIC-`eval` INLINING (c_backend.rs:
+  # `static_eval_stmts` + `expand_static_evals`, called from `shir_to_c`
+  # BEFORE every analysis). A literal `eval '<text>'` denotes the statements
+  # of `<text>`; the pre-pass splices them into the IR so the ONE census
+  # (decl inventory, type/lifetime analyses, read routing) sees them.
+  # 063_12 emitted `_sh_sset(&result, …)` with `result` undeclared (cc) and
+  # read it back as `_sh_env("result")`. The model flattens a program to its
+  # in-order leaves tagged by enclosing-eval depth, so `expand` is a
+  # per-leaf retag and every fold is a cursor recursion:
+  # `expansion_preserves_meaning`/`assigned_invariant` (the rewrite moves
+  # nothing), `census_is_exact` + `fixed_census_is_complete` (THE FIX, under
+  # `dyn_free`), `opaque_never_over_declares` (the pre-fix census only ever
+  # MISSES), `witness_063_12`/`route_var` (the measured before/after),
+  # `dyn_eval_not_covered` (the honest scope) and `expand_idempotent`.
+  "c_eval_inline.rs:20:40"
+  # The C generator's `unset` on a SCALAR (c_backend.rs:
+  # `demote_unset_scalars` + `unset_scalar_census`, run from `shir_to_c`
+  # after the stringy demotion). bash's variable is a PARTIAL map — `None`
+  # (unset) is not `Some("")` — and an INT decl can spell neither: `unset x`
+  # emitted NOTHING, so `x=5; unset x` kept answering 5 (`${x:-gone}` → 5,
+  # `$((x+1))` → 6, `$x` → 5; all measured 2026-11-04). A scalar the program
+  # unsets is demoted to STRING storage, where the state exists. The model
+  # calls the identification `quot` and proves which faces survive it
+  # (`q_plain`/`q_len`/`q_arith`/`q_colon_default`/`q_colon_plus` — the
+  # emptiness-testing ones, i.e. the fix's whole target), which half of the
+  # no-colon faces it completes (`q_dash_*_unset`), why the REST is
+  # impossible rather than unfinished (`no_face_separates` — no function of
+  # the quotient can separate `None` from `Some("")`, while bash's `${x-w}`
+  # does; witness `dash_gap_is_the_set_to_empty_case`), the pre-fix
+  # divergence on the measured numbers (`pref_int_keeps_the_value`,
+  # `pref_int_arith`), and the census itself (`demote_is_a_kind_change`,
+  # `demote_hits_the_right_names`, `element_and_flag_are_not_scalar_unsets`).
+  # §4 models the census WALK, because the decision is only as good as its
+  # input: `demote_unset_scalars` demotes a var that an emptiness face reads
+  # and no assignment to which is unconditional, and the face collector was a
+  # hand-written `match` over `IrStmt` with a `_ => {}` tail and NO `Output`
+  # arm — but `printf '%s' "${x:-}"` is `IrStmt::Output`, not `Expr(Call)`, so
+  # the face was invisible and `r=$(echo hi) || { x=$?; }` plus
+  # `printf "%s=%s" x "${x:-}"` printed `x=0` where bash prints `x=`
+  # (MEASURED 2026-11-05; examples/parse-dollar-paren-or.sh, a corpus FAIL).
+  # `narrow_walk_misses_the_output_face` is the bug (the SAME word seen
+  # through `echo`, missed through `printf` — a carrier hole, not a semantic
+  # one), `full_walk_sees_it_through_every_carrier` the fix (the exhaustive
+  # `for_each_stmt_expr`, `_` arm gone so a new variant is a compile error),
+  # `plain_read_is_not_a_face` the reason it stays a narrow census, and
+  # `exhaustive_walk_is_what_makes_the_demotion_sound` the composition with §3
+  # (demoted → exact face; Int-homed → the number `"0"`, which is not bash's
+  # empty string).
+  # §5 is the OTHER distinction bash makes, on the SAME storage: `-`/`+`/`=`
+  # test SET-NESS while `:-`/`:+` test NON-EMPTINESS. MEASURED 2026-11-05:
+  # `x=""; ${x-w}` → C `w` / bash ``, `x=""; ${x+w}` → C `` / bash `w`,
+  # `unset x; ${x=w}` → C `` and no assignment / bash `w` then `w`. The data
+  # is not the obstacle (a heap scalar's NULL IS a presence bit, and the `-`
+  # arm already emits `(x ? x : w)`); the OPERATOR is — the parser folds
+  # `${x-w}` into `param(":-", "x", "w")`, and `${x=w}` into `param("",
+  # "x=w")`, a "variable" named `x=w`. So §5 proves BOTH halves:
+  # `presence_renderings_are_exact` (a fix exists, for every state),
+  # `emptiness_render_fails_on_set_empty` (the shipped arm is wrong, on the
+  # measured inputs) plus `emptiness_is_right_on_the_unset_half` (why it
+  # looked right), and then `collapse_loses_the_colon` +
+  # `no_renderer_of_the_collapsed_ir_is_exact` — NO renderer of the collapsed
+  # IR can be exact, because `${x-w}` and `${x:-w}` are the same input. That
+  # made the residual an AST/contract change (a new operator spelling, an
+  # OFFER across backends per PLAN §11), not a one-backend patch — and that
+  # change LANDED: `every_spelling_is_exact` states the result, all fifteen
+  # measured state × face combinations are byte-identical to bash, and
+  # `${v=w}` now stores its default.
+  # The FOURTH member is `?`: `${v?w}` errors only when v is UNSET while
+  # `${v:?w}` also errors on set-to-empty (MEASURED 2026-11-05: `x="";
+  # ${x?boom}` prints `[]` and exits 0 in bash; C aborted rc=1 because the
+  # spelling had been folded into `:?`). `question_keeps_the_colon` states the
+  # pre-fix collapse and the one state where the merged predicates disagree,
+  # `question_spelling_is_exact` that the shipped NULL-pointer test IS bash's
+  # condition; the arm also gained a `getenv`-presence case for env-only
+  # names. All eight measured `?` cases match on stdout and exit status.
+  "c_unset_scalar.rs:27:40"
+  "c_printf_v.rs:22:40"
+  # …plus the ERROR path (the div-by-zero abort, measured 2026-11-05):
+  # `u=7; let u=u/0` → bash `[7] rc=1`, the renderer stored 0. The
+  # divider is total BY DESIGN (`(r == 0 ? 0 : l/r)` — C would SIGFPE),
+  # so the value 0 is a lie only the STORE can repair; the model carries
+  # an `Outcome` (Val/Err) and proves the abort leaves the store alone
+  # (`error_aborts_the_store`), that the detector is SOUND
+  # (`detection_is_sound`) and NOT complete (`detection_is_incomplete` —
+  # the pinned runtime-zero gap), that the error and the zero-value cases
+  # agree on status 1 (`error_status_is_one`), and that the two sites
+  # consult ONE predicate (`both_sites_share_one_predicate`).
+  "c_let_scope.rs:38:40"
+  # The C generator's FLATTENED SUBSCRIPT (c_backend.rs:
+  # `subscript_explicit_arith` / `subscript_arith_inner`
+  # / `has_arith_op` / the `collect_assoc_names` census arms / the arith
+  # arm of `emit_array_assign` / `dyn_key_c` / `array_index_read`; plus
+  # the DSE side, transforms/dead_store_elim.rs:
+  # `subscript_read_names` + `arith_read_names`). ONE classifier drives
+  # the declaration census and the store arm, so they cannot disagree —
+  # the pre-fix pair had two independent predicates and is proved
+  # divergent on the measured shapes (`prefix_diverges_on_ident`,
+  # `prefix_calls_arith_assoc`). Pins k1-k16 are the measured bash truth
+  # table (arith/numeral/dynvar/ident/arith-text/word, the index text, and
+  # the assoc key text — explicit form = VALUE, bare form = LITERAL).
+  # `subscript_closure` / `dead_needs_no_mention` are the LIVENESS
+  # obligation the pre-fix read set broke (`fix_was_necessary`); mutants
+  # m1-m3 are the retired behaviours. Measured by
+  # `harness/ifs-probe.sh` 59/59b-59m.
+  "c_subscript.rs:37:40"
   # The C generator's REDIRECT REORDER + word quoting
   # (c_backend.rs redirect arm + `_sh_word`): the fd-prefix parse round
   # trip, the `'`-splice quoter over the `run`/`esc` state machine

@@ -151,11 +151,14 @@ emit 51c_ifs_read_then_split 'printf "[%s]" "$IFS"; v=$(printf "a\tb"); n=0; for
 # xfail: an EMPTY unquoted value is folded to a ONE-word list, so the loop
 # runs once (bash: zero words). A lowering defect, not a split one — the
 # renderer emits `_i_w < 1` without ever calling _sh_split.
-emit 52_xfail_empty_for    'e=""; n=0; for w in $e; do n=$((n+1)); done; printf "count=%s\n" "$n"'
-# The half a fix must NOT break: a QUOTED empty word IS one field. The two
-# programs currently lower to BYTE-IDENTICAL shIR (the unquoted origin is
-# not representable in `StrStyle`), which is why 52 cannot be fixed in the
-# renderer — filed as core-requests/c-20261104-unquoted-empty-word.md.
+# RETIRED 2026-11-05 (was 52_xfail_empty_for): an empty UNQUOTED expansion is
+# ZERO words, so the loop body never runs. The shared pass `split_fold` used to
+# erase the `split` marker on whitespace-freedom alone, which collapsed this
+# onto the quoted spelling (one empty word) — it now keeps the marker unless
+# the word is provably NON-EMPTY, so the renderer can tell them apart. See
+# `c_expand_order.rs` §6/§7 and C_UB_PROOF.md §34.
+emit 52_empty_for_colon 'e=""; n=0; for w in $e; do n=$((n+1)); done; printf "count=%s\n" "$n"'
+# The half a fix must NOT break: a QUOTED empty word IS one field.
 emit 52b_quoted_empty_for  'n=0; for w in ""; do n=$((n+1)); done; printf "count=%s\n" "$n"'
 # ------------------------------- the FALLBACK slice (`_sh_arr_slice`)
 # An array whose storage the emitter cannot walk takes the join-then-split
@@ -194,12 +197,21 @@ emit 55b_dense_unset       'declare -ia n; n[0]=7; n[2]=9; unset "n[0]"; v="${!n
 emit 55c_dense_keys_loop   'declare -ia n; n[0]=7; n[2]=9; for k in "${!n[@]}"; do printf "<%s>" "$k"; done; echo'
 emit 55d_dense_reset       'declare -ia n; n[0]=7; n[2]=9; n=(); n[4]=1; v="${!n[@]}"; printf "%s [%s] [%s]\n" "${#n[@]}" "${n[*]}" "$v"'
 emit 55e_dense_read_zero   'declare -ia a=(0 0 0); printf "%s [%s] [%s]\n" "${#a[@]}" "${a[*]}" "${a[1]}"'
-# xfail (CORE, not the renderer): `${!arr[*]}` loses its FACE in the shIR —
-# both faces lower to `param("slice", "!arr", "@", "")` (measured), so the
-# keys join cannot know it was `[*]` and uses the `[@]` space. bash: `0:2`.
-# Filed as core-requests/c-20261104-keys-face.md; the values face
-# (`${a[*]}` vs `${a[@]}`) is preserved and already correct.
-emit 56_xfail_keys_star_face 'declare -ia n; n[0]=7; n[2]=9; IFS=:; printf "[%s]\n" "${!n[*]}"'
+# RETIRED xfail 56 (2026-11-05): the keys join now reads the FACE's
+# separator instead of an unconditional space, so `${!n[*]}` under `IFS=:`
+# is `0:2` — the row this case measures.
+#
+# The CORE still erases the face bit — `${!a[*]}`, `${!a[@]}`,
+# `${!a[*]:o:l}`, `${!a[@]:o:l}` and `${!a[1]}` ALL lower to
+# `param("slice", "!a", "@", "")` (measured 2026-11-05) — but that costs
+# exactly ONE row: an EMPTY IFS, where `[*]` concatenates (`012`) and `[@]`
+# falls back to a space (`0 1 2`). With a non-empty IFS both faces read
+# IFS[0], so the renderer is exact there without the bit, and the two
+# slice spellings are unrenderable for a different reason (bash INDIRECTS
+# the value list and errors). `c_join_ifs.rs` k1b/k1c prove the
+# impossibility and k1d the exactness domain; the slice half is
+# core-requests/c-20261104-keys-face.md.
+emit 56_keys_star_face 'declare -ia n; n[0]=7; n[2]=9; IFS=:; printf "[%s]\n" "${!n[*]}"'
 # xfail: pre-existing LOWERING shapes the presence work exposed (both are
 # wrong with or without the marker, and neither is a join/count bug).
 # (a) `arr+=(x)` on a sparse array re-literalises the whole array, so the
@@ -225,12 +237,56 @@ emit 58d_dense_append_cap 'declare -ia d=(1); d[3]=9; d+=(5); v="${!d[@]}"; prin
 # near unexpected token `)'"). Pre-existing and independent of the marker
 # — the same fallback arm serves string arrays.
 emit 58e_xfail_dense_append_arith 'declare -ia e=(1 2); x=9; e+=($x $((x+1))); printf "%s [%s]\n" "${#e[@]}" "${e[*]}"'
-# (c) an element write with an ARITHMETIC subscript (`n[$((i*2))]=$i`)
-#     routes the array to assoc storage, so the decl never emits `n_k` —
-#     the C does not COMPILE. A BARE `$i` subscript works (59b), so this is
-#     the `$(( ))` subscript's key classification, not dense storage's.
-emit 59_xfail_dense_arithkey 'declare -ia n; i=1; n[$((i*2))]=5; n[0]=7; printf "%s [%s]\n" "${#n[@]}" "${n[*]}"'
+# FIXED 2026-11-04 (was `59_xfail_dense_arithkey`): an ARITHMETIC subscript
+# is an INDEX. It used to fall into the "literal string key implies assoc"
+# arm — `_sh_assoc_set(n_k, …)` on a `long long n[]` declaration, so the C
+# did not compile (`n_k` undeclared) — and the census that drives the
+# declarations said assoc too. One predicate now drives both.
+emit 59_dense_arithkey    'declare -ia n; i=1; n[$((i*2))]=5; n[0]=7; printf "%s [%s]\n" "${#n[@]}" "${n[*]}"'
 emit 59b_dense_dynkey    'declare -ia n; i=1; n[$i]=5; n[3]=6; printf "%s [%s]\n" "${#n[@]}" "${n[*]}"'
+# the subscript truth table (bash MEASURED 2026-11-04). Every form below is
+# an arithmetic INDEX for an indexed array; a bare operator text is a
+# LITERAL key for an assoc table while `$((…))` is the arith VALUE there:
+#   n[i*2]        → index 2      m[i*2]      → key "i*2"
+#   n[$i+1]       → index i+1    m[$((i*2))] → key "2"
+#   n[i]          → index i (the store of `i` must SURVIVE dead-store
+#                   elimination: its only reference is inside the name)
+#   n["1"]        → index 1 (bash strips the quotes)
+emit 59c_bare_arith_text  'declare -ia n; i=1; n[i*2]=5; n[0]=7; k="${!n[@]}"; printf "%s [%s]\n" "${#n[@]}" "$k"'
+emit 59d_dollar_plus      'declare -ia n; i=1; n[$i+1]=5; k="${!n[@]}"; printf "%s [%s]\n" "${#n[@]}" "$k"'
+emit 59e_bare_ident       'declare -ia n; i=2; n[i]=5; n[0]=7; k="${!n[@]}"; printf "%s [%s]\n" "${#n[@]}" "$k"'
+emit 59f_quoted_index     'declare -ia n; n["1"]=5; n[0]=7; k="${!n[@]}"; printf "%s [%s]\n" "${#n[@]}" "$k"'
+emit 59g_paren_arith      'declare -ia n; i=1; n[(i*3)+1]=5; k="${!n[@]}"; printf "%s [%s]\n" "${#n[@]}" "$k"'
+emit 59h_const_arith      'declare -ia n; n[$((2*3))]=5; k="${!n[@]}"; printf "%s [%s]\n" "${#n[@]}" "$k"'
+emit 59i_str_arith        'declare -a a; i=1; a[$((i+2))]=v; a[0]=w; k="${!a[@]}"; printf "%s [%s] [%s]\n" "${#a[@]}" "${a[*]}" "$k"'
+# the READ side must evaluate the same subscript the write stored: before
+# the fix `${a[$((i+1))]}` read index 0 (`p`) where bash reads `r`
+emit 59j_arith_read       'a=(p q r); i=1; printf "%s|%s\n" "${a[$((i+1))]}" "${a[$i]}"'
+# assoc: the explicit form is the VALUE, the bare text stays literal
+emit 59k_assoc_mixed      'declare -A m; i=1; m[i*2]=5; m[$((i*2))]=6; k="${!m[*]}"; printf "%s [%s]\n" "${#m[@]}" "$k"'
+emit 59l_assoc_arith_read 'declare -A m; i=2; m[$((i*3))]=v; printf "%s|%s\n" "${m[6]}" "${m[$((i*3))]}"'
+# the store the subscript names is LIVE (dead-store elimination used to
+# drop `i=3`, leaving the renderer to substitute an undeclared var)
+emit 59m_subscript_store 'i=3; n[$((i))]=9; printf "%s|%s\n" "${#n[@]}" "${n[3]}"'
+# FIXED 2026-11-04 (was `60_xfail_int_argv_face`): a printf carrying an
+# INT-array ELEMENT and the COUNT in one argument list lowers through the
+# ARGV path, which rebuilt `n=(…)` for the child shell with
+# `_sh_idx_init(&_sh_cmd, &_sh_cap, "n", n, n_len)` — that helper's 4th
+# parameter is `char **`, so it read `long long[]` slots as POINTERS and
+# SIGSEGVed (rc 139; gcc flagged the incompatible pointer type). The argv
+# path now dispatches on the STORAGE CLASS (`idx_init_call`): an int array
+# goes to `_sh_idx_init_ll` with its presence marker, anything else keeps
+# the `char **` helper — one classifier for all three call sites (the
+# stage-command rebuild, `sh_array_inits`, and `array_inits_for_text`).
+emit 60_int_argv_face 'declare -ia n; n[4]=5; printf "%s\n" "${n[4]}" "${#n[@]}"'
+# the same face on SPARSE int storage: the child shell must see the HOLE,
+# so the LL helper is handed the presence marker (a bare `n=(0 0 0 0 5)`
+# would make the child's `${#n[@]}` say 5)
+emit 60b_int_argv_sparse 'declare -ia n; n[0]=7; n[4]=5; printf "%s|%s|%s\n" "${n[4]}" "${n[0]}" "${#n[@]}"'
+# and on the GROWABLE-VEC form (`+=`), which keeps no marker — its extent
+# IS the element list, so the helper gets the null one
+emit 60c_int_argv_vec 'declare -ia n=(1 2); n+=(3); printf "%s|%s\n" "${n[2]}" "${#n[@]}"'
+emit 60d_int_argv_neg 'declare -ia n=(-7); printf "%s|%s\n" "${n[0]}" "${#n[@]}"'
 
 for f in "$D"/cases/*.sh; do
   b=$(basename "$f" .sh)

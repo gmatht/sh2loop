@@ -34,7 +34,15 @@ if [ ! -d "$ROOT/sh2perl/src" ]; then
   ROOT=$(git -C "$(dirname "${BASH_SOURCE[0]:-$0}")" rev-parse --show-toplevel 2>/dev/null || true)
 fi
 SRCDIR=${SRCDIR:-$ROOT/sh2perl/src}
-FE=${FE:-$ROOT/sh2perl/frontends/rust-frontend/target/debug/rust-frontend}
+# Prefer the RELEASE frontend when it is built. The walker pays for the
+# file's whole MODULE CLOSURE (it follows `mod` declarations), so its own
+# code-generation quality dominates per-file cost: measured under the
+# fleet's usual loadavg ~13, transforms/text_ops.rs 2.4 s release vs
+# 15.7 s debug, parser/mod.rs 17.5 s vs 34.2 s. The debug build is why a
+# TMO=600 sweep still reported 48 TIMEOUTs on this corpus — not the size
+# of the blocker classes. FE=<path> still overrides both.
+FE=${FE:-$ROOT/sh2perl/frontends/rust-frontend/target/release/rust-frontend}
+[ -x "$FE" ] || FE=$ROOT/sh2perl/frontends/rust-frontend/target/debug/rust-frontend
 TMO=${TMO:-120}
 MODE=full
 MIN=0
@@ -51,7 +59,7 @@ done
 
 [ -x "$FE" ] || {
   echo "rust-dogfood: no rust-frontend at $FE" >&2
-  echo "  build it: (cd sh2perl/frontends/rust-frontend && cargo build --offline)" >&2
+  echo "  build it: (cd sh2perl/frontends/rust-frontend && cargo build --offline [--release])" >&2
   exit 2
 }
 

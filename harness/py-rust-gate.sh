@@ -31,17 +31,42 @@ command -v rustc >/dev/null || { echo "py-rust-gate: rustc not installed" >&2; e
 # lazily: only programs whose Rust text mentions num_bigint pay for it, and a
 # missing rlib is a hard error for those (never a silent skip).
 BIGINT_RLIB=""
+# `target/debug/deps` is SHARED with every other agent and backend worktree on
+# this box, so it accumulates `num_bigint` rlibs built by other rustc
+# toolchains (and other `num_traits` hashes for them to resolve through).
+# `ls -t | head -1` therefore picks an rlib the CURRENT rustc refuses —
+# `E0514 found crate num_bigint compiled by an incompatible version` or
+# `num_traits required to be available in rlib format` — and a working rlib a
+# row further down would have linked fine. Probe candidates newest-first with a
+# trivial `extern crate` and take the first the current toolchain accepts.
+# Still a hard error when NONE works (never a silent skip).
+probe_bigint_rlib() { # <rlib> -> 0 when this rustc can load it
+    local rlib=$1 dir probe
+    dir=$(dirname "$rlib")
+    probe=$(mktemp -d)
+    printf 'fn main() { let _ = std::mem::size_of::<num_bigint::BigInt>(); }\n' > "$probe/p.rs"
+    # the SAME toolchain the real compile uses (line below): a probe run by
+    # the default `rustc` happily accepts an rlib that `rustup run 1.90`
+    # then rejects, which is how this gate reported a phantom failure.
+    rustup run 1.90 rustc --edition 2021 --extern "num_bigint=$rlib" -L "$dir" \
+        --emit=metadata -o "$probe/p.rmeta" "$probe/p.rs" >/dev/null 2>&1
+    local rc=$?
+    rm -rf "$probe"
+    return $rc
+}
 bigint_flags() { # <prog.rs> -> rustc flags on stdout (empty when not needed)
     grep -q 'num_bigint' "$1" || return 0
     if [ -z "$BIGINT_RLIB" ]; then
-        BIGINT_RLIB=$(ls -t "$ROOT"/otranspilerl/target/debug/deps/libnum_bigint-*.rlib \
-                         "$ROOT"/sh2perl/target/debug/deps/libnum_bigint-*.rlib 2>/dev/null | head -1)
+        local c
+        while IFS= read -r c; do
+            if probe_bigint_rlib "$c"; then BIGINT_RLIB=$c; break; fi
+        done < <(ls -t "$ROOT"/otranspilerl/target/debug/deps/libnum_bigint-*.rlib \
+                      "$ROOT"/sh2perl/target/debug/deps/libnum_bigint-*.rlib 2>/dev/null)
         [ -n "$BIGINT_RLIB" ] || BIGINT_RLIB=missing
     fi
     [ "$BIGINT_RLIB" = missing ] && return 2
     printf -- '--extern num_bigint=%s -L %s' "$BIGINT_RLIB" "$(dirname "$BIGINT_RLIB")"
 }
-RUSTC=${RUSTC:-rustc}
 
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 
