@@ -379,3 +379,53 @@ nothing:
   failure. Each build gets a per-run `USER_HOME`; `-c` is not used (it moves
   the shared heap under a concurrent build, and it is the missing `sorry`
   check that matters — `quick_and_dirty = false` is what rejects `sorry`).
+
+## The middle rung: conditional semantic preservation
+
+Tier 3 needs `⟦·⟧` for bash, which this tree does not have. There is a
+cheaper artifact between the tiers, and `const-status-cond` has one:
+`sh2perl/proofs/verus/const_status_cond.rs` (35 obligations, gated in
+`harness/verus-gate.sh` at rlimit 60). Its obligation is `rewrite_sound` — the
+rewrite preserves the (status, print-trace) run from any start status, at
+every fuel bound.
+
+The shape of that artifact is worth naming, because it generalises: **write the
+environment model down, state it as the hypothesis, prove the rewrite preserves
+the observables under it.** For `const-status-cond` the only observable state is
+the exit status, because the pass rewrites only conditions that are a BARE
+`true`/`:`/`false` with no words — no variable is read, so env vars, IFS and `$@`
+cannot matter and are deliberately absent from the model. What remains is the two
+bash rules the pass encodes:
+
+* **R1** a compound's `$?` is the status of the last command run in the body, or
+  0 if no body command ran;
+* **R2** the condition command itself runs, so its status is what the first body
+  command reads through `$?` (`until false; do echo "$?"; done` prints 1).
+
+This is **not** Tier 1 — it mentions `⟦·⟧` of a statement, so it must not be
+counted in the Tier-1 totals — and it is not Tier 3 either: the bash rules are
+stated, not proved, so the trusted base is "bash obeys R1/R2". What it buys is
+that the pass is checked against a semantics rather than against intuition.
+Two of the fd-carrying passes now have one. `proofs/verus/background_decide.rs`
+(12 obligations) states the subshell model — a `cmd &` body inherits variable
+reads, discards its writes and shares stdout — and proves that the THREAD
+routing prints exactly what the subshell prints for every body the ordered
+"assigned before read" rule accepts. It also **refutes the check the pass
+actually ships**: `collect` gathers reads and assigns into two HashSets and
+compares them as sets, never as an order, so
+`if [ -n "$x" ]; then x=1; echo 7; fi` is classified self-contained and sent to
+a fresh runtime that prints nothing, where the subshell prints 7. That is a bug in
+the verdict — latent rather than live, since `is_thread` has no call site yet,
+so no backend mis-routes anything today (the fix is the ordered walk named in
+the model: `defined_after`), and the same model proves the ordered rule refuses nothing
+the pass accepts today, so adopting it loses no Thread verdicts.
+`proofs/verus/process_subst.rs` (6 obligations) is the materialization lemma
+for the temp-file lowering: the consumer's input is exactly the producer's
+output, the temp path is unlinked, other temps are untouched — with a negative
+control showing the fd/mode inversion the pass's own tests pin yields an empty
+consumer input.
+
+Which passes have such a model is a question for `VERUS.md` and the gate's
+list, not for memory: several models are untracked work-in-progress at any
+given time. Still out of reach for this recipe: signals, PATH resolution, and
+exit codes that a cleanup step clobbers (the `rm -f` status caveat).
