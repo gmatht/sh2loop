@@ -779,6 +779,28 @@ MODELS=(
   # (`builtin_table_is_the_58_true_builtins`: count, dedup, `ls`/`head`
   # absent), since the model takes it as a parameter.
   "type_query.rs:17:40"
+  # Terminator-binop (Tier-1): `break || exit 1` — a control call as the
+  # LEFT operand of `&&`/`||` transfers control, so the right operand is
+  # dead at statement position. bin_control_dead proves the BinOp
+  # statement and the bare control call run identically (trace, status,
+  # abort flag) for EITHER operator, ANY rhs, and ANY status the call
+  # reports -- the operator is never consulted; the fold is thus
+  # independent of `break 99`/`exit 3`/`return 2` statuses (measured:
+  # `break 99` reports 0, `exit 3 && echo` never echoes). fold_list_sound
+  # lifts it over a statement list; the transform's body recursion is
+  # that theorem instantiated per body (a body is just another list).
+  # capture_and_fold_unsound is the REFUSAL: inside `$( )` a control word
+  # is the subshell's business and the RHS DOES run --
+  # `x=$(break && echo RHS)` captures RHS (measured) -- so folding in
+  # expression position would drop output; that is why only a
+  # statement-position BinOp folds. Pins mirror 6 of the source's 7 unit
+  # tests (the 7th, loop-body recursion, is the per-list instantiation).
+  # Mutants red: a control call returning normally (5 errors) and the
+  # subshell flag ignored (1 error); restored at 19 verified, 0 errors.
+  # NOTE: the transform is PARKED -- `terminator_binop` has no `pub mod`
+  # line in src/transforms.rs, so this proves a rule in the tree that
+  # currently changes no emitted byte (the loop_opt `DEAD CODE` class).
+  "terminator_binop.rs:19:40"
 )
 
 # RETIRED models: VERIFIED, never counted. `interval.rs` / `i32_bounds_exec.rs`
