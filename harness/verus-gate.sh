@@ -45,7 +45,9 @@ PIN="0.2026.10.18.7d82994"
 # NOTE: `interval.rs` / `i32_bounds_exec.rs` are RETIRED (see VERUS.md §(a)
 # correction and §(d) P0(iv)): their target `arith_bounds` never landed —
 # the live estimator is `arith_abs_bound`, proved in Isabelle
-# (`I32Provable.thy`). Kept in-tree as superseded-design records, not gated.
+# (`I32Provable.thy`). Kept in-tree as superseded-design records and listed
+# in RETIRED_MODELS below: the gate VERIFIES them so they cannot rot, but they
+# are counted separately and contribute to no Tier-1 total.
 MODELS=(
   "optimize_stmts.rs:8:40"
   "dead_fn_elim.rs:25:40"
@@ -713,11 +715,15 @@ MODELS=(
   # 6 unit-test pins. Mutant (Command style folds) red 23v/1e.
   "interp_lit_merge.rs:24:40"
   # ForInit-lowering (Tier-1): ForInit -> Block(init + While) with the
-  # step spliced before both continue spellings (strip.rs 307 lines).
-  # Splice-shape identity over fuel-bounded loop combinators; 5
-  # unit-test pins. Lands with a soundness fix (legacy continue now
-  # splices). Mutant (step before Break) red 11v/2e.
-  "strip.rs:13:40"
+  # step spliced before every first-class continue (strip.rs).
+  # Splice-shape identity over fuel-bounded loop combinators; 4
+  # unit-test pins. The model was WRITTEN with a soundness fix for the
+  # legacy `Expr(Call("continue"))` shape (leveled continue skipped the
+  # step); commit 9928671cd deleted that arm and its unit test, so the
+  # model is re-pinned WITHOUT it and the fix claim is withdrawn — see
+  # the model's SOURCE DRIFT note. Mutant (step before Break) red 11v/2e
+  # on the 13-obligation version. No *_sync.txt baseline.
+  "strip.rs:12:40"
   # Arith-recovery (Tier-1): structured-Arith counted-while -> ForInit
   # (counted_arith_forinit.rs 383 lines). Trace identity; three +1
   # step spellings + Arith-cond gates; 6 unit-test pins. Mutant
@@ -773,6 +779,18 @@ MODELS=(
   # (`builtin_table_is_the_58_true_builtins`: count, dedup, `ls`/`head`
   # absent), since the model takes it as a parameter.
   "type_query.rs:17:40"
+)
+
+# RETIRED models: VERIFIED, never counted. `interval.rs` / `i32_bounds_exec.rs`
+# model `arith_bounds`, which never landed (the live estimator is
+# `arith_abs_bound`, proved in Isabelle), so their green obligations are
+# evidence about a superseded design, not Tier-1 evidence — hence the separate
+# list. They are still checked: a missing file or a drifted count is a FAIL,
+# because removing or reshaping a retired artifact has to be a deliberate edit
+# here rather than silent rot (the same failure mode as an absent model).
+RETIRED_MODELS=(
+  "interval.rs:5:40"
+  "i32_bounds_exec.rs:7:40"
 )
 
 # extractor:baseline — the generator script and the file it must reproduce.
@@ -841,6 +859,17 @@ SYNCS=(
   "harness/verus-sync-coverage.sh:loop_opt:sh2perl/proofs/verus/loop_opt_sync.txt"
   "harness/verus-sync-coverage.sh:restructure:sh2perl/proofs/verus/restructure_sync.txt"
   "harness/verus-sync-coverage.sh:optimize:sh2perl/proofs/verus/optimize_sync.txt"
+  # verus-sync.sh: the ONLY legacy (2-field) entry — it REGENERATES the synced
+  # region of the exec proof from src/ and diffs against the committed copy,
+  # instead of pinning guards. It was written 2026-10-24 and left unregistered
+  # ("nothing to sync"), which is why nobody noticed the source delete the very
+  # thing it extracts: its target `arith_bounds` (plus `within_i32` and the
+  # I32_MIN/I32_MAX consts) is absent from `transforms/i32_provable.rs` today,
+  # and `i32_bounds_sync.rs` was never committed. The entry now FAILs loudly on
+  # exactly that (see check_sync). Clear it by retargeting the extractor to the
+  # live `arith_abs_bound` and committing the generated baseline, or by deleting
+  # the two retired models AND this entry in one deliberate edit.
+  "harness/verus-sync.sh:sh2perl/proofs/verus/i32_bounds_sync.rs"
   # c_decl_coverage: the FIRST TRANSCRIPTION model in this list — its
   # checker does not just pin guards, it EXTRACTS the modelled walker
   # arm chains (patterns + guards + callee sets) from c_backend.rs and
@@ -871,11 +900,12 @@ if [[ "$verus_version" != *"$PIN"* ]]; then
   echo "verus-gate: WARNING: binary is not the pinned $PIN — counts were measured with the pin" >&2
 fi
 
-pass=0; fail=0; skip=0
-check_model() { # $1=entry
+pass=0; fail=0; skip=0; retired=0
+check_model() { # $1=entry [$2=retired]
   # NOTE: one `local` per line — a single `local a=.. b=$a` expands every
   # word before binding anything, which trips `set -u` (bash 5.2).
   local entry="$1"
+  local mode="${2:-active}"
   local filespec="${entry%%:*}"
   local rest="${entry#*:}"
   local expect="${rest%%:*}"
@@ -885,14 +915,32 @@ check_model() { # $1=entry
   IFS='+' read -ra parts <<< "$filespec"
   for f in "${parts[@]}"; do files+=("$PV/$f"); done
   local label="${filespec//+/, }"
+  # Existence pre-check: without it a missing model is handed to Verus,
+  # which reports `? verified, ? errors rc=1` — indistinguishable from a
+  # real proof failure in a log skim. That is how two dozen models could
+  # vanish from the tree unnoticed (the 2026-11 re-pin found three gone).
+  local missing=""
+  for f in "${files[@]}"; do
+    [ -f "$f" ] || missing="${missing:+$missing, }$f"
+  done
+  if [ -n "$missing" ]; then
+    echo "FAIL  $label — model file absent ($missing) — entry is not verifiable in this checkout" >&2
+    fail=$((fail+1))
+    return 0
+  fi
   local out rc n e
   out=$(timeout "$TIMEOUT" "$VERUS_BIN" --triggers-mode silent --rlimit "$rl" "${files[@]}" 2>&1) || rc=$?
   rc=${rc:-0}
   n=$(printf '%s\n' "$out" | grep -Eo '^verification results:: [0-9]+ verified' | grep -Eo '[0-9]+' | tail -1 || true)
   e=$(printf '%s\n' "$out" | grep -Eo '^verification results:: [0-9]+ verified, [0-9]+ errors?' | grep -Eo '[0-9]+ errors?' | grep -Eo '^[0-9]+' || true)
   if [ "$rc" -eq 0 ] && [ "${n:-}" = "$expect" ] && [ "${e:-}" = "0" ]; then
-    echo "OK    $label — $n verified, 0 errors (expected $expect)"
-    pass=$((pass+1))
+    if [ "$mode" = retired ]; then
+      echo "RETIRED  $label — $n verified, 0 errors (retired record, NOT Tier 1; not counted)"
+      retired=$((retired+1))
+    else
+      echo "OK    $label — $n verified, 0 errors (expected $expect)"
+      pass=$((pass+1))
+    fi
   else
     echo "FAIL  $label — got '${n:-?} verified, ${e:-?} errors' rc=$rc (expected $expect verified, 0 errors)" >&2
     printf '%s\n' "$out" | tail -15 >&2
@@ -904,16 +952,29 @@ check_sync() { # $1=extractor $2=baseline(rel to root)
   local gen="$root/$1" base="$root/$2"
   local name="${1##*/}"
   [ -x "$gen" ] || { echo "SKIP  $name — generator not executable"; skip=$((skip+1)); return 0; }
-  if [ ! -f "$base" ]; then
-    echo "SKIP  $name — baseline $2 absent (Tier 1 pending, NOT green-by-absence)"
-    skip=$((skip+1)); return 0
-  fi
+  # Run the generator BEFORE consulting the baseline. The old order SKIPped on
+  # a missing baseline without ever invoking the extractor, so a broken
+  # extractor and an absent baseline were indistinguishable from "Tier 1
+  # pending" — the state `verus-sync.sh` sat in for weeks while its target
+  # function was deleted from the source. Now:
+  #   generator errors                         -> FAIL (drift in the source)
+  #   generator is clean but no baseline file  -> FAIL (nothing is compared, so
+  #                                               the region is unchecked by
+  #                                               construction; commit it or
+  #                                               delete the entry on purpose)
   local tmp; tmp=$(mktemp)
   local rc=0
   OUT_TMP="$tmp" "$gen" >/dev/null 2>"$tmp.err" || rc=$?
   if [ "$rc" -ne 0 ]; then
     echo "FAIL  $name — generator errored (source outgrew the extractor?)" >&2
     tail -8 "$tmp.err" >&2; rm -f "$tmp" "$tmp.err"
+    fail=$((fail+1)); return 0
+  fi
+  if [ ! -f "$base" ]; then
+    echo "FAIL  $name — no baseline at $2: the extractor regenerates cleanly but its output was never committed, so drift from src/ is unchecked (commit the generated region, or delete this entry deliberately)" >&2
+    echo "      generated $(wc -l < "$tmp") line(s); first facts:" >&2
+    head -5 "$tmp" >&2
+    rm -f "$tmp" "$tmp.err"
     fail=$((fail+1)); return 0
   fi
   if diff -q "$base" "$tmp" >/dev/null 2>&1; then
@@ -959,6 +1020,8 @@ check_sync_cov() { # $1=script $2=model $3=baseline(rel to root)
 
 echo "== verus-gate: models =="
 for m in "${MODELS[@]}"; do check_model "$m"; done
+echo "== verus-gate: retired records (verified, never counted) =="
+for m in "${RETIRED_MODELS[@]}"; do check_model "$m" retired; done
 echo "== verus-gate: sync =="
 if [ "${#SYNCS[@]}" -eq 0 ]; then
   echo "(no sync extractors registered)"
@@ -973,5 +1036,5 @@ for s in "${SYNCS[@]}"; do
     check_sync "${s%%:*}" "$rest"
   fi
 done
-echo "verus-gate: $pass passed, $fail failed, $skip skipped"
+echo "verus-gate: $pass passed, $fail failed, $skip skipped, $retired retired-record checks (excluded from the pass count)"
 [ "$fail" -eq 0 ]

@@ -16,8 +16,8 @@ Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28; t
 
 | proof file | target | obligations | status |
 |---|---|---|---|
-| `proofs/verus/interval.rs` | `transforms/i32_provable.rs` (`arith_bounds`) | 5 verified, 0 errors | **RETIRED** — target never landed, see P0(iv) |
-| `proofs/verus/i32_bounds_exec.rs` | same, exec-carrying full-enum form | 7 verified, 0 errors | **RETIRED** — target never landed, see P0(iv) |
+| `proofs/verus/interval.rs` | `transforms/i32_provable.rs` (`arith_bounds`) | 5 verified, 0 errors | **RETIRED** — target never landed, see P0(iv); gate-verified as a retired record, outside every total |
+| `proofs/verus/i32_bounds_exec.rs` | same, exec-carrying full-enum form | 7 verified, 0 errors | **RETIRED** — target never landed, see P0(iv); gate-verified as a retired record, outside every total |
 | `proofs/verus/escape_classes.rs` | **verdict analysis**: `transforms/escape_classes.rs` `class_of` over the C consumer (`c_backend.rs:9929`) | 14 verified, 0 errors | landed, gated — see P12 |
 | `proofs/verus/f32_narrow.rs` | **verdict analysis**: `transforms/f32_narrow.rs` form table + `operand_exact` | 8 verified, 0 errors | landed, gated — see P12 |
 | `proofs/verus/optimize_stmts.rs` | `src/ir.rs::optimize_stmts` Pass 1 | 8 verified, 0 errors | committed `84bb46cb7`, local-only |
@@ -90,7 +90,7 @@ Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28; t
 | `proofs/verus/grep_o.rs` | `transforms/grep_o.rs` (grep -o shapes → grepMatches) | 19 verified, 0 errors | landed, gated — suites-then-proofs trio, re-authored 2026-10-30 |
 | `proofs/verus/exec_call_fold.rs` | `transforms/exec_call_fold.rs` (payload-free Exec in carrier → canonical exec call) | 8 verified, 0 errors | landed, gated — carrier-canonicalization |
 | `proofs/verus/interp_lit_merge.rs` | `transforms/interp_lit_merge.rs` (frozen-literal Expr part → Lit + adjacent-Lit merge) | 24 verified, 0 errors | landed, gated — part-canonicalization |
-| `proofs/verus/strip.rs` | `shir_passes/strip.rs` (ForInit → Block(init + While) + continue splice) | 13 verified, 0 errors | landed, gated — forinit-lowering |
+| `proofs/verus/strip.rs` | `shir_passes/strip.rs` (ForInit → Block(init + While) + continue splice; first-class `Continue` ONLY — the legacy `Expr(Call("continue"))` arm was deleted upstream in `9928671cd`, so the model no longer claims that fix) | 12 verified, 0 errors | landed, gated — forinit-lowering, re-pinned 2026-11-08 |
 | `proofs/verus/counted_arith_forinit.rs` | `transforms/counted_arith_forinit.rs` (structured-Arith counted-while → ForInit) | 12 verified, 0 errors | landed, gated — arith-recovery |
 | `proofs/verus/arr_load_fwd.rs` | `transforms/arr_load_fwd.rs` (single-def element load → forwarded reads) | 37 verified, 0 errors | landed, gated — element-forward |
 | `proofs/verus/isolate_accumulate.rs` | `transforms/isolate_accumulate.rs` (single-use pure temp → inlined use) | 18 verified, 0 errors | landed, gated — temp-isolation |
@@ -101,71 +101,53 @@ Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28; t
 | `proofs/verus/optimize.rs` | `shir_passes/optimize.rs` (census shapes + drop) | 17 verified, 0 errors | landed, gated — optimize-delta |
 | `proofs/verus/type_query.rs` | `transforms/type_query.rs` (`type NAME...` -> `echo` of the answers) | 17 verified, 0 errors | landed, gated -- the unproven Tier-1 candidate: answers come from the program's functions and the 58-entry true-builtin table, or the call is kept. Proves names+ORDER preserved (so `type f | head -1` reports f), every emitted line answered (`all_classified`), and a mixed known/unknown list refused WHOLE -- no partial answer swallowing bash's not-found line. Function beats builtin; an external is never answered. Table pinned Rust-side (`builtin_table_is_the_58_true_builtins`: 58, dedup, `ls`/`head` absent), since the model takes it as a parameter |
 
-492 active obligations total (504 with the 12 retired i32 obligations), 0 errors,
-plus the store-forward sweep (+47), the arith-lowering sweep (+28),
-the verdict-analyses sweep (+83) and the string/cursor sweep (+28:
-str_splice_fold 11, str_chop_cursor 17) and the loop-hoist model
-(+22: hoist_loop_invariants) and the suites-then-proofs trio (+42:
-direct_calls 19, cat_read 18, grep_o 19 — per-rewrite value models with
-explicit premise lemmas, guard-oracle inputs, and checked mutants;
-RE-AUTHORED 2026-10-30 from the surviving sources after the originals
-were lost, all re-verified under the pinned binary 2026-10-30) and the
-carrier-canonicalization model (+8: exec_call_fold 8 — per-site
-payload preservation with mapped pins and a checked mutant,
-re-verified under the pinned binary 2026-10-30) and the
-part-canonicalization model (+24: interp_lit_merge 24 — concat
-denotation identity with mapped pins and a checked mutant,
-re-verified under the pinned binary 2026-10-30) and the
-forinit-lowering model (+13: strip 13 — splice-shape identity with
-mapped pins and a checked mutant, landing with a legacy-continue
-soundness fix, re-verified under the pinned binary 2026-10-30) and the
-arith-recovery model (+12: counted_arith_forinit 12 — trace identity
-with mapped pins and a checked mutant, re-verified under the pinned
-binary 2026-10-30) and the element-forward model (+37: arr_load_fwd
-37 — single-store induction with span oracle, mapped pins and a
-checked mutant, re-verified under the pinned binary 2026-10-30) and the
-temp-isolation model (+18: isolate_accumulate 18 — substitution
-agreement with mapped pins and a checked mutant, re-verified under
-the pinned binary 2026-10-30) and the lane-verdict model (+12:
-lane_private 12 — classification soundness with mapped pins and a
-checked mutant, re-verified under the pinned binary 2026-10-30) and the
-footprint-verdict model (+21: analysis 21 — walk soundness with
-UNMIRRORED pins and a checked mutant, re-verified under the pinned
-binary 2026-10-30) and the
-shir loop-hoist model (+21: loop_opt 21 — whole-loop induction with
-mapped pins and a checked mutant, re-verified under the pinned
-binary 2026-10-30) and the
-goto-restructure carve-out (+20: restructure 20 — per-shape
-sequence identities with mapped pins and a checked mutant,
-re-verified under the pinned binary 2026-10-30) and the
-optimize census-delta (+17: optimize 17 — unmarked-unread
-induction with mapped pins and a checked mutant, re-verified
-under the pinned binary 2026-10-30), for 976
-transform-side obligations (the suites-then-proofs trio counts toward this
-total at its RE-AUTHORED size, +42: direct_calls 19, cat_read 18, grep_o 19,
-re-verified under the pinned binary 2026-10-30). Every active model
-with checked failing mutants (see §(b).3 — 38 mutants over
-36 models; the retired exec form carries its postcondition on the executable
-function itself instead). The twenty-four `c_*` rows are models of the C
-GENERATOR's own emission decisions, not of a shIR→shIR transform; they sit
-in the same gate but are counted separately from the 492 above— +865 obligations (11/14/15/15/16/17/18/19/20/20/22/26/27/36/37/38/39/45/46/54/54/69/104/103, each with its own failing mutants or negative
-controls, all re-verified under the pinned binary 2026-11-04/05), for 1841
-(the per-row tally of this table was re-summed on 2026-11-04 against the
-gate's MODELS list: 54 non-`c_*` rows totalling 976, of which the 12
-retired i32 obligations are 0 — they are out of the table — so the
-959 includes the sweep totals above; 24 `c_*` rows totalling 865, re-summed 2026-11-05 against the gate's MODELS list — which is the
-same number the gate's own MODELS entries sum to)
-gated active obligations in total — the P12 pair (+14/+8) and the
-store-forward trio (+47) and the arith-lowering pair (+28) and the
-verdict-analyses six (+83) and the string/cursor pair (+28) and the
-loop-hoist model (+22) and the carrier-canonicalization model (+8) and the
-part-canonicalization model (+24) and the forinit-lowering model
-(+13) and the arith-recovery model (+12) and the element-forward
-model (+37) and the temp-isolation model (+18) and the lane-verdict
-model (+12) and the footprint-verdict model (+21) and the shir
-loop-hoist model (+21) and the goto-restructure carve-out
-(+20) and the optimize census-delta (+17) are included in
-the 976, the twenty-four `c_*` rows counted separately as stated.
+**Obligation accounting for THIS checkout** (measured 2026-11-08 against
+`harness/verus-gate.sh`'s `MODELS` list — the only authority for what the gate
+actually verifies — split with `git -C sh2perl ls-files proofs/verus`, i.e. by
+whether a fresh clone of the branch receives the file):
+
+| | models | obligations |
+|---|---|---|
+| `c_*` (C generator), committed on the branch | 18 | 685 |
+| `c_*`, untracked here — branch-only | 6 | 180 |
+| transform/shIR, committed on the branch | 20 | 382 |
+| transform/shIR, untracked here — branch-only | 33 | 558 |
+| conditional trio, committed on the branch | 3 | 53 |
+| **committed on the branch — what a clone verifies** | **41** | **1120** |
+| **untracked here — verified by this checkout only** | **39** | **738** |
+| gate total (every `MODELS` entry) | 80 | 1858 |
+| retired i32 pair — verified, never counted (`RETIRED_MODELS`) | 2 | 12 |
+
+Of the 1858 obligations the gate runs here, **738 across 39 models come
+from files that are not on the branch**: they exist only as untracked files in
+`sh2perl/proofs/verus/`. Quote **1120** as the number the branch proves, and quote
+738 only as "present in this checkout, absent from the branch" — never as
+verified by CI or by a clone, which fails those 39 entries. The
+Tier-1-only view is **1067** in-tree against 738 branch-only: the conditional
+trio's 53 obligations are committed but sit outside the Tier-1 totals (they
+have their own paragraph below). Until 2026-11-08 the
+gate reported them as `? verified, ? errors`: an absent file was handed to
+Verus, so a missing model was indistinguishable from a failing proof in a log
+skim. `check_model` now has an existence pre-check that names the missing file.
+
+The retired i32 pair (`interval.rs` 5, `i32_bounds_exec.rs` 7 — target never
+landed, §(d) P0(iv)) is 12 obligations that count toward no Tier-1 total — the gate still verifies
+them (as `RETIRED_MODELS`), so they cannot rot silently, but a green count there
+is evidence about a design that never shipped; the
+postcondition on the retired exec form lives on its executable function
+instead. Every active model has checked failing mutants (see §(b).3 — 38
+mutants over 36 models).
+
+The totals this section carried before 2026-11-08 (492 active, 504 with the
+retired pair, 976 transform-side, 1841 gated) did not reproduce against either
+the gate's `MODELS` list (which sums to 1858) or against the per-file table
+(whose 84 rows sum to 1892: 12 from the retired i32 pair, which the gate no
+longer runs, plus 22 from `escape_classes.rs` and `f32_narrow.rs` being listed
+twice — netting to exactly 1858, the gate's own sum), so they are replaced by
+the measured split above rather than re-derived. Every per-file count in the table
+is the number the pinned binary reports for that file today, except `strip.rs`,
+re-pinned 13 → 12 on 2026-11-08 when its target lost the legacy-continue splice
+arm (see that model's SOURCE DRIFT note).
 
 The **conditional models** (`const_status_cond.rs`, `background_decide.rs`,
 `process_subst.rs`) are gated but excluded from those totals: each mentions the
@@ -179,11 +161,13 @@ Isabelle fits them (the target is Rust that *produces* the C), are in
 the pre-rollback snapshot survived as a dangling commit and all six files were
 restored from it, so `c_sparse_array` (45), `c_assoc_array` (54) and
 `c_join_ifs` (104) verify at the counts listed here again. Ten models named in
-`harness/verus-gate.sh` are still absent from `proofs/verus/` (another worker's
+`harness/verus-gate.sh` were still absent from `proofs/verus/` (another worker's
 rows: `strip.rs`, `analysis.rs`, `loop_opt.rs`, `restructure.rs`,
 `optimize.rs`, `counted_arith_forinit.rs`, `arr_load_fwd.rs`,
-`isolate_accumulate.rs`, `lane_private.rs`), so a whole-gate run still reports
-those as FAIL for absence. `C_UB_PROOF.md`'s closing "Tree state" subsection
+`isolate_accumulate.rs`, `lane_private.rs`). That is no longer the state: as of
+2026-11-08 all 80 model files the gate names are present and every entry
+verifies, but most of them are UNTRACKED — see the in-tree / branch-only split
+above, which is the distinction absence used to stand in for. `C_UB_PROOF.md`'s closing "Tree state" subsection
 carries the detail.) The eight pre-existing counts — and
 their seven mutants — were independently reproduced on 2026-10-24 with the
 pinned binary (see §(b).3); the three new counts (27/41/25) and their three
@@ -455,12 +439,18 @@ failure mode the exercise exists to catch.
 Per file: *fidelity pins* — properties checked against the running code
 before modelling (the `Declare`-keeps-itself census behavior, elim keep/drop
 examples, six purge scenarios); see the `*_pins` lemmas. *Pending:*
-`harness/verus-sync.sh` (staged, uncommitted) regenerates a marked SYNCED
-region of the exec proof from `i32_provable.rs` and fails loudly when the
-source outgrows its extractor patterns — but the generated
-`i32_bounds_sync.rs` does not exist yet and no gate runs `--check`. Until
-that lands, "the model matches the code" is a statement about the day each
-file was written, reviewed by re-reading.
+`harness/verus-sync.sh` regenerates a marked SYNCED region of the exec proof
+from `i32_provable.rs` and fails loudly when the source outgrows its extractor
+patterns. Since 2026-11-08 it is REGISTERED in the gate's `SYNCS` array (the
+only legacy 2-field entry, so it regenerates and diffs rather than pinning
+guards), and it is red for a real reason: the extractor targets `arith_bounds`
++ `within_i32` + `I32_MIN`/`I32_MAX`, and `i32_provable.rs` no longer contains
+any of them (the live estimator is `arith_abs_bound`), while
+`i32_bounds_sync.rs` was never committed. That dead entry is the honest state —
+it is the drift the exercise exists to catch, not a pending task. Until the
+extractor is retargeted and a baseline committed (or both retired models and
+the entry are deleted together), "the model matches the code" remains a
+statement about the day each file was written, reviewed by re-reading.
 
 **3. The obligations are not vacuous — every transform model has a checked mutant (38 mutants over 36 models), plus the C-generator mutants.**
 Interval with a wrong product corner: 4 verified, 1 error. `Assign` writing
@@ -558,7 +548,7 @@ honest after the modelling session ends:
 | `redundant_store_elim` | 7 pins | **yes, all** — 3 bug scenarios in-module (side-effecting arith, index read, Str-embedded `$x` + scanner units); cascade + observer + index-read in `pin_mirrors.rs` | 3 + 3 green |
 | `array_len_fold` | 8 pins | **yes, all, in-module** — 4-arg, 3-arg, plain-name, numeric-offset, non-empty-length, non-ident-base, bad-arity, folded-counts (15 in-module tests incl. traversal) | 8 green |
 | `const_status_cond` | 11 pins | **yes, all shapes, in-module** — all 7 rows + words/elsifs/non-const refusals (11 in-module tests); fuel-2 behavior pin is model-internal (the theorem at f=2) | 10 green |
-| i32 ×2 | n/a | **RETIRED** — target absent, out of gate (P0(iv)) | n/a |
+| i32 ×2 | n/a | **RETIRED** — target absent; gate-verified as a retired record, never counted (P0(iv)) | n/a |
 | `elim_trio` | 8 pins (cce×4 / uae×2 / mia×2) | UNMIRRORED by design — none of the three sources has per-rule unit tests (const_condition_elim tests only the `eval_cond` refusals, never the pruning) | recorded, not claimed |
 | `slice_identity` | 8 pins (3 folds / 4 refusals / runtime) | **yes, all** — each pin mirrors a named `slice_identity.rs` test (zero_offset…, empty_offset…, length_absent…, real_offset/length, array_and_positional, transform_reports_false) | 8/8 PASS in committed sync baseline |
 | `case_lowering` | 14 pins (dispatch + bind + refusal shapes) | **yes, all-but-one** — 13 pins mirror named `case_lowering.rs` tests; post-catch-all-dropped is model-internal | 13/13 mapped PASS in committed sync baseline |
@@ -700,9 +690,12 @@ hunk, both keep-direction; the Ext owner rebases onto the gitlink bump
 (source-level merge still pending, proof file unaffected).
 (iv) DONE 2026-10-26 — the two i32 models are RETIRED: bannered in-file,
 removed from `harness/verus-gate.sh` MODELS, excluded from the active totals
-(still verify at 5/7 as superseded-design records). `verus-sync.sh` stays
-unregistered (nothing to sync — a permanently-red sync entry is noise,
-not signal).
+(still verify at 5/7 as superseded-design records, now as gate-verified
+`RETIRED_MODELS`). `verus-sync.sh` was left unregistered here on the reasoning
+"nothing to sync"; that was wrong, and 2026-11-08 reversed it — the missing
+entry is why the deletion of `arith_bounds` from `i32_provable.rs` went
+unnoticed. It is registered now and FAILs, which is the signal this paragraph
+mistook for noise.
 
 **P1 — `redundant_store_elim`.** DONE — see P0(ii): the fixed version is
 proved (shadow argument, observationally exact), with all three bug
