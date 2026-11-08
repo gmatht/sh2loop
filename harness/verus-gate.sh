@@ -53,6 +53,24 @@ MODELS=(
   "redundant_store_elim.rs:53:80"
   "array_len_fold.rs:10:40"
   "const_status_cond.rs:35:60"
+
+  # CONDITIONAL, NOT TIER 1: background-decide. Subshell-vs-thread under `&`
+  # relative to a stated model (the subshell inherits variable reads, discards
+  # writes, shares stdout). `thread_equals_fork` proves the THREAD routing
+  # prints exactly what bash's subshell prints for every body the ORDERED rule
+  # accepts; `intended_implies_shipped` proves that rule refuses nothing the
+  # pass accepts; `shipped_check_is_unsound` REFUTES the check that ships --
+  # `collect` compares read/assign SETS with no order, so
+  # `if [ -n "$x" ]; then x=1; echo 7; fi` is sent to a fresh runtime that
+  # prints nothing where the sibling shell prints 7. Excluded from VERUS.md's
+  # Tier-1 totals.
+  "background_decide.rs:12:40"
+  # CONDITIONAL, NOT TIER 1: process-subst (the fd-carrying `<( )` shapes).
+  # The materialization lemma: the consumer's input is exactly the producer's
+  # output, the temp path is unlinked, other temps are untouched, and the
+  # negative control proves the fd/mode inversion the pass's own tests pin
+  # yields an EMPTY consumer input. Excluded from the Tier-1 totals.
+  "process_subst.rs:6:40"
   "copy_propagation.rs:27:40"
   "function_purity.rs:41:40"
   "test_lowering.rs:25:40"
