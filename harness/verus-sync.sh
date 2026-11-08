@@ -6,18 +6,28 @@
 #   ./harness/verus-sync.sh --check          # regenerate to temp, diff, exit 1 on drift
 #   ./harness/verus-sync.sh path/to/i32_provable.rs   # explicit source (worktree)
 #
-# DESIGN. The committed proof (proofs/verus/i32_bounds_exec.rs) DUPLICATES
-# arith_bounds by hand, so nothing stops it going stale. This script closes
-# that hole for the SYNCED region only:
+# DESIGN. RETARGETED 2026-11-08 at the LIVE estimator. The original target,
+# `arith_bounds` (plus `within_i32` and the I32_MIN/I32_MAX consts), was
+# deleted from `transforms/i32_provable.rs` — the source's estimator is now
+# `arith_abs_bound`/`arith_is_i32`, the pair Isabelle proves in
+# `proofs/I32Provable.thy`. The stale extractor went unnoticed because nothing
+# ran it, so the first thing this retarget does is give it a live target again.
 #
-#   SYNCED (generated, DO NOT EDIT): consts I32_MIN/I32_MAX, fn within_i32,
-#     fn arith_bounds, and the enum ArithAst constructor list.
-#   HAND (committed, reviewed): spec ev/in_i32/op_is, the (bool,lo,hi)
-#     postcondition bridge, str_eq_* shims, bounds_sound_exec proof.
+#   SYNCED (generated, DO NOT EDIT): the two abs-bound consts (hoisted from
+#     arith_abs_bound's body to file scope), fn arith_abs_bound, fn
+#     arith_is_i32, and the enum ArithAst constructor list from ir.rs.
+#   HAND: everything else. The hand-built proof of the deleted `arith_bounds`
+#     shape lives on in proofs/verus/i32_bounds_exec.rs as a RETIRED record.
 #
-# The split exists because the two mechanical rewrites Verus needs
-# (match-on-&str -> if-chains; then_some -> explicit if) are textual and
-# stable, while the proof itself is hand work.
+# TRANSCRIPT CONTRACT (narrowed 2026-11-08): the emitted region is a faithful
+# transcript for DRIFT DETECTION, not paste-ready Verus. Two mechanical
+# rewrites are applied — match-on-&str -> if-chains, `(...).then_some(E)` ->
+# explicit if — because those are textual and stable. Everything else is
+# verbatim, including shapes a spec fn would still need translated by hand:
+# the `?` operator, the `cap` closure, and `checked_add`/`checked_mul`
+# (Verus spec code has no `?`, no closures, and uses its own arithmetic). A
+# future proof of the live estimator starts from this file and translates
+# those; the extractor's job is to notice when the source moves under it.
 #
 # What makes a source change break loudly instead of silently:
 #   * new match arm / new operator string / new ArithAst variant /
@@ -56,31 +66,48 @@ def grab(pat, name, flags=0):
         sys.exit(1)
     return m.group(0)
 
-# --- 1. consts -----------------------------------------------------------
-consts = grab(r"const I32_MIN: i128 = [^;]+;\nconst I32_MAX: i128 = [^;]+;", "I32_MIN/I32_MAX consts")
-
-# --- 2. within_i32 --------------------------------------------------------
-within = grab(r"fn within_i32\(lo: i128, hi: i128\) -> bool \{\n(?:.*\n)*?\}", "fn within_i32")
-
-# --- 3. arith_bounds ------------------------------------------------------
-# Balanced-brace extraction: from `fn arith_bounds` to its closing brace at col 0.
-start = text.find("fn arith_bounds(a: &ArithAst) -> Option<(i128, i128)> {")
-if start < 0:
-    print("verus-sync: FATAL: cannot find fn arith_bounds", file=sys.stderr)
+# --- 1. bound consts ------------------------------------------------------
+# These are FUNCTION-LOCAL in the source (declared inside arith_abs_bound).
+# The transcript hoists them, dedented, to file scope: a Verus spec fn cannot
+# reach another fn's local const, and a future proof needs them by name.
+const_names = re.findall(r"const (I32_ABS_BOUND|LITERAL_ABS_BOUND): i128 = [^;]+;", text)
+if const_names != ["I32_ABS_BOUND", "LITERAL_ABS_BOUND"]:
+    print(f"verus-sync: FATAL: bound consts changed shape: {const_names}", file=sys.stderr)
     sys.exit(1)
-depth, i, n = 0, start, len(text)
-while i < n:
-    if text[i] == "{":
-        depth += 1
-    elif text[i] == "}":
-        depth -= 1
-        if depth == 0:
-            break
-    i += 1
-if depth != 0:
-    print("verus-sync: FATAL: unbalanced braces in arith_bounds", file=sys.stderr)
-    sys.exit(1)
-bounds = text[start:i + 1]
+consts = "\n".join(
+    re.search(r"const " + nm + r": i128 = [^;]+;", text).group(0) for nm in const_names
+)
+
+def balanced_fn(sig, name):
+    """Balanced-brace extraction of one fn, from its signature to its closer."""
+    start = text.find(sig)
+    if start < 0:
+        print(f"verus-sync: FATAL: cannot find {name} in {src_path}", file=sys.stderr)
+        print("  (the source outgrew the generator — extend the patterns, do not hand-edit)",
+              file=sys.stderr)
+        sys.exit(1)
+    depth, i, n = 0, start, len(text)
+    while i < n:
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                break
+        i += 1
+    if depth != 0:
+        print(f"verus-sync: FATAL: unbalanced braces in {name}", file=sys.stderr)
+        sys.exit(1)
+    return text[start:i + 1]
+
+# --- 2. the live estimator ------------------------------------------------
+bounds = balanced_fn("fn arith_abs_bound(a: &ArithAst) -> Option<i128> {", "fn arith_abs_bound")
+# The consts were just hoisted to file scope; leaving the originals inside the
+# body would define each one twice in the transcript.
+bounds = re.sub(
+    r"^[ \t]*const (?:I32_ABS_BOUND|LITERAL_ABS_BOUND): i128 = [^;]+;\n", "", bounds, flags=re.M
+)
+is32 = balanced_fn("fn arith_is_i32(a: &ArithAst) -> bool {", "fn arith_is_i32")
 
 # --- 4. enum constructor list --------------------------------------------
 # The proof's ArithAst must name every variant the source matches on. We
@@ -115,7 +142,10 @@ def rewrite(body):
     # exactly `within_i32(lo, hi)` — anything else is FATAL, because a
     # then_some anywhere else is a new shape the proof has not seen.
     def conv_then_once(text):
-        m = re.search(r"within_i32\(lo, hi\)\.then_some\(", text)
+        # `(<pred>).then_some(<arg>)` with a pred of nested-paren depth <= 1
+        # (the source has comparisons only). A deeper shape is FATAL below
+        # rather than silently unrewritten.
+        m = re.search(r"\(([^()]*(?:\([^()]*\)[^()]*)*)\)\.then_some\(", text)
         if not m:
             return text, False
         j = m.end() - 1  # the `(` of `.then_some(`
@@ -133,14 +163,17 @@ def rewrite(body):
             print("verus-sync: FATAL: unbalanced then_some(", file=sys.stderr)
             sys.exit(1)
         val = text[j:k + 1]
-        repl = f"(if within_i32(lo, hi) {{ Some({val}) }} else {{ None }})"
+        inner = val[1:-1]
+        if "," not in inner:  # a tuple argument keeps its parens
+            val = inner
+        repl = f"(if {m.group(1)} {{ Some({val}) }} else {{ None }})"
         return text[:m.start()] + repl + text[k + 1:], True
     while True:
         out, again = conv_then_once(out)
         if not again:
             break
     if ".then_some(" in out:
-        print("verus-sync: FATAL: then_some outside within_i32(lo, hi) — new shape, extend the generator", file=sys.stderr)
+        print("verus-sync: FATAL: unrewritten then_some — a new receiver/argument shape, extend the generator", file=sys.stderr)
         sys.exit(1)
     # -- 2. match on op.as_str() -------------------------------------------
     # Recursive: an arm body may itself contain `match op.as_str()` (the Un
@@ -158,6 +191,7 @@ def rewrite(body):
             ind, expr = m.group(1), m.group(2)
             i += 1
             arms = []
+            pre_comments = []  # comments between the `match {` and the first arm
             cur_kind, cur_lit, cur_body = None, None, []
             while i < len(lines):
                 l2 = lines[i]
@@ -189,12 +223,19 @@ def rewrite(body):
                     continue
                 if re.match(r"^" + re.escape(ind) + r"\}\s*$", l2):
                     break
-                ma = re.match(r'^\s*"((?:[^"\\]|\\.)*)"\s*=>\s*(.*)$', l2)
+                # A literal arm may alternate: `"+" | "-" => body` becomes
+                # `op.as_str() == "+" || op.as_str() == "-"`.
+                ma = re.match(
+                    r'^\s*((?:"(?:[^"\\]|\\.)*"\s*(?:\|\s*"(?:[^"\\]|\\.)*"\s*)*))\s*=>\s*(.*)$',
+                    l2,
+                )
                 mw = re.match(r"^\s*_\s*=>\s*(.*)$", l2)
                 if ma:
                     if cur_kind is not None:
                         arms.append((cur_kind, cur_lit, cur_body))
-                    cur_kind, cur_lit, cur_body = "lit", ma.group(1), []
+                    lits = re.findall(r'"((?:[^"\\]|\\.)*)"', ma.group(1))
+                    cond = " || ".join(f'{expr} == "{lt}"' for lt in lits)
+                    cur_kind, cur_lit, cur_body = "lit", cond, []
                     rest = ma.group(2).strip()
                     if rest == "{":
                         # block arm (`"*" => {`): the `{` is structure; the
@@ -212,6 +253,10 @@ def rewrite(body):
                         cur_body.append(rest)
                 else:
                     if cur_kind is None:
+                        if l2.strip().startswith("//"):
+                            pre_comments.append(l2)
+                            i += 1
+                            continue
                         print(f"verus-sync: FATAL: code inside match before any arm: {l2!r}", file=sys.stderr)
                         sys.exit(1)
                     if l2.strip() == "}" and "BLOCK_OPEN" in cur_body:
@@ -231,6 +276,7 @@ def rewrite(body):
             if not arms or arms[-1][0] != "wild":
                 print("verus-sync: FATAL: match without trailing `_ =>` arm", file=sys.stderr)
                 sys.exit(1)
+            res.extend((ind + c.lstrip()) if c.strip() else c for c in pre_comments)
             for k, (kind, lit, blines) in enumerate(arms):
                 kw = "if" if k == 0 else ("else if" if kind == "lit" else "else")
                 # comments stay where they are (above the arm code); only
@@ -269,9 +315,9 @@ def rewrite(body):
                     ncode = len(stripped)
                 if kind == "lit":
                     if ncode == 1:
-                        res.append(f"{ind}{kw} {expr} == \"{lit}\" {{ {stripped[0]} }}")
+                        res.append(f"{ind}{kw} {lit} {{ {stripped[0]} }}")
                     else:
-                        res.append(f"{ind}{kw} {expr} == \"{lit}\" {{")
+                        res.append(f"{ind}{kw} {lit} {{")
                         # re-indent the arm body under the if: strip the COMMON
                         # indent (the arm's own block indent), then add 4.
                         indents = [len(b) - len(b.lstrip()) for b in code]
@@ -311,12 +357,15 @@ def rewrite(body):
             if j >= len(lines):
                 print("verus-sync: FATAL: unterminated inline match", file=sys.stderr)
                 sys.exit(1)
-            inner = conv_matches(lines[i2 + 1:j])
             trail = "," if lines[j].rstrip().endswith(",") else ""
+            # The header was consumed as the arm prefix, so the remaining lines
+            # are raw arms; rebuild the match around them and convert that.
+            synth = [nind + "match op.as_str() {"] + lines[i2 + 1:j] + [nind + "}"]
+            inner = conv_matches(synth)
             res2.append(prefix + "{")
             # inner was indented for a block at nind; shift it to prefix+4
             want = len(prefix) - len(prefix.lstrip()) + 4
-            have = len(nind) + 4
+            have = len(nind)  # conv_matches emits at the match's own indent
             shift = want - have
             for bl in inner:
                 if bl.strip():
@@ -338,27 +387,29 @@ def rewrite(body):
 
 
 bounds_v = rewrite(bounds)
-within_v = rewrite(within)
+is32_v = rewrite(is32)
 consts_v = consts  # plain consts need no rewrite
 
-# The generated file keeps Option<(i128,i128)> + `?` EXACTLY as the source:
-# the HAND proof wraps it in the (bool,lo,hi) bridge. Do NOT convert here —
-# conversion is proof-shape, and proof-shape is hand territory.
+# Shapes deliberately left verbatim (see TRANSCRIPT CONTRACT in the header):
+# `?`, the `cap` closure, checked_add/checked_mul. A proof of the live
+# estimator translates those; converting them here would be proof-shape work
+# hiding inside a drift checker.
 print(f"// GENERATED from sh2perl/src/transforms/i32_provable.rs @ {sha}")
 print("// DO NOT EDIT — run harness/verus-sync.sh")
-print("// Region: consts I32_MIN/I32_MAX, fn within_i32, fn arith_bounds.")
-print("// Rewrites: match-on-&str -> if-chains; then_some -> explicit if.")
-print("// The HAND proof (spec ev, postcondition bridge) is in")
-print("// sh2perl/proofs/verus/i32_bounds_exec.rs and calls arith_bounds_raw.")
+print("// Region: the two abs-bound consts (hoisted), fn arith_abs_bound,")
+print("// fn arith_is_i32 — the LIVE estimator (target retargeted 2026-11-08).")
+print("// Rewrites: match-on-&str -> if-chains; (pred).then_some(e) -> explicit if.")
+print("// TRANSCRIPT, not paste-ready Verus: `?`, the `cap` closure and")
+print("// checked_* are kept verbatim on purpose.")
 print("//")
 print(f"// enum ArithAst constructors in scope: {' '.join(variants)}")
 print("verus! {")
 print()
 print(consts_v)
 print()
-print(within_v)
+print(bounds_v)
 print()
-print(bounds_v.replace("fn arith_bounds(", "fn arith_bounds_raw("))
+print(is32_v)
 print()
 print("} // verus!")
 PYEOF

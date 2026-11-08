@@ -439,18 +439,20 @@ failure mode the exercise exists to catch.
 Per file: *fidelity pins* — properties checked against the running code
 before modelling (the `Declare`-keeps-itself census behavior, elim keep/drop
 examples, six purge scenarios); see the `*_pins` lemmas. *Pending:*
-`harness/verus-sync.sh` regenerates a marked SYNCED region of the exec proof
-from `i32_provable.rs` and fails loudly when the source outgrows its extractor
-patterns. Since 2026-11-08 it is REGISTERED in the gate's `SYNCS` array (the
-only legacy 2-field entry, so it regenerates and diffs rather than pinning
-guards), and it is red for a real reason: the extractor targets `arith_bounds`
-+ `within_i32` + `I32_MIN`/`I32_MAX`, and `i32_provable.rs` no longer contains
-any of them (the live estimator is `arith_abs_bound`), while
-`i32_bounds_sync.rs` was never committed. That dead entry is the honest state —
-it is the drift the exercise exists to catch, not a pending task. Until the
-extractor is retargeted and a baseline committed (or both retired models and
-the entry are deleted together), "the model matches the code" remains a
-statement about the day each file was written, reviewed by re-reading.
+`harness/verus-sync.sh` regenerates a SYNCED region from `i32_provable.rs` and
+fails loudly when the source outgrows its extractor patterns. Since 2026-11-08
+it is REGISTERED in the gate's `SYNCS` array (the only legacy 2-field entry, so
+it regenerates and diffs rather than pinning guards), and it is retargeted at
+the LIVE estimator: the two abs-bound consts (hoisted out of `arith_abs_bound`'s
+body), `arith_abs_bound`, `arith_is_i32`, and the `ArithAst` constructor list.
+`proofs/verus/i32_bounds_sync.rs` is committed, so the entry is green.
+
+Its contract is a TRANSCRIPT, not paste-ready Verus: two mechanical rewrites
+(match-on-&str -> if-chains, `(pred).then_some(e)` -> explicit if), everything
+else verbatim — `?`, the `cap` closure and `checked_*` stay as the source writes
+them, because translating those is proof work, not drift checking. For the
+region it covers, "the model matches the code" is mechanical: change any of
+those functions and the gate goes red until the baseline is regenerated.
 
 **3. The obligations are not vacuous — every transform model has a checked mutant (38 mutants over 36 models), plus the C-generator mutants.**
 Interval with a wrong product corner: 4 verified, 1 error. `Assign` writing
@@ -692,10 +694,11 @@ hunk, both keep-direction; the Ext owner rebases onto the gitlink bump
 removed from `harness/verus-gate.sh` MODELS, excluded from the active totals
 (still verify at 5/7 as superseded-design records, now as gate-verified
 `RETIRED_MODELS`). `verus-sync.sh` was left unregistered here on the reasoning
-"nothing to sync"; that was wrong, and 2026-11-08 reversed it — the missing
-entry is why the deletion of `arith_bounds` from `i32_provable.rs` went
-unnoticed. It is registered now and FAILs, which is the signal this paragraph
-mistook for noise.
+"nothing to sync"; the reason this paragraph gave for staying out — a
+permanently-red entry — turned out to BE the signal: the extractor's target had
+already been deleted from the source. 2026-11-08 registered it, retargeted it at
+the live `arith_abs_bound`, and committed the generated baseline, so it is
+green and live instead of silent.
 
 **P1 — `redundant_store_elim`.** DONE — see P0(ii): the fixed version is
 proved (shadow argument, observationally exact), with all three bug

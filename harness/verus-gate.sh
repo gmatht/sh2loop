@@ -859,16 +859,17 @@ SYNCS=(
   "harness/verus-sync-coverage.sh:loop_opt:sh2perl/proofs/verus/loop_opt_sync.txt"
   "harness/verus-sync-coverage.sh:restructure:sh2perl/proofs/verus/restructure_sync.txt"
   "harness/verus-sync-coverage.sh:optimize:sh2perl/proofs/verus/optimize_sync.txt"
-  # verus-sync.sh: the ONLY legacy (2-field) entry — it REGENERATES the synced
-  # region of the exec proof from src/ and diffs against the committed copy,
-  # instead of pinning guards. It was written 2026-10-24 and left unregistered
-  # ("nothing to sync"), which is why nobody noticed the source delete the very
-  # thing it extracts: its target `arith_bounds` (plus `within_i32` and the
-  # I32_MIN/I32_MAX consts) is absent from `transforms/i32_provable.rs` today,
-  # and `i32_bounds_sync.rs` was never committed. The entry now FAILs loudly on
-  # exactly that (see check_sync). Clear it by retargeting the extractor to the
-  # live `arith_abs_bound` and committing the generated baseline, or by deleting
-  # the two retired models AND this entry in one deliberate edit.
+  # verus-sync.sh: the ONLY legacy (2-field) entry — it REGENERATES a synced
+  # region from src/ and diffs against the committed copy, instead of pinning
+  # guards. History worth keeping: it was written 2026-10-24, left unregistered
+  # ("nothing to sync"), and its target (`arith_bounds` + `within_i32` +
+  # I32_MIN/I32_MAX) was then DELETED from `transforms/i32_provable.rs` with
+  # nobody noticing. RETARGETED 2026-11-08 at the live estimator —
+  # `arith_abs_bound` / `arith_is_i32` plus their two hoisted bound consts — and
+  # `proofs/verus/i32_bounds_sync.rs` is now committed, so the entry is green.
+  # It emits a TRANSCRIPT (two mechanical rewrites; `?`, the `cap` closure and
+  # `checked_*` verbatim), which is enough to catch the source moving under the
+  # model, and check_sync compares the region rather than the sha line.
   "harness/verus-sync.sh:sh2perl/proofs/verus/i32_bounds_sync.rs"
   # c_decl_coverage: the FIRST TRANSCRIPTION model in this list — its
   # checker does not just pin guards, it EXTRACTS the modelled walker
@@ -977,12 +978,17 @@ check_sync() { # $1=extractor $2=baseline(rel to root)
     rm -f "$tmp" "$tmp.err"
     fail=$((fail+1)); return 0
   fi
-  if diff -q "$base" "$tmp" >/dev/null 2>&1; then
+  # The provenance line carries the source's whole-file sha, so it moves on any
+  # edit including a comment or a test. Compare the REGION it precedes, exactly
+  # as check_sync_cov does: a fact change still fails loudly, a comment-only
+  # edit does not.
+  local filt='^// GENERATED from .* @ '
+  if diff <(command grep -v "$filt" "$base") <(command grep -v "$filt" "$tmp") >/dev/null 2>&1; then
     echo "OK    $name — baseline reproduces the live source"
     pass=$((pass+1))
   else
     echo "FAIL  $name — baseline drifted from the live source:" >&2
-    diff "$base" "$tmp" 2>&1 | head -20 >&2
+    diff <(command grep -v "$filt" "$base") <(command grep -v "$filt" "$tmp") 2>&1 | head -20 >&2
     fail=$((fail+1))
   fi
   rm -f "$tmp" "$tmp.err"
