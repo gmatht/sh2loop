@@ -745,6 +745,16 @@ MODELS=(
   # 12 tests (11/11 PASS live). Mutant (IFS dropped from [*]) red
   # 16v/1e.
   "optimize.rs:17:40"
+  # Tier-1: type-query (transforms/type_query.rs) -- `type NAME...` is
+  # answered from the program's functions and the 58-entry true-builtin
+  # table, or refused. Proves the rewrite preserves the queried names and
+  # their ORDER (so `type f | head -1` reports f), that every emitted line
+  # has an answer (all_classified premise), and that a mixed known/unknown
+  # list is refused WHOLE (no partial answer that would swallow bash's
+  # not-found line). The table itself is pinned Rust-side
+  # (`builtin_table_is_the_58_true_builtins`: count, dedup, `ls`/`head`
+  # absent), since the model takes it as a parameter.
+  "type_query.rs:17:40"
 )
 
 # extractor:baseline — the generator script and the file it must reproduce.
