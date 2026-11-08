@@ -8,9 +8,9 @@ WHAT
     file and nothing feeds the game's $MIMECROFT_KEYS queue. This viewer
     closes both gaps with NO game-logic changes:
 
-    - display: reads the raw file and PutImages it into an X11 window at
-      ~30Hz (nearest-neighbour x2 => 640x480 via PIL resize), plus on
-      Expose / MapNotify.
+    - display: reads the raw file and PutImages it into an X11 window
+      whenever its pixels change (nearest-neighbour x2 => 640x480 via
+      PIL resize), plus on Expose / MapNotify.
     - keyboard: every KeyPress in the window is translated to the game's
       own key vocabulary (w/a/s/d/q/e/r/f, digits, h/l/i/k for the
       arrows, " " for SPACE, blank line for ENTER/Return, "." for
@@ -20,12 +20,15 @@ WHAT
       path.
 
 USAGE
-    fbview.py [--fb PATH] [--keys PATH] [--scale N]
+    fbview.py [--fb PATH] [--keys PATH] [--scale N] [--size WxH]
 
     --fb    raw BGRX file to watch (default $FB0_DEV, else /dev/fb0)
     --keys  key queue to append to (default $MIMECROFT_KEYS, else
             /tmp/mimecroft-keys)
-    --scale integer window scale (default 2 => 640x480)
+    --scale integer window scale (default 2 => 640x480 at 320x240)
+    --size  surface geometry WxH (default $FB0_GEOM, else 320x240) — the
+            game's framebuffer is configurable, so the frame size is not
+            assumed
 
 QUIT
     Close the window, or press q / Escape in it (both are forwarded to
@@ -48,6 +51,11 @@ from PIL import Image
 
 from Xlib import X, display
 
+# The surface geometry of the file being watched. NOT fixed: the game
+# resolves its framebuffer from $FB0_GEOM / --view / the DISPLAY row (see
+# the geometry block in MIMEcroft_fb.sh), so the viewer takes the same
+# size — --size WxH, else $FB0_GEOM, else 320x240 — and one frame is
+# W*H*4 bytes of BGRX.
 W, H = 320, 240
 BPP = 4
 FRAME = W * H * BPP
@@ -75,6 +83,35 @@ def resolve_scale(argv):
             except ValueError:
                 return 2
     return 2
+
+
+def parse_size(s):
+    """'WxH' -> (w, h), or None when it is not a usable surface size."""
+    try:
+        w, h = (int(v) for v in s.lower().split("x"))
+    except (ValueError, TypeError, AttributeError):
+        return None
+    if not (8 <= w <= 4096 and 8 <= h <= 1024):
+        return None
+    return w, h
+
+
+def resolve_size(argv):
+    """The watched surface: --size WxH > $FB0_GEOM > 320x240.
+
+    $FB0_GEOM is the variable the game itself validates against (it is
+    also how `--publish-fb0` sizes the node), so a file written by a game
+    started with it is read at that size without repeating it here.
+    """
+    for i, a in enumerate(argv):
+        if a == "--size" and i + 1 < len(argv):
+            return parse_size(argv[i + 1])
+        if a.startswith("--size="):
+            return parse_size(a.split("=", 1)[1])
+    env = os.environ.get("FB0_GEOM")
+    if env:
+        return parse_size(env)
+    return (320, 240)
 
 
 def keysym_to_game(keysym):
@@ -108,18 +145,36 @@ def keysym_to_game(keysym):
 
 
 def read_frame(fb_path):
-    try:
-        with open(fb_path, "rb") as f:
-            data = f.read(FRAME)
-    except OSError as e:
-        print(f"fbview: cannot read {fb_path}: {e}", file=sys.stderr)
-        return None
-    if len(data) < FRAME:
-        return None
-    return data
+    """Read one WHOLE frame, or None.
+
+    The game writes a frame as a truncate plus several write(2)s, so a
+    read can land mid-burst and return short. That is not "no frame
+    yet": retrying for a couple of milliseconds turns a torn read into
+    the frame the writer finished, and a still-torn one is simply
+    picked up by the next poll.
+    """
+    for _ in range(4):
+        try:
+            with open(fb_path, "rb") as f:
+                data = f.read(FRAME)
+        except OSError as e:
+            print(f"fbview: cannot read {fb_path}: {e}", file=sys.stderr)
+            return None
+        if len(data) == FRAME:
+            return data
+        time.sleep(0.001)
+    return None
 
 
 def main(argv):
+    global W, H, FRAME
+    size = resolve_size(argv)
+    if size is None:
+        print("fbview: --size wants WxH (e.g. 800x600; W<=4096, H<=1024)",
+              file=sys.stderr)
+        return 2
+    W, H = size
+    FRAME = W * H * BPP
     fb_path = resolve_fb(argv)
     keys_path = resolve_keys(argv)
     scale = resolve_scale(argv)
@@ -157,10 +212,23 @@ def main(argv):
           flush=True)
 
     def present_data(data):
-        img = Image.frombytes("RGB", (W, H), data, "raw", "BGRX", 0, 1)
+        # The frame is already BGRX — what a 24-bit ZPixmap wants — so it
+        # rides through as RGBA, whose raw codec and NEAREST resize only
+        # copy. Decoding BGRX to RGB and re-encoding to BGRX (what
+        # put_pil_image does for an RGB image) swizzles every pixel twice:
+        # measured 9.9ms of a 31ms present against 3ms of the 15ms below.
+        img = Image.frombytes("RGBA", (W, H), data)
         if scale != 1:
             img = img.resize((ww, wh), Image.NEAREST)
-        win.put_pil_image(gc, 0, 0, img)
+        raw = img.tobytes("raw", "RGBA")
+        # One PutImage cannot carry the frame: the request length field is
+        # 16-bit words, so ~256KiB is the most a server takes (this is why
+        # put_pil_image splits too). 64 rows is 160KiB at scale 2.
+        stride = ww * 4
+        for y in range(0, wh, 64):
+            n = min(64, wh - y)
+            win.put_image(gc, 0, y, ww, n, X.ZPixmap, 24, 0,
+                          raw[y * stride:(y + n) * stride])
         disp.flush()
 
     def present():
@@ -172,32 +240,31 @@ def main(argv):
 
     last_data = None
 
-    mapped = False
-    last_mtime = -1.0
     frames = 0
-    last_poll = 0.0
-    try:
-        last_mtime = os.stat(fb_path).st_mtime
-    except OSError:
-        pass
+    # end-to-end fps: frames this window actually painted, per wall second.
+    # The game's own FPS readout counts renders; this counts presents, so it
+    # is the number the player sees when the viewer or the file hop is the
+    # limiter.
+    fps_t0 = time.monotonic()
     while True:
-        try:
-            mt = os.stat(fb_path).st_mtime
-        except OSError:
-            mt = last_mtime
-        now = time.monotonic()
-        # the mtime gate catches every real frame, but a missed mtime
-        # (coarse timestamp on some filesystems, or a stalled game that
-        # resumes) must not freeze the window forever: re-read at 1Hz
-        # regardless, and present when the pixels actually changed.
-        if mapped and (mt != last_mtime or now - last_poll >= 1.0):
-            last_poll = now
-            data = read_frame(fb_path)
-            if data is not None and data != last_data:
-                present_data(data)
-                last_data = data
-                frames += 1
-            last_mtime = mt
+        # ONE RULE: paint whatever differs from what is already on screen.
+        # The mtime gate this replaces could record a frame as seen while the
+        # read that followed had missed it (a stat landing between the game's
+        # truncate and its writes), and the frame was then dropped for good.
+        # Comparing the pixels has no such blind spot and costs ~0.1ms of
+        # page-cache read per poll. Measured on a loaded box: the painted rate
+        # is unchanged (5-7/s) because that is how often the scene itself
+        # changes; the window is 3% busy either way.
+        data = read_frame(fb_path)
+        if data is not None and data != last_data:
+            present_data(data)
+            last_data = data
+            frames += 1
+            now = time.monotonic()
+            if now - fps_t0 >= 1.0:
+                print(f"fbview: {frames} fps", flush=True)
+                frames = 0
+                fps_t0 = now
         while disp.pending_events():
             ev = disp.next_event()
             if ev.type == X.Expose:
@@ -205,14 +272,9 @@ def main(argv):
                 if d is not None:
                     last_data = d
             elif ev.type == X.MapNotify:
-                mapped = True
                 d = present()
                 if d is not None:
                     last_data = d
-                try:
-                    last_mtime = os.stat(fb_path).st_mtime
-                except OSError:
-                    pass
             elif ev.type == X.ClientMessage:
                 if (ev.client_type == wm_protocols
                         and ev.data[0] == wm_delete):
@@ -236,7 +298,12 @@ def main(argv):
                 if game_key in ("q", "."):
                     print("fbview: quit key forwarded; "
                           "closing after the game exits", flush=True)
-        time.sleep(0.033)
+        # 4 ms, not 16: the game presents in bursts (a frame is a
+        # truncate plus a handful of writes), and a 16 ms poll made the
+        # mtime gate coalesce neighbouring frames into one present. The
+        # poll is a stat(), so the extra wakeups cost microseconds; the
+        # present itself (a few ms) is what paces the window.
+        time.sleep(0.004)
 
 
 if __name__ == "__main__":

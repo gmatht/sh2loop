@@ -3,6 +3,44 @@
 Covers the whole `-O4` driver family — `bash-O4` and `python-O4` are two front
 ends over one pipeline (`ShIR` → C via tcc, or → PTX via the CUDA candidacy),
 sharing one flag surface (`bash-o4/src/flags.rs`) and one dispatch vehicle
+## Unreleased - the fb0 surface is configurable (DISPLAY ladder, `--view WxH`, `$FB0_GEOM`; default frame byte-identical)
+
+The simple framebuffer was pinned to 320x240 while the WebGL build re-shaped
+its canvas on demand, so every "same game, same moment" comparison was a
+resample and every resolution question was a code edit. The port now resolves
+its surface the way the browser does — **the canvas is the truth**:
+`$FB0_GEOM=WxH` (the variable `--publish-fb0` sizes the node with) first, then
+`--view WxH`, then the JS DISPLAY ladder (568x320 … 2560x1440), then the
+measured default 320x240. The settings menu's DISPLAY row now really re-sizes:
+`rb_resize` moves RFBW/RFBH, re-opens the row store and refreshes the fragment
+view, so the rasterizer, the presented frame and the PPM header move together
+instead of the row only relabelling the canvas.
+
+Two hard ceilings are enforced rather than discovered: 1024 rows (the
+`RFB_ROWS` store's capacity) and 4 digits per side (`disp_w`/`disp_h` are
+5-byte strings on the C path). An impossible `$FB0_GEOM` is refused with a
+message and the default is used — never half-adopted.
+
+`rb_present`/`rb_dump_ppm` chunk by surface now: a fixed 16-row echo is
+102 KB at 800 wide, past the ~100 KB redirect ceiling the runtime drops
+silently while reporting success, so chunks stay ≤64 KB at any width.
+
+Also: `tools/fbview.py --size WxH` (default `$FB0_GEOM`, else 320x240),
+`play.sh --size WxH` sizes the temp frame file, the viewer and the game
+together, and `src/sh/rb-raster.sh` carries the same `rb_resize`/chunking for
+the standalone rasterizer.
+
+The CLI now parses its flags in **any order** (`--view 800x600
+--first-frame f.ppm` used to silently never exit, because each flag was
+tested against `$1` only): one `shift` loop consumes the whole list, and
+`shift` is the one positional mechanism the C path implements faithfully.
+`$#` and an array built from positional params both mis-compile, so the loop
+is bounded and stops on the first empty slot.
+
+Default run unchanged: `--first-frame` at 320x240 is still md5
+`965f7b3dad4cfd516ff637c8943681bc` / 230,415 B — byte-identical to the bash
+oracle frame.
+
 (`bash_o4::cu_run`).
 
 ## Unreleased — play.sh 127 closed: the export leak is fixed, proven flat, game binary rebuilt

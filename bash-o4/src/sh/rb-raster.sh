@@ -64,11 +64,13 @@
 #   9.2e18 ceiling.
 #
 # THE SURFACE
-#   Fixed 320x240 (RFBW/RFBH). The rasterizer is a PERFORMANCE
-#   PROJECT: bash that transpiles (via bash-O4) to C fast enough to
-#   stand next to the JS oracle frame-for-frame AND millisecond-for-
-#   millisecond — 320x240 is the geometry it is measured at, and the
-#   game pins disp_w/disp_h to it on the simple-fb path. Rows are ASCII HEX
+#   Configurable (RFBW/RFBH), the same way the WebGL build's canvas is:
+#   the game's DISPLAY row, `--view WxH` and $FB0_GEOM choose it, and
+#   rb_resize moves the rows, the frame and the PPM header together. It
+#   defaults to 320x240, the geometry the rasterizer is measured at: bash
+#   that transpiles (via bash-O4) to C fast enough to stand next to the
+#   JS oracle frame-for-frame AND millisecond-for-millisecond is a
+#   PERFORMANCE PROJECT, and 320x240 is where that number lives.
 #   (8 chars/px, BGRX order) because bash variables cannot hold a NUL
 #   byte and nearly every cleared pixel IS one; rb_present pipes the
 #   whole frame through one `xxd -r -p` into the node. That pipe is the
@@ -199,17 +201,44 @@ rb_sincos() {
 }
 
 # ── the surface ────────────────────────────────────────────────────────
-# rb_open [PATH]: fixed 320x240 rows; the path honours $FB0_DEV.
+# rb_open [PATH]: allocate the RFBH rows of the CURRENT surface (RFBW/
+# RFBH, set by rb_resize) and clear them; the path honours $FB0_DEV.
 rb_open() {
   rbo_p=$1
   if [ "$rbo_p" = "" ]; then rbo_p=${FB0_DEV:-/dev/fb0}; fi
   RFB_PATH=$rbo_p
-  rbo_y=0
-  while [ "$rbo_y" -lt "$RFBH" ]; do
-    RFB_ROWS[$rbo_y]=""
-    rbo_y=$((rbo_y + 1))
-  done
+  # NO row-reset loop here. It only pre-freed the old row strings, and
+  # rb_clear (next line) overwrites every row 0..RFBH-1 anyway — while the
+  # counter itself was a trap: a loop variable that only ever holds 0 and
+  # +1 is narrowed to uint8_t by the C backend (measured: `uint8_t rbo_y`),
+  # so once RFBH reached 256 the increment wrapped and the surface never
+  # opened. Rows at or beyond a SHRUNK height keep their old strings; the
+  # rasterizer and the dump are bounded by RFBH, not by the store.
   rb_clear 4278190080
+}
+
+# rb_resize W H: the surface size (the game resolves it from the DISPLAY
+# row / --view / $FB0_GEOM). Everything downstream reads RFBW/RFBH, so the
+# rasterizer, the presented frame and the PPM header move together; a LIVE
+# resize also re-opens the node, because the row store has to match the new
+# height before anything draws into it.
+rb_resize() {
+  rbrs_w=$1
+  rbrs_h=$2
+  rbrs_w=$((rbrs_w + 0))
+  rbrs_h=$((rbrs_h + 0))
+  if [ "$rbrs_w" -lt 8 ]; then rbrs_w=8; fi
+  if [ "$rbrs_h" -lt 8 ]; then rbrs_h=8; fi
+  if [ "$rbrs_w" -gt 4096 ]; then rbrs_w=4096; fi
+  if [ "$rbrs_h" -gt 1024 ]; then rbrs_h=1024; fi
+  # arithmetic, not a plain copy: RFBW/RFBH are INT scalars and they sit
+  # in the rasterizer's inner loop bounds — assigning the string arguments
+  # straight in makes them char* (measured: `atoll(RFBH)` in every row
+  # loop and both names exported to the shell environment)
+  RFBW=$((rbrs_w + 0))
+  RFBH=$((rbrs_h + 0))
+  rb_frag_view $rbrs_w $rbrs_h
+  if [ "$RFB_PATH" != "" ]; then rb_open "$RFB_PATH"; fi
 }
 
 # rb_clear ARGB-int (e.g. 4278190080 = 0xFF000000): every pixel of
@@ -317,14 +346,19 @@ rb_present() {
   # Single redirect writes over ~100KB are SILENTLY DROPPED by the
   # runtime (measured: 102401 bytes land, 204800 do not — rc stays 0),
   # and 240 rows do not fit in one exec argv either (measured: the
-  # call fails 127 after ~21s). So the frame goes out in 16-row chunks
-  # (~41KB each): one small echo per chunk, one small-argv xxd total.
+  # call fails 127 after ~21s). So the frame goes out in CHUNKS of
+  # 64KB or less: 8 hex chars per pixel, so 8192/RFBW rows (25 at 320
+  # wide, 8 at 1024). The chunk size has to follow the surface — a
+  # fixed 16 rows is only safe at 320x240; at 800 wide it is 102 KB,
+  # i.e. a frame the runtime drops while reporting success.
+  rbp_cr=$(( 8192 / RFBW ))
+  if [ "$rbp_cr" -lt 1 ]; then rbp_cr=1; fi
   : > /tmp/rb-frame.hex
   rbp_y=0
   while [ "$rbp_y" -lt "$RFBH" ]; do
     rbp_chunk=""
     rbp_k=0
-    while [ "$rbp_k" -lt 16 ]; do
+    while [ "$rbp_k" -lt "$rbp_cr" ]; do
       rbp_ry=$((rbp_y + rbp_k))
       if [ "$rbp_ry" -ge "$RFBH" ]; then break; fi
       rbp_chunk="${rbp_chunk}${RFB_ROWS[$rbp_ry]} "
@@ -344,11 +378,15 @@ rb_dump_ppm() {
   rbd_p=$1
   echo "P6 $RFBW $RFBH 255" > "$rbd_p"
   : > /tmp/rb-dump.hex
+  # 6 hex chars per pixel here (RGB, reordered from BGRX), so the same
+  # 64KB redirect ceiling is 8192/(RFBW*6) rows.
+  rbd_cr=$(( 8192 / (RFBW * 6) ))
+  if [ "$rbd_cr" -lt 1 ]; then rbd_cr=1; fi
   rbd_y2=0
   while [ "$rbd_y2" -lt "$RFBH" ]; do
     rbd_body=""
     rbd_k=0
-    while [ "$rbd_k" -lt 16 ]; do
+    while [ "$rbd_k" -lt "$rbd_cr" ]; do
       rbd_yy=$((rbd_y2 + rbd_k))
       if [ "$rbd_yy" -ge "$RFBH" ]; then break; fi
       rbd_row=${RFB_ROWS[$rbd_yy]}

@@ -296,23 +296,113 @@ SOUND_MODE=notes    # notes = fb_note oscillator blips (default);
 # page's auto-start demo mode: skip the settings menu, print the
 # terminal map, run a short silent game loop, then quit and print the
 # benchmark stats (so the demo URL always shows the full output).
-if [ "$1" = "--sounds" ] || [ "$1" = "--sound" ]; then
-  if [ "$2" = "bash" ]; then SOUND_MODE=bash; fi
-fi
-if [ "$1" = "--demo" ]; then demo=1; fi
+#
+# Every flag takes its value from the next slot, and they may be given in
+# ANY order (`--view 800x600 --first-frame f.ppm` and the reverse both
+# work). The C path mis-compiles `$#` and an array built from positional
+# params, but `shift` really does rewrite argv in place, so this loop
+# walks the list and stops at the first empty slot. An unknown flag is
+# skipped, as it always was.
+ff_frame_file=""
+ff_frame_3d_file=""
+fbv_arg=""
+cl_i=0
+while [ "$cl_i" -lt 64 ]; do
+  cl_i=$((cl_i + 1))
+  case $1 in
+    "")
+      break ;;
+    --sounds)
+      if [ "$2" = "bash" ]; then SOUND_MODE=bash; fi
+      shift; shift ;;
+    --sound)
+      if [ "$2" = "bash" ]; then SOUND_MODE=bash; fi
+      shift; shift ;;
+    --demo)
+      demo=1
+      shift ;;
+    --first-frame)
+      ff_frame_file=$2
+      shift; shift ;;
+    --first-frame-3d)
+      ff_frame_3d_file=$2
+      shift; shift ;;
+    --view)
+      fbv_arg=$2
+      shift; shift ;;
+    *)
+      shift ;;
+  esac
+done
 # `--first-frame FILE` — dump frame 1 as P6 and quit: after the first
 # loop iteration's rb_present, rb_dump_ppm to FILE and set quit. Same
 # determinism contract as the oracle/fb0 flags (same seed, no input, no
 # menu), so the three frame-1 files diff pixel-for-pixel.
-ff_frame_file=""
-ff_frame_3d_file=""
-if [ "$1" = "--first-frame" ]; then ff_frame_file=$2; fi
-if [ "$1" = "--first-frame-3d" ]; then ff_frame_3d_file=$2; fi
-# `--view <width>` — start at a display size by its pixel width (320/480/
-# 600/720/1080/1440); anything else is ignored (the menu can still change
-# it). Maps to the DISPLAY row presets so disp_size stays coherent.
-if [ "$1" = "--view" ]; then
-  case $2 in
+# ─── surface geometry: the simple framebuffer is CONFIGURABLE ─────────
+# The WebGL build resolves its canvas at runtime: the DISPLAY row asks the
+# device for a size and then READS THE SIZE BACK, because the canvas is
+# the truth. The simple framebuffer follows the same rule — the geometry
+# in precedence order is
+#   1. $FB0_GEOM=WxH   the geometry the framebuffer node actually has.
+#                      `--publish-fb0` sizes the node with this same
+#                      variable, so "write 800x600 pixels into a 320x240
+#                      node" is refused instead of smeared.
+#   2. --view WxH      an exact surface request
+#   3. --view <width>  the JS DISPLAY ladder (320/480/600/720/1080/1440)
+#   4. 320x240         the rasterizer's measured size (the default)
+# AUTO/FULL have no window to interrogate here, so they mean "the node's
+# own geometry": 320x240 unless (1) says otherwise.
+fbd_w=0               # $FB0_GEOM width (0 = not given)
+fbd_h=0               # $FB0_GEOM height
+fbd_bad=0             # 1 = a malformed/oversized $FB0_GEOM was refused
+fbv_w=0               # --view WxH width (0 = not given)
+fbv_h=0               # --view WxH height
+if [ "${FB0_GEOM:-}" != "" ]; then
+  fbg=$FB0_GEOM
+  case $fbg in
+    *x*)
+      fbd_w=${fbg%x*}
+      fbd_h=${fbg#*x}
+      ;;
+    *)
+      fbd_bad=1
+      ;;
+  esac
+fi
+# the surface must fit the row store and the size buffers: 4 digits per
+# side (disp_w/disp_h are 5-byte strings on the C path) and at most 1024
+# rows (RFB_ROWS' capacity). An impossible request is refused LOUDLY.
+if [ "$fbd_w" -gt 0 ]; then
+  case $fbd_w in ''|*[!0-9]*) fbd_bad=1 ;; esac
+  case $fbd_h in ''|*[!0-9]*) fbd_bad=1 ;; esac
+  if [ "$fbd_w" -gt 4096 ]; then fbd_bad=1; fi
+  if [ "$fbd_h" -gt 1024 ]; then fbd_bad=1; fi
+fi
+if [ "$fbd_bad" -eq 1 ]; then
+  # report and fall back to the default surface — a geometry nobody can
+  # honour is refused, never half-adopted
+  echo "  fb0: ignoring FB0_GEOM='$fbg' (want WxH with W<=4096, H<=1024)"
+  fbd_w=0
+  fbd_h=0
+fi
+# `--view WxH` is an exact surface; `--view <width>` picks a preset, which
+# also keeps disp_size (and therefore the menu's DISPLAY row) coherent.
+# `fbv_arg` is the value the CLI loop above captured, so --view may appear
+# anywhere in the argument list.
+if [ "$fbv_arg" != "" ]; then
+  case $fbv_arg in
+    *x*)
+      fbv_w=${fbv_arg%x*}
+      fbv_h=${fbv_arg#*x}
+      case $fbv_w in ''|*[!0-9]*) fbv_w=0 ;; esac
+      case $fbv_h in ''|*[!0-9]*) fbv_h=0 ;; esac
+      if [ "$fbv_w" -gt 4096 ]; then fbv_w=0; fi
+      if [ "$fbv_h" -gt 1024 ]; then fbv_h=0; fi
+      if [ "$fbv_w" -eq 0 ]; then
+        echo "  fb0: ignoring --view '$fbv_arg' (want WxH with W<=4096, H<=1024)"
+        fbv_h=0
+      fi
+      ;;
     320)  disp_size=0 ;;
     480)  disp_size=1 ;;
     600)  disp_size=2 ;;
@@ -1723,11 +1813,13 @@ FACE_N=(
 #   9.2e18 ceiling.
 #
 # THE SURFACE
-#   Fixed 320x240 (RFBW/RFBH). The rasterizer is a PERFORMANCE
-#   PROJECT: bash that transpiles (via bash-O4) to C fast enough to
-#   stand next to the JS oracle frame-for-frame AND millisecond-for-
-#   millisecond — 320x240 is the geometry it is measured at, and the
-#   game pins disp_w/disp_h to it on the simple-fb path. Rows are ASCII HEX
+#   Configurable (RFBW/RFBH), the same way the WebGL build's canvas is:
+#   the DISPLAY row, `--view WxH` and $FB0_GEOM choose it, and rb_resize
+#   moves the rows, the frame and the PPM header together. It defaults to
+#   320x240, the geometry the rasterizer is measured at: bash that
+#   transpiles (via bash-O4) to C fast enough to stand next to the JS
+#   oracle frame-for-frame AND millisecond-for-millisecond is a
+#   PERFORMANCE PROJECT, and 320x240 is where that number lives. Rows are ASCII HEX
 #   (8 chars/px, BGRX order) because bash variables cannot hold a NUL
 #   byte and nearly every cleared pixel IS one; rb_present pipes the
 #   whole frame through one `xxd -r -p` into the node. That pipe is the
@@ -1859,17 +1951,44 @@ rb_sincos() {
 }
 
 # ── the surface ────────────────────────────────────────────────────────
-# rb_open [PATH]: fixed 320x240 rows; the path honours $FB0_DEV.
+# rb_open [PATH]: allocate the RFBH rows of the CURRENT surface (RFBW/
+# RFBH, set by rb_resize) and clear them; the path honours $FB0_DEV.
 rb_open() {
   rbo_p=$1
   if [ "$rbo_p" = "" ]; then rbo_p=${FB0_DEV:-/dev/fb0}; fi
   RFB_PATH=$rbo_p
-  rbo_y=0
-  while [ "$rbo_y" -lt "$RFBH" ]; do
-    RFB_ROWS[$rbo_y]=""
-    rbo_y=$((rbo_y + 1))
-  done
+  # NO row-reset loop here. It only pre-freed the old row strings, and
+  # rb_clear (next line) overwrites every row 0..RFBH-1 anyway — while the
+  # counter itself was a trap: a loop variable that only ever holds 0 and
+  # +1 is narrowed to uint8_t by the C backend (measured: `uint8_t rbo_y`),
+  # so once RFBH reached 256 the increment wrapped and the surface never
+  # opened. Rows at or beyond a SHRUNK height keep their old strings; the
+  # rasterizer and the dump are bounded by RFBH, not by the store.
   rb_clear 4278190080
+}
+
+# rb_resize W H: the surface size the game resolved (DISPLAY row / --view /
+# $FB0_GEOM — see set_display_size). Everything downstream reads RFBW/RFBH,
+# so the rasterizer, the presented frame and the PPM header move together;
+# a LIVE resize (the menu) also re-opens the node, because the row store
+# has to match the new height before anything draws into it.
+rb_resize() {
+  rbrs_w=$1
+  rbrs_h=$2
+  rbrs_w=$((rbrs_w + 0))
+  rbrs_h=$((rbrs_h + 0))
+  if [ "$rbrs_w" -lt 8 ]; then rbrs_w=8; fi
+  if [ "$rbrs_h" -lt 8 ]; then rbrs_h=8; fi
+  if [ "$rbrs_w" -gt 4096 ]; then rbrs_w=4096; fi
+  if [ "$rbrs_h" -gt 1024 ]; then rbrs_h=1024; fi
+  # arithmetic, not a plain copy: RFBW/RFBH are INT scalars and they sit
+  # in the rasterizer's inner loop bounds — assigning the string arguments
+  # straight in makes them char* (measured: `atoll(RFBH)` in every row
+  # loop and both names exported to the shell environment)
+  RFBW=$((rbrs_w + 0))
+  RFBH=$((rbrs_h + 0))
+  rb_frag_view $rbrs_w $rbrs_h
+  if [ "$RFB_PATH" != "" ]; then rb_open "$RFB_PATH"; fi
 }
 
 # rb_clear ARGB-int (e.g. 4278190080 = 0xFF000000): every pixel of
@@ -1977,14 +2096,19 @@ rb_present() {
   # Single redirect writes over ~100KB are SILENTLY DROPPED by the
   # runtime (measured: 102401 bytes land, 204800 do not — rc stays 0),
   # and 240 rows do not fit in one exec argv either (measured: the
-  # call fails 127 after ~21s). So the frame goes out in 16-row chunks
-  # (~41KB each): one small echo per chunk, one small-argv xxd total.
+  # call fails 127 after ~21s). So the frame goes out in CHUNKS of
+  # 64KB or less: 8 hex chars per pixel, so 8192/RFBW rows (25 at 320
+  # wide, 8 at 1024). The chunk size has to follow the surface — a
+  # fixed 16 rows is only safe at 320x240; at 800 wide it is 102 KB,
+  # i.e. a frame the runtime drops while reporting success.
+  rbp_cr=$(( 8192 / RFBW ))
+  if [ "$rbp_cr" -lt 1 ]; then rbp_cr=1; fi
   : > /tmp/rb-frame.hex
   rbp_y=0
   while [ "$rbp_y" -lt "$RFBH" ]; do
     rbp_chunk=""
     rbp_k=0
-    while [ "$rbp_k" -lt 16 ]; do
+    while [ "$rbp_k" -lt "$rbp_cr" ]; do
       rbp_ry=$((rbp_y + rbp_k))
       if [ "$rbp_ry" -ge "$RFBH" ]; then break; fi
       rbp_chunk="${rbp_chunk}${RFB_ROWS[$rbp_ry]} "
@@ -2004,11 +2128,15 @@ rb_dump_ppm() {
   rbd_p=$1
   echo "P6 $RFBW $RFBH 255" > "$rbd_p"
   : > /tmp/rb-dump.hex
+  # 6 hex chars per pixel here (RGB, reordered from BGRX), so the same
+  # 64KB redirect ceiling is 8192/(RFBW*6) rows.
+  rbd_cr=$(( 8192 / (RFBW * 6) ))
+  if [ "$rbd_cr" -lt 1 ]; then rbd_cr=1; fi
   rbd_y2=0
   while [ "$rbd_y2" -lt "$RFBH" ]; do
     rbd_body=""
     rbd_k=0
-    while [ "$rbd_k" -lt 16 ]; do
+    while [ "$rbd_k" -lt "$rbd_cr" ]; do
       rbd_yy=$((rbd_y2 + rbd_k))
       if [ "$rbd_yy" -ge "$RFBH" ]; then break; fi
       rbd_row=${RFB_ROWS[$rbd_yy]}
@@ -3663,11 +3791,12 @@ setup_webgl() {
   # size back AFTER the open and make disp_w/disp_h the truth — the
   # fragment view and the settings readout both have to agree with the
   # surface, not with the request.
-  # SIMPLE FRAMEBUFFER: fixed 320x240 rows of raw BGRX pixels written
-  # straight to /dev/fb0 (rb_present). No hardware geometry to adopt,
-  # no resize: disp_w/disp_h ARE the surface, always.
-  disp_w=320
-  disp_h=240
+  # SIMPLE FRAMEBUFFER: raw BGRX rows written straight to /dev/fb0
+  # (rb_present). There is no hardware geometry to adopt, but the surface
+  # is CONFIGURABLE and set_display_size has already resolved it (DISPLAY
+  # row / --view / $FB0_GEOM) into disp_w/disp_h + RFBW/RFBH — so the rows
+  # rb_open allocates are the requested ones, and disp_w/disp_h ARE that
+  # surface.
   rb_open
   # NOTE: `fb_window_open` is deliberately NOT called here, and NOT as
   # `fb_win=$(fb_window_open)` either. A capture of an int-returning
@@ -5754,14 +5883,46 @@ gspan() {
 # happened < 2s ago, so the menu shows the canvas (first swap) and keeps
 # swapping. W/S select · A/D change · SPACE start · Q quit.
 
-# the simple framebuffer is FIXED 320x240 rows of raw pixels (see
-# rb_open): there is no hardware geometry to adopt and no resize. The
-# DISPLAY row still cycles its presets (the menu reads disp_size), but
-# the surface stays put — the vignette centre follows the real canvas.
+# set_display_size — the DISPLAY row resolved onto the simple framebuffer
+# the way the browser resolves it onto its canvas. The presets are the
+# WebGL build's own numbers (568x320 … 2560x1440), so one row setting
+# means the same surface on both paths; AUTO/FULL mean "the node's
+# geometry", because there is no window to ask (see the geometry block
+# at the top of the file: $FB0_GEOM / --view WxH / the 320x240 default).
+# disp_w/disp_h are the truth every pixel-space effect reads, and
+# rb_resize moves the rasterizer's rows with them, so a menu change
+# re-shapes the actual frame instead of relabelling it.
 set_display_size() {
-  disp_w=320
-  disp_h=240
-  rb_frag_view 320 240
+  if [ "$fbd_w" -gt 0 ]; then
+    disp_w=$fbd_w
+    disp_h=$fbd_h
+  elif [ "$fbv_w" -gt 0 ]; then
+    disp_w=$fbv_w
+    disp_h=$fbv_h
+  elif [ "$disp_size" -eq 0 ]; then
+    disp_w=568
+    disp_h=320
+  elif [ "$disp_size" -eq 1 ]; then
+    disp_w=854
+    disp_h=480
+  elif [ "$disp_size" -eq 2 ]; then
+    disp_w=800
+    disp_h=600
+  elif [ "$disp_size" -eq 3 ]; then
+    disp_w=1280
+    disp_h=720
+  elif [ "$disp_size" -eq 4 ]; then
+    disp_w=1920
+    disp_h=1080
+  elif [ "$disp_size" -eq 5 ]; then
+    disp_w=2560
+    disp_h=1440
+  else
+    disp_w=320
+    disp_h=240
+  fi
+  rb_resize $disp_w $disp_h
+  rb_frag_view $disp_w $disp_h
 }
 
 settings_inc() {
@@ -6853,9 +7014,16 @@ main() {
   # emit_fragment_shader reads disp_w for its pixel-space effects
   set_display_size
     setup_webgl
-  # the simple framebuffer is always 320x240 rows (rb_open fixed it):
-  # report where the pixels go — the node, or nowhere yet.
-  echo "  fb0: simple framebuffer 320x240 -> ${RFB_PATH} (bash rasterizer)"
+  # the surface is whatever set_display_size resolved (rb_open allocated
+  # exactly that many rows): report where the pixels go — the node, or
+  # nowhere yet.
+  if [ "$fbd_w" -gt 0 ]; then
+    echo "  fb0: simple framebuffer ${disp_w}x${disp_h} (from FB0_GEOM) -> ${RFB_PATH} (bash rasterizer)"
+  elif [ "$fbv_w" -gt 0 ]; then
+    echo "  fb0: simple framebuffer ${disp_w}x${disp_h} (from --view) -> ${RFB_PATH} (bash rasterizer)"
+  else
+    echo "  fb0: simple framebuffer ${disp_w}x${disp_h} -> ${RFB_PATH} (bash rasterizer)"
+  fi
   if [ "$FBWIN" = "1" ]; then
     echo "  fb0: window — none on the simple path (use FB_DUMP for a PPM)"
   fi
