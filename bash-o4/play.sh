@@ -36,6 +36,7 @@ BUILD_MODE=auto
 GAME_MEM_MIB=4096
 GEOM=""
 
+FORWARD_ARGS=""
 while [ $# -gt 0 ]; do
   case $1 in
     --scale) SCALE=$2; shift 2 ;;
@@ -44,15 +45,33 @@ while [ $# -gt 0 ]; do
     --mem=*) GAME_MEM_MIB=${1#--mem=}; shift ;;
     --size) GEOM=$2; shift 2 ;;
     --size=*) GEOM=${1#--size=}; shift ;;
+    --view)
+      # size the viewer/frame file for an exact --view WxH (the game also
+      # accepts a ladder width, but only WxH gives an unambiguous size);
+      # always forward to the game.
+      case ${2:-} in
+        *x*) GEOM=$2 ;;
+      esac
+      FORWARD_ARGS="$FORWARD_ARGS $1 $2"; shift 2 ;;
+    --view=*)
+      case ${1#--view=} in
+        *x*) GEOM=${1#--view=} ;;
+      esac
+      FORWARD_ARGS="$FORWARD_ARGS $1"; shift ;;
     --build) BUILD_MODE=force; shift ;;
     --no-build) BUILD_MODE=skip; shift ;;
     --) shift; break ;;
     -h|--help)
-      echo "usage: $0 [--scale N] [--mem MB] [--size WxH] [--build|--no-build] [-- <game args...>]"
+      echo "usage: $0 [--scale N] [--mem MB] [--size|--view WxH] [--build|--no-build] [-- <game args...>]"
       exit 0 ;;
     *) break ;;
   esac
 done
+# re-attach forwarded play.sh-parsed args (e.g. --view) ahead of the rest
+if [ "$FORWARD_ARGS" != "" ]; then
+  # shellcheck disable=SC2086
+  set -- $FORWARD_ARGS "$@"
+fi
 case $GAME_MEM_MIB in
   ''|*[!0-9]*) echo "play.sh: --mem wants a whole number of MiB" 1>&2; exit 2 ;;
 esac
