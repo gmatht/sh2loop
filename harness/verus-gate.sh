@@ -128,6 +128,15 @@ MODELS=(
   # and whenever needed. Includes the MAX+1 negative controls (an
   # unguarded commit ships the wrapped -2^63).
   "c_checked_arith.rs:18:40"
+  # The C backend's FIXED-ARRAY capacity decision (`array_fixed_caps`,
+  # `array_cap()`, the reset emitter and its spread guard). C_UB_PROOF.md §2b
+  # calls `array_caps` the unproven bound: proves a fixed table is at least as
+  # large as the literal bulk written into it, that anything reaching ARR_CAP
+  # (or unproven) is routed to the growable vec instead, and that the write
+  # guard must admit exactly the in-bounds writes — with the pre-fix
+  # `> ARR_CAP` guard as the refuted negative control (a proof-sized `a[3]`
+  # admitted 4 stores).
+  "c_arr_cap.rs:13:40"
   # The C generator's DECIMAL RENDERERS — the hand-rolled itoas it emits:
   # `_sh_ll2s` into num_temp's `static char _sN[32]`, and the inline
   # `size_t` itoa of FieldStrip/FieldStripEnd into str_temp(24). Proves

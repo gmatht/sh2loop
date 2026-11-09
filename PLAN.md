@@ -7428,3 +7428,32 @@ remaining work, and the model header and VERUS.md say so instead of implying
 live coverage. Also fixed the module's stale `invariant:` line (still claimed
 pointer-keyed verdicts, three days after the fix that made them body-text
 keyed).
+
+**The C array cap: proved, guarded, and counted (2026-11-09).** C_UB_PROOF.md
+§2b's "array_caps is the unproven bound" is now two things instead of one
+assumption. **A real defect fell out of writing the obligation:** the `"$@"`
+spread guard in `emit_set_array` compared the write count against `ARR_CAP`
+(the 1024 ceiling) instead of the array's DECLARED capacity, so a proof-sized
+table (`a[3]`) would have admitted four stores and run past its end — the
+"Decl and every fixed guard go through here so they always agree" invariant in
+`array_cap`'s own doc, violated by one call site. The guard now passes `acap`.
+No corpus example reaches that branch (a spread is routed to the growable vec),
+so no emitted program changed: it was latent, not live. **The proof**
+(`proofs/verus/c_arr_cap.rs`, 13 verified, 0 errors, gated) shows a fixed table
+is at least as large as the literal bulk written into it and covers the whole
+census `need` (`max(max_reset, lit_index_max, counter_index_max) + appends`);
+that an array whose need reaches ARR_CAP is never a fixed table (the measured
+1500-element case renders as `char **a` + `_sh_grow_str`); that the one bypass
+(`counter_index_max > 0`) only ever enlarges a proven table; and that the write
+guard admits exactly the in-bounds writes — with the pre-fix `> ARR_CAP` guard
+refuted as the negative control. **The assumption is observable:** a
+`debug_assert!` in `emit_set_array` refuses to emit a bulk past the declared
+cap (exempt: vecs, runtime spreads, assoc stores), and
+`harness/c-arr-cap-scan.sh` renders the example set through a debug build and
+reports the numbers — 555 of 563 examples rendered, 72 fixed tables, largest
+bulk 5, largest capacity below the ceiling 10, **0** over-cap and **0**
+assertion trips. The 41 tables AT the ceiling are the deliberate unproven
+backstop (assoc k/v, fn-return storage) whose stores carry the exit-127 guard,
+i.e. the "or the guard engages" half. Pre-existing test state recorded rather
+than papered over: 10 `c_backend::tests` fail identically at HEAD and with the
+patch (verified by diffing the failure sets), so none of them are this change.
