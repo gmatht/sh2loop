@@ -120,7 +120,7 @@ fn blocks_dispatch_matches_oracle() {
         "blocks",
     );
     let mut runner = fb_draw::RasterRunner::new(W, H).expect("raster runner");
-    let (_img, view) = runner
+    let (_img, _mem, view) = runner
         .upload_atlas(&test_atlas(), ATLAS_LAYERS, ATLAS_SIZE)
         .expect("atlas upload");
     runner
@@ -192,7 +192,7 @@ fn overlay_dispatch_blends_over_blocks() {
         "overlay",
     );
     let mut runner = fb_draw::RasterRunner::new(W, H).expect("raster runner");
-    let (_img, view) = runner
+    let (_img, _mem, view) = runner
         .upload_atlas(&test_atlas(), ATLAS_LAYERS, ATLAS_SIZE)
         .expect("atlas upload");
     runner

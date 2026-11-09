@@ -23,7 +23,9 @@ struct GpuState {
     runner: RasterRunner,
     width: u32,
     height: u32,
-    atlas_view: crate::fb_draw::VkImageView,
+    atlas_img: u64,
+    atlas_mem: u64,
+    atlas_view: u64,
     // SPIR-V cached once (deterministic for fixed GLSL sources).
     bv: Vec<u8>,
     bf: Vec<u8>,
@@ -114,12 +116,14 @@ pub extern "C" fn bash_o4_fb_gpu_open(w: c_int, h: c_int) -> *mut c_void {
         let (bv, bf, ov, of_) = build_shaders()?;
         let mut runner = RasterRunner::new(w as u32, h as u32)?;
         let (atlas, nlayers, size) = grey_atlas();
-        let (_img, atlas_view) = runner.upload_atlas(&atlas, nlayers, size)?;
+        let (atlas_img, atlas_mem, atlas_view) = runner.upload_atlas(&atlas, nlayers, size)?;
         let st = Box::new(GpuState {
             runner,
             width: w as u32,
             height: h as u32,
-            atlas_view,
+            atlas_img: atlas_img as u64,
+            atlas_mem: atlas_mem as u64,
+            atlas_view: atlas_view as u64,
             bv,
             bf,
             ov,
@@ -160,6 +164,50 @@ fn mk_push(
         cam0: [cam_x, cam_y, cam_z, cos_yaw],
         cam1: [sin_yaw, shift, view_w, view_h],
         cfg: [flags as i32, 0, 0, 0],
+    }
+}
+
+/// Upload/replace the atlas (real texture data). `rgba` is RGBA8 bytes,
+/// length must be `nlayers*size*size*4`. Stable layer mapping: slot == layer,
+/// crack is layer 9 (fbdev.c CRACK_TEX). Uniform `size` across layers.
+/// Returns 0 on success, nonzero on error (caller keeps prior atlas / falls back).
+#[no_mangle]
+pub unsafe extern "C" fn bash_o4_fb_gpu_upload_atlas(
+    handle: *mut c_void, rgba: *const u8, rgba_len: usize, nlayers: u32, size: u32,
+) -> c_int {
+    if handle.is_null() || rgba.is_null() {
+        set_err("upload_atlas: null");
+        return -1;
+    }
+    let res = catch_unwind(AssertUnwindSafe(|| -> Result<(), String> {
+        let want = (nlayers as usize) * (size as usize) * (size as usize) * 4;
+        if rgba_len != want {
+            return Err(format!("upload_atlas: len {rgba_len} != {nlayers}x{size}x{size}x4={want}"));
+        }
+        if !(1..=10_000).contains(&nlayers) || !(1..=256).contains(&size) {
+            return Err(format!("upload_atlas: bad nlayers/size {nlayers}/{size}"));
+        }
+        let bytes = std::slice::from_raw_parts(rgba, want);
+        let st = &mut *(handle as *mut GpuState);
+        let (img, mem, view) = st.runner.upload_atlas(bytes, nlayers, size)?;
+        let old_img = st.atlas_img;
+        let old_mem = st.atlas_mem;
+        let old_view = st.atlas_view;
+        st.atlas_img = img as u64;
+        st.atlas_mem = mem as u64;
+        st.atlas_view = view as u64;
+        st.runner.release_atlas(old_img as _, old_mem as _, old_view as _);
+        Ok(())
+    }));
+    match res {
+        Ok(Ok(())) => 0,
+        Ok(Err(e)) => {
+            let st = &mut *(handle as *mut GpuState);
+            state_err(st, e.clone());
+            set_err(e);
+            -1
+        }
+        Err(_) => { set_err("upload_atlas panicked"); -1 }
     }
 }
 

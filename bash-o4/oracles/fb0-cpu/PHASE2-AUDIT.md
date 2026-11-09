@@ -223,3 +223,45 @@ verdict is conservative and refuses unproven state; see below).
 320×240 `965f7b3dad4cfd516ff637c8943681bc` (230415 B), 800×600
 `9e247bc7f5fe65f8be1e09aef420bb41` (1440015 B); `SH2_FB_CPU_ONLY=1` 320×240 also
 identical. fbview.py `py_compile` OK.
+
+## Real atlas upload (stable layer mapping, crack 9) + camera/flags + HUD/flash CPU-composite with parity
+
+**Atlas (stable layer mapping, crack layer 9):**
+- `fb_draw::RasterRunner::upload_atlas` now returns `(img,mem,view)` and
+  `release_atlas` supports replacement. FFI (`fb_gpu_ffi.rs`) exports
+  `bash_o4_fb_gpu_upload_atlas(handle, rgba, rgba_len, nlayers, size)` and
+  holds/replaces the atlas handles.
+- `fbdev.c` (`fb_gpu_sync_atlas`, **uncommitted in `/mnt/wsl/projects/sh2loop/sh2perl`**):
+  packs `T_tex` into a stable layer-mapped atlas where **slot == layer** and
+  **`CRACK_TEX` (9) == layer 9** (RGBA bytes as fbdev.c stores them; crack is
+  RGBA with coverage in A, B=0). Uniform texture size across used slots required
+  (sampler2DArray); **mixed sizes refused (> guess) with CPU fallback**. Uploaded
+  when dirty (`T_atlas_dirty`, set by `fb_texture`). `dlsym` resolves
+  `bash_o4_fb_gpu_upload_atlas`.
+- Camera/flags parity (plumbed): dispatch passes `C_x,C_y,C_z,C_cos,C_sin,C_shift,
+  S_w,S_h, (T_crt?1:0)|(T_corrupt?2:0)` → FFI → `PushConstants` (`cam0=[x,y,z,cos]`,
+  `cam1=[sin,shift,view_w,view_h]`, `cfg` bit0=CRT, bit1=corrupt), matching shader.
+
+**Overlay/flash (HUD) — CPU-composite with parity:**
+- `fb_overlay`/`fb_overlay_flash` mutate CPU state (`O_ov`/`O_flash`) only.
+  `fb_blocks` GPU path writes the world into `S_px` and returns; `fb_present`/
+  `fb_dump_ppm` CPU-composite via `ov_composite`/`ov_composite_to` onto `S_px`
+  (composited visual, flash consumed by present; snapshot dump parity preserved).
+  Verdict **no longer refuses on `O_have`** — HUD/flash parity is preserved
+  regardless of block backend (CPU-composite proven by construction).
+
+**Proof / refusal (> guess):** textured/CRT/corrupt block rendering has known
+float/int transcription points vs CPU `frag_pixel` (UV float vs double lerp at
+texel edges, tint rounding), so the verdict refuses unproven state by default.
+`SH2_FB_GPU_PROVE=compare` proves per-frame: CPU-renders, GPU-renders+readback,
+byte-compares world `S_px` — uses GPU only if identical, else restores CPU and
+falls back (parity-safe). `SH2_FB_GPU_ACCEPT=proven|atlas_proven|oracle_proven`
+accepts when externally/oracle-proven. Untextured hook `blocks_proof` retained.
+Default/`--cpu-only`/`SH2_FB_GPU=0` remain exact CPU; **Phase 0 oracle gate
+re-verified byte-identical** (320×240 `965f7b3d...`, 800×600 `9e247bc7...`,
+`SH2_FB_CPU_ONLY=1`).
+
+**Caveats:** `fbdev.c` changes uncommitted in sh2perl (no auth). Full
+GPU-oracle-equivalent textured rendering for real MIMEcroft still needs the
+proven path validated against Phase 0/production fixtures (compare/proof) and
+any residual UV/tint parity gaps resolved; Lavapipe capability veto remains.

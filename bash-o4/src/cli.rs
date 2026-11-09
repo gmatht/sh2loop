@@ -313,7 +313,13 @@ pub fn run(args: &[String]) -> i32 {
             return 1;
         }
     };
-    let tc_id = format!("{:?}", tc);
+    let mut tc_id = format!("{:?}", tc);
+    // BASH_O4_CFLAGS changes the compiled executable but NOT the
+    // rendered C — fold it into the key so the exe cache can never
+    // serve a binary built with the other flags (see compile_exe).
+    if let Ok(cf) = std::env::var("BASH_O4_CFLAGS") {
+        tc_id.push_str(&format!(" cflags={cf}"));
+    }
     let t64key = match o.common.true64 {
         Some(true) => "t64=1",
         Some(false) => "t64=0",
@@ -329,10 +335,50 @@ pub fn run(args: &[String]) -> i32 {
         "SH2_NO_SPLIT_FOLD",
         "SH2_NO_LOOP_OPT",
         "SH2_NO_INT_ELEM",
+        // str-chop-cursor kill-switch: without this in the key, an
+        // SH2_NO_STR_CHOP_CURSOR=1 "baseline" build would be served
+        // from the cache the cursor-enabled run just wrote (the exact
+        // silent-A/B bug the list above exists to prevent).
+        "SH2_NO_STR_CHOP_CURSOR",
+        // numeric-observed store relaxation (C int-homing waives the
+        // canonical-text store rule for all-numeric-observed arrays):
+        // without it in the key, an SH2_NO_NUMOBS=1 "baseline" build
+        // would be served from the relaxed build's cache entry.
+        "SH2_NO_NUMOBS",
+        // case-lowering's first-char bucketing of long all-exact
+        // dispatch chains — same silent-A/B prevention:
+        "SH2_NO_CASE_BUCKET",
+        // direct string concat (value fill + fused accumulator append)
+        // and num_temp's itoa — without these in the key an
+        // SH2_NO_CONCAT=1 "baseline" build is served from the
+        // optimized run's cache entry (the exact silent-A/B bug this
+        // list exists to prevent):
+        "SH2_NO_CONCAT",
+        "SH2_NO_ITOA",
         // MOVE-vs-copy store of a private build buffer: same silent-A/B
         // prevention — without it an SH2_NO_MOVESTORE=1 "baseline" build
         // is served from the MOVE build's cache entry.
         "SH2_NO_MOVESTORE",
+        // in-process `wc -c < f` capture: same silent-A/B prevention —
+        // without it an SH2_NO_WCFAST=1 "baseline" build is served
+        // from the fast path's cache entry.
+        "SH2_NO_WCFAST",
+        // fast atoll (digits-only parse, 19+ digits deferred to libc):
+        // same silent-A/B prevention — an SH2_NO_ATOI_FAST=1 baseline
+        // must not be served from the fast path's cache entry.
+        "SH2_NO_ATOI_FAST",
+        // numeric-observed int homing (shared shir_passes::numeric_observed
+        // verdict seeded into the C Int set: scalars/params, and tables):
+        // both switches change the render, so both must bust the cache.
+        "SH2_NO_NUMOBS",
+        "SH2_NO_NUMOBS_ARR",
+        // multi-def cell allowance on top of that verdict (a cell stored in
+        // several functions is still homeable when every store replaces the
+        // whole cell): same silent-A/B prevention.
+        "SH2_NO_MULTIDEF",
+        // str-temp-inline (single-use string temporary folded into the quoted
+        // word that reads it): same silent-A/B prevention.
+        "SH2_NO_STR_TEMP_INLINE",
         "SH2_TRUE64",
     ] {
         if let Ok(x) = std::env::var(v) {
@@ -521,7 +567,7 @@ fn fb_proof_ppm(w: u32, h: u32) -> Result<Vec<u8>, String> {
             }
         }
     }
-    let (_img, view) = runner.upload_atlas(&atlas, 10, 4)?;
+    let (_img, _mem, view) = runner.upload_atlas(&atlas, 10, 4)?;
     let push = crate::fb_draw::PushConstants {
         cam0: [0.0, 0.0, 0.0, 1.0],
         cam1: [0.0, 0.0, w as f32, h as f32],

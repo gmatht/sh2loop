@@ -1240,14 +1240,16 @@ impl RasterRunner {
     // ---- atlas upload ---------------------------------------------
 
     /// Upload `layers` RGBA8 layers of `size`×`size` into a
-    /// `sampler2DArray` image + view. Layer 9 is the crack texture
-    /// (callers pad unused layers with zeros).
+    /// `sampler2DArray` image + view. Stable layer mapping: game texture slot
+    /// == layer index; layer 9 is the crack texture (callers pad/match fbdev.c).
+    /// Returns (image, memory, view); runner owns destruction on Drop. Use
+    /// `release_atlas` before replacing to avoid leaks.
     pub fn upload_atlas(
         &mut self,
         layers_rgba: &[u8],
         nlayers: u32,
         size: u32,
-    ) -> Result<(VkImage, VkImageView), String> {
+    ) -> Result<(VkImage, VkDeviceMemory, VkImageView), String> {
         let f = &self.gf;
         let dev = self.dev();
         let want = (nlayers as usize) * (size as usize) * (size as usize) * 4;
@@ -1387,7 +1389,21 @@ impl RasterRunner {
         unsafe { (f.free_memory)(dev, stg_mem, ptr::null()) };
         let view = self.make_view(img, FORMAT_RGBA8, VIEW_TYPE_2D_ARRAY, ASPECT_COLOR, nlayers)?;
         self.atlases.push((img, mem, view));
-        Ok((img, view))
+        Ok((img, mem, view))
+    }
+
+    /// Release (destroy + untrack) an atlas previously returned by
+    /// `upload_atlas`, so a new atlas can replace it without leaking.
+    pub fn release_atlas(&mut self, img: VkImage, mem: VkDeviceMemory, view: VkImageView) {
+        let f = &self.gf;
+        let dev = self.od.dev;
+        if dev.is_null() { return; }
+        if let Some(pos) = self.atlases.iter().position(|e| e.0 == img && e.2 == view) {
+            self.atlases.swap_remove(pos);
+        }
+        if view != 0 { unsafe { (f.destroy_image_view)(dev, view, ptr::null()) }; }
+        if img != 0 { unsafe { (f.destroy_image)(dev, img, ptr::null()) }; }
+        if mem != 0 { unsafe { (f.free_memory)(dev, mem, ptr::null()) }; }
     }
 
     /// A staging buffer is TRANSFER_SRC + host-visible; the readback
