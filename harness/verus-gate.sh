@@ -806,9 +806,12 @@ MODELS=(
   # their ORDER (so `type f | head -1` reports f), that every emitted line
   # has an answer (all_classified premise), and that a mixed known/unknown
   # list is refused WHOLE (no partial answer that would swallow bash's
-  # not-found line). The table itself is pinned Rust-side
-  # (`builtin_table_is_the_58_true_builtins`: count, dedup, `ls`/`head`
-  # absent), since the model takes it as a parameter.
+  # not-found line). The table itself is MEASURED Rust-side
+  # (`builtin_table_matches_compgen` asserts it equals `compgen -A builtin`
+  # on the running bash — 61 names; that is how `.`, `:`, `break` were found
+  # missing from the recited 58 — and
+  # `builtin_table_excludes_externals_and_has_no_copies` keeps dedup and
+  # `ls`/`head` absent), since the model takes it as a parameter.
   "type_query.rs:17:40"
   # Terminator-binop (Tier-1): `break || exit 1` — a control call as the
   # LEFT operand of `&&`/`||` transfers control, so the right operand is

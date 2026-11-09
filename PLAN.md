@@ -7359,3 +7359,16 @@ variable: ?case"), `by` at 800 on a `<= a` goal. Declaring its session would
 have turned the gate red for everyone, so it stays unregistered; the attempt
 and the three failures are recorded in `proofs/ROOT`, and the file remains
 untracked WIP.
+
+**`type_query`: the builtin table is measured now (2026-11-09).** The Verus
+model takes the builtin table as a parameter, so it could not notice that the
+constant had drifted: `compgen -A builtin` on this bash lists **61** names and
+the table had 58, missing the special builtins `.`, `:` and `break` — which
+`type` does answer "a shell builtin" for, so `type :` was needlessly refused
+(sound: refuse > guess, but a gap). The count assertion is replaced by
+`builtin_table_matches_compgen`, which asserts equality with bash's own answer
+on the bash that runs the suite (`SH2_BASH` overrides it), and the surviving pin
+keeps what must hold whatever shell answers — no externals, no duplicates.
+Result: 61 == 61, 9/9 tests green in a clean worktree, Verus model unchanged at
+17/0, and no corpus example spells those three names, so emitted output cannot
+move.
