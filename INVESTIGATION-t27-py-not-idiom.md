@@ -70,11 +70,11 @@ latent bugs in the pass-2 local machinery and its neighbours:
 
 | Regression | Cause | Status |
 |---|---|---|
-| `bench-increment.sh` | the arith-status path emits `let __n = if __SH_ARITH_ERR…` **unconditionally**; when `__n` is *also* a user variable (this test's loop counter) it shadows it, and the rebind is immutable (E0384) | **diagnosed, fix known**: gensym that binding (`__n` → `__n8`) — verified to fix the test |
-| `055_factorize.sh` | a nested `if` re-declares `let mut factors` instead of assigning, shadowing the function-top binding | open — the function-top `factors=""` never reaches `local_write_stmt` at all (see below) |
-| `parse-glob-question-in-arg.sh` | `mismatched types: expected String, found &str` | open |
-| `parse-test-with-source.sh` | `main function not found in crate` | open |
-| `061_test_local_names_preserved.sh`, `parse-error-export-empty.sh`, `typeset-cmdsub.sh` | further fallout once the extra names become locals | open |
+| `bench-increment.sh` | the arith-status path emits `let __n = if __SH_ARITH_ERR…` **unconditionally**; when `__n` is *also* a user variable (this test's loop counter) it shadows it, and the rebind is immutable (E0384) | **fixed**: the binding is gensymmed — it now renders `let __n3 = if __SH_ARITH_ERR.swap(false, Ordering::Relaxed) { … }` |
+| `055_factorize.sh` | a nested `if` re-declares `let mut factors` instead of assigning, shadowing the function-top binding | **fixed**: `decl_words` consumes the owner slot (see *The 055 puzzle* below) — the function-top `let mut factors = "".to_string();` is emitted once and the nested branches assign |
+| `parse-glob-question-in-arg.sh` | `mismatched types: expected String, found &str` | **fixed**: `${var:-}` now agrees on the type of a read that became `&str` while the default stayed `String`; renders, compiles, matches bash |
+| `parse-test-with-source.sh` | `main function not found in crate` | **fixed**: renders, compiles, matches bash |
+| `061_test_local_names_preserved.sh`, `parse-error-export-empty.sh`, `typeset-cmdsub.sh` | further fallout once the extra names become locals | **fixed**: the same owner-slot / type-agreement work (all three render and match) |
 
 Differential gate: baseline **PASS=500 / FAIL=48**; with all three pieces **494 / 54**.
 
@@ -88,6 +88,21 @@ the emitted text contains `let mut factors = "".to_string();` at the right place
 So the function's leading assignments are rendered by a path other than
 `Assign → write_str → local_write_stmt`, and any owner-seeding scheme that assumes
 otherwise will mark the wrong statement. **That path must be found first.**
+
+**Found: `decl_words`.** `local factors=""` does not reach the renderer as an `Assign`
+at all — it arrives as `Expr(Call(builtin, ["local", …]))`, and `decl_words` emitted
+the `let` directly at that point, bypassing the deferred-`let` bookkeeping entirely. So
+the branch did not *shadow* a declared binding: the function-top `let` was never
+recorded as owning anything, and the branch's write legitimately declared the name.
+Both sites (`decl_words` and `local_write_stmt`) now consume the owner slot, which is
+seeded per scope by a render-order walk (`mark_first_write`) that records each name's
+first write — top-level or nested — BEFORE descending into blocks. Current output for
+the function top and the two branches:
+
+```rust
+    let mut factors = "".to_string();          // once, at the function top
+            factors = if factors.clone() == "".to_string() { … };   // nested: assignment
+```
 
 ## The prerequisite: pass-2 deferred `let` ownership
 
@@ -114,11 +129,15 @@ was written and got t27 fully idiomatic, but did not fix `055`'s shadowing and a
 `&str`/`mut` regressions above. It is worth doing as its own change, with the four
 corpus tests as the acceptance criteria.
 
-## Recommendation
+## Recommendation (historical — superseded by RESOLVED below)
 
 Land the pass-2 local hardening first (with tests), then re-apply the walk fix plus the
 two renderer pieces. t27 and the differential gate are the acceptance criteria:
 `PASS >= 500` with `t27` rendering `if x.is_empty() { … }`.
+
+This is kept as the reasoning trail only: every item in it has since landed, and the
+*documented* prerequisite was the wrong one in the end (see *The 055 puzzle* — the
+missing piece was `decl_words`, not the ownership seeding).
 
 Saved WIP for that follow-up (not committed):
 * `/tmp/wip_now.rs`      — rust_backend.rs with the identity-strip + seeding sketch
@@ -170,7 +189,26 @@ local-variable shapes (must-absent + must-present regex per case). It exists bec
 **the bash corpus never exercises the py frontend** — `./fail` is 100% `.sh`, so t27's
 shape was untested either way.
 
-Current: **3/5**. The two failures are exactly this follow-up:
+The 3/5 snapshot below is the state *before* the RESOLVED commit and is kept only as
+the historical record; both cases pass now. The gate has since grown to 44 assertions and
+is green (`py-idiom-gate: 44 passed, 0 failed`). Three of its assertions had gone stale
+against output the renderer improved past, so they were corrected rather than the output
+reverted — each was verified byte-identical to `python3` first:
+
+* `t37_substring` pinned `chars().skip(1).take(2)`, but an `AsciiStr`-typed var now takes
+the byte slice `&s[1..3]` (safe because the shared type verdict proved it ASCII). The
+gate now pins both forms and, separately, that the Unicode line stays on the CHAR form —
+a byte slice there would panic on a char boundary, so that assertion is the one guarding
+the ASCII verdict.
+* `t52_full_prog` required `__cap`, but `greet` *returns* its string, so the call is the
+print argument (`println!("{}", greet(n.to_string()))`) and capture machinery would mean
+the value went through stdout. Its companion "no blank line after `fn main() {`"
+assertion used an absent-pattern containing `\n`, which `grep -E` can never match —
+that check could not fail and is now an awk line test.
+* `t69_fstring` required `format!("value={}", x)`; the value is printed directly, so the
+output is `println!("value={}", x)` (no String allocated either way).
+
+Historical snapshot (both t27 cases failed at 3/5):
 
 ```
 FAIL t27_not_expr: non-idiomatic (matched /thread_local/):

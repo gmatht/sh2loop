@@ -114,9 +114,14 @@ check t33_pipe '__SH_OUT|__cap|__sh_puts' 'let out = "hello";'
 # t37/t38: the operand of `s[1:3]` / `len(s)` is a NAME string in the
 # call (`param("slice", "s", …)`); recognising it as a read lets `s` bind
 # as a `&str` instead of an owned String with a `.clone()` per use.
-# The shell helpers `__sh_substr` / `__sh_len` are inlined as idiomatic
-# `chars().skip(...).take(...)` and `chars().count() as i64`.
-check t37_substring 'to_string\(\)|&s\.clone\(\)|__sh_substr' 'chars\(\).skip\(1\).take\(2\)'
+# The shell helpers `__sh_substr` / `__sh_len` are inlined. Two idiomatic
+# forms exist: a var the shared type verdict proved `AsciiStr` takes the byte
+# slice (`&s[1..3]`), everything else the CHAR form (`chars().skip(…).take(…)`,
+# `chars().count() as i64`). Both are pinned below, and the Unicode line is
+# pinned to the char form specifically — a byte slice there would panic on a
+# char boundary, so that check is the one guarding the ASCII verdict.
+check t37_substring 'to_string\(\)|&s\.clone\(\)|__sh_substr' '(&s\[1\.\.3\]|chars\(\).skip\(1\)\.take\()'
+check t37_substring '&t\[1\.\.5\]' 't\.chars\(\)\.skip\(1\)\.take\(4\)'
 check t38_strlen 'to_string\(\)' 'chars\(\)\.count\(\) as i64'
 
 # ── a statement-position function call is bare, not block-wrapped ──
@@ -124,15 +129,23 @@ check t38_strlen 'to_string\(\)' 'chars\(\)\.count\(\) as i64'
 # expression form can carry a temporary or a trailing value.
 check t41_local_var '\{ f\(\); \}' '^    f\(\);$'
 
-# ── a call inside a capture writes to the CAPTURE, not to stdout ──
-# t52: `for n in names: print(greet(n))` — the call sits inside the
-# capture block, so the capture machinery MUST be present (if the sink
-# context were lost the callee would print straight to stdout, the
-# captured value would be empty, and the caller's print would add a
-# stray blank line). Assert the capture is there and the call is inside
-# it, and that the body has no blank line.
-check t52_full_prog '' '__cap'
-check t52_full_prog 'fn main\(\) \{\n\n' 'greet\('
+# ── a call in a print argument is the VALUE, not a capture ──
+# t52: `for n in names: print(greet(n))` — `greet` RETURNS its string, so the
+# call is the print argument and no `__cap`/`__SH_OUT` machinery is needed;
+# their presence would mean the value had been routed through stdout instead
+# of returned (and the caller would print a blank line).
+check t52_full_prog '__cap|__SH_OUT' 'println!\("\{\}", greet\('
+check t52_full_prog '' 'greet\('
+# …and no blank line immediately after `fn main() {`. This is an awk check on
+# purpose: `grep -E` cannot span lines, so the absent-pattern this replaced
+# ('fn main\(\) \{\n\n') matched nothing and could never fail.
+if printf '%s\n' "$("$CLI" "$DIR/t52_full_prog.py" - --target rs 2>&1)" \
+    | awk '/^fn main\(\) \{$/ { after=1; next } after { if ($0 == "") blank=1; after=0 } END { exit (blank ? 1 : 0) }'; then
+    pass=$((pass + 1))
+else
+    echo "FAIL t52_full_prog: blank line immediately after fn main() {"
+    fail=$((fail + 1))
+fi
 
 # ── loops read like the source ──
 # t40: nested `for i in [1, 2]: for j in [1, 2]:` — the loop vars keep
@@ -146,7 +159,10 @@ check t71_range_loop '__sh_lv|__SHV_i' 'for i in 0\.\.=3'
 check t71_range_loop 'let mut total: i64' 'let mut total = 0'
 
 # ── a numeric f-string part needs no to_string ──
-check t69_fstring 'x\.to_string\(\)' 'format!\("value=\{\}", x\)'
+# The f-string goes straight into the print macro when it IS the printed
+# value (`println!`) and to `format!` only when it is not; both take `x`
+# directly, so neither allocates a String for it.
+check t69_fstring 'x\.to_string\(\)' '(println|format)!\("value=\{\}", x\)'
 
 # ── a simple glob is a stdlib string test ──
 # t68: `s.startswith("h")` must not pull in the fnmatch helper
