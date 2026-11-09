@@ -221,12 +221,15 @@ def main(argv):
         if scale != 1:
             img = img.resize((ww, wh), Image.NEAREST)
         raw = img.tobytes("raw", "RGBA")
-        # One PutImage cannot carry the frame: the request length field is
-        # 16-bit words, so ~256KiB is the most a server takes (this is why
-        # put_pil_image splits too). 64 rows is 160KiB at scale 2.
+        # One PutImage cannot carry the frame: python-xlib packs request
+        # length/data fields with 16-bit ('H') sizes, so each chunk's
+        # payload must stay well under 65535 bytes (and X11's request
+        # length is 16-bit 4-byte units). Compute rows from the width so
+        # large views (e.g. 800x600 = 3200 B/row) don't overflow 'H'.
         stride = ww * 4
-        for y in range(0, wh, 64):
-            n = min(64, wh - y)
+        chunk_rows = max(1, 60000 // stride)
+        for y in range(0, wh, chunk_rows):
+            n = min(chunk_rows, wh - y)
             win.put_image(gc, 0, y, ww, n, X.ZPixmap, 24, 0,
                           raw[y * stride:(y + n) * stride])
         disp.flush()

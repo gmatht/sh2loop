@@ -2453,6 +2453,22 @@ impl RasterRunner {
         Ok(out)
     }
 
+    /// Convert RGBA8 (row-major, top-down; as returned by `readback`) to
+    /// BGRX bytes (B,G,R,X per pixel) for `FB0_DEV`/fbview-compatible
+    /// framebuffer files. Alpha is discarded (X=255). Verify byte-order
+    /// parity against `sh2perl/runtime/fbdev.c` and `tools/fbview.py`
+    /// before wiring GPU readback into the live file-backed path.
+    pub fn rgba8_to_bgrx(rgba: &[u8]) -> Vec<u8> {
+        let mut out = vec![0u8; rgba.len()];
+        for (src, dst) in rgba.chunks_exact(4).zip(out.chunks_exact_mut(4)) {
+            dst[0] = src[2]; // B
+            dst[1] = src[1]; // G
+            dst[2] = src[0]; // R
+            dst[3] = 255;    // X
+        }
+        out
+    }
+
     fn destroy_pipe(&self, p: CompiledPipe) {
         // Destroy in dependency order: the command pool owns the
         // descriptor set, the pipeline references layout + modules.
@@ -2594,5 +2610,12 @@ mod tests {
         assert_eq!(std::mem::size_of::<VkBufferImageCopy>(), 56);
         assert_eq!(std::mem::size_of::<VkDescriptorImageInfo>(), 24);
         assert_eq!(std::mem::size_of::<PushConstants>(), 48);
+    }
+
+    #[test]
+    fn rgba8_to_bgrx_swaps_channels() {
+        let rgba = [1u8, 2, 3, 4, 10, 20, 30, 40];
+        let bgrx = RasterRunner::rgba8_to_bgrx(&rgba);
+        assert_eq!(&bgrx, &[3, 2, 1, 255, 30, 20, 10, 255]);
     }
 }
