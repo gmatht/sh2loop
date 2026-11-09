@@ -265,3 +265,18 @@ re-verified byte-identical** (320×240 `965f7b3d...`, 800×600 `9e247bc7...`,
 GPU-oracle-equivalent textured rendering for real MIMEcroft still needs the
 proven path validated against Phase 0/production fixtures (compare/proof) and
 any residual UV/tint parity gaps resolved; Lavapipe capability veto remains.
+
+## Per-verb render-time/runtime verdict & acceptance (honors fbdev-gpu-calls→fb_*/c_backend, marketplace)
+
+Extended verdict/acceptance is **per-verb/state** (runtime in `fbdev.c`, uncommitted in sh2perl; autoshaderiser `fb_frag.rs`/transforms aligned; toolkit-purity, refuse > guess):
+
+| verb/state | verdict / acceptance | path |
+|---|---|---|
+| `blocks` | GPU-dispatchable (shader) **only when proven correct** (real atlas slot==layer, crack 9; camera/flags parity). Verdict gates; `SH2_FB_GPU_PROVE=compare` proves per-frame (CPU-vs-GPU byte compare, restore CPU on mismatch); explicit `SH2_FB_GPU_ACCEPT=proven|atlas_proven|oracle_proven`. Any failure/unproven ⇒ exact CPU fallback. | C-ABI `bash_o4_fb_gpu_{open,upload_atlas,draw_blocks_text,readback_bgrx}` (fb_blocks records); atlas/camera/flags passed. |
+| `overlay` / `overlay_flash` (HUD/flash) | **CPU-composite with parity** (proven by construction). `fb_overlay`/`fb_overlay_flash` mutate CPU `O_ov`/`O_flash`; `fb_present`/`fb_dump_ppm` composite onto `S_px` (flash consumed by present; snapshot dump parity). `O_have` never blocks blocks. | CPU state + present/dump composite; no runtime GPU overlay dispatch. |
+| `call` / `swap` | **HOST ops** (present/swap) — never a fragment shader, never GPU-dispatched as a program. | host/runtime. |
+| `depthmask` / `uniform/*` | **REFUSED as shaders** — push-constant/state slots, not fragment programs. | refused (state bits/push-constants). |
+
+**Consistency:** `fb_frag::emit_fb_shader` refuses `call` (host), `depthmask`/`uniform/*` (push-constants) and emits shaders only for `blocks`/`overlay`/`overlay_flash` (and maps `fb_*` call verbs). `fbdev-gpu-calls` (shared sh2perl core, **C-target marketplace-gated**) rewrites `blocks`/`overlay`/`overlay_flash` GpuOps (slot empty, void, payload-direct) → `fb_*` calls for `c_backend` `fb_call_opt`; **refuses** `call` (fb_present non-void/status divergence), `depthmask`/`uniform`/`texture`/`hud`/slot/unsafe-payload — file-write fallback kept (refuse > guess). Transforms/c_backend in the dirty shared core were not modified (coordinated; marketplace rules honored). `fbdev.c` adds `fb_gpu_verb_{is_host_or_refused_shader,blocks,overlay_cpu_composite}` helpers (classification).
+
+Rebuilt bash-O4 + relinked `mimecroft-fb-play`; **Phase 0 oracle gate still byte-identical** (320×240 `965f7b3d...`, 800×600 `9e247bc7...`). `fbdev.c` uncommitted in sh2perl (no auth).
