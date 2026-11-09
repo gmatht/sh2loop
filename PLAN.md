@@ -7316,3 +7316,28 @@ at all, so it is simply dead weight. Porting/retiring is the owners' call.
 
 **Gate after this pass: 124 passed, 0 failed, 3 skipped (unwired modules), 2
 retired records, exit 0.** Still unpushed.
+
+**Follow-up: the four unreachable transform modules (2026-11-09).** Declaring
+each one settled it, and the split is not what the skip implied:
+
+- `exec_call_fold` and `interp_lit_merge` **port**: they compile against the
+  current crate and their suites pass (4 and 7 tests). The `mod` line was the
+  whole gap — the 2026-10-29 commit that added the files claims the
+  `transforms.rs` wiring was "present but files absent", and that commit never
+  touches `transforms.rs`. Both are modules now; every pin executes and their
+  sync baselines are committed. Neither is registered with a backend, so this
+  proves the pass, not a pipeline that runs it.
+- `arr_load_fwd` **cannot** be ported: it imports `super::READ_ONLY_CALLS` and
+  `string_accumulator::{callee_write_sets, Cw}`, none of which exist anywhere
+  outside that file, and calls four helpers the crate has made private
+  (E0432/E0603). Deleted; the model is banner-marked and moved to
+  `RETIRED_MODELS` — verified as a record, outside every total, like
+  `interval.rs`.
+- `builtin_lift` is `WITHDRAWN` in
+  `core-requests/transforms/rejected/builtin-lift/WITHDRAWN` ("superseded by
+  the landed builtin transform") and fails to compile when declared (E0631);
+  deleted, it had no model.
+
+**Verus gate after this: 125 passed, 0 failed, 0 skipped, 3 retired records,
+exit 0** — every entry the gate names now either runs or is an explicitly
+retired record. Still unpushed.

@@ -738,16 +738,31 @@ the entry as a SKIP that prints the reason instead of a red that hides behind
 "generator errored". Gate after the pass: **124 passed, 0 failed, 3 skipped,
 2 retired records**.
 
-**Wiring them in is not an edit.** Declaring the three modules does not
-compile against the current crate: E0603 for four private helpers the models'
-files still call (`census`, `exported_names`, `is_shell_implicit`,
-`expr_pure`) and E0432 for `super::READ_ONLY_CALLS` and
-`string_accumulator::{callee_write_sets, Cw}`. They are stale copies of an
-older API, not finished work waiting for a `mod` line, so the real fork is a
-port or a retirement — the one `interval.rs` took when its target was gone.
-`builtin_lift.rs` is tracked and unreachable in exactly the same way, and
-fails to compile when declared too (E0631, a function-argument mismatch);
-with no model of its own it is simply dead weight in the tree.
+**(vii) DONE 2026-11-09 — ported two, retired two.** Declaring each module
+settled it, and the split is not the one the SKIP suggested. Two were one
+missing line, two were unsalvageable:
+
+- `exec_call_fold` and `interp_lit_merge` compile against the current crate and
+their suites pass (4 and 7 tests, all green). The `mod` line was the entire
+gap — the 2026-10-29 commit that added the files claims the `transforms.rs`
+wiring was "present but files absent"; it was neither, because that commit
+does not touch `transforms.rs` at all. Both are modules now, every pin
+executes, and their sync baselines are committed. **Neither is registered with
+a backend**: a `mod` line proves the pass, it does not put it in the pipeline,
+and registering stays the marketplace's call (PLAN §11).
+- `arr_load_fwd` cannot be ported: it imports `super::READ_ONLY_CALLS` and
+`string_accumulator::{callee_write_sets, Cw}`, none of which exist anywhere
+outside that file, and calls four helpers the crate has since made private
+(E0432/E0603). Its 1518 lines are deleted; the model keeps a banner and moves
+to RETIRED_MODELS — verified as a superseded-design record, outside every
+total, the treatment `interval.rs` got.
+- `builtin_lift` is recorded WITHDRAWN in
+`core-requests/transforms/rejected/builtin-lift/WITHDRAWN` ("superseded by the
+landed builtin transform") and fails to compile when declared (E0631).
+Deleted; it had no model.
+
+Gate after this pass: **125 passed, 0 failed, 0 skipped, 3 retired records**,
+exit 0 — the sync section now covers every entry the gate names.
 
 **P1 — `redundant_store_elim`.** DONE — see P0(ii): the fixed version is
 proved (shadow argument, observationally exact), with all three bug

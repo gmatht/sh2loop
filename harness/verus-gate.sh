@@ -728,17 +728,19 @@ MODELS=(
   # Per-site payload preservation + idempotence; carrier flag as
   # parameter; 4 unit-test pins. Mutant (cleanup refusal dropped)
   # red 7v/1e.
-  # SOURCE UNREACHABLE (2026-11-09) — same class as arr_load_fwd: no `mod
-  # exec_call_fold;` in src/transforms.rs, and declaring it fails to compile
-  # against the current crate. Port it or retire the model.
+  # PORTED 2026-11-09: the `mod exec_call_fold;` line was the whole gap — it
+  # compiles against the current crate and its 4 unit tests pass, so the pins
+  # execute and the sync entry now runs. Still NOT registered with any backend
+  # (the offer is the marketplace's call), so this proves the pass, not a
+  # pipeline that runs it.
   "exec_call_fold.rs:8:40"
   # Part-canonicalization (Tier-1): frozen-literal Expr part -> Lit +
   # adjacent-Lit merge (interp_lit_merge.rs 494 lines). Concat
   # denotation identity via whole-seq cons lemmas; style gate as data;
   # 6 unit-test pins. Mutant (Command style folds) red 23v/1e.
-  # SOURCE UNREACHABLE (2026-11-09) — same class as arr_load_fwd: no `mod
-  # interp_lit_merge;` in src/transforms.rs, and declaring it fails to
-  # compile against the current crate. Port it or retire the model.
+  # PORTED 2026-11-09: same as exec_call_fold — the missing `mod` was the only
+  # gap; it compiles and its 7 unit tests pass, so the pins execute. Not
+  # registered with any backend.
   "interp_lit_merge.rs:24:40"
   # ForInit-lowering (Tier-1): ForInit -> Block(init + While) with the
   # step spliced before every first-class continue (strip.rs).
@@ -755,19 +757,14 @@ MODELS=(
   # step spellings + Arith-cond gates; 6 unit-test pins. Mutant
   # (accepting +2) red 9v/3e.
   "counted_arith_forinit.rs:12:40"
-  # Element-forward (Tier-1): single-def element load -> forwarded
-  # reads (arr_load_fwd.rs 1518 lines). Single-store induction with
-  # span oracle (mono + soundness); 9 unit-test pins. Mutant (no
-  # clean-span gate) red 33v/4e.
-  # SOURCE UNREACHABLE (2026-11-09): the model verifies, but its target is
-  # not a module of the crate — `src/transforms.rs` declares 71 modules and
-  # not this one — so its #[test]s never compile and the sync entry can only
-  # SKIP. Wiring it is not an edit: declaring the module does not compile at
-  # HEAD (E0603: private `census`, `exported_names`, `is_shell_implicit`,
-  # `expr_pure`; E0432: `super::READ_ONLY_CALLS` and
-  # `string_accumulator::{callee_write_sets, Cw}`). The file is a stale copy
-  # of an older crate API: port it or retire the model.
-  "arr_load_fwd.rs:37:40"
+  # Element-forward: single-def element load -> forwarded reads. RETIRED
+  # 2026-11-09 — see RETIRED_MODELS below. Its target could not be ported:
+  # `src/transforms/arr_load_fwd.rs` imported `super::READ_ONLY_CALLS` and
+  # `string_accumulator::{callee_write_sets, Cw}`, none of which exist
+  # anywhere outside that file, and called four helpers the crate has since
+  # made private; declaring the module did not compile (E0432/E0603). The
+  # source file is deleted and the model is kept as a superseded-design
+  # record, verified but counted outside every total (same as `interval.rs`).
   # Temp-isolation (Tier-1): single-use pure temp -> inlined use
   # (isolate_accumulate.rs 1038 lines). Substitution agreement; 8
   # unit-test pins. Mutant (multi-use inlines) red 17v/1e.
@@ -847,6 +844,9 @@ MODELS=(
 RETIRED_MODELS=(
   "interval.rs:5:40"
   "i32_bounds_exec.rs:7:40"
+  # arr_load_fwd: source deleted 2026-11-09 — unportable against the current
+  # API (see the note where it used to sit in MODELS). Verified as a record.
+  "arr_load_fwd.rs:37:40"
 )
 
 # extractor:baseline — the generator script and the file it must reproduce.
@@ -908,7 +908,6 @@ SYNCS=(
   "harness/verus-sync-coverage.sh:interp_lit_merge:sh2perl/proofs/verus/interp_lit_merge_sync.txt"
   "harness/verus-sync-coverage.sh:strip:sh2perl/proofs/verus/strip_sync.txt"
   "harness/verus-sync-coverage.sh:counted_arith_forinit:sh2perl/proofs/verus/counted_arith_forinit_sync.txt"
-  "harness/verus-sync-coverage.sh:arr_load_fwd:sh2perl/proofs/verus/arr_load_fwd_sync.txt"
   "harness/verus-sync-coverage.sh:isolate_accumulate:sh2perl/proofs/verus/isolate_accumulate_sync.txt"
   "harness/verus-sync-coverage.sh:lane_private:sh2perl/proofs/verus/lane_private_sync.txt"
   "harness/verus-sync-coverage.sh:analysis:sh2perl/proofs/verus/analysis_sync.txt"
