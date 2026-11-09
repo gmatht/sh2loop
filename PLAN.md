@@ -7511,3 +7511,64 @@ instead of `\x{h}` is 16v/1e, and a DECODER mutant (the closing-quote arm
 emits a quote instead of ending the literal) is 15v/2e — the last one
 matters most, because a decoder written to mirror the encoder would have
 kept the round trip green.
+
+**The ESTree op contract is now checked, not assumed (2026-11-09).**
+`sh2runtime` is coupled to the transpiler ONLY by the ESTree JSON contract, and
+`fail-estree` proves the two agree on *behaviour over the corpus* — 563 examples,
+each rendered, executed and diffed. It cannot see a name no example reaches, and
+no compile step sees one either: the emitter writes `sh2.<op>(…)` as an ordinary
+`MemberExpression` call, so a rename on either side is a `TypeError` at run time
+with nothing red anywhere. Four writers define that surface and had no
+cross-check: the emitter (`src/shir.rs`, `src/estree.rs`), the reference runtime
+(`harness/sh2-namespace.mjs`), the structural gate's hand-maintained
+`%whitelist` (`harness/estree_gate.pl`), and the documented polyfill mirror
+(`runtime/README.md` §1 → `polyfills.sh`/`polyfills.c`).
+
+`harness/estree-contract.mjs` closes it in four hard-failure sections, all over
+the same 563-artifact render (`OTRANSPILERL_BIN`, ~6 s, 74 distinct ops):
+**A** every emitted callee path resolves on the exported `sh2`, to a function or
+to a prototype method of the initialized value, and the maximum emitted argc
+does not exceed the declared arity; **B** every `%whitelist` name exists (a
+function, or one of the runtime's state containers, which the gate's separate
+state branch legitimately admits); **C** op → {argc set, static per-position
+argument kinds} equals the committed `harness/estree-contract.json`, so a new op
+or a changed argument shape needs a deliberate `--update`; **D** every polyfill
+function the README advertises exists in both mirrors.
+
+It found a real gap on its first run: `IrStmt::Die` emits `sh2.die`
+(`shir.rs` — "the runtime catches it"), reachable through
+`src/transforms/stray_reserved_word.rs` and JSON ingest, and the runtime had only
+`warn`. No corpus example dies, which is exactly why the corpus never caught it.
+The fix is the op, not the gate entry: `sh2.die(v)` throws `Error(String(v))`
+(keeping it catchable by an enclosing recover, per the emitter's comment), so an
+uncaught die now prints the program's own message and exits nonzero instead of
+`sh2.die is not a function`. Measured through `estree-runner.mjs` on a hand-built
+program: `Error: boom` on stderr, rc=1. That gap also fixed the check's shape —
+section B exists because an op the corpus does not reach is invisible to A.
+
+Non-vacuous, three ways. Six `--selftest` controls synthesise each failure from
+a fake surface (missing op, over-arity, `sh2._r` value-root method resolution,
+unknown whitelist name, baseline drift, missing advertised polyfill). Then three
+mutants on real copies of the namespace via `--namespace`: renaming `builtin`
+(the most-emitted op) fails A **and** B; narrowing it to one parameter fails A
+with `emitter passes 4 argument(s), implementation takes at most 1`; deleting
+`die` fails B — the corpus-only check would have stayed green through all three.
+
+Deliberate limits, so the claim is not read as wider than it is. Arity is an
+UPPER bound only: the runtime's ops take optional trailing parameters without
+defaults (`pipeline(stages, fdTargets)`), so a minimum would be invented; the
+per-position argument KINDS are snapshotted instead, which is the drift signal
+that a minimum would have given. `sh2._r` is declared (`DECLARED_VALUE_TYPES`),
+the one field assigned at run time rather than in the object literal. The check
+proves *names, arity and argument shape*, never semantics — that stays with
+`fail-estree`. Dead ops are invisible by construction: an op the runtime has and
+the emitter never produces is not flagged (only the whitelist's dead entries
+are). And the seam side is only checked against the README's advertised
+inventory; `die` is in the namespace, not yet in the C polyfills.
+
+The consumer is the gate itself: `./fail-estree` runs the contract against its
+PINNED binary before the corpus loop, prints the four sections, and in `--gate`
+mode aborts there — every estree cell would be suspect and 563 per-file failures
+would hide the one-line cause. Measured: `--gate 001_simple` green with the
+pre-flight, and with the baseline removed it prints `ESTREE CONTRACT: FAIL …
+aborting before the corpus run`, rc=1, no corpus summary line.

@@ -438,6 +438,40 @@ my @pin_sig = (stat($run_bin))[7, 9];    # size, mtime of the shared binary
 }
 END { unlink $pin_path if defined $pin_path && $$ == $main_pid && -e $pin_path }
 
+# ── THE sh2.* OP CONTRACT (2026-11-09) ───────────────────────────────────
+# This gate proves the transpiler and the runtime agree on BEHAVIOUR over the
+# corpus; it cannot see a name that no example reaches. harness/estree-contract.mjs
+# checks the other, mechanical half: every `sh2.*` op the emitter produces
+# resolves on the runtime with a compatible arity, the structural gate's
+# whitelist admits only names the runtime has, the emitted surface matches its
+# committed snapshot, and the documented polyfill mirror exists. Without it a
+# rename on either side is a TypeError at run time (or a dead whitelist entry)
+# with no compile error anywhere — which is how `sh2.die` shipped missing.
+#
+# Runs against the PINNED binary (so it measures the tree this run is about)
+# and prints one line per section. A failure ABORTS a --gate run before the
+# corpus loop: every estree cell would be suspect, and 563 confusing per-file
+# failures hide the one-line cause. In report mode it is a loud warning.
+my $contract_out = '';
+my $contract_rc = 0;
+if (-e "$root/harness/estree-contract.mjs") {
+    $contract_out = `OTRANSPILERL_BIN='$run_bin' SH2PERL_DIR='$sh2perl' node "$root/harness/estree-contract.mjs" 2>&1`;
+    $contract_rc = $? >> 8;
+} else {
+    $contract_out = "harness/estree-contract.mjs is MISSING — the op contract was not checked\n";
+    $contract_rc = 1;
+}
+print $contract_out;
+if ($contract_rc != 0) {
+    if ($do_gate) {
+        print "ESTREE CONTRACT: FAIL (see above) — aborting before the corpus run\n";
+        exit 1;
+    }
+    print "ESTREE CONTRACT: FAIL (see above; report mode continues — a --gate run would stop here)\n";
+} else {
+    print "ESTREE CONTRACT: ok (ops, arity, gate whitelist, snapshot, polyfill mirror)\n";
+}
+
 my $work_dir = tempdir("estreefail-XXXXXXXX", CLEANUP => 1, DIR => "/tmp");
 # Deferred reap (see the note in ./fail): CLEANUP removes the tree at scope
 # exit, but an example straggler still holding an fd into it makes that fail

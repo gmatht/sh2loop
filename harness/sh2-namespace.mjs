@@ -1991,6 +1991,22 @@ export const sh2 = {
     process.stderr.write(String(v ?? '') + '\n');
   },
 
+  // `sh2.die(v)` — the FATAL counterpart of `warn`, called for `IrStmt::Die`
+  // (`die`/`croak` in a frontend, a stray reserved word in a shell script).
+  // The emitter's own comment is the contract (`shir.rs`, IrStmt::Die: "Fatal
+  // error: `throw new Error(value)` — the runtime catches it"), so this THROWS
+  // rather than exiting: an enclosing recover (Go `panic`/`recover`, the
+  // `eval` guard) can intercept it, and an uncaught one fails the program
+  // loudly with the message on stderr and a nonzero exit.
+  //
+  // This op was EMITTED BUT MISSING (found by harness/estree-contract.mjs on
+  // 2026-11-09): `sh2.die(x)` was a TypeError — no message on stderr, and the
+  // runner's crash report instead of the program's own fatal text — on a path
+  // no corpus example reached, which is why the corpus never caught it.
+  die(v) {
+    throw new Error(String(v ?? ''));
+  },
+
   // ── direct native function calls ─────────────────────────────────
   // The emitter lowers provably-positional-free sync-function calls to
   // direct JS calls on module-level `let f` bindings (src/shir.rs
