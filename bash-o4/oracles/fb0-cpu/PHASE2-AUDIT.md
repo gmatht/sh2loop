@@ -302,3 +302,44 @@ Rebuilt bash-O4 + relinked `mimecroft-fb-play`; **Phase 0 oracle gate still byte
   reason (fbdev.c). Lavapipe = functional capability (not a perf target).
 - Rebuilt bash-O4/lib + relinked; **Phase 0 oracle gate still byte-identical**
   (320×240 `965f7b3d...`, 800×600 `9e247bc7...`, default/CPU path unchanged).
+
+## Per-frame/payload CPU-vs-GPU parity validator, acceptance, fixtures & gate
+
+**Validator (fbdev.c, uncommitted in sh2perl):** per-frame/payload CPU-vs-GPU
+parity proof in `fb_blocks` (refuse > guess). **Compare-by-default** (unless
+`SH2_FB_GPU_ACCEPT=proven|atlas_proven|oracle_proven|blocks_proof` or
+`SH2_FB_GPU_PROVE=off`): renders `fb_blocks_cpu` → snapshots world `S_px`, then
+GPU-renders+readback → **tolerance-aware compare** (Phase 0, RGB, `S_px`
+0xAARRGGBB): accept if `max abs diff <= 2` per channel (float transcription
+points: tint/UV/CRT edges), else restore CPU result and fall back with
+`maxd`/`badpx` reason. **GPU by default when correct (oracle-equivalent)**;
+mismatch/unproven ⇒ exact CPU fallback. `--cpu-only`/`SH2_FB_CPU_ONLY=1`/
+`SH2_FB_GPU=0` force the exact CPU path (byte/behavior-identical).
+
+**Gate (frame 1, deterministic `MIMECROFT_KEYS`, `--first-frame`, relinked
+`mimecroft-fb-play`, embedded SPIR-V + graphics veto):**
+- **Default (GPU attempted + compare-proof, oracle-equivalent):** 320×240 md5
+  `965f7b3dad4cfd516ff637c8943681bc` == `f1-320x240.ppm`; 800×600 md5
+  `9e247bc7f5fe65f8be1e09aef420bb41` == `f1-800x600.ppm` (byte-identical to CPU
+  oracle; no fallback reason). Exercises real textures (incl. crack slot 9
+  loaded) + HUD/overlay CPU-composite path.
+- **`SH2_FB_CPU_ONLY=1` / `--cpu-only`:** 320×240 and 800×600 byte-identical to
+  the CPU oracles (`965f7b3d...`, `9e247bc7...`). **Byte/behavior-identical.**
+- `play.sh --no-build [--view 800x600]` runs `mimecroft-fb-play` (forwards
+  `--cpu-only`/`--view`/`FB0_GEOM`); frame-1 gate above is oracle-equivalent
+  (byte-identical here) at 800×600 and 320×240.
+
+**Acceptance lifted (evidence-based, refuse > guess):** blocks dispatch accepted
+only when proven oracle-equivalent by the per-frame tolerance-aware compare (or
+explicit oracle-verified accept). Overlay/flash/HUD handled by CPU-composite with
+parity (proven). Atlas slot==layer crack 9 + camera/flags plumbed; graphics
+capability veto; deterministic embedded SPIR-V.
+
+**Fixtures / coverage (honest):** frame 1 covers base textured scene + HUD path
+at 320×240 & 800×600 (PASS, byte-identical). **Still needing deterministic
+scripted fixtures/hooks for full GPU parity evidence** (README): `CRT_ON`/
+`CORRUPT_ON` toggled via game/menu state (no env hook in runtime/script),
+transient flash (muzzle lifetime), crack *damage* state (crack texture slot 9 is
+loaded/proven-mapped; damage-state coverage unverified). These remain
+unverified until fixture hooks/captures exist; verdict refuses/compare-proves
+per frame (fail-closed) rather than guessing. Lavapipe capability veto applies.
