@@ -2,7 +2,9 @@
 
 **To:** the string-accumulator / C-backend owner
 **From:** the transform-proof lane (Isabelle adjudication of MIMEcroft's passes)
-**Status:** fix written and tested on `12b304ddf`; needs re-landing on main
+**Status:** LANDED on main (2026-11-09) — replayed 3-way onto the tree and
+extended to `Try` `excepts`/`else_body`/`finally_body` and `Select` clause
+bodies; 11 module tests green, failing-first re-verified
 
 ## What was wrong
 
@@ -55,3 +57,20 @@ uncommitted code.
 
 **Requested action:** apply the walk hunks to the current tree, keep the 5
 new tests, and re-run `cargo test --lib transforms::string_accumulator`.
+
+## Re-landed (2026-11-09)
+
+Applied to the current tree. `self_append_vars` had already been widened
+here, so `git apply --3way` conflicted on that hunk only. The tree had also
+grown two carriers the patch left body-only — `Try { excepts, else_body,
+finally_body }` and `Select { clauses }` — so both are now walked, including
+each `excepts[i].match_expr` and each clause's `ch`/`value`.
+
+* `cargo test --lib transforms::string_accumulator` — 11 passed (the 6
+  pre-existing tests plus the 5 from this offer).
+* Failing-first, re-measured on a snapshot: reverting
+  `IrExpr::Arith(a) => arith_read_walk(a, var, found),` to
+  `IrExpr::Arith(_) => {}` gives 9 passed, 2 failed —
+  `an_arith_read_of_the_accumulator_refuses_the_verdict` and
+  `refuses_mid_loop_read` — with `the_same_loop_without_the_arith_read_
+  still_fires` green.

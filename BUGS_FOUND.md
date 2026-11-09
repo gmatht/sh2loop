@@ -11,58 +11,7 @@ breakage. This file is only about defects in the product.
 
 ## Confirmed product bugs (open)
 
-### 11. `string_accumulator`: `expr_read_walk`/`read_walk` miss `Arith` (and other) reads
-**Found by:** Tier-1 adjudication of the 11 parked transforms (2026-10-29) —
-in-process probe via `ast_to_ir_raw` + direct transform call, no new
-Isabelle session (deprioritized with measurements; the load-bearing
-claims here are Tier-3).
-**Defect:** the verdict's read-side walkers end in `_ => {}` catch-alls
-with no `IrExpr::Arith` arm (`ArithAst::Var` reads invisible), and
-`read_walk` has no `Redirect`/`Block`/`Pipeline`/`DeclareArray`/
-`Function`/etc. arms. Witness (live, measured):
-`tsv=""; i=0; while [ $i -lt 3 ]; do tsv="$tsv$x"; n=$(( tsv + 0 ));
-i=$(( i + 1 )); done; echo "$tsv"` still yields
-`Accumulator { var: "tsv", … }` from both `acc_vars_tree` and the cached
-`accumulators()` verdict; the D-control (same program minus the arith
-read) also fires, so the arith read is proven invisible to the walk.
-**Contained today (why not fixed here, transform owner's call):**
-(a) the js/estree `lower()` never runs end-to-end on the shell-source
-CLI path — the CLI renders estree from target-unset cached A1 via
-`shell_to_shir`, and `ingress_normalize` never calls
-`string_accumulator::lower` (measured: ESTREE DIFF on the D-control via
-the direct render path only; the arith witness shows none, and on
-`bash-o4/MIMEcroft_fb.sh` `--target estree` is byte-identical with the
-pass on and off, 0 `__acc_` marks);
-(b) for the witness, the C consumer refuses via independent gates
-(`escape_classes` Store/Local + 10 further vetoes; `SH2_DBG_ACC`
-measured 0 tracked).
-**Reach is larger than the corpus count suggests** (measured 2026-10-30):
-the C consumer does NOT use the top-level `accumulators()` verdict — it
-calls `acc_vars_tree` on `prog.stmts` and every `sub.body`
-(`c_backend.rs:9837`), a *tree* walk, and on `MIMEcroft_fb.sh` that
-tracks four accumulators (`tup_bp`, `tup_gp`, `blk_p`, `tup_rp`, 15
-`_alen_` mirror sites), zero of which the top-level verdict reports. So
-the walker this bug is in is on a live, non-corpus code path; corpus
-`examples/` impact is 1/563 (`tsv-string-accumulate-loop.sh`), whose
-body has no mid-loop exotic reads, and MIMEcroft escapes only because
-its four accumulators have no `$(( ))` self-read (`tup_n=$((tup_n+1))`
-is a different var; `lt_payload="$lt_payload …"` is refused by
-`self_append_vars`, not proved safe).
-**Fix — WRITTEN AND CHECKED, awaiting re-land.** Branch `pir-acc-walk`
-on `12b304ddf` (the analysis version the bug reproduces in; main's later
-work adds `acc_vars_tree`/`lower` on top and could not be replayed around
-because it is uncommitted): `arith_read_walk` + the missing `IrExpr` arms +
-a carrier-complete `read_walk` (no wildcard) + a recursive
-`self_append_vars` that treats `continue` as a non-write surface. 11 module
-tests green; failing-first verified by restoring
-`IrExpr::Arith(_) => {}` (`an_arith_read_of_the_accumulator_refuses_the_
-verdict` red, the no-arith control green). The offer, with the re-land
-recipe, is filed at
-`core-requests/done/string-accumulator-walk-20261030-120000.md`.
-**Proof:** `proofs/StringAccumulator` (18 lemmas, checked) — the walk, the
-pre-fix twin, and `the_fix_is_load_bearing`; the manifest's own claim
-(`proof/Claim.thy`) re-checks the core of it from source and is gate-green
-in `harness/transform-proofs.sh` (7 checked-and-built).
+_None open._
 
 ## Confirmed product bugs (fixed)
 
@@ -141,6 +90,64 @@ of the hoisted var diverges on a 0-trip loop.
 hoist, or restrict to do-while/known-live shapes). The model covers
 exactly the sound fragment (n >= 1, every production firing runs
 many trips); `pin_zero_trip_diverges` is the failing-first shape.
+
+### 11. `string_accumulator`: `expr_read_walk`/`read_walk` miss `Arith` (and other) reads
+**Found by:** Tier-1 adjudication of the 11 parked transforms (2026-10-29) —
+in-process probe via `ast_to_ir_raw` + direct transform call, no new
+Isabelle session (deprioritized with measurements; the load-bearing
+claims here are Tier-3).
+**Defect:** the verdict's read-side walkers end in `_ => {}` catch-alls
+with no `IrExpr::Arith` arm (`ArithAst::Var` reads invisible), and
+`read_walk` has no `Redirect`/`Block`/`Pipeline`/`DeclareArray`/
+`Function`/etc. arms. Witness (live, measured):
+`tsv=""; i=0; while [ $i -lt 3 ]; do tsv="$tsv$x"; n=$(( tsv + 0 ));
+i=$(( i + 1 )); done; echo "$tsv"` still yields
+`Accumulator { var: "tsv", … }` from both `acc_vars_tree` and the cached
+`accumulators()` verdict; the D-control (same program minus the arith
+read) also fires, so the arith read is proven invisible to the walk.
+**Contained at the time (why the fix waited for the transform owner):**
+(a) the js/estree `lower()` never runs end-to-end on the shell-source
+CLI path — the CLI renders estree from target-unset cached A1 via
+`shell_to_shir`, and `ingress_normalize` never calls
+`string_accumulator::lower` (measured: ESTREE DIFF on the D-control via
+the direct render path only; the arith witness shows none, and on
+`bash-o4/MIMEcroft_fb.sh` `--target estree` is byte-identical with the
+pass on and off, 0 `__acc_` marks);
+(b) for the witness, the C consumer refuses via independent gates
+(`escape_classes` Store/Local + 10 further vetoes; `SH2_DBG_ACC`
+measured 0 tracked).
+**Reach is larger than the corpus count suggests** (measured 2026-10-30):
+the C consumer does NOT use the top-level `accumulators()` verdict — it
+calls `acc_vars_tree` on `prog.stmts` and every `sub.body`
+(`c_backend.rs:9837`), a *tree* walk, and on `MIMEcroft_fb.sh` that
+tracks four accumulators (`tup_bp`, `tup_gp`, `blk_p`, `tup_rp`, 15
+`_alen_` mirror sites), zero of which the top-level verdict reports. So
+the walker this bug is in is on a live, non-corpus code path; corpus
+`examples/` impact is 1/563 (`tsv-string-accumulate-loop.sh`), whose
+body has no mid-loop exotic reads, and MIMEcroft escapes only because
+its four accumulators have no `$(( ))` self-read (`tup_n=$((tup_n+1))`
+is a different var; `lt_payload="$lt_payload …"` is refused by
+`self_append_vars`, not proved safe).
+**Fix — LANDED on main (2026-11-09).** Re-landed by hand from branch `pir-acc-walk`
+on `12b304ddf` (the analysis version the bug reproduces in; main's later
+work adds `acc_vars_tree`/`lower` on top and could not be replayed around
+because it is uncommitted): `arith_read_walk` + the missing `IrExpr` arms +
+a carrier-complete `read_walk` (no wildcard) + a recursive
+`self_append_vars` that treats `continue` as a non-write surface. 11 module
+tests green on the re-landed tree; failing-first re-verified by restoring
+`IrExpr::Arith(_) => {}` (`an_arith_read_of_the_accumulator_refuses_the_
+verdict` and
+`refuses_mid_loop_read` red (9 passed, 2 failed) while the no-arith
+control stays green). The offer, with the re-land
+recipe, is filed at
+`core-requests/done/string-accumulator-walk-20261030-120000.md`.
+**Extended on re-land:** the tree had grown carriers the patch left open, so
+`read_walk` also walks `Try`'s `excepts`/`else_body`/`finally_body` (each
+`match_expr` included) and every `Select` clause's `ch`/`value`/`body`.
+**Proof:** `proofs/StringAccumulator` (18 lemmas, checked) — the walk, the
+pre-fix twin, and `the_fix_is_load_bearing`; the manifest's own claim
+(`proof/Claim.thy`) re-checks the core of it from source and is gate-green
+in `harness/transform-proofs.sh` (7 checked-and-built).
 
 ### 11a. `direct_calls`: the header's "refuse on redefinition" rule is absent (and the C renderer cannot emit redefinitions at all)
 **Found by:** modelling `direct_calls` in Verus (`direct_calls.rs`, 19
