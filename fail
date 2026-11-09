@@ -353,11 +353,17 @@ my $work_dir = tempdir("failtest-XXXXXXXX", CLEANUP => 1, DIR => "/tmp");
 # (END blocks in this file: WorkerPool::release() above, the binary pin just
 # after the build, and this one.)
 END {
-    if (defined $main::work_dir && -d $main::work_dir) {
+    # `$main::work_dir` was NEVER ASSIGNED: this block has been dead code since
+    # it was written (nothing sets the package variable), so the deferred reap
+    # never ran and a straggler's tree stayed behind. Use the lexical the gate
+    # actually created — and only in the process that created it: cells are
+    # forked and a child's exit() runs END blocks, so an unguarded reap here
+    # would delete the shared tree (and every other child's result file).
+    if (defined $work_dir && $$ == $main_pid && -d $work_dir) {
         for my $try (1 .. 3) {
-            last unless -d $main::work_dir;
+            last unless -d $work_dir;
             sleep 1;
-            remove_tree($main::work_dir, { safe => 0, error => \my $ignore });
+            remove_tree($work_dir, { safe => 0, error => \my $ignore });
         }
     }
 }
