@@ -611,7 +611,13 @@ always carries the NUL at `b[23]`); `size_itoa_exact` (result is
 zero arm); `max_digits_64` (the shared width fact, proved once).
 
 **Isabelle half (`proofs/ArithIdentity/ArithDec.thy`, §5 of the
-arithmetic denotation, green under `quick_and_dirty = false`).** The bytes
+arithmetic denotation, green under `quick_and_dirty = false`).** Until
+2026-11-09 this sentence rested on a file nothing built: `ArithDec.thy` was
+untracked and in no `ROOT`, so the gate never reached it. It now rides in the
+`ArithIdentity` session's `theories` list (after `ArithWidth`, which it
+imports) and checks in 31 s as part of that session — `ArithIdentity` 4.6 s,
+`ArithWidth` 2.2 s, `ArithDec` 31.2 s, all under `quick_and_dirty = false`,
+and `harness/transform-proofs.sh` rebuilds them every run. The bytes
 those helpers promise are proved against the shIR denotation, not against
 a model of C: `parse_dec_bytes` (the fold reader inverts `dec_bytes`),
 `parse_render_id` (`parse (render v) = v` — the round trip `ll2s_exact`

@@ -7341,3 +7341,21 @@ each one settled it, and the split is not what the skip implied:
 **Verus gate after this: 125 passed, 0 failed, 0 skipped, 3 retired records,
 exit 0** — every entry the gate names now either runs or is an explicitly
 retired record. Still unpushed.
+
+**Isabelle: two orphan theory layers now build, the third is not a proof yet
+(2026-11-09).** `proofs/ArithIdentity/ArithWidth.thy` and `ArithDec.thy` were
+untracked and referenced by no `ROOT`, while `C_UB_PROOF.md` §14b cited
+`ArithDec` as the mechanization of the C renderers' hand-rolled itoas — the
+Isabelle twin of the 38 uncommitted Verus models. Isabelle refuses two sessions
+sharing one directory ("Duplicate use of directory"), so both ride in the
+`ArithIdentity` session's `theories` list, in dependency order: 4.6 s / 2.2 s /
+31.2 s, the session green under `quick_and_dirty = false`, and now rebuilt by
+`harness/transform-proofs.sh` on every run.
+
+`proofs/Maskable/Maskable.thy` (1163 lines, mirroring
+`src/shir_passes/maskable.rs` over `BigIntRange`) was the third orphan and
+**does not build**: `by` fails at line 251, `show` at 621 ("Unbound schematic
+variable: ?case"), `by` at 800 on a `<= a` goal. Declaring its session would
+have turned the gate red for everyone, so it stays unregistered; the attempt
+and the three failures are recorded in `proofs/ROOT`, and the file remains
+untracked WIP.
