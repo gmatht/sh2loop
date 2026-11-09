@@ -1,0 +1,192 @@
+#!/usr/bin/env bash
+# rust-dogfood.sh — the dogfooding scoreboard for the rust-frontend.
+#
+# The rust-frontend's stated v0.2 goal is to lower ALL of sh2perl's own Rust
+# source (`sh2perl/src/**/*.rs`, FRONTEND.md "the src/ coverage push"). This
+# script is the reproducible measurement of that goal: how many of the
+# transpiler's OWN source files the transpiler can lower to A1 shIR with no
+# refusal, plus a histogram of the FIRST blocker per refused file.
+#
+# Why a first-blocker histogram: each file stops at its first refusal, so a
+# per-file histogram is a frontier, not a census. A blocker that appears 7
+# times may unblock 0 files (they all hit a second blocker). The `--census`
+# mode runs the syn tally over the whole tree for the true idiom weights.
+#
+# Reproducibility: the source tree is read from a SNAPSHOT taken once per run
+# (the live sh2perl/src is rewritten by fleet workers concurrently, and a
+# mid-run edit makes the score jump). The snapshot is content-addressed by a
+# tarball hash so the recorded score names the exact bytes it measured.
+#
+# Usage:
+#   harness/rust-dogfood.sh                 # score + first-blocker histogram
+#   harness/rust-dogfood.sh --quiet         # score only (gate form)
+#   harness/rust-dogfood.sh --json          # machine-readable, for the gate
+#   harness/rust-dogfood.sh --list          # per-file PASS/REFUSE + blocker
+#
+# Exit: 0 normally; with --min N, non-zero if the pass count < N (regression
+# guard: the number may only go UP, and a red score is a real red).
+set -uo pipefail
+
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)
+# Piped/re-exec'd invocation (`bash -s < script`) leaves no usable $0 —
+# fall back to git so the script still finds the workspace it lives in.
+if [ ! -d "$ROOT/sh2perl/src" ]; then
+  ROOT=$(git -C "$(dirname "${BASH_SOURCE[0]:-$0}")" rev-parse --show-toplevel 2>/dev/null || true)
+fi
+SRCDIR=${SRCDIR:-$ROOT/sh2perl/src}
+# Prefer the RELEASE frontend when it is built. The walker pays for the
+# file's whole MODULE CLOSURE (it follows `mod` declarations), so its own
+# code-generation quality dominates per-file cost: measured under the
+# fleet's usual loadavg ~13, transforms/text_ops.rs 2.4 s release vs
+# 15.7 s debug, parser/mod.rs 17.5 s vs 34.2 s. The debug build is why a
+# TMO=600 sweep still reported 48 TIMEOUTs on this corpus — not the size
+# of the blocker classes. FE=<path> still overrides both.
+FE=${FE:-$ROOT/sh2perl/frontends/rust-frontend/target/release/rust-frontend}
+[ -x "$FE" ] || FE=$ROOT/sh2perl/frontends/rust-frontend/target/debug/rust-frontend
+TMO=${TMO:-120}
+MODE=full
+MIN=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --quiet) MODE=quiet; shift;;
+    --json) MODE=json; shift;;
+    --list) MODE=list; shift;;
+    --min) MIN=$2; shift 2;;
+    --min=*) MIN=${1#--min=}; shift;;
+    *) echo "rust-dogfood: unknown arg $1" >&2; exit 2;;
+  esac
+done
+
+[ -x "$FE" ] || {
+  echo "rust-dogfood: no rust-frontend at $FE" >&2
+  echo "  build it: (cd sh2perl/frontends/rust-frontend && cargo build --offline [--release])" >&2
+  exit 2
+}
+
+# --- snapshot the source tree (content-addressed) -------------------------
+# The snapshot path is CONTENT-ADDRESSED: identical sources reuse the same
+# directory on the next run, so the frontend's mtime-keyed clean-lowering
+# cache keeps its keys (a fresh mktemp dir every run forced a cold
+# ~235-module subprocess check sweep per scoreboard run). The copy still
+# happens FIRST — hashing live bytes and then copying could pair one
+# revision's hash with another's bytes while fleet workers edit.
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/rust-dogfood.XXXXXX") || exit 1
+SNAP=$WORK
+trap 'rm -rf "$WORK"' EXIT
+mkdir -p "$WORK/src"
+# copy the tree without mutating the measured bytes
+( cd "$SRCDIR" && tar cf - . ) 2>/dev/null | ( cd "$WORK/src" && tar xf - ) || {
+  echo "rust-dogfood: cannot snapshot $SRCDIR" >&2; exit 2; }
+SRC_HASH=$( cd "$WORK/src" && find . -name '*.rs' -print0 \
+              | sort -z | xargs -0 cat | sha256sum | cut -c1-16 )
+SHARED="${TMPDIR:-/tmp}/rust-dogfood-cache/$SRC_HASH"
+if [ -d "$SHARED/src" ]; then
+  rm -rf "$WORK/src"            # identical content already cached
+  SNAP=$SHARED
+else
+  mkdir -p "${SHARED%/*}"
+  if mv "$WORK" "$SHARED" 2>/dev/null; then
+    SNAP=$SHARED                 # trap's rm -rf $WORK is now a no-op
+  else
+    SNAP=$WORK                   # lost a promote race: fall back private
+  fi
+fi
+# bound the cache (one dir per source revision, /tmp is not swept for
+# this pattern) — keep 2 days of revisions.
+find "${TMPDIR:-/tmp}/rust-dogfood-cache" -mindepth 1 -maxdepth 1 -mtime +2 -exec rm -rf {} + 2>/dev/null || true
+
+mapfile -t FILES < <( cd "$SNAP/src" && find . -name '*.rs' | sort )
+total=${#FILES[@]}
+[ "$total" -gt 0 ] || { echo "rust-dogfood: no .rs files under $SRCDIR" >&2; exit 2; }
+
+# --- run the frontend over every file -------------------------------------
+# PARALLEL: every file's verdict needs its own full crate link sweep
+# (~20-90 s; per-module clean-checks are content-cached, the entry sweep
+# is not), so a serial loop projected to ~7 h at 235 files. Each
+# subshell writes rc+stderr to its own result file; the aggregation loop
+# below replays them IN ORDER, so verdicts, histogram and list stay
+# byte-identical to the serial run. PAR defaults to 8 (box measured
+# healthy: io PSI ~0, 31 G free — the cost is CPU, not I/O).
+PAR=${PAR:-8}
+RES=$(mktemp -d "${TMPDIR:-/tmp}/rust-dogfood-res.XXXXXX") || exit 1
+trap 'rm -rf "$WORK" "$RES"' EXIT
+i=0
+for rel in "${FILES[@]}"; do
+  i=$((i+1))
+  (
+    err=$(timeout "$TMO" "$FE" --shir "$SNAP/src/$rel" --raw 2>&1 >/dev/null)
+    rc=$?
+    printf '%s\n%s\n' "$rc" "$err" > "$RES/$i"
+    # streaming progress (stderr): real-time per-file verdict
+    printf '[%d/%d] %s rc=%s\n' "$i" "$total" "${rel#./}" "$rc" >&2
+  ) &
+  while [ "$(jobs -rp | wc -l)" -ge "$PAR" ]; do
+    wait -n 2>/dev/null || sleep 0.1
+  done
+done
+wait
+
+pass=0; refuse=0; crash=0
+declare -A HIST=()
+LIST=()
+i=0
+for rel in "${FILES[@]}"; do
+  i=$((i+1))
+  rc=$(head -n1 "$RES/$i")
+  err=$(tail -n +2 "$RES/$i")
+  if [ $rc -eq 0 ]; then
+    pass=$((pass+1))
+    LIST+=("PASS	${rel#./}	")
+    continue
+  fi
+  if [ $rc -eq 124 ]; then
+    crash=$((crash+1))
+    key="TIMEOUT (>${TMO}s)"
+  else
+    refuse=$((refuse+1))
+    # first blocker: the LAST "unsupported Rust:" line is the site that
+    # actually stopped emission; normalize the backticked detail so the
+    # histogram groups by CLASS.
+    key=$(printf '%s\n' "$err" \
+          | grep -o 'unsupported Rust: .*' | head -1 \
+          | sed 's/ (line [0-9]*)$//; s/ (line [0-9]*//; s/`[^`]*`/`X`/g')
+    [ -n "$key" ] || key="(no diagnostic — build/crash)"
+  fi
+  HIST["$key"]=$(( ${HIST["$key"]:-0} + 1 ))
+  LIST+=("REFUSE	${rel#./}	$key")
+done
+
+pct=$(awk -v p="$pass" -v t="$total" 'BEGIN{printf "%.1f", (t?100*p/t:0)}')
+
+case "$MODE" in
+  json)
+    printf '{"total":%d,"pass":%d,"refuse":%d,"crash":%d,"pct":"%s","src_hash":"%s"}\n' \
+      "$total" "$pass" "$refuse" "$crash" "$pct" "$SRC_HASH"
+    ;;
+  list)
+    printf '%s\n' "${LIST[@]}"
+    ;;
+  quiet)
+    printf 'dogfood %d/%d (%s%%) src=%s\n' "$pass" "$total" "$pct" "$SRC_HASH"
+    ;;
+  full)
+    echo "rust-frontend dogfooding scoreboard"
+    echo "  source:      $SRCDIR"
+    echo "  src hash:    $SRC_HASH  ($total .rs files)"
+    echo "  LOWERED:     $pass / $total  ($pct%)"
+    echo "  refused:     $refuse"
+    [ "$crash" -gt 0 ] && echo "  TIMEOUT:     $crash"
+    echo
+    echo "  first-blocker histogram (each file stops at its FIRST refusal):"
+    for k in "${!HIST[@]}"; do printf '%d\t%s\n' "${HIST[$k]}" "$k"; done \
+      | sort -rn | awk -F'\t' '{printf "  %3d  %s\n", $1, $2}'
+    echo
+    echo "  (the census over the WHOLE tree, not just first-blockers:"
+    echo "   cd sh2perl/frontends/rust-frontend && ./target/debug/census $SRCDIR/*.rs)"
+    ;;
+esac
+
+if [ "$pass" -lt "$MIN" ]; then
+  echo "rust-dogfood: REGRESSION — lowered $pass < required $MIN" >&2
+  exit 1
+fi

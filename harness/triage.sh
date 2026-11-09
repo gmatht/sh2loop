@@ -43,11 +43,34 @@ mkdir -p "$TRIAGE"
 
 CLI="$ROOT/otranspilerl/target/debug/otranspilerl-cli"      # shared core (the estree reference)
 RUNNER="$ROOT/harness/estree-runner.mjs"
+# The C renderer's external-command path emits `#include <uu_run.h>` and
+# calls sh2_uu_run/sh2_uu_capture — runtime/uu_run.c + libcoreutils_ffi.so.
+# A cell compiled WITHOUT that runtime fails to COMPILE and returns EMPTY
+# stdout, which the classifier reads as "estree matches native; c differs"
+# and files as a phantom FAIL-BACKEND/per-backend core-request (bat
+# t45_fileflags / t36_redirect_var, posix t32_redirect, 2026-08-17). The C
+# corpus gate (harness/c_gate_main.sh) has always linked it; triage did not.
+# Probe at startup; add the flags only when the runtime is present, and only
+# for a rendered program that actually includes the header (below).
+C_UU_SRC="$ROOT/sh2perl/runtime/uu_run.c"
+C_UU_LIBDIR="$ROOT/sh2perl/runtime/lib"
+C_UU_SO="$C_UU_LIBDIR/libcoreutils_ffi.so"
+C_UU_EXTRA=""
+if [ -f "$C_UU_SRC" ] && [ -f "$C_UU_SO" ]; then
+  C_UU_EXTRA="$C_UU_SRC $C_UU_SO -lpthread -Wl,-rpath,$C_UU_LIBDIR -I$ROOT/sh2perl/runtime -I$C_UU_LIBDIR"
+fi
 NOW() { date +%s; }
 NOWI() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 # ── the fleet tables ────────────────────────────────────────────
 # frontend: corpus-dir|ext|emit-bin|native-runner("" = none)
+#
+# go-sh parses GO SOURCE (the v2 subset from the 2026-08-06 rewrite), not
+# shell. It advertised a mixed "sh,go" corpus left over from the pysh-port
+# scaffold; those four .sh fixtures were not Go and always refused, so every
+# sweep recorded FAIL-FRONTEND-EMIT and the cycle diff escalated a phantom
+# --pi-fix-frontend go-sh session, one backend per cycle (2026-10-23 05:22
+# zig, 05:38 rust). The fixtures are gone; the corpus is Go only.
 FRONTENDS="
 c-sh-go|testdata|c|./c-sh-go|compile:cc
 cpp-sh-go|testdata_cpp|cc|./cpp-sh-go|compile:g++
@@ -57,7 +80,7 @@ perl-sh-go|testdata|pl|./perl-sh-go|run:perl
 posix-sh-go|testdata|sh|./posix-sh-go|run:bash
 zsh-sh-go|testdata|zsh|./zsh-sh-go|run:zsh
 fish-sh-go|testdata|fish|./fish-sh-go|run:fish
-go-sh|testdata|sh,go|./go-sh|go-wrap
+go-sh|testdata|go|./go-sh|go-wrap
 powershell-sh-go|testdata|ps1|./powershell-sh-go|run:pwsh
 rust-frontend|testdata|rs|./target/debug/rust-frontend|compile:rustc
 zig-sh-go|testdata|zig|./zig-sh-go|run:zig
@@ -316,8 +339,16 @@ backend_out() {  # backend run-field rendered-file [source-file] -> executed out
       # reaches the toolchain as link/compile flags — `-lgmp` for the C
       # backend's unconditional `#include <gmp.h>`. Unquoted on purpose so a
       # space-separated flag list splits into separate argv entries.
+      # C cells whose rendered program includes <uu_run.h> also need the
+      # uu-ffi runtime (C_UU_EXTRA): without it the compile fails and the
+      # cell's empty stdout reads as a phantom backend mismatch.
+      local uuflags=""
+      if [ "$cmd" = cc ] && [ -n "$C_UU_EXTRA" ] \
+         && command grep -q 'uu_run\.h' "$rendered" 2>/dev/null; then
+        uuflags="$C_UU_EXTRA"
+      fi
       ( cd "$tmp" && cp "$rendered" "main.${ext:-b}" \
-        && timeout 30 "$cmd" "main.${ext:-b}" -o main ${extra:+"$extra"} 2>/dev/null \
+        && timeout 30 "$cmd" "main.${ext:-b}" -o main ${extra:+"$extra"} $uuflags \
         && timeout 30 ./main ) < /dev/null 2>/dev/null || true
     fi
     rm -rf "$tmp"
@@ -410,12 +441,34 @@ classify_pair() {  # fe ex be a1-file native-out proxy-out [source-file]
 # ── the sweep: (frontend, example) OUTER — the row once, backends inner ──
 list_frontends() { echo "$FRONTENDS" | awk -F'|' '$1!="" {print $1}'; }
 list_backends() { echo "$BACKENDS" | awk -F'|' '$1!="" {print $1}'; }
+shir_skip() {  # fe -> basenames the frontend declares OUT of its A1-emit corpus
+  local mk; mk="$(fe_abs "$1" "")Makefile"
+  [ -f "$mk" ] || return 0
+  sed -n 's/^SHIR_SKIP[[:space:]]*:=[[:space:]]*//p' "$mk" | tail -1
+}
 list_examples() {
   local info; info=$(frontend_info "$1")
   IFS='|' read -r corpus ext bin native <<<"$info"
+  # A frontend's gate may also declare fixtures OUT of its A1-emit corpus
+  # (`SHIR_SKIP` in its Makefile — py-sh-go's py2cy-pipeline fixtures: the
+  # hand-rolled A1 parser cannot lower PEP 695/classes, and one A1 body
+  # cannot carry t102's per-value int/bigint/float dispatch). Those are
+  # refused BY DESIGN, the same class as a *_refuse/_gap pin below. The
+  # sweep only ever emitted a failing row for them, which the triage
+  # worker escalates as FAIL-FRONTEND-EMIT -- so a declared skip spawned
+  # a phantom --pi-fix-frontend session on EVERY sweep, one backend at a
+  # time (2026-10-23: t103_pep695.py re-escalated zig, then rust, then
+  # java, ~10 min apart, each one invoking the frontend fix agent for a
+  # gap the Makefile already documents). Read the declaration from the
+  # frontend itself: one source of truth, nothing hardcoded here.
+  local skip; skip=$(shir_skip "$1")
   local e; for e in ${ext//,/ }; do
     ls "$(fe_abs "$1" "$corpus")"/*."$e" 2>/dev/null
-  done | xargs -n1 basename | grep -vE '_refuse|_gap'
+  done | xargs -n1 basename | grep -vE '_refuse|_gap' \
+       | while IFS= read -r b; do
+           case " $skip " in *" $b "*) continue ;; esac
+           printf '%s\n' "$b"
+         done
   # *_refuse* / *_gap* files are REFUSAL PINS: the frontend must FAIL to
   # emit them (each frontend gate asserts exactly that — the cpp gate's
   # "refusals: *_refuse.cc must FAIL loudly"). Triage's cross-product
@@ -436,6 +489,71 @@ sweep() {
   done
   [ ${#fes[@]} -eq 0 ] && fes=($(list_frontends))
   [ ${#bes[@]} -eq 0 ] && bes=($(list_backends))
+
+  # DECLARED-OUT-OF-CORPUS fixtures (SHIR_SKIP) are not sweep inputs, and
+  # their historical rows are not verdicts. Dropping them from the sweep is
+  # NOT enough: the triage worker's change diff re-derives the NEWEST row
+  # per (frontend, backend, example) from this file and escalates it when
+  # baseline.tsv disagrees — and for a never-PASSing skip the baseline has
+  # no row at all, so each cycle escalated ONE more backend's phantom
+  # --pi-fix-frontend session (2026-10-23: t103_pep695.py fired zig, then
+  # rust, then java ~10 min apart, each killing and re-spawning the fix
+  # agent). Purge the refusal rows at the source, exactly like the
+  # stale-refusal self-heal in the row loop below. Only FAIL-FRONTEND-EMIT
+  # is removed: any other status for an out-of-corpus file is harmless
+  # history and is left alone.
+  local _pfe _psk _sk="$VTSV.skip.$$"
+  for _pfe in "${fes[@]}"; do
+    for _psk in $(shir_skip "$_pfe"); do
+      awk -F'\t' -v fe="$_pfe" -v ex="$_psk" \
+        '!($1==fe && $3==ex && $4=="FAIL-FRONTEND-EMIT")' "$VTSV" \
+        > "$_sk" 2>/dev/null && mv -f "$_sk" "$VTSV" \
+        || rm -f "$_sk"
+    done
+  done
+
+  # ABSENT-EXAMPLE SELF-HEAL (2026-10-23). A verdict row can outlive its
+  # example: corpus files get deleted or renamed, and a sweep that was
+  # ALREADY IN FLIGHT when they went away appends rows for them after any
+  # one-off cleanup. The triage worker's cycle diff re-derives the newest
+  # row per (frontend, backend, example) from this file regardless of the
+  # live corpus, so each such row re-escalates a phantom
+  # --pi-fix-frontend session — ONE BACKEND PER CYCLE. Measured after
+  # go-sh's four pysh-port .sh fixtures were deleted: 05:22 zig, 05:38
+  # rust, 06:10 java, each spawning a fix agent for a file that no longer
+  # exists. Such a row can never be superseded by a successful emit
+  # (there is nothing to emit), so it is not history worth keeping: drop
+  # the FAIL-FRONTEND-EMIT rows whose example is absent from every
+  # declared corpus dir, before the sweep's rows are appended and long
+  # before the diff reads them. Other statuses stay (harmless history,
+  # same rule as the SHIR_SKIP purge above).
+  local _gfe _gcorpus _gext _gbin _gnative _gdir _gb _gfound _ge _gex
+  local _gabs="$VTSV.absent.$$" _gchk="$VTSV.absent.chk.$$"
+  : > "$_gabs"
+  for _gfe in "${fes[@]}"; do
+    IFS='|' read -r _gcorpus _gext _gbin _gnative <<<"$(frontend_info "$_gfe")"
+    _gdir=$(fe_abs "$_gfe" "$_gcorpus")
+    awk -F'\t' -v fe="$_gfe" \
+      '$1==fe && $4=="FAIL-FRONTEND-EMIT" {print $3}' "$VTSV" 2>/dev/null \
+      | sort -u > "$_gchk"
+    while IFS= read -r _gex; do
+      [ -n "$_gex" ] || continue
+      _gb=$(basename "$_gex")
+      _gfound=0
+      for _ge in ${_gext//,/ }; do
+        if [ -e "$_gdir/$_gb" ]; then _gfound=1; break; fi
+      done
+      (( _gfound )) || printf '%s\t%s\n' "$_gfe" "$_gex" >> "$_gabs"
+    done < "$_gchk"
+  done
+  if [ -s "$_gabs" ]; then
+    echo "  purge: $(wc -l < "$_gabs") absent-example FAIL-FRONTEND-EMIT key(s) — no such corpus file:" >&2
+    sed 's/^/    /' "$_gabs" >&2
+    awk -F'\t' 'NR==FNR {bad[$1 FS $2]=1; next} !bad[$1 FS $3]' \
+      "$_gabs" "$VTSV" > "$_gabs.new" \
+      && mv -f "$_gabs.new" "$VTSV" || rm -f "$_gabs.new"
+  fi
+  rm -f "$_gabs" "$_gchk"
 
   local pairs=() fe ex be
   # the deterministic sweep
@@ -460,7 +578,17 @@ sweep() {
     if [ "$fe" != "$last_fe" ] || [ "$ex" != "$last_ex" ]; then
       last_fe="$fe"; last_ex="$ex"
       local fe_corpus; fe_corpus=$(frontend_info "$fe" | cut -d'|' -f1)
-      local example="$ROOT/sh2perl/frontends/$fe/$fe_corpus/$ex"
+      # fe_abs, NOT the naive frontends/$fe/<corpus>/ join: the sh2perl
+      # row's corpus field is an ABSOLUTE path ($ROOT/sh2perl/examples),
+      # so the join produced "$ROOT/sh2perl/frontends/sh2perl//mnt/.../
+      # examples/<ex>" — a path that cannot exist. Every sh2perl sweep
+      # cell then recorded the emit refusal as FAIL-FRONTEND-EMIT
+      # "frontend refused the example" (5040 rows) while the emit itself
+      # was fine (the correct absolute path emits rc=0), and the row's
+      # SKIP-ESTREE-REF rows came from the same bad $example. The
+      # single-pair path below already resolves via fe_abs; the sweep was
+      # the one caller that did not.
+      local example; example="$(fe_abs "$fe" "$fe_corpus")/$ex"
       a1f=$(mktemp -d "$TRIAGE/.row.XXXXXX")
       if emit_a1 "$fe" "$example" > "$a1f/a1.json" 2>/dev/null; then
         # STALE-REFUSAL SELF-HEAL (2026-08-14): a successful emit

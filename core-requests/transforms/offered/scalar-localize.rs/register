@@ -1,0 +1,11 @@
+### mod
+pub mod scalar_localize;
+### all
+        // NOT registered: `transforms::all()` hands a transform a statement
+        // LIST, so `prog.subs` is invisible and a name used by a function body
+        // would look one-scope and be marked local (t42 printed 0 where bash
+        // prints 1). The renderer calls `transform_program(&prog)` instead —
+        // the `process_subst::transform_program` precedent.
+        // ("scalar-localize", scalar_localize::transform),
+### reset_verdicts
+    scalar_localize::clear_verdicts();

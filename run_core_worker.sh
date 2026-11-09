@@ -101,8 +101,23 @@ a1_gate() {
 # marketplace channels (PLAN §11): transforms/offered .rs, contracts/*.json
 # specs, and bundles/ (a node + its transforms)
 pending_transforms() {
+  # TWO offer shapes, because two consumers had drifted (2026-10-30):
+  #   * a single `.rs` FILE — the shape core-requests/README.md specifies
+  #     for `offered/` ("a complete .rs module whose doc header carries the
+  #     §11.4 manifest");
+  #   * a `.rs/` DIRECTORY carrying `transform.rs` + `register` — the shape
+  #     `core-sweep.sh` stages bundles from, and the shape EVERY offer in
+  #     `offered/` actually has (affix-strip-fold, array-len-fold,
+  #     brace-fold, slice-identity, test-lowering, scalar-localize).
+  # The old loop kept only `-f`, so directory offers were invisible: the
+  # worker printed "iterating (0 offers, …)" while six sat in the dir, and
+  # none was ever gated.
   for d in "$REQS"/transforms/offered/*.rs; do
-    [ -f "$d" ] && echo "$d"
+    if [ -f "$d" ]; then
+      echo "$d"
+    elif [ -d "$d" ] && [ -f "$d/transform.rs" ]; then
+      echo "$d"
+    fi
   done 2>/dev/null | sort || true
 }
 
@@ -223,6 +238,41 @@ while true; do
       fi
       git -C "$SUB" apply "$bundle/contract.patch" >> "$LOG" 2>&1
     fi
+    # A single-FILE offer carries its source path, not a bundle dir: stage a
+    # temp dir with `transform.rs` + `register` so the integration below runs
+    # unchanged for both shapes. The register entries are derived from the
+    # module's own manifest (`//! name:` / `pub fn transform`) when it has no
+    # `register` file — an offer that does not parse is rejected loudly rather
+    # than staged half-registered.
+    if [ -f "$bundle" ]; then
+      stage=$(mktemp -d)
+      cp "$bundle" "$stage/transform.rs"
+      if [ -f "$bundle/register" ]; then
+        cp "$bundle/register" "$stage/register"
+      else
+        # three manifest spellings in the tree: `//! name: x`, `//! x — …`
+        # and a sibling `manifest`'s `name: x` — accept all, take the first
+        offname=$(sed -n 's|^//! name:[[:space:]]*\([a-z0-9_-]*\).*|\1|p;s|^//! \([a-z0-9_-]*\)[[:space:]]*[—-].*|\1|p' "$bundle" | head -1)
+        if [ -z "$offname" ] && [ -f "${bundle%.rs}/manifest" ]; then
+          offname=$(sed -n 's|^name:[[:space:]]*\([a-z0-9_-]*\)\([[:space:]].*\)\{0,1\}$|\1|p' "${bundle%.rs}/manifest" | head -1)
+        fi
+        offmod=$(printf '%s' "$offname" | tr '-' '_')
+        if [ -z "$offname" ]; then
+          echo "[$(date +%FT%T)] core: $name has no register file and no '//! name:' header — REJECT" >> "$LOG"
+          mv "$bundle" "$REQS/transforms/rejected/"
+          printf '%s core-worker: REJECTED %s (no manifest name)\n' "$(date +%FT%T)" "$name" >> "$REPORTS/core-worker.report"
+          rm -rf "$stage"
+          continue
+        fi
+        {
+          echo '### mod'
+          echo "pub mod $offmod;"
+          echo '### all'
+          echo "        (\"$offname\", $offmod::transform),"
+        } > "$stage/register"
+      fi
+      bundle="$stage"
+    fi
     # INTEGRATE the transform: copy transform.rs into the crate and apply
     # the registration lines (the bundle's `register` file carries the exact
     # `pub mod <name>;` + `("<name>-lift", <name>::transform)` entries) —
@@ -232,7 +282,13 @@ while true; do
       # the module name comes from the register file (`pub mod <name>;`) —
       # the bundle DIR may be hyphenated (builtin-lift) while the module is
       # underscored (builtin_lift); the file must match the module name
-      modname=$(sed -n 's/^pub mod \([a-z_0-9]*\);$/\1/p' "$bundle/register" | head -1)
+      # NOT anchored at `$`: a register file MAY carry a trailing comment
+      # (`pub mod affix_strip_fold; // OFFER ...` is exactly how the offer
+      # shipped), and the `;$/` anchor then matched NOTHING — modname was
+      # empty, the copy landed as `affix-strip-fold.rs` while the registered
+      # module was `affix_strip_fold`, and every gate died on E0583 'file
+      # not found for module'. Allow anything after the `;`.
+      modname=$(sed -n 's/^pub mod \([a-z_0-9]*\);.*$/\1/p' "$bundle/register" | head -1)
       cp "$bundle/transform.rs" "$SUB/src/transforms/${modname:-$(basename "$bundle")}.rs"
       if [ -f "$bundle/register" ]; then
         # the register file carries two sections inserted at their proper
@@ -240,39 +296,138 @@ while true; do
         # `pub mod` line; the all() entries go before the vec's closing `]`
         mods=$(sed -n '/^### mod$/,/^### all$/p' "$bundle/register" | grep -v '^###' || true)
         entries=$(sed -n '/^### all$/,$p' "$bundle/register" | grep -v '^###' || true)
+        # ...and the file is not pure key/value: an offer may document itself
+        # inline (`### all` may say "No mod-line change: ..." before the entry,
+        # and a bundle may add its own `### reset_verdicts` hook section).
+        # Every such line was inserted VERBATIM into transforms.rs, which is
+        # where 'no rules expected keyword `mod`' and the `'` in "pub mod'"
+        # came from. Keep only what is valid Rust in the target section.
+        mods=$(printf '%s\n' "$mods" | grep -E '^pub mod [a-z_0-9]+;' || true)
+        entries=$(printf '%s\n' "$entries" | grep -E '^\s*\(\"[a-z_0-9-]+\", [a-z_0-9]+::transform\),' || true)
+        # `### reset_verdicts` is the third section an analysis-only offer
+        # needs: it is deliberate NOT in all() (a statement-list caller cannot
+        # see program scope), so it instead ships the call that drops its cache
+        # after every all() pass. Accepted offers must stay reachable.
+        resets=$(sed -n '/^### reset_verdicts$/,$p' "$bundle/register" | grep -v '^###' | grep -E '^\s*[a-z_0-9]+::[a-z_0-9_]+\(\);' || true)
+        # IDEMPOTENT, and duplicate-aware (2026-10-30). Blindly inserting
+        # after the last `pub mod` / last `("...::transform),` is what killed
+        # five of six offers:
+        #   * E0583 — `pub mod <x>;` appended although the module was ALREADY
+        #     registered further down (the insert lands past every existing
+        #     line, so the duplicate is invisible to the eye and fatal to rustc);
+        #   * E0428 — the same double registration in the `all()` vec, e.g.
+        #     slice_identity/array_len_fold are already accepted on
+        #     backend/core, so re-offering them could never pass;
+        #   * re-staging a module whose .rs we just overwrote with an
+        #     identical copy.
+        # A module/entry already registered means this offer has landed
+        # before: do NOT insert a second copy. A `pub mod` line with a trailing
+        # comment (`pub mod x; // OFFER ...`) counts as registered too — the
+        # old `^pub mod ` test missed it.
         if [ -n "$mods" ]; then
           python3 - "$SUB/src/transforms.rs" "$mods" <<'PYEOF'
-import sys
+import re, sys
 path, mods = sys.argv[1], sys.argv[2]
-lines = open(path).read().split(chr(10))
+src = open(path).read()
+lines = src.split(chr(10))
+have = set(re.findall(r'^pub mod ([A-Za-z_0-9]+);', src, re.M))
 last = max(i for i, l in enumerate(lines) if l.startswith('pub mod '))
 for m in mods.strip().split(chr(10)):
+    if not m.strip():
+        continue
+    name = re.match(r'pub mod ([A-Za-z_0-9]+);', m.strip())
+    if name and name.group(1) in have:
+        sys.stderr.write('register: module %s already registered — not inserting a duplicate\n' % name.group(1))
+        continue
     lines.insert(last + 1, m)
     last += 1
 open(path, 'w').write(chr(10).join(lines))
 PYEOF
         fi
+        if [ -n "$resets" ]; then
+          # The hook lives at the TOP of apply(), before the all() loop that
+          # recomputes every verdict: an analysis-only transform's cache is
+          # repopulated by the pass that follows, so clearing it at entry keeps
+          # run N from observing run N-1 (the clear_verdicts contract).
+          python3 - "$SUB/src/transforms.rs" "$resets" <<'PYEOF'
+import sys
+path, resets = sys.argv[1], sys.argv[2]
+lines = open(path).read().split(chr(10))
+have = set(l.strip() for l in lines)
+anchor = next((i for i, l in enumerate(lines)
+               if l.strip() == 'let enabled = enabled_names();'), None)
+if anchor is None:
+    sys.stderr.write('register: no apply() anchor for reset_verdicts — hook NOT installed\n')
+else:
+    add = [r.strip() for r in resets.strip().split(chr(10)) if r.strip() and r.strip() not in have]
+    for k, r in enumerate(add):
+        lines.insert(anchor + k, '    ' + r)
+    sys.stderr.write('register: installed %d reset hook(s)\n' % len(add))
+open(path, 'w').write(chr(10).join(lines))
+PYEOF
+        fi
         if [ -n "$entries" ]; then
           python3 - "$SUB/src/transforms.rs" "$entries" <<'PYEOF'
-import sys
+import re, sys
 path, entries = sys.argv[1], sys.argv[2]
-lines = open(path).read().split(chr(10))
-idx = max(i for i, l in enumerate(lines) if '::transform),' in l)
-close = next(i for i in range(idx, len(lines)) if lines[i].strip() == ']')
+src = open(path).read()
+lines = src.split(chr(10))
+have = set(re.findall(r'\(\"([^\"]+)\",\s*([A-Za-z_0-9:]+)::transform\)', src))
 for e in entries.strip().split(chr(10)):
+    if not e.strip():
+        continue
+    m = re.match(r'\s*\(\"([^\"]+)\",\s*([A-Za-z_0-9:]+)::transform\)', e)
+    if m and (m.group(1), m.group(2)) in have:
+        sys.stderr.write('register: %s already registered — not inserting a duplicate\n' % m.group(1))
+        continue
+    idx = max(i for i, l in enumerate(lines) if '::transform),' in l)
+    close = next(i for i in range(idx, len(lines)) if lines[i].strip() == ']')
     lines.insert(close, e)
-    close += 1
 open(path, 'w').write(chr(10).join(lines))
 PYEOF
         fi
       fi
     fi
-    if ! "$ROOT/harness/build-lock.sh" --role core -- cargo test --lib \
-         --manifest-path "$SUB/Cargo.toml" >> "$LOG" 2>&1; then
-      echo "[$(date +%FT%T)] core: $name fails the lib tests — REJECT (worktree restored)" >> "$LOG"
+    # THE WORKTREE GETS ITS OWN TARGET DIR (2026-10-20): without
+    # --share-target, build-lock defaults CARGO_TARGET_DIR to the MAIN
+    # checkout's sh2perl/target, and debashl's build.rs emits glue scanned
+    # from the SOURCE TREE (pipeline_native capabilities, render_ext
+    # handlers) into shared fingerprint/out dirs — same package
+    # name+version, so the same unit hash. When main's src grows a handler
+    # the worktree lacks (gpu_op, capabilities/mktemp, sysinfo), the
+    # worktree build compiles MAIN's generated glue against the worktree's
+    # src and dies with E0433 ("could not find `gpu_op` in `handlers`") —
+    # the gate was RED for 12 hours off a target-dir collision, not a
+    # candidate. A worktree-local target is what every backend gate already
+    # does (--share-target "$g_wt/target").
+    # BASELINED, like the final gate below — NOT an exit-code test.
+    # `cargo test --lib` exits non-zero on this tree EVEN WHEN A CANDIDATE IS
+    # PERFECT: 19 lib tests are known-red at the anchor (c_backend/ir/estree).
+    # So the staging gate rejected every offer whose lib result was exactly
+    # "19 failed", i.e. every clean one, and called it "fails the lib tests".
+    # The honest test is the one the final gate already uses: a candidate must
+    # not ADD failures relative to KNOWN-GOOD. Capture the count.
+    lib_out=$("$ROOT/harness/build-lock.sh" --role core \
+         --share-target "$SUB/target" -- cargo test --lib \
+         --manifest-path "$SUB/Cargo.toml" 2>&1) || true
+    printf '%s\n' "$lib_out" >> "$LOG"
+    stage_fails=$(printf '%s\n' "$lib_out" \
+        | sed -n 's/^test result: .* \([0-9][0-9]*\) failed.*/\1/p' | tail -1)
+    stage_kg=""
+    [ -f "$KNOWN_GOOD_FILE" ] && stage_kg=$(sed -n 's/^lib_fails=//p' "$KNOWN_GOOD_FILE" | tail -1)
+    if [ -z "$stage_fails" ]; then
+      # no summary line: it did not compile, or the suite hung — never a pass
+      echo "[$(date +%FT%T)] core: $name produced NO lib-test summary (compile error or hang) — REJECT (worktree restored)" >> "$LOG"
       restore_known_good
       mv "$bundle" "$REQS/transforms/rejected/"
-      printf '%s core-worker: REJECTED %s (lib tests)\n' "$(date +%FT%T)" "$name" >> "$REPORTS/core-worker.report"
+      printf '%s core-worker: REJECTED %s (no lib-test summary: compile error or hang)\n' "$(date +%FT%T)" "$name" >> "$REPORTS/core-worker.report"
+      continue
+    fi
+    if [ -n "$stage_kg" ] && [ "$stage_fails" -gt "$stage_kg" ]; then
+      echo "[$(date +%FT%T)] core: $name adds lib failures ($stage_fails vs baseline $stage_kg) — REJECT (worktree restored)" >> "$LOG"
+      restore_known_good
+      mv "$bundle" "$REQS/transforms/rejected/"
+      printf '%s core-worker: REJECTED %s (lib %s failures vs baseline %s)\n' "$(date +%FT%T)" "$name" "$stage_fails" "$stage_kg" >> "$REPORTS/core-worker.report"
       continue
     fi
     # NOT accepted yet. The candidate is STAGED (registered + compiled +
@@ -292,6 +447,25 @@ PYEOF
   # BROKEN MEASUREMENT, not a violation count: with the old missing binary
   # every example emitted nothing and check_qx_shir printed one "invalid A1
   # JSON" FAIL line each, which `grep -c FAIL` turned into "555 violations".
+  # ── REBUILD the probe binary AFTER the candidate is in place ──────
+  # step 0's build runs BEFORE the fast-forward and the bundle staging
+  # above, so DEBASHC there always links the PRE-candidate worktree: a
+  # legitimate fix could never prove green. Observed 2026-10-25: main
+  # 864bfd3f5 carried the builtins.json namespace sync, the worktree ff'd
+  # onto it, but the probe still ran the stale pre-fix binary, read its 4
+  # exec-of-builtin survivors, and rolled the candidate back every
+  # iteration — an unbreakable deadlock. Rebuild here so the gate measures
+  # the exact code it is judging (core_verify caches, so this is cheap when
+  # nothing changed).
+  DEBASHC=$(core_binary || true)
+  if [ -z "$DEBASHC" ] || [ ! -x "$DEBASHC" ]; then
+    printf '%s core-worker: NO-COMPILER (candidate build failed after staging — no verdict this iteration)\n' \
+      "$(date +%FT%T)" >> "$REPORTS/core-worker.report"
+    echo "[$(date +%FT%T)] core: candidate build FAILED after staging — skipping gate" >> "$LOG"
+    sleep "$WATCH"
+    continue
+  fi
+
   read -r v probed failed < <(a1_gate)
   echo "[$(date +%FT%T)] core: A1-native invariant — $v violations, $probed probed, $failed probe-failures" >> "$LOG"
   printf '%s core-worker: A1 violations=%s probed=%s probe-failures=%s\n' \
@@ -306,6 +480,25 @@ PYEOF
   if [ -n "$main_dirty" ]; then
     echo "[$(date +%FT%T)] core: main checkout has uncommitted shared-core WIP (NOT touched — owned by its worker):" >> "$LOG"
     printf '%s\n' "$main_dirty" >> "$LOG"
+  fi
+
+  # ── 2c. REPORT-ONLY: is the shared checkout BUILDABLE? ──────────────
+  # (core-request core-20261004-001500, second ask.) Every backend worker
+  # probes the MAIN checkout, so a red main tree stalls the whole fleet
+  # (measured: 62 of 89 zsh polls failed the probe) while THIS worktree's
+  # gate stays green. Record the verdict in the report, so "gate GREEN"
+  # cannot be read as "every backend can gate".
+  main_build=ok
+  main_build_err=""
+  if ! main_build_err=$(timeout 900 cargo build --lib \
+        --manifest-path "$ROOT/sh2perl/Cargo.toml" 2>&1); then
+    main_build=FAILED
+  fi
+  printf '%s core-worker: main-checkout build=%s\n' \
+    "$(date +%FT%T)" "$main_build" >> "$REPORTS/core-worker.report"
+  if [ "$main_build" = FAILED ]; then
+    echo "[$(date +%FT%T)] core: main checkout does NOT build (every backend probe will fail):" >> "$LOG"
+    printf '%s\n' "$main_build_err" | tail -20 >> "$LOG"
   fi
 
   # ── 3. finalize: commit accepted core changes when green (in the WORKTREE) ──
@@ -396,7 +589,11 @@ PYEOF
   # A HANG is still distinct from red: libtest prints its `test result:` line
   # only when the suite finishes. No summary line => hung or crashed => a hard
   # failure, never a baseline to adopt.
-  lib_out=$("$ROOT/harness/build-lock.sh" --role core -- cargo test --lib \
+  # --share-target: worktree-local target dir (see the same note at the
+  # candidate-staging build — the shared-dir default cross-contaminates
+  # the worktree with main's build-script-generated glue).
+  lib_out=$("$ROOT/harness/build-lock.sh" --role core \
+      --share-target "$SUB/target" -- cargo test --lib \
       --manifest-path "$SUB/Cargo.toml" 2>&1) || true
   lib_fails=$(printf '%s\n' "$lib_out" \
       | sed -n 's/^test result: .* \([0-9][0-9]*\) failed.*/\1/p' | tail -1)
@@ -459,7 +656,10 @@ EOF
         "$(date +%FT%T)" "$(git -C "$SUB" rev-parse --short "$kg_commit")" "$estree_fails" "$lib_fails" >> "$REPORTS/core-worker.report"
     fi
     # Now, and only now, the staged offer is accepted.
-    if [ -n "${staged_offer:-}" ] && [ -f "${staged_offer:-}" ]; then
+    # `-e`, not `-f`: an offer may be a directory (`<name>.rs/transform.rs`),
+    # and the `-f` test silently withheld the ACCEPTED verdict from every
+    # directory-shaped offer.
+    if [ -n "${staged_offer:-}" ] && [ -e "${staged_offer:-}" ]; then
       mv "$staged_offer" "$REQS/transforms/done/"
       printf '%s core-worker: ACCEPTED %s (build + lib tests + invariants + estree corpus green)\n' \
         "$(date +%FT%T)" "$staged_name" >> "$REPORTS/core-worker.report"

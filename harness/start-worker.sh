@@ -55,6 +55,15 @@ fi
 # (`Environment=WORKER_ROTATE_WORKER=estree` etc.). The units are gone, so set
 # it here to the same values — otherwise the loop calls `pir` directly, which
 # ignores a stdin prompt and has no quota fallback (MODEL_ROTATION.md).
+# Rotation bypass (operator, 2026-10-10): WORKER_ROTATE_OFF=1 (sh2fleet.env)
+# drops rotating workers to the direct WORKER_CLI path — harness/ai_invoke.py
+# invokes cmd only and cannot run the operator-selected CLI. setup_backends.sh
+# honors the same flag for the backend workers.
+#
+# The export itself is gated INSIDE the setsid shell below, not here: this
+# script never sources sh2fleet.env (only the inner shell does, via
+# `set -a`), so testing the flag here would always read empty and the
+# rotating workers would silently stay rotating.
 case "$name" in
   estree)          ROTATE=estree ;;
   rust|c|fish|zsh) ROTATE="$name" ;;
@@ -64,7 +73,14 @@ esac
 setsid bash -c '
   cd '"$ROOT"'
   set -a; . '"$ENVF"'; set +a
-  '"${ROTATE:+export WORKER_ROTATE_WORKER=$ROTATE;}"'
+  # Gated here (not above): this inner shell is the first place sh2fleet.env
+  # — and therefore WORKER_ROTATE_OFF — is visible. (An empty `${ROTATE:+…}`
+  # expansion inside `then … fi` is a syntax error, so the value crosses as a
+  # plain variable and the test stays valid for every worker.)
+  _rotate='"$ROTATE"'
+  if [ -z "${WORKER_ROTATE_OFF:-}" ] && [ -n "$_rotate" ]; then
+    export WORKER_ROTATE_WORKER="$_rotate"
+  fi
   exec '"$ROOT"'/harness/supervise.sh \
     --name '"$name"' \
     --log '"$LOG"' \

@@ -94,3 +94,5 @@ Current GLSL emission (verbatim shape):
     out_buf[0] = g_r;
 
 After the pass, the estree/glsl renderers should never see `fx`/`fy` (folded into `frag_x`/`frag_y`), `hash` (folded into `corrupt`, then dead-store-dropped), or the branch-local `r = 255` const re-assignment where provably safe. The estree corpus analog: MIMEcroft's `x=$((a + b)); y=$((x * 2))` chains in the per-frame render loop.
+
+## OUTCOME: implemented: `shir_passes::optimize::{const_prop,dead_store_elim}` (plus the const-pool arith fold) run at every A1 ingress — shir.rs `shir_to_estree_json` (shir.rs:32762), wasi_api.rs:261/292 and otranspilerl/src/lib.rs. Verified on the request's shape: `fx=$((frag_x)); scan=$((fy % 6))` emits `scan = fy % 6` with the copy folded away; never-read vars drop entirely.

@@ -107,6 +107,91 @@ if [ -f "$ROOT/otranspilerl/src/wasi.rs" ]; then
   cp "$ROOT/otranspilerl/src/wasi.rs" "$CRATE/src/wasi.rs"
 fi
 
+# ── tolerate transforms the linked core has not adopted ───────────────
+# `src/lib.rs` is copied VERBATIM so the gate builds the workspace wrapper
+# against THIS worktree's debashl. But that file evolves with the main
+# checkout: a worker that adds a transform to `ingest` (the
+# `capture-node-fold` precedent) edits it too, while a backend worktree
+# receives shared-core changes only by MERGE (`setup_backends.sh --sync`),
+# not on demand. The verbatim copy then fails to resolve
+# `debashl::transforms::<name>` (E0433) and EVERY iteration is skipped as
+# "isolated core build FAILED" — for a reason that has nothing to do with the
+# core under test (observed 2026-10-22 from 10:05 on: eight consecutive skips
+# before this guard).
+#
+# `...::name::` is a NAMESPACE path (a module); `...::name(` is an fn, which
+# ships with the core either way, so only the namespace form is considered.
+# For each module the target core does not declare, comment out exactly those
+# statement lines — the gate then tests the core that EXISTS, skipping only a
+# normalisation it has itself not adopted. Every namespace reference is a
+# single-line statement ending in `;` (verified over the whole file), so a
+# whole-line comment cannot unbalance the syntax.
+drop_unadopted_transforms() {
+  _lib="$1"; _core="$2"
+  for _ns in transforms shir_passes; do
+    case "$_ns" in
+      transforms)  _decl="$_core/src/transforms.rs" ;;
+      shir_passes) _decl="$_core/src/shir_passes/mod.rs" ;;
+      *) continue ;;
+    esac
+    [ -f "$_decl" ] || continue
+    for _m in $(command grep -oE "debashl::${_ns}::[a-z_0-9]+::" "$_lib" 2>/dev/null \
+                | sed -E "s#debashl::${_ns}::([a-z_0-9]+)::#\\1#" | sort -u); do
+      if command grep -qE "^[[:space:]]*pub mod ${_m};" "$_decl"; then
+        continue
+      fi
+      sed -i -E "s#^([[:space:]]*)(.*debashl::${_ns}::${_m}::.*)\$#\\1// core-gate(unadopted ${_ns}::${_m}): \\2#" "$_lib"
+      echo "core_verify: linked core lacks ${_ns}::${_m} — commenting its ingest call(s) out of the gate copy" >&2
+    done
+  done
+
+  # ── tolerate TOP-LEVEL modules the linked core has not adopted ────────
+  # The wrapper's dispatch arm `debashl::<mod>::<fn>(…)` references a
+  # top-level backend module (fish_backend, zsh_backend, …). Those "copied
+  # from backends/<lang>" modules were added to sh2perl/src/lib.rs by the
+  # fleet, to the WORKSPACE wrapper's benefit — but the CORE worktree's
+  # debashl only grows them through the normal merge discipline, not on
+  # demand. When the wrapper gains an arm before the core has the module,
+  # every iteration fails E0433 and the gate skips as "isolated core build
+  # FAILED" for a reason unrelated to the core under test (observed
+  # 2026-10-22 from 12:15: fish_backend/zsh_backend, then every later
+  # iteration skipped).
+  #
+  # Detection: the WRAPPER's dispatch arms reference `debashl::<name>_backend::`
+  # (found in `$1`, the copied otranspilerl/src/lib.rs). A module is ADOPTED
+  # iff the core worktree's own lib declares `mod <name>_backend;` OR
+  # `src/<name>_backend.rs` exists under it (checked against `$2`, the CORE
+  # worktree). If NEITHER, the arm cannot resolve (E0433): comment it out.
+  # Filtering against the CORE worktree's decls (not the wrapper's) matters —
+  # sh2perl/src/lib.rs (the debashl namespace) already declares fish/zsh, so
+  # testing the wrong file would never flag them.
+  _lib="$1"; _core="$2"
+  for _m in $(command grep -oE 'debashl::([a-z_0-9]+_backend)::' "$_lib" 2>/dev/null \
+              | sed -E 's#debashl::([a-z_0-9]+_backend)::#\1#' | sort -u); do
+    # adopted? decl in core's own lib, or module file present in core src/
+    if command grep -qE "^[[:space:]]*(pub[[:space:]]+)?mod[[:space:]]+${_m};" "$_core/src/lib.rs" 2>/dev/null \
+       || [ -f "$_core/src/${_m}.rs" ]; then
+      continue
+    fi
+    # idempotent across a relaunch that re-copies lib.rs:
+    command grep -q "core-gate(unadopted module ${_m})" "$_lib" && continue
+    sed -i -E "s#^([[:space:]]*)(.*debashl::${_m}::.*)\$#\\1// core-gate(unadopted module ${_m}): \\2#" "$_lib"
+    echo "core_verify: linked core lacks module ${_m} — commenting its dispatch arm(s) out of the gate copy" >&2
+  done
+}
+drop_unadopted_transforms "$CRATE/src/lib.rs" "$CORE"
+
+# A DANGLING $TARGET symlink makes `mkdir -p` fail with "File exists"
+# (GNU mkdir cannot create the final component when it is a symlink whose
+# target is absent) — which is exactly how the Core worker skipped every
+# iteration from 2026-10-22 10:05 onward: the cargo scratch dir
+# /mnt/wsl/tmpbtrfs went away with a WSL restart, leaving .core-verify-target
+# pointing at nothing, and the plain mkdir error was reported as an
+# "isolated core build FAILED". Drop a dead link before creating the
+# directory so stale machine state can never block the gate again.
+if [ -L "$TARGET" ] && [ ! -e "$TARGET" ]; then
+  rm -f "$TARGET"
+fi
 mkdir -p "$TARGET"
 "$ROOT/harness/build-lock.sh" --role core --share-target "$TARGET" -- \
   cargo build --manifest-path "$CRATE/Cargo.toml" --bin otranspilerl-cli >>"$ROOT/loop-core-worker.log" 2>&1 || {

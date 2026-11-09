@@ -710,9 +710,20 @@ case "${1:-}" in
                   # phase's model, applies the Laguna daily-quota fallback, and
                   # records exact token usage. Other backends keep the direct
                   # WORKER_CLI path, so their behavior is unchanged.
-                  case "$rw_lang" in
-                    rust|c|fish|zsh) export WORKER_ROTATE_WORKER="$rw_lang" ;;
-                  esac
+                  #
+                  # Rotation bypass (operator, 2026-10-10): WORKER_ROTATE_OFF=1
+                  # drops this worker to the direct WORKER_CLI path.
+                  # harness/ai_invoke.py invokes cmd only, so a rotated worker
+                  # cannot run any other CLI; the bypass (honored here, in the
+                  # fix entry points, and in start-worker.sh) keeps every AI
+                  # fix on the operator-selected CLI + model.
+                  if [ -z "${WORKER_ROTATE_OFF:-}" ]; then
+                    case "$rw_lang" in
+                      rust|c|fish|zsh) export WORKER_ROTATE_WORKER="$rw_lang" ;;
+                    esac
+                  else
+                    export WORKER_ROTATE_WORKER=""
+                  fi
                   # Worker cgroup enrollment (harness/WorkerPool.pm): this
                   # backend worker's whole tree (builds, gates) runs inside
                   # sh2workers. Best-effort: unprivileged WSL → cooperative.
@@ -760,6 +771,16 @@ case "${1:-}" in
                   # does not spin.
                   rw_rt_budget="${SH2_RT_BUDGET:-2000}"
                   rw_rt_cooldown_s="${SH2_RT_REDUCE_COOLDOWN_S:-900}"
+                  # GENERATION MARKER (operator, 2026-10-10): verdict reads
+                  # below must only see THIS run's lines. The log is
+                  # append-only across supervisor restarts, so a bare
+                  # `tail -50` on a quiet log reads the PREVIOUS generation's
+                  # verdicts: a restarted worker saw a stale "core build
+                  # FAILED" and trapped without ever gating (measured on the
+                  # remote box, whose sparse log kept 8h-old failures in the
+                  # window). On huge local logs the window covers seconds and
+                  # the bug hides — same defect, masked by volume.
+                  rw_log_mark=$(wc -l < "$LOG" 2>/dev/null || echo 0)
                   while true; do
                     # WORK-STEALING: a leased slot is run by a desktop.
                     # HEARTBEAT + RECLAIM: a stale lease (the desktop
@@ -909,7 +930,12 @@ case "${1:-}" in
                         fi
                       fi
                     else
-                      if grep -q "core build FAILED" <(tail -50 "$LOG"); then
+                      # Only this generation's lines: see GENERATION MARKER
+                      # above (a quiet log keeps dead generations in a bare
+                      # tail window). If the log rotated under us the marker
+                      # overshoots and the tail is empty — correctly read as
+                      # "no failure yet", i.e. gate fresh.
+                      if tail -n +"$((rw_log_mark + 1))" "$LOG" 2>/dev/null | grep -q "core build FAILED"; then
                         # shared-CORE build break — the estree worker owns
                         # the core and edits it constantly. Never grind
                         # against a state that is mid-edit AND uncompilable
@@ -924,11 +950,42 @@ case "${1:-}" in
                         # cleanliness made the backend wait on a property it
                         # never used.
                         #
+                        # @generated FILES ARE NOT DIRT (operator, 2026-10-10).
+                        # build.rs rewrites handler mod.rs lists in readdir
+                        # order with no sort, so they churn on ANY directory
+                        # change (a new handler file, a fresh checkout on
+                        # another fs) with zero human intent behind them — and
+                        # the next build overwrites them anyway, so waiting on
+                        # them can never converge. Measured: this class of
+                        # dirt trapped every backend worker fleet-wide (plus
+                        # the remote go worker, whose tree nothing else had
+                        # touched). A NEW handler .rs still shows as ?? and
+                        # still trips the wait — that is the real signal. The
+                        # permanent cure (sorting generation in build.rs) is
+                        # filed as a core-request; this filter is the
+                        # unblocking that needs no core touch.
+                        _db_raw=$(git -C "$SUB" status --porcelain -- src/ Cargo.toml 2>/dev/null || true)
+                        _db_dirty=$(printf '%s\n' "$_db_raw" | while IFS= read -r _line; do
+                          [ -n "$_line" ] || continue
+                          # porcelain: 'XY PATH' / 'XY ORIG -> NEW' (rename)
+                          _p=${_line#?? }
+                          case "$_p" in *' -> '*) _p=${_p#* -> };; esac
+                          # untracked dir (trailing /): conservative, keep
+                          case "$_p" in */) printf '%s\n' "$_line"; continue;; esac
+                          _f="$SUB/$_p"
+                          if [ -f "$_f" ]; then
+                            case "$(head -1 "$_f" 2>/dev/null)" in
+                              '// @generated by build.rs'*) continue ;;
+                            esac
+                          fi
+                          printf '%s\n' "$_line"
+                        done) || true
+                        #
                         # The probe costs one build attempt, which is what the
                         # gate does anyway on wake. It goes through
                         # build-lock.sh so it queues like every other core
                         # build instead of racing the estree worker's.
-                        if [ -n "$(git -C "$SUB" status --porcelain -- src/ Cargo.toml 2>/dev/null)" ]; then
+                        if [ -n "$_db_dirty" ]; then
                           echo "[$(date +%FT%T)] $rw_lang: core mid-edit (estree-worker WIP) — waiting for a clean-or-building core (max ${CORE_DIRTY_WAIT_S}s)" >> "$LOG"
                           core_waited=0
                           while [ "$core_waited" -lt "$CORE_DIRTY_WAIT_S" ]; do
@@ -1011,12 +1068,26 @@ case "${1:-}" in
                       #
                       # Detection reads only the bytes this attempt added.
                       # --pi-fix-backend always exits 0, so log text is the
-                      # only available signal.
+                      # only available signal. The READ and the patterns both
+                      # live in harness/quota-trap-signal.sh, where they are
+                      # testable (harness/test_quota_trap_signal.sh).
+                      #
+                      # 2026-10-25 (go worker) — THE READ WAS BROKEN, not just
+                      # the pattern list. This used to be
+                      #   tail -c "+N" "$LOG" | grep -qE '<patterns>' && _quota_hit=1
+                      # under `set -euo pipefail`: `grep -q` exits at the first
+                      # match, `tail` dies on EPIPE with megabytes still to
+                      # write, and pipefail turned the pipeline into 141, so
+                      # the `&&` never ran. Measured 1 KB -> 0, 2 MB -> 141.
+                      # The go attempt's window was 3.6 MB and contained 11
+                      # quota matches; the check reported none, the counter
+                      # reached 3 and the worker trapped on a build break that
+                      # did not exist (core and worktree both built clean).
+                      # Small historical windows are why it ever fired before.
+                      # A detector that can only say "no" is worse than none.
                       _quota_hit=0
-                      if [ -r "$LOG" ]; then
-                        tail -c "+$((_pre_off + 1))" "$LOG" 2>/dev/null \
-                          | grep -qE 'HTTP 429|GoUsageLimitError|quota.?blocked|quota.?exhausted|rate.?limit exceeded' \
-                          && _quota_hit=1
+                      if "$ROOT/harness/quota-trap-signal.sh" "$LOG" "$_pre_off"; then
+                        _quota_hit=1
                       fi
                       if [ "$_quota_hit" = "1" ]; then
                         echo "[$(date +%FT%T)] $rw_lang: gate red but this attempt's AI calls were QUOTA/429-blocked (not a build failure) — NOT trapping; cooling down ${rw_quota_cooldown_s}s" >> "$LOG"
@@ -1064,9 +1135,14 @@ case "${1:-}" in
                   # Usage: setup_backends.sh --pi-fix-runtime <lang>
                   shift; fix_lang="$1"
                   fix_dir="$BT/$fix_lang"; fix_log="$WORKSPACE/loop-backend-$fix_lang.log"
-                  case "$fix_lang" in
-                    rust|c|fish|zsh) export WORKER_ROTATE_WORKER="$fix_lang" ;;
-                  esac
+                  # Rotation bypass (operator, 2026-10-10): see --run-backend-worker.
+                  if [ -z "${WORKER_ROTATE_OFF:-}" ]; then
+                    case "$fix_lang" in
+                      rust|c|fish|zsh) export WORKER_ROTATE_WORKER="$fix_lang" ;;
+                    esac
+                  else
+                    export WORKER_ROTATE_WORKER=""
+                  fi
                   # Re-read the metric AT PROMPT TIME so the number the model
                   # is told is the number that is true now.
                   rt_total=""; rt_files=""; rt_seam=""
@@ -1112,9 +1188,14 @@ case "${1:-}" in
                   # sh2-native backends; routing here sends the fix through
                   # harness/ai_invoke.py, which picks the phase's model, applies
                   # the Laguna daily-quota fallback, and records token usage.
-                  case "$fix_lang" in
-                    rust|c|fish|zsh) export WORKER_ROTATE_WORKER="$fix_lang" ;;
-                  esac
+                  # Rotation bypass (operator, 2026-10-10): see --run-backend-worker.
+                  if [ -z "${WORKER_ROTATE_OFF:-}" ]; then
+                    case "$fix_lang" in
+                      rust|c|fish|zsh) export WORKER_ROTATE_WORKER="$fix_lang" ;;
+                    esac
+                  else
+                    export WORKER_ROTATE_WORKER=""
+                  fi
                   # ── IDIOMATICITY: the REAL progress metric ──────────────
                   # The sentence below used to say "the stub/TODO count is
                   # the progress metric". That is a VACUOUS metric for this
@@ -1215,6 +1296,29 @@ case "${1:-}" in
                   # Usage: setup_backends.sh --pi-fix-frontend <name>
                   shift; fix_name="$1"
                   fix_dir="$FT/$fix_name"; fix_log="$WORKSPACE/loop-frontend-$fix_name.log"
+                  # NO SUCH FRONTEND → NO SUCH BUILD. The dispatch prompt
+                  # names $fix_dir without ever checking it exists, and the
+                  # prompt's own output is tee'd into $fix_log — the file the
+                  # prompt hands the model as "the build log". For a name
+                  # with no directory (the sh2perl row: the shared sh corpus
+                  # driven through the core otranspilerl-cli, escalated on a
+                  # core emit refusal) the prompt describes a build that has
+                  # never run, the model writes that finding into the log,
+                  # and the next session is handed the previous sessions'
+                  # transcript as gate diagnostics. Measured 2026-10-12:
+                  # loop-frontend-sh2perl.log = 9.5 MB / 835 session banners
+                  # / 830 pir-debug lines and zero gate diagnostics. Refuse
+                  # at the source; a real core defect reaches the core
+                  # through the documented channels, not this prompt.
+                  if [ ! -d "$fix_dir" ]; then
+                    {
+                      echo "[$(date +%FT%T)] --pi-fix-frontend $fix_name: REFUSED — $fix_dir does not exist."
+                      echo "  This name is not a buildable frontend (no frontends/$fix_name/ dir, no run_frontend_worker.sh)."
+                      echo "  A core emit refusal on a shared corpus is a core/contract signal, not a frontend build failure."
+                      echo "  No AI session started; nothing was written to $fix_log."
+                    } >> "$WORKSPACE/loop-frontend-dispatch-refused.log" 2>/dev/null || true
+                    exit 0
+                  fi
                   {
                     printf 'The %s frontend in %s is failing to build.\n\n' "$fix_name" "$fix_dir"
                     printf 'Tail of the build log (%s):\n' "$fix_log"
@@ -1639,7 +1743,16 @@ EOF
                     # skip keeps the gate alive and leaves the file + rc in the
                     # log; an anomalous skip count is the visible signal (core-
                     # emit health is the estree gate's job, not this gate's).
-                    shir=$("$g_otrans" --target shir "$f" 2>/dev/null) || {
+                    # THE EXEC-FAILURE CLASS IS RETRIED AT THE CALL SITE
+                    # (harness/emit-shir-retry.sh): the shared target dir is
+                    # relinked WHILE this loop runs, and 2026-10-25 measured
+                    # the path ABSENT (rc=127, `stat` -> GONE) on two files of
+                    # an otherwise 648/650-green run — which collapsed the whole
+                    # verdict to `CRASHED (no classification)`, discarding a
+                    # corpus for a two-file window. The retry is narrow: a
+                    # PRESENT emitter that rejects an input keeps its rc on the
+                    # FIRST attempt and is still counted a FAIL below.
+                    shir=$("$ROOT/harness/emit-shir-retry.sh" "$g_otrans" "$f") || {
                       rc=$?
                       # AN EMIT FAILURE IS NOT A SKIP. It was counted as one
                       # until 2026-09-30, and that is actively harmful: a skip
@@ -1668,6 +1781,14 @@ EOF
                       # of the binary that was invoked) instead of asserting a
                       # cause, which is what makes the next occurrence
                       # diagnosable.
+                      #
+                      # CORRECTION 2026-10-25: the "never un-runnable" finding
+                      # above was a 500-rebuild sample that missed the window.
+                      # Two corpus files emitted rc=127 with `inode=GONE` in one
+                      # run (quoted in harness/emit-shir-retry.sh), so the path
+                      # CAN be absent. That class is now retried at the call
+                      # site instead of being counted, so emitfail below only
+                      # counts a failure that survived every attempt.
                       emitfail=$((emitfail+1)); fail=$((fail+1))
                       fails="$f $fails"
                       echo "  [$g_lang] backend gate: shir emit FAILED for $f (rc=$rc, binary=$g_otrans inode=$(stat -c %i "$g_otrans" 2>/dev/null || echo GONE)) — counted as FAIL (an unmeasured file is not a passing file)"
@@ -1699,10 +1820,32 @@ EOF
                       skip=$((skip+1)); continue
                     fi
                     g_out=""
+                    g_rc=0
                     if [ "$g_binmode" = 1 ]; then
-                      if g_out=$("$g_wt/target/debug/${g_lang}_backend" "$f" 2>/dev/null); then ok=1; else ok=0; g_out=""; fi
+                      g_rbin="$g_wt/target/debug/${g_lang}_backend"
+                      if g_out=$("$g_rbin" "$f" 2>/dev/null); then ok=1; else g_rc=$?; ok=0; g_out=""; fi
                     else
-                      if g_out=$(printf '%s' "$shir" | "$g_bin" "$g_flag" - 2>/dev/null); then ok=1; else ok=0; g_out=""; fi
+                      g_rbin="$g_bin"
+                      # THE RENDER EXEC IS RETRIED TOO (--mode=render): the
+                      # emitter retry above fixed only the FIRST of the gate's
+                      # two execs. The renderer lives in the same relinked
+                      # target dir, so the same exec window (127 absent, 126
+                      # ETXTBSY) hits it one step later and with NO per-file
+                      # message — `fail` increments, every classification
+                      # counter stays 0, and a 644/651-green corpus collapses
+                      # to `CRASHED (no classification)`. Measured 2026-10-26
+                      # (go gate): 644/651 green on the runs either side, then
+                      # 1 and 2 files failing with no classification. A
+                      # renderer that RAN and rejected the A1 keeps its rc on
+                      # the first attempt (a real verdict), exactly like emit.
+                      if g_out=$(printf '%s' "$shir" | "$ROOT/harness/emit-shir-retry.sh" --mode=render "$g_bin" "$g_flag" 2>/dev/null); then ok=1; else g_rc=$?; ok=0; g_out=""; fi
+                    fi
+                    if [ "$ok" = 0 ]; then
+                      # Name the file even when nothing can classify it: the
+                      # unclassified path used to be the ONE failure that
+                      # printed nothing, so a CRASHED verdict could not say
+                      # which file (or which rc) caused it.
+                      echo "  [$g_lang] backend gate: RENDER FAILED for $f (rc=$g_rc, renderer=$g_rbin flag=${g_flag:-<none>} inode=$(stat -c %i "$g_rbin" 2>/dev/null || echo GONE)) — counted as FAIL (unclassified: no stub/equiv/static-analysis verdict)"
                     fi
                     # STUB GATE: an emitted sh2.* stub call
                     # (sh2_exec()/sh2GetVar()/...) or TODO(unsupported) marker
@@ -1870,7 +2013,13 @@ EOF
                                 # vs "Usage: /tmp/eq_$$_bin ...").
                                 cc /tmp/eq_$$.c -o /tmp/eq_$$_bin 2>/dev/null && { if [ -n "$eq_scratch" ]; then (cd "$eq_scratch" && "$KS" timeout -k 2 15 bash -c 'exec -a "$0" "$1"' "$f" /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null); else "$KS" timeout -k 2 15 bash -c 'exec -a "$0" "$1"' "$f" /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null; fi; } && eq_exit=0 || eq_exit=$?;;
                           go)   "$KS" timeout 30 "$eq_tool" run /tmp/eq_$$.go > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
-                          python) "$KS" timeout 15 python3 /tmp/eq_$$.py > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
+                          python) # argv0 = the source path (what `bash "$f"` sees):
+                                # the render reads $0 from $SH2_ARGV0 (the exact
+                                # string bash sees, fish-arm precedent), falling
+                                # back to its own path standalone. Without this,
+                                # $0-dependent stdout FALSE-FAILs (057_case.sh:
+                                # "Usage: .../057_case.sh ..." vs "/tmp/eq_$$...").
+                                SH2_ARGV0="$f" "$KS" timeout 15 python3 /tmp/eq_$$.py > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           rust) # argv0 = the source path (what `bash "$f"` sees),
                                 # mirroring the sh/perl arms — the rust renderer
                                 # reads $0 via std::env::args (self-location,
@@ -1886,7 +2035,39 @@ EOF
                                 # unpassable; the sh/perl arms adopted equality
                                 # first). A 124 (timeout) is caught below.
                                 rustc /tmp/eq_$$.rs -o /tmp/eq_$$_bin 2>/dev/null && { if [ -n "$eq_scratch" ]; then (cd "$eq_scratch" && "$KS" timeout -k 2 15 bash -c 'exec -a "$0" "$1"' "$f" /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null); else "$KS" timeout -k 2 15 bash -c 'exec -a "$0" "$1"' "$f" /tmp/eq_$$_bin > /tmp/eq_$$_out 2>/dev/null; fi; } && eq_exit=0 || eq_exit=$?;;
-                          zig)  "$KS" timeout 30 "$eq_tool" run /tmp/eq_$$.zig > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
+                          zig)  # the REAL exit code is captured (not collapsed to
+                                # 0/1): `zig run` propagates the program's status
+                                # (main() reaches `std.process.exit(N)` for a
+                                # lowered `exit N`), so the equality verdict below
+                                # compares it to bash's — scripts that exit nonzero
+                                # BY DESIGN (t83_exit.sh exits 3) were unpassable
+                                # under the old rc=0-on-both-sides rule. Verified
+                                # rc-faithful on 92/92 stub-free, bash-parseable
+                                # corpus files (stdout AND exit code both match),
+                                # the same evidence that admitted rust/zsh/c.
+                                #
+                                # UU-FFI (UU-FFI.md): link libcoreutils_ffi.so
+                                # when it is built so the renderer's in-process
+                                # arm is exercised, otherwise render the
+                                # fork/exec fallback (exactly the C gate's rule).
+                                # `-lc` is REQUIRED: a Rust cdylib does not
+                                # initialise without libc and uu_run segfaults
+                                # (measured — the identical zig printed
+                                # correctly with -lc and crashed without it).
+                                uu_lib="$SUB/runtime/lib/libcoreutils_ffi.so"
+                                if [ -f "$uu_lib" ]; then
+                                  export SH2_UU_FFI=1
+                                  # zig spells rpath as a first-class flag;
+                                  # `-Wl,-rpath,...` is rejected with
+                                  # "unrecognized parameter" (which failed
+                                  # every single file before this was fixed).
+                                  uu_zig_flags="-lc -L$SUB/runtime/lib -lcoreutils_ffi -rpath $SUB/runtime/lib"
+                                else
+                                  export SH2_UU_FFI=0
+                                  uu_zig_flags=""
+                                fi
+                                # shellcheck disable=SC2086
+                                "$KS" timeout 30 "$eq_tool" run /tmp/eq_$$.zig $uu_zig_flags > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
                           zsh)  # argv0 = the source path (what `bash "$f"` sees),
                                # mirroring the perl/sh arms. The REAL exit
                                # code is captured (not collapsed to 0/1): the
@@ -1925,13 +2106,19 @@ EOF
                                 # wrapper additionally sweeps the SESSION.
                                 # Keep the 15s bound; only the blast radius changes.
                                 "$KS" timeout -k 2 15 sh -c '. /dev/fd/3' "$f" 3< /tmp/eq_$$.sh > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
-                           fish) # fish runs scripts directly. argv0 is not
-                                # meaningful (fish has no $0) — the corpus
-                                # files that reference $0 are handled below via
-                                # the perl/sh scratch convention; for fish the
-                                # reference runs from the same CWD. Loose
-                                # exit-code contract (eq_exit=0 && bash_rc=0).
-                                "$KS" timeout -k 2 15 fish /tmp/eq_$$.fish > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
+                           fish) # fish runs scripts directly and has no `$0`;
+                                # the render learns the script's own path from
+                                # `status filename`, which only matches bash when
+                                # fish is handed the SAME path string bash was —
+                                # and this arm runs the render from a scratch
+                                # file. Exporting SH2_ARGV0="$f" (the exact
+                                # string `bash "$f"` sees) makes `$0`,
+                                # `dirname "$0"` and usage lines agree on both
+                                # sides; the render falls back to
+                                # `status filename` when it is unset, so a
+                                # standalone run stays correct. Loose exit-code
+                                # contract (eq_exit=0 && bash_rc=0).
+                                SH2_ARGV0="$f" "$KS" timeout -k 2 15 fish /tmp/eq_$$.fish > /tmp/eq_$$_out 2>/dev/null && eq_exit=0 || eq_exit=$?;;
                            java) javac -d /tmp /tmp/Sh2Program.java 2>/dev/null && "$KS" timeout 15 java -cp /tmp Sh2Program > /tmp/eq_$$_out 2>/dev/null && eq_exit=0;;
                           perl) # argv0 = the source path (what `bash "$f"` sees) so
                                 # $0-dependent stdout agrees with bash — the exact
@@ -1971,9 +2158,29 @@ EOF
                         # scripts that exit nonzero BY DESIGN unpassable
                         # (057_case.sh exits 1 for its usage error, and the
                         # renderer reproduces that exactly).
+                        # zig joined the equality group when its arm began
+                        # capturing the TRUE rc (same session): the renderer was
+                        # ALREADY rc-faithful — verified 92/92 stub-free,
+                        # bash-parseable corpus files reproduce bash's stdout AND
+                        # exit code — but the old rc=0-on-both-sides rule made
+                        # scripts that exit nonzero BY DESIGN unpassable
+                        # (t83_exit.sh exits 3; the render emits
+                        # `std.process.exit(@intCast(3))` and `zig run` returns
+                        # it). That single file was the gate's only equivalence
+                        # fail.
+                        # python joined the equality group when its renderer
+                        # became rc-faithful: every statement records its rc
+                        # in __sh_rc (externals/captures/pipelines record the
+                        # real code, native statements reset to 0, compound
+                        # statements own it via their last command) and the
+                        # program ends with `sys.exit(__sh_rc)` — verified
+                        # rc-equal on the nonzero-by-design corpus (057_case
+                        # exits 1, the echo-backtick usage errors exit 1,
+                        # parse-bracket-subshell-pipe's failed && chain
+                        # exits 1).
                         if [ "$sa_fail" = 0 ] && [ "$eq_exit" != 124 ] && [ "$bash_rc" != 124 ] \
-                           && { { { [ "$g_lang" = "perl" ] || [ "$g_lang" = "sh" ] || [ "$g_lang" = "rust" ] || [ "$g_lang" = "zsh" ] || [ "$g_lang" = "c" ]; } && [ "$eq_exit" = "$bash_rc" ]; } \
-                                || { { [ "$g_lang" != "perl" ] && [ "$g_lang" != "sh" ] && [ "$g_lang" != "rust" ] && [ "$g_lang" != "zsh" ] && [ "$g_lang" != "c" ]; } && [ "$eq_exit" = 0 ] && [ "$bash_rc" = 0 ]; }; } \
+                           && { { { [ "$g_lang" = "perl" ] || [ "$g_lang" = "sh" ] || [ "$g_lang" = "rust" ] || [ "$g_lang" = "zsh" ] || [ "$g_lang" = "c" ] || [ "$g_lang" = "zig" ] || [ "$g_lang" = "python" ]; } && [ "$eq_exit" = "$bash_rc" ]; } \
+                                || { { [ "$g_lang" != "perl" ] && [ "$g_lang" != "sh" ] && [ "$g_lang" != "rust" ] && [ "$g_lang" != "zsh" ] && [ "$g_lang" != "c" ] && [ "$g_lang" != "zig" ] && [ "$g_lang" != "python" ]; } && [ "$eq_exit" = 0 ] && [ "$bash_rc" = 0 ]; }; } \
                            && diff -q /tmp/eq_$$_out /tmp/eq_$$_ref >/dev/null 2>&1; then
                           pass=$((pass+1)); eq_pass=$((eq_pass+1))
                         else
@@ -2000,6 +2207,21 @@ EOF
                       fails="$f $fails"
                     fi
                   done
+                  # A CRASHED gate must never be able to report a plausible
+                  # test score. `N fail` with EVERY classification counter at
+                  # zero means the per-file fail branch ran without
+                  # classifying anything: every real failure increments one of
+                  # {stubs, equiv, static-analysis}, so an all-zero trio is a
+                  # failure OF MEASUREMENT (the render command returned
+                  # non-zero, leaving g_out empty) — deterministically
+                  # detectable, and exactly the shape that printed
+                  # "0/647 render OK, 637 fail (0 stubs, 0 equiv, 0
+                  # static-analysis)" on 2026-09-08 and was read as 637 real
+                  # regressions for 15 days. Refuse the verdict instead.
+                  if [ "$fail" -gt 0 ] && [ "$stub_files" -eq 0 ] && [ "$eq_fail" -eq 0 ] && [ "$sa_fail_total" -eq 0 ]; then
+                    echo "  [$g_lang] backend gate: CRASHED (no classification) — $fail/$((pass+skip+fail)) files failed and NONE produced a stub/equiv/static-analysis verdict; not a test score — failing: $fails" >&2
+                    exit 1
+                  fi
                   echo "  [$g_lang] backend gate: $pass/$((pass+skip+fail)) corpus render OK, $fail fail ($stub_files stubs, $eq_fail equiv, $sa_fail_total static-analysis), $skip skip ($al_count allowlisted) — $stub_total stubs emitted${emitfail:+; $emitfail of them emit-failed (core emitter could not run — a MEASUREMENT failure, not a skip)}${eq_gate:+; equiv: $eq_pass pass vs bash}"
                   # the Go corpus through this backend (the dog-food target):
                   # the Go→<lang> verdict is part of the backend's scope. rust
@@ -2054,7 +2276,7 @@ EOF
                       fi
                     fi
                   fi
-                  if [ "$fail" -gt 0 ]; then echo "  fails: $fails" | head -c 200; echo; exit 1; fi
+                  if [ "$fail" -gt 0 ]; then echo "  fails:"; echo "$fails" | tr ' ' '\n' | grep -v '^$'; echo; exit 1; fi
                   # valgrind memory gate (the C worker): the generated C
                   # must run without memory errors — a bounded sample (the
                   # full 531 under valgrind is too slow for the gate loop)

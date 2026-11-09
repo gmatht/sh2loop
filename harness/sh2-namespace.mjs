@@ -309,11 +309,56 @@ function grepRegexes(opts, patterns) {
   }
 }
 
+// ── grep arg/regex memoization ──────────────────────────────────────────
+//
+// `parseGrepArgs` + `grepRegexes` are PURE functions of the argv — the one
+// exception is `-f PATTERNFILE`, whose content is read at parse time and is
+// therefore never cached. Together they rebuilt the opts object and, more
+// importantly, TWO `RegExp` objects on EVERY evaluation (measured: ~600 ns
+// of a 1.4 µs `grepText`, and ~7 µs of the 11 µs `$(grep PAT FILE)` path).
+// The emitted argv is a literal at every call site, so the same key recurs
+// on every evaluation — in a loop, a function body, or an `&&` chain. Both
+// caches are bounded and cleared wholesale (the `testParseCache` policy:
+// the parse is pure, the EVAL still runs per call, so live-state verdicts
+// stay live).
+const grepArgCache = new Map();
+const grepReCache = new Map();
+const GREP_CACHE_MAX = 256;
+
+function grepParseCached(args, allowFiles) {
+  // `-f FILE` reads the pattern file here — a cache would freeze its
+  // contents. (`-fFILE` is not part of the parser's grammar.)
+  for (let i = 0; i < args.length; i++) {
+    if (String(args[i]) === '-f') return parseGrepArgs(args, allowFiles);
+  }
+  let key = allowFiles ? 'F' : 'T';
+  for (let i = 0; i < args.length; i++) key += '\u0000' + String(args[i]);
+  const hit = grepArgCache.get(key);
+  if (hit !== undefined) return hit;
+  const v = parseGrepArgs(args, allowFiles);
+  if (grepArgCache.size >= GREP_CACHE_MAX) grepArgCache.clear();
+  grepArgCache.set(key, v);
+  return v;
+}
+
+function grepRegexesCached(opts, patterns) {
+  let key = `${opts.flavor}|${opts.ci ? 'i' : ''}|${opts.wholeWord ? 'w' : ''}|${opts.whole ? 'x' : ''}`;
+  for (const p of patterns) key += '\u0000' + p;
+  const hit = grepReCache.get(key);
+  if (hit !== undefined) return hit;
+  // an invalid BRE/ERE throws — that error is NOT cached (the caller
+  // reports it exactly like GNU and exits 2 every time)
+  const v = grepRegexes(opts, patterns);
+  if (grepReCache.size >= GREP_CACHE_MAX) grepReCache.clear();
+  grepReCache.set(key, v);
+  return v;
+}
+
 // The per-source line selection core (shared by grepText and
 // builtins.grep): filters/transforms the content lines and pushes the
 // formatted output lines (terminator included) to `out`. `prefix` ("" or
 // "name:") precedes every line (multi-file / -r / -H forms); `byteOffset`
-// prefixes the line-start (plain) or match (with -o) byte offset (GNU -b:
+// prefixes the line-start (plain) or match (with -o) byte offsets (GNU -b:
 // LINENO:OFFSET:line with -n); `color` wraps each match in GNU's
 // --color=always codes. Returns the number of SELECTED lines (the -m /
 // exit-status unit).
@@ -487,14 +532,149 @@ export function toI64(v) {
   return Number.isInteger(n) ? BigInt(n) : 0n;
 }
 
+// One argument of a script-function call (fnCall / fnValue). Shell values
+// are strings (or string arrays), so the String() is the identity there.
+// A frontend that passes a RECORD/map VALUE — the rust frontend lowers a
+// method call as `Type_method(receiver, …)` and the receiver is an object
+// literal read back from the store — must survive the positional channel:
+// String() freezes it as "[object Object]", so every FieldRead on the
+// receiver reads undefined (frontend gate t46_methods: 10/20/10/10 →
+// 0/0/0/0). Non-array objects therefore pass through untouched; arrays
+// still flatten to their string ITEMS (bash `$@` word splitting).
+function fnArg(a) {
+  return a !== null && typeof a === 'object' && !Array.isArray(a) ? a : String(a);
+}
+
+// Memoized `sh2.test` PARSE (tokenize + parse only — the eval is per-call
+// because it reads the store). The parse is a pure function of
+// (test text, [[ vs [ ) and the AST is never mutated by evalTest, so
+// reusing it is exact. The corpus's remaining runtime tests pass the same
+// STATIC text on every evaluation (`-f "$file"` inside a loop, the
+// compound file tests), and each re-parse cost ~1.5 us — more than the
+// whole native test it stands in for. Bounded: cleared wholesale at 1024
+// entries (a script with 1024 DISTINCT test texts is not the hot case, and
+// dropping the cache can never change a verdict).
+const testParseCache = new Map();
+
+// ── process-static gate flags, read ONCE ────────────────────────────────
+//
+// Every `process.env.X` read in node costs ~285 ns (it is a real
+// getenv() round-trip through the env proxy, measured on this box:
+// 280-285 ns per access vs 0.7 ns for a module-level const). The
+// fidelity gates below were read from inside per-call helpers — the
+// redirect spec pass reads SH2_ASSUME_DEVNULL on EVERY spec item, and
+// every value-twin / native-tool builtin reads its own gate at entry —
+// so a `cmd 2>/dev/null` paid ~600 ns of pure environment lookups per
+// evaluation, and `ls`/`uname`/`date`/`which`/`hostname` ~285 ns each.
+//
+// These flags describe the EXECUTION ENVIRONMENT and are set before
+// `node` starts (the harness exports them; the emitter reads the same
+// names at COMPILE time), so they are process-static: hoisting them is
+// exact. The one divergence is a script that SETS one of these names at
+// runtime and then expects the builtin to change behaviour mid-run
+// (`SH2_ASSUME_LS=0; export SH2_ASSUME_LS; ls`) — i.e. a script
+// deliberately toggling a translator-fidelity switch, which no corpus
+// example does. `PATH` / `HOME` / ordinary variables are NOT here: those
+// are genuinely mutable (`export PATH=…` writes process.env) and stay
+// live lookups.
+const ASSUME_DEVNULL = process.env.SH2_ASSUME_DEVNULL !== '0';
+const ASSUME_ENV = process.env.SH2_ASSUME_ENV !== '0';
+const ASSUME_UNAME = process.env.SH2_ASSUME_UNAME !== '0';
+const ASSUME_DATE = process.env.SH2_ASSUME_DATE !== '0';
+const ASSUME_LS = process.env.SH2_ASSUME_LS !== '0';
+const ASSUME_WHICH = process.env.SH2_ASSUME_WHICH !== '0';
+const ASSUME_HOSTNAME = process.env.SH2_ASSUME_HOSTNAME !== '0';
+const ASSUME_NATIVE_TOOLS = process.env.SH2_ASSUME_NATIVE_TOOLS !== '0';
+const SPAWN_LOG = process.env.SH2_SPAWN_LOG;
+const PROF_LOG = process.env.SH2_PROF;
+
 export const sh2 = {
   toI64,
+
+  // `sh2.pyFloat(v)` — Python `str(float)`: a float value always renders
+  // with a decimal point (`5.0`, not `5`). Emitted by the py-sh-go
+  // frontend for float-typed print args (t104_float32: `print(x * 2)`
+  // with float x is 5.0 in Python; JS String(5) is "5"). Values arriving
+  // here are Numbers or numeric strings from the arith helper; only
+  // float-typed args are wrapped by the frontend, so `print(5)` still
+  // prints `5`. The digits themselves are JS's shortest round-trip form,
+  // which matches CPython's `repr` for the corpus' ranges; the two
+  // differ only in where scientific notation starts (CPython at 1e16,
+  // JS at 1e21) — an out-of-corpus edge this helper does not paper over.
+  // A BigInt coerces to Number: a float-typed value is never exact-past-
+  // 2^53 by definition (Python would have promoted it), so the double is
+  // the faithful repr.
+  pyFloat(v) {
+    if (v === true || v === false) return v ? 'True' : 'False';
+    const n = typeof v === 'bigint' ? Number(v) : Number(v);
+    if (Number.isNaN(n)) return 'nan';
+    if (n === Infinity) return 'inf';
+    if (n === -Infinity) return '-inf';
+    if (Object.is(n, -0)) return '-0.0';
+    const s = String(n);
+    return /[.eE]/.test(s) ? s : s + '.0';
+  },
 
   // node:fs/promises — the native readFile/writeFile surface the emitter's
   // pure-capture lowerings (`$(cat f)`, `$(sort f)`, `$(wc -l < f)`) call
   // directly (PLAN.md §1.2's sh2.fs.* namespace; whitelisted in
   // estree_gate.pl).
-  fs: fsp,
+  //
+  // `readText` is the SYNC sibling (the ladder's rung below the async
+  // namespace): the same file value with no promise, no microtask and no
+  // `await` in the emitted expression. That matters beyond the per-call
+  // cost (measured on this box: ~320 µs for the promise chain vs ~3 µs
+  // for one readFileSync, >100x): an awaited read forces the WHOLE
+  // enclosing arrow async, which cascades down the call graph
+  // (captureSync → capture, fnCall → exec, redirectSync → redirect) for
+  // every caller of the function holding it.
+  //
+  // Contract: returns the file's utf8 text ('' when the read fails — the
+  // string the old `.catch(e => "")` produced) and records the read's
+  // exit status exactly like the promise chain it replaces: lastExit = 0
+  // on success, `errStatus` on failure. `_readOk` carries the success
+  // flag for the mapped form (`(sh2._r = sh2.fs.readText(p, e),
+  // sh2._readOk ? <transform> : "")`) — a missing file and a legitimately
+  // empty one are the same '' string, so a transform that must NOT run on
+  // the error sentinel (a line count of "" would be 0) needs the flag.
+  //
+  // Sync I/O stays in the runtime, exactly like the sync builtins (a
+  // builtin `cat`/`grep`/`sort` already reads with readFileSync) and
+  // `fileTest` (lstatSync): the emitted JS never calls `fs.*Sync`.
+  fs: {
+    ...fsp,
+    readText(path, errStatus = 1) {
+      try {
+        const t = fs.readFileSync(String(path), 'utf8');
+        sh2.lastExit = 0;
+        sh2._readOk = true;
+        return t;
+      } catch (e) {
+        sh2.lastExit = errStatus;
+        sh2._readOk = false;
+        return '';
+      }
+    },
+    // Sync twin of `writeFile`/`appendFile` (the `echo args > file` /
+    // `printf … >> file` redirect lift): one writeFileSync, returning the
+    // boolean the promise chain yielded (true, lastExit 0 on success;
+    // false, lastExit 1 on failure) and stashing the failure in
+    // `sh2._writeErr` so the emitter's report can name the code — the same
+    // `e.code === "EACCES" ? "Permission denied" : e.code ?? e.message ??
+    // e` text the `.catch(e => …)` built from the rejection.
+    writeText(path, text, append = false) {
+      try {
+        fs.writeFileSync(String(path), String(text), { flag: append ? 'a' : 'w' });
+        sh2.lastExit = 0;
+        sh2._writeErr = null;
+        return true;
+      } catch (e) {
+        sh2.lastExit = 1;
+        sh2._writeErr = e;
+        return false;
+      }
+    },
+  },
 
   // ── -O4 autoshaderization ────────────────────────────────────────
   // `sh2.shaderize(start, end, step, op, fn)` — a compute loop emitted in
@@ -677,7 +857,13 @@ export const sh2 = {
 
   // ── variables ──────────────────────────────────────────────────────
   getVar(name) {
-    const m = /^([A-Za-z_][A-Za-z0-9_]*)\[([^\]]+)\]$/.exec(name);
+    // The subscript regex is only reachable for a name carrying a `[` —
+    // gate it on a plain `indexOf` so the PLAIN read (the common case, and
+    // the one every arith subscript key now goes through — see
+    // evalArith's bare-name fast path) skips the regex engine entirely.
+    const m = typeof name === 'string' && name.indexOf('[') >= 0
+      ? /^([A-Za-z_][A-Za-z0-9_]*)\[([^\]]+)\]$/.exec(name)
+      : null;
     if (m) {
       // Any-list element read (`out[i]`, `out[@]`): the var holds a
       // list#N id; [i] reads RAW (objects survive for member access
@@ -725,6 +911,13 @@ export const sh2 = {
       if (!arr) return '';
       let idx;
       try { idx = evalArith(m[2], this); } catch { return ARITH_BAD_MAGIC; } // subscript arithmetic syntax error: bash prints "syntax error in expression", skips the WHOLE command (status 1)
+      // Negative subscript counts from the end — bash `a=([0]=x [1]=y);
+      // echo ${a[-1]}` prints `y`. arrayIndex already does this
+      // (`idx += arr.length`); getVar did not, so the two A1 read twins
+      // disagreed and a negative index silently read ''. They must agree:
+      // the emitter lowers `${a[i]}` to either one depending on the
+      // provability of the base.
+      if (idx < 0) idx += arr.length;
       return idx >= 0 && idx < arr.length ? String(arr[idx]) : '';
     }
     // `#name` — the LENGTH of a variable. Both zsh (`$#a`, `${#s}`) and
@@ -770,11 +963,18 @@ export const sh2 = {
       case 'EPOCHREALTIME': return (Date.now() / 1000).toFixed(6);
       case 'EPOCHSECONDS': return String(Math.floor(Date.now() / 1000));
       default:
+        // A DIGIT-named variable shadows the positional channel. bash
+        // precedence: `2=x` then `echo $2` prints x, and an explicitly
+        // stored var always wins. The go-sh dogfood needs this — its
+        // synthetic temps are digit-named (getVar("2") for an anonymous
+        // map key), and a positional FIRST return meant every such temp
+        // read back as "" — which silently emptied p.structs, so every
+        // struct layout was empty and T{...} literals refused.
+        if (name in this.vars) return this.vars[name];
         if (/^[1-9]$/.test(name)) {
           const i = Number(name) - 1;
           return i < this.positional.length ? this.positional[i] : '';
         }
-        if (name in this.vars) return this.vars[name];
     // nameref: `typeset -n ref=original` — reads through to the target
     if (this.refVars.has(name)) return this.getVar(this.refVars.get(name));
         // Bash: a bare array name in a scalar context yields element 0
@@ -837,7 +1037,7 @@ export const sh2 = {
         if (tm && tm.get(v)) v = this.freezeOneTemp(v);
       }
       this.assocStore.get(name).set(normAssocKey(String(key)), v);
-      return;
+      return true;
     }
     const eq = name.indexOf('[');
     if (eq > 0 && name.endsWith(']')) {
@@ -852,15 +1052,31 @@ export const sh2 = {
       // that skipped this.)
       this.assocNames.add(base);
       this.assocStore.get(base).set(k, String(key));
-      return;
+      return true;
     }
     if (!this.assocStore.has(name)) this.assocStore.set(name, new Map());
     this.assocStore.get(name).set('', String(key));
+    return true;
   },
 
   assocGet(name, key) {
     const store = this.assocStore.get(name);
-    return store && store.has(normAssocKey(key)) ? String(store.get(normAssocKey(key))) : '';
+    if (!store) return '';
+    // ONE normalization (Plan 42): the key was expanded twice — and
+    // `normAssocKey` runs a full param expansion, so the duplicate was the
+    // whole cost of an assoc read.
+    const k = normAssocKey(key);
+    return store.has(k) ? String(store.get(k)) : '';
+  },
+
+  // assocDel(name, key) — Go builtin delete(m, k): remove one assoc key
+  // (the go-sh frontend's delete lowering; mirrors the assocSet write
+  // path including key normalization). Missing map/key is a no-op
+  // (Go semantics — no error, no output).
+  assocDel(name, key) {
+    const store = this.assocStore.get(String(name ?? ''));
+    if (store) store.delete(normAssocKey(key));
+    return true;
   },
 
   assocKeys(name) {
@@ -916,7 +1132,11 @@ export const sh2 = {
   },
 
   setVar(name, value) {
-    const m = /^([A-Za-z_][A-Za-z0-9_]*)\[([^\]]+)\]$/.exec(name);
+    // Same `indexOf` gate as getVar: a plain write is the common case and
+    // the regex can only ever match a name carrying a `[`.
+    const m = typeof name === 'string' && name.indexOf('[') >= 0
+      ? /^([A-Za-z_][A-Za-z0-9_]*)\[([^\]]+)\]$/.exec(name)
+      : null;
     if (m) {
       // Any-list element write (`out[i] = w` — the dogfood builders):
       // the var holds a list#N id whose items stay raw (objects
@@ -943,6 +1163,19 @@ export const sh2 = {
       return true;
     }
     if (value === ARITH_BAD_MAGIC) return true; // `x=$((bad))`: the expansion aborted — bash skips the assignment
+    // An ARRAY value riding the value channel (a map[string][]string
+    // read: `layout, ok := p.structs[t.text]`) must survive as a SHELL
+    // ARRAY, not a space-joined string. The old join destroyed it, so
+    // arrayToList(name) — which reads this.arrays — saw an empty array
+    // and the slice crossed every call boundary as []; parseStructLit's
+    // listLen then read 0 and every keyed T{...} field failed as
+    // "unknown field". Scalars keep the join/coerce (shell `${arr}`
+    // parity).
+    if (Array.isArray(value)) {
+      this.arrays.set(name, value.map(x => (x === null || x === undefined) ? '' : (typeof x === 'object' ? x : String(x))));
+      this.vars[name] = value.join(' ');
+      return true;
+    }
     // Plain (non-array) objects store RAW (the dogfood's jsonObject maps
     // and range loop vars — a write-time String() would freeze them as
     // "[object Object]"). Arrays keep the join (shell `${arr}` parity);
@@ -971,6 +1204,64 @@ export const sh2 = {
 
   _spawnEnv() {
     return { ...process.env };
+  },
+
+  // ENOEXEC fallback target (see the spawn site in _runProc): the path to
+  // feed to bash instead of exec'ing `cmd` directly, or null to spawn
+  // normally. When bash execve()s a file whose header the kernel doesn't
+  // recognize (a script with NO `#!`), bash re-runs the file AS A BASH
+  // SCRIPT — `set -o pipefail` works and $0 is the path it resolved.
+  // child_process.spawn uses glibc execvp, which instead silently reruns
+  // such files under /bin/sh (dash), so bash-only syntax dies with
+  // "Illegal option -o pipefail" and the estree run diverges from the
+  // bash reference (exactly what fails `a.sh`: a shebang-less
+  // /root/bin/a containing `set -o pipefail`).
+  _enoexecAsBash(cmd, pathVar) {
+    try {
+      let statTarget = null; // path to stat/read (cwd-resolved for slashes)
+      let passAs = null; // path handed to bash — it becomes $0
+      if (cmd.includes('/')) {
+        statTarget = path.isAbsolute(cmd) ? cmd : `${this.cwd}/${cmd}`;
+        passAs = cmd; // keep the written form: bash's $0 for `./x` is `./x`
+      } else {
+        // execvp PATH search: first executable regular file wins; an empty
+        // entry means the cwd. A non-executable hit is skipped (EACCES),
+        // like execvp.
+        for (const dir of pathVar.split(':')) {
+          const cand = `${dir === '' ? '.' : dir}/${cmd}`;
+          try {
+            fs.accessSync(cand, fs.constants.X_OK);
+            if (fs.statSync(cand).isFile()) { statTarget = cand; passAs = cand; break; }
+          } catch { /* keep searching */ }
+        }
+        if (statTarget === null) return null;
+      }
+      // Execute permission is required: execve() returns EACCES (never
+      // ENOEXEC) for a non-executable file, so bash never falls back there.
+      fs.accessSync(statTarget, fs.constants.X_OK);
+      const fd = fs.openSync(statTarget, 'r');
+      let head;
+      try {
+        head = Buffer.alloc(4);
+        const n = fs.readSync(fd, head, 0, 4, 0);
+        head = head.subarray(0, n);
+      } finally {
+        fs.closeSync(fd);
+      }
+      if (head.length === 0) return null; // empty: both sides no-op, status 0
+      if (head[0] === 0x23 && head[1] === 0x21) return null; // `#!`: kernel handles it
+      for (const b of head) {
+        // Text-like header only. A NUL/control byte means a binary the
+        // kernel may execute anyway (ELF, or binfmt_misc: MZ/WSLInterop,
+        // pyc `cb 0d 0d 0a`, LLVM bitcode `BC c0 de`, wasm \0asm, class
+        // files) — execve wouldn't return ENOEXEC there, so bash doesn't
+        // fall back either. Leave those to the normal spawn.
+        if (!((b >= 0x20 && b <= 0x7e) || b === 0x09 || b === 0x0a || b === 0x0d)) return null;
+      }
+      return passAs;
+    } catch {
+      return null;
+    }
   },
 
   // ── command execution ──────────────────────────────────────────────
@@ -1023,12 +1314,30 @@ export const sh2 = {
     // same processed arguments as builtins/externals (GLOB_MAGIC patterns
     // expanded or kept literal, PS_MAGIC materialized, array-literal
     // placeholders dropped).
+    //
+    // NON-SCALARS RIDE RAW: an array or plain object argument is an A1
+    // builder value (`echo [jsonObject(...)]` — the go-sh frontend's
+    // `return []map[string]any{stmt}`), NOT shell text. String() would
+    // freeze it as "[object Object]" and the statement would be lost
+    // (self-host: single-statement bodies vanished). Scalars are
+    // unchanged, so shell behaviour is identical.
     const flat = [];
+    const flattenOne = (v) => {
+      if (v !== null && typeof v === 'object') flat.push(v);
+      else flat.push(String(v));
+    };
     for (const a of args) {
-      if (Array.isArray(a)) flat.push(...a.map(String));
-      else flat.push(String(a));
+      if (Array.isArray(a)) { for (const x of a) flattenOne(x); }
+      else flattenOne(a);
     }
     for (let i = 0; i < flat.length; i++) {
+      // Fast path for ordinary arguments: EVERY magic marker starts with
+      // U+0001 (ARRAY_LIT/BADSUB/ARITH/PS/GLOB), so a single charCode test
+      // skips the three startsWith/equality probes per arg. The scan was
+      // measured at ~70ns of fnCall's ~150ns/call; the gate is ~2ns.
+      // Non-strings (the raw builder objects exec passes through) and the
+      // empty string can never carry a marker.
+      if (typeof flat[i] !== 'string' || flat[i].charCodeAt(0) !== 1) continue;
       if (flat[i] === ARRAY_LIT_MAGIC) {
         // `declare -a arr=(...)` — the arg was a side-effecting setArray
         // call (the array is already stored); drop the placeholder.
@@ -1154,6 +1463,9 @@ export const sh2 = {
       : null;
     const stdinSrc = fd0.kind === 'string' ? fd0.content : null;
 
+    if (SPAWN_LOG) {
+      try { fs.appendFileSync(SPAWN_LOG, `${cmd}\t${args.join(' ').slice(0, 140)}\n`); } catch { /* diag */ }
+    }
     return new Promise((resolve) => {
       let child;
       try {
@@ -1163,9 +1475,16 @@ export const sh2 = {
         // a fresh pipe would never be written to, so `cat -` would block
         // until the spawn timeout instead of seeing EOF).
         else if (fd0.kind === 'stdin') stdio[0] = 'inherit';
-        child = spawn(cmd, args, {
+        // ENOEXEC parity with bash: a shebang-less executable is re-run by
+        // bash as a bash script, whereas execvp (spawn) silently reruns it
+        // under /bin/sh — hand such files to bash directly (see
+        // _enoexecAsBash), passing the same path spelling bash uses so $0
+        // matches the reference run.
+        const spawnEnv = this._spawnEnv();
+        const asBash = this._enoexecAsBash(cmd, spawnEnv.PATH ?? '');
+        child = spawn(asBash ? 'bash' : cmd, asBash ? [asBash, ...args] : args, {
           cwd: this.cwd,
-          env: this._spawnEnv(),
+          env: spawnEnv,
           stdio,
         });
       } catch (e) {
@@ -1264,7 +1583,14 @@ export const sh2 = {
   // Identical semantics: same arg flattening, ARRAY_LIT/BADSUB/PS/GLOB
   // magic expansion, then the SAME builtin function — minus the async
   // exec machinery (no promise per call; the whileLoopSync pattern).
-  builtin(name, args = [], env = undefined) {
+  //
+  // `specs` (4th arg) is the emitter's redirect collapse: `CMD ARGS
+  // <specs>` whose body is exactly one builtin dispatch lowers to this
+  // one call instead of `redirectSync(() => builtin(...), specs)`. The
+  // pass applied around the builtin is redirectSync's own (install →
+  // builtin → _ensureRedirectFiles → restore/persist), so value and
+  // statuses are identical.
+  builtin(name, args = [], env = undefined, specs = undefined) {
     // command-scoped env vars: VAR=x cmd (the emitter lowers env-carrying
     // exec calls with a sync-builtin name to this twin) — apply exactly
     // like the async exec path: into process.env, and passed to the
@@ -1278,6 +1604,13 @@ export const sh2 = {
       else flat.push(String(a));
     }
     for (let i = 0; i < flat.length; i++) {
+      // Fast path for ordinary arguments: EVERY magic marker starts with
+      // U+0001 (ARRAY_LIT/BADSUB/ARITH/PS/GLOB), so a single charCode test
+      // skips the three startsWith/equality probes per arg. The scan was
+      // measured at ~70ns of fnCall's ~150ns/call; the gate is ~2ns.
+      // Non-strings (the raw builder objects exec passes through) and the
+      // empty string can never carry a marker.
+      if (typeof flat[i] !== 'string' || flat[i].charCodeAt(0) !== 1) continue;
       if (flat[i] === ARRAY_LIT_MAGIC) {
         // `declare -a arr=(...)` — the arg was a side-effecting setArray
         // call (the array is already stored); drop the placeholder.
@@ -1308,8 +1641,109 @@ export const sh2 = {
       // error — fail loudly.
       throw new Error(`sh2.builtin: '${name}' is not a sync builtin`);
     }
+    if (Array.isArray(specs) && specs.length > 0) {
+      // The emitter's `redirectSync(() => builtin(NAME, ARGS), SPECS)`
+      // collapse: the redirect body is exactly this builtin dispatch, so
+      // apply the SAME spec install/restore/persist pass around it
+      // (inlined from redirectSync — one call frame, one arrow and one
+      // fd-table save fewer per site). Value and statuses are identical:
+      // a failed install skips the body exactly like redirectSync's
+      // `if (!_applyRedirectSpecs(...)) return false`.
+      const saved = { ...this.fdTargets };
+      const persistent = specs.filter(s => s.persist);
+      try {
+        if (!this._applyRedirectSpecs(specs, saved, true)) return false;
+        const r = fn.call(this, flat, env);
+        this._ensureRedirectFiles(specs);
+        return r;
+      } finally {
+        this.fdTargets = saved;
+        this._applyRedirectSpecs(persistent, saved, false);
+      }
+    }
     const r = fn.call(this, flat, env);
     return r;
+  },
+
+  // builtinValue(name, args, specs?) — the ONE-CALL collapse of
+  //   captureSync(() => redirectSync(() => builtin(name, args), specs))
+  // and the redirect-free form captureSync(() => builtin(name, args)).
+  // src/shir.rs `native_capture_builtin_value` emits this for a `$(cmd)`
+  // whose body is exactly one sync-builtin dispatch (optionally with a
+  // redirect): the value is the builtin's fd-1 output with the capture's
+  // exact post-processing. Semantics are the composition, in order — the
+  // fd-1 capture install, the redirect spec apply/restore/persist pass,
+  // the builtin call, then captureFinish + the NUL/trailing-newline
+  // strips + resolveTempResult — so the emitted value and the statuses the
+  // builtin recorded are identical; only two call frames and the per-call
+  // arrow allocation go away.
+  builtinValue(name, args = [], specs = null) {
+    const savedTarget = this.fdTargets[1];
+    const savedStart = this.captureStart;
+    this.fdTargets[1] = { kind: 'capture', buf: '' };
+    this.captureStart = Date.now();
+    try {
+      if (Array.isArray(specs) && specs.length > 0) {
+        // the redirectSync body, inlined (same save/install/restore/persist)
+        const saved = { ...this.fdTargets };
+        const persistent = specs.filter(s => s.persist);
+        try {
+          if (!this._applyRedirectSpecs(specs, saved, true)) return '';
+          this.builtin(name, args);
+          this._ensureRedirectFiles(specs);
+        } finally {
+          this.fdTargets = saved;
+          this._applyRedirectSpecs(persistent, saved, false);
+        }
+      } else {
+        this.builtin(name, args);
+      }
+      const raw = captureFinish(this.fdTargets[1].buf);
+      if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
+        // a raw builder value: no text strips apply (the captureSync rule)
+        return raw;
+      }
+      const out = String(raw).replace(/\u0000/g, '').replace(/\n+$/, '');
+      return this.resolveTempResult(out);
+    } finally {
+      this.fdTargets[1] = savedTarget;
+      this.captureStart = savedStart;
+    }
+  },
+
+  // builtinText(name, args) — the builtin's fd-1 bytes VERBATIM: the
+  // PIPELINE-PRODUCER twin of builtinValue. A pipeline stage that is
+  // exactly one sync-builtin dispatch (`() => sh2.builtin(NAME, ARGS)`)
+  // contributes nothing but those bytes to the pipe, so src/shir.rs
+  // `pipeline_producer_text` substitutes this call for that stage when the
+  // pipe text is then consumed by native stage arrows:
+  //
+  //   pipelineCaptureSync([() => builtin("cat", ["f"]), stage])
+  //     →  (stage)(builtinText("cat", ["f"]))[0]
+  //
+  // EXACT by construction: the same `this.builtin(NAME, ARGS)` runs under
+  // the same fd-1 capture install, with the same arg flattening (marker /
+  // glob / process-substitution expansion) and the same GNU error
+  // reporting; fd 0 is the ambient stdin in both forms (the pipeline only
+  // re-points fd 0 from stage 1 onward). The ONLY difference from
+  // builtinValue is the missing capture post-processing (NUL /
+  // trailing-newline strips): a pipe carries the producer's bytes
+  // verbatim, and a consumer like `wc -l` counts them.
+  builtinText(name, args = []) {
+    const savedTarget = this.fdTargets[1];
+    const savedStart = this.captureStart;
+    this.fdTargets[1] = { kind: 'capture', buf: '' };
+    this.captureStart = Date.now();
+    try {
+      this.builtin(name, args);
+      const raw = captureFinish(this.fdTargets[1].buf);
+      if (raw === null || raw === undefined) return '';
+      if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+      return String(raw);
+    } finally {
+      this.fdTargets[1] = savedTarget;
+      this.captureStart = savedStart;
+    }
   },
 
   // ── PowerShell named-block process input (v1 text approximation) ──
@@ -1363,10 +1797,17 @@ export const sh2 = {
   fnCall(name, args = []) {
     const flat = [];
     for (const a of args) {
-      if (Array.isArray(a)) flat.push(...a.map(String));
-      else flat.push(String(a));
+      if (Array.isArray(a)) flat.push(...a.map(fnArg));
+      else flat.push(fnArg(a));
     }
     for (let i = 0; i < flat.length; i++) {
+      // Fast path for ordinary arguments: EVERY magic marker starts with
+      // U+0001 (ARRAY_LIT/BADSUB/ARITH/PS/GLOB), so a single charCode test
+      // skips the three startsWith/equality probes per arg. The scan was
+      // measured at ~70ns of fnCall's ~150ns/call; the gate is ~2ns.
+      // Non-strings (the raw builder objects exec passes through) and the
+      // empty string can never carry a marker.
+      if (typeof flat[i] !== 'string' || flat[i].charCodeAt(0) !== 1) continue;
       if (flat[i] === ARRAY_LIT_MAGIC) {
         flat.splice(i, 1);
         i--;
@@ -1433,10 +1874,17 @@ export const sh2 = {
   fnValue(name, args = []) {
     const flat = [];
     for (const a of args) {
-      if (Array.isArray(a)) flat.push(...a.map(String));
-      else flat.push(String(a));
+      if (Array.isArray(a)) flat.push(...a.map(fnArg));
+      else flat.push(fnArg(a));
     }
     for (let i = 0; i < flat.length; i++) {
+      // Fast path for ordinary arguments: EVERY magic marker starts with
+      // U+0001 (ARRAY_LIT/BADSUB/ARITH/PS/GLOB), so a single charCode test
+      // skips the three startsWith/equality probes per arg. The scan was
+      // measured at ~70ns of fnCall's ~150ns/call; the gate is ~2ns.
+      // Non-strings (the raw builder objects exec passes through) and the
+      // empty string can never carry a marker.
+      if (typeof flat[i] !== 'string' || flat[i].charCodeAt(0) !== 1) continue;
       if (flat[i] === ARRAY_LIT_MAGIC) {
         flat.splice(i, 1);
         i--;
@@ -1476,7 +1924,11 @@ export const sh2 = {
     } catch (e) {
       // `return N` inside a loop body is a sh2.return Signal; the loop
       // rethrows it and the function call turns it into the value.
-      if (isSignal(e, 'RETURN')) r = undefined;
+      // `returnSignalValue` hands back what `return e` carried (the
+      // lifted-define boundary does the same — see shir.rs
+      // wrap_return_signal_catch); returning `undefined` here dropped the
+      // value of EVERY function whose return sits inside a loop.
+      if (isSignal(e, 'RETURN')) r = this.returnSignalValue(e);
       else throw e;
     } finally {
       this.positional = saved;
@@ -1492,6 +1944,32 @@ export const sh2 = {
   // evaluation is sound for the pure-expression subset.
   ternary(cond, a, b) {
     return cond ? a : b;
+  },
+
+  // `int(v)` — the integer-attribute coercion (typeset -i, src/transforms/
+  // typeset_attrs.rs emits `int(arith)` for every LATER assignment to an
+  // integer-attributed variable). Truncate toward zero, matching the arith
+  // evaluator's `int:` (Math.trunc) and Python/Perl `int()`. A non-numeric
+  // value is 0, exactly as an unknown NAME is 0 in bash arithmetic
+  // (`typeset -i n; n="hello"` → 0). This is a top-level `sh2.int` CALL node
+  // (not an inline arith() call), so the reference executor needs the method
+  // here — without it the estree arm of typeset-cmdsub.sh crashed with
+  // `TypeError: sh2.int is not a function`.
+  int(v) {
+    const n = Number(v);
+    return Number.isNaN(n) ? 0 : Math.trunc(n);
+  },
+
+  // `lc(v)` / `uc(v)` — the case-fold attributes (typeset -l / -u, same
+  // typeset_attrs.rs emit as `int`). The transform folds ASCII-safe LITERALS
+  // at compile time; these runtime calls cover the values it cannot fold
+  // (dynamic / non-ASCII), mirroring the arith/Perl backends' lc()/uc().
+  lc(v) {
+    return String(v ?? '').toLowerCase();
+  },
+
+  uc(v) {
+    return String(v ?? '').toUpperCase();
   },
 
   // `lit(v)` — the opaque quoted-literal marker (src/shir.rs IrExpr::Str,
@@ -1579,6 +2057,12 @@ export const sh2 = {
 
   // ── test expressions ───────────────────────────────────────────────
   test(expr, style) {
+    const isDouble = style === '[['; // one flag for tokenize, parse AND eval
+    const text = String(expr);
+    // parse cache (see testParseCache): keyed on the dialect + the exact
+    // text, the only inputs the parser has. The key is prefixed with a
+    // NUL so no text can collide across dialects.
+    const key = (isDouble ? '\u0000[[' : '\u0000[') + text;
     try {
       // `[[ ]]` (the emitter tags the call with a second `"[["` arg):
       // bash does NOT word-split in `[[ ]]` — an unquoted expansion that
@@ -1587,9 +2071,14 @@ export const sh2 = {
       // present). In `[ ]` the empty vanishes (word-splitting) and a
       // lone `-n` becomes a non-empty string test (true) — the two must
       // differ.
-      const [tokens, tokenQuoted] = tokenizeTest(expr, style === '[[');
-      const ast = parseTest(tokens, tokenQuoted);
-      const r = evalTest(ast, this, style === '[[');
+      let ast = testParseCache.get(key);
+      if (ast === undefined) {
+        const [tokens, tokenQuoted] = tokenizeTest(text, isDouble);
+        ast = parseTest(tokens, tokenQuoted);
+        if (testParseCache.size >= 1024) testParseCache.clear();
+        testParseCache.set(key, ast);
+      }
+      const r = evalTest(ast, this, isDouble);
       this.lastExit = r ? 0 : 1;
       return r;
     } catch (e) {
@@ -1614,6 +2103,28 @@ export const sh2 = {
     return evalUnary(flag, arg, this);
   },
 
+  // `[ a -ef b ]` / `[ a -nt b ]` / `[ a -ot b ]` — the emitter's native
+  // binary file-op lowering (src/shir.rs try_native_test_unstatused): the
+  // runtime's evalTest arms for these three are literally the helpers
+  // below (`statTime` / `statInfo`), so the direct call is the SAME value
+  // minus the test-string tokenize + parse + dispatch. Pure value: the
+  // EMITTER records the status (`$?`) via its native-test protocol (see
+  // native_test_statused) — the helper must not write lastExit itself.
+  fileTest2(op, a, b) {
+    const l = String(a);
+    const r = String(b);
+    switch (op) {
+      case '-nt': return statTime(l) > statTime(r);
+      case '-ot': return statTime(l) < statTime(r);
+      case '-ef': {
+        const x = statInfo(l);
+        const y = statInfo(r);
+        return !!(x && y && x.dev === y.dev && x.ino === y.ino);
+      }
+      default: return false;
+    }
+  },
+
 // ── command substitution ───────────────────────────────────────────
   async capture(fn) {
     const saved = this.fdTargets[1];
@@ -1623,7 +2134,13 @@ export const sh2 = {
     try {
       await fn();
       // bash command substitution strips NUL bytes from the captured output.
-      const out = this.fdTargets[1].buf.replace(/\u0000/g, '').replace(/\n+$/, '');
+      // A raw builder value (see captureAppend/captureFinish) bypasses the
+      // text strips — it is a value, not output text.
+      const raw = captureFinish(this.fdTargets[1].buf);
+      if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
+        return raw;
+      }
+      const out = String(raw).replace(/\u0000/g, '').replace(/\n+$/, '');
       return this.resolveTempResult(out);
     } finally {
       this.fdTargets[1] = saved;
@@ -1679,7 +2196,13 @@ captureSync(fn) {
     this.captureStart = Date.now();
     try {
       fn();
-      const out = this.fdTargets[1].buf.replace(/\u0000/g, '').replace(/\n+$/, '');
+      const raw = captureFinish(this.fdTargets[1].buf);
+      if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
+        // a raw builder value: no text strips apply — hand it straight
+        // through (resolveTempResult only handles temp names).
+        return raw;
+      }
+      const out = String(raw).replace(/\u0000/g, '').replace(/\n+$/, '');
       return this.resolveTempResult(out);
     } finally {
       this.fdTargets[1] = saved;
@@ -1960,7 +2483,7 @@ captureSync(fn) {
         // the kernel char device, never a replaced regular file; a write
         // to it can never fail, so the discard's silent success matches
         // GNU's status-0 behavior).
-        if (t === '/dev/null' && process.env.SH2_ASSUME_DEVNULL !== '0') {
+        if (t === '/dev/null' && ASSUME_DEVNULL) {
           this.fdTargets[fd] = { kind: 'discard' };
           continue;
         }
@@ -2019,6 +2542,15 @@ captureSync(fn) {
       if (s.mode === 'w' || s.mode === 'a' || s.mode === 'wc') {
         const t = expandWord(this, String(s.target));
         if (/^&\d+$/.test(t) || t === '&-' || t === '-') continue;
+        // `/dev/null`: _applyRedirectSpecs already installed a discard
+        // target without touching the filesystem (the SH2_ASSUME_DEVNULL
+        // documented assumption — the device exists and a write to it can
+        // never fail), so there is nothing to create. Skipping the
+        // existsSync matters: it was a syscall per call (~5µs measured on
+        // this box), and `cmd 2>/dev/null` inside a loop paid it per
+        // iteration. Bash's O_CREAT|O_TRUNC open on the char device is a
+        // no-op too.
+        if (t === '/dev/null' && ASSUME_DEVNULL) continue;
         if (!fs.existsSync(t)) {
           try { fs.closeSync(fs.openSync(t, 'w')); } catch { /* unwritable target: bash reports, we ignore */ }
         }
@@ -2044,6 +2576,31 @@ captureSync(fn) {
     }
   },
 
+  // execRedirect(name, args, env, specs) — the ONE-CALL collapse of
+  //   redirect(() => exec(name, args, env), specs)
+  // (src/shir.rs try_exec_redirect_collapse / try_exec_redirect_call).
+  // Semantics are the composition, in order — save the fd table, apply the
+  // specs, run the exec bridge, create the standalone targets, then the
+  // restore/persist pass — so the child sees exactly the same fd targets
+  // and every status (including lastExit) is identical. Only the per-site
+  // arrow allocation and one call frame go away, which is the ladder's
+  // "one fewer runtime call" rung for the corpus's most common redirect
+  // shape (`CMD ARGS > file` with a spawning command).
+  async execRedirect(name, args = [], env = undefined, specs = []) {
+    if (!Array.isArray(specs) || specs.length === 0) return this.exec(name, args, env);
+    const saved = { ...this.fdTargets };
+    const persistent = specs.filter(s => s.persist);
+    try {
+      if (!this._applyRedirectSpecs(specs, saved, true)) return false;
+      await this.exec(name, args, env);
+      this._ensureRedirectFiles(specs);
+      return this.lastExit === 0;
+    } finally {
+      this.fdTargets = saved;
+      this._applyRedirectSpecs(persistent, saved, false);
+    }
+  },
+
   // Sync twin of redirect for PROVABLY-AWAIT-FREE bodies (see
   // captureSync): the exact same spec install, body run, standalone-file
   // creation, restore + persist logic — minus the await. An await-free
@@ -2065,12 +2622,57 @@ captureSync(fn) {
   },
 
   // ── pipelines ──────────────────────────────────────────────────────
-  async pipeline(stages) {
+  // _nativeStage(stage, prev, statuses) — run a NATIVE pipeline stage: an
+  // arrow that declares ONE parameter is a pure text transform (src/shir.rs
+  // native_pipeline_stage — head/tail/wc/cat/awk field-print). It receives
+  // the previous stage's output and returns `[text, status]` (a bare value
+  // is text with status 0). Returns the stage's stdout text, or undefined
+  // when the stage is not a native one (the caller keeps the builtin path).
+  _nativeStage(stage, prev, statuses) {
+    if (typeof stage !== 'function' || stage.length < 1) return undefined;
+    const r = stage(prev);
+    const text = Array.isArray(r) ? String(r[0] ?? '') : String(r ?? '');
+    this.lastExit = Array.isArray(r) ? (Number(r[1]) || 0) : 0;
+    statuses.push(this.lastExit);
+    return text;
+  },
+
+  async pipeline(stages, capSpec) {
     const saved = { ...this.fdTargets };
     let prev = null;
     const statuses = [];
+    // Producer cap for a 2-stage `PRODUCER | head -N` (see capCapture).
+    // Only stage 0's sink is bounded: with more stages the intermediate
+    // stage's view of the producer's output would change, so the emitter
+    // only ever passes a cap for a two-stage pipeline.
+    const producerCap = capSpec && stages.length === 2 ? capSpec : null;
     try {
       for (let i = 0; i < stages.length; i++) {
+        // NATIVE STAGE (src/shir.rs native_pipeline_stage): an arrow that
+        // declares ONE parameter is a pure text transform — it receives the
+        // previous stage's output and returns `[text, status]`. No fd-target
+        // install, no readFd0, no builtin dispatch: the last stage's text
+        // goes through emit() (the current fd-1 sink, exactly where the
+        // builtin would write) and every other stage's text becomes the next
+        // stage's stdin. The formulas are the builtins' own arithmetic, so
+        // this is value-identical to running the builtin.
+        if (i > 0 && prev !== null) {
+          const native = this._nativeStage(stages[i], prev, statuses);
+          if (native !== undefined) {
+            // The LAST stage writes through the CALLER's fd-1 sink. The
+            // previous iteration left fdTargets[1] pointing at this
+            // pipeline's own inter-stage capture buffer, so emitting
+            // without restoring the sink first SWALLOWED the output:
+            // `echo one | cat` printed nothing, and `$(echo one; echo two
+            // | wc -l)` lost its `1` (cat/head/wc/cut are native last
+            // stages — 2026-10-24, t03_pipeline). Restore, then emit.
+            if (i === stages.length - 1) {
+              this.fdTargets[1] = saved[1];
+              emit(this, native);
+            } else prev = native;
+            continue;
+          }
+        }
         if (typeof stages[i] !== 'function') {
           // String stage — the emitter's `echo ARGS | ...` collapse (see
           // src/shir.rs try_echo_stage_text): the stage expression is a
@@ -2088,6 +2690,7 @@ captureSync(fn) {
         else if (i === 0) this.fdTargets[0] = saved[0];
         if (i < stages.length - 1) this.fdTargets[1] = { kind: 'capture', buf: '' };
         else this.fdTargets[1] = saved[1];
+        if (i === 0 && producerCap) this.fdTargets[1].cap = producerCap;
         await stages[i]();
         statuses.push(this.lastExit);
         const cap = this.fdTargets[1];
@@ -2106,12 +2709,34 @@ captureSync(fn) {
   // to completion synchronously; an await-free stage cannot yield, so no
   // background job can interleave mid-pipeline (the async form's awaits
   // allowed exactly that — this is closer to bash's sequential pipes).
-  pipelineSync(stages) {
+  pipelineSync(stages, capSpec) {
     const saved = { ...this.fdTargets };
     let prev = null;
     const statuses = [];
+    // Producer cap — same contract as the async twin above (capCapture).
+    const producerCap = capSpec && stages.length === 2 ? capSpec : null;
     try {
       for (let i = 0; i < stages.length; i++) {
+        // NATIVE STAGE — same contract as `pipeline` above (the twin must
+        // stay behaviorally identical; the arrow is pure CPU, so running it
+        // inline keeps the *Sync no-blocking-I/O rule).
+        if (i > 0 && prev !== null) {
+          const native = this._nativeStage(stages[i], prev, statuses);
+          if (native !== undefined) {
+            // The LAST stage writes through the CALLER's fd-1 sink. The
+            // previous iteration left fdTargets[1] pointing at this
+            // pipeline's own inter-stage capture buffer, so emitting
+            // without restoring the sink first SWALLOWED the output:
+            // `echo one | cat` printed nothing, and `$(echo one; echo two
+            // | wc -l)` lost its `1` (cat/head/wc/cut are native last
+            // stages — 2026-10-24, t03_pipeline). Restore, then emit.
+            if (i === stages.length - 1) {
+              this.fdTargets[1] = saved[1];
+              emit(this, native);
+            } else prev = native;
+            continue;
+          }
+        }
         if (typeof stages[i] !== 'function') {
           prev = String(stages[i] ?? '');
           statuses.push(this.lastExit);
@@ -2121,6 +2746,7 @@ captureSync(fn) {
         else if (i === 0) this.fdTargets[0] = saved[0];
         if (i < stages.length - 1) this.fdTargets[1] = { kind: 'capture', buf: '' };
         else this.fdTargets[1] = saved[1];
+        if (i === 0 && producerCap) this.fdTargets[1].cap = producerCap;
         stages[i]();
         statuses.push(this.lastExit);
         const cap = this.fdTargets[1];
@@ -2130,6 +2756,49 @@ captureSync(fn) {
       return this.lastExit === 0;
     } finally {
       this.fdTargets = saved;
+    }
+  },
+
+  // pipelineCaptureSync(stages, capSpec) / pipelineCapture(stages, capSpec)
+  // — the ONE-CALL collapse of
+  //   captureSync(() => pipelineSync(stages, capSpec))
+  //   capture(() => pipeline(stages, capSpec))
+  // (src/shir.rs native_capture_pipeline). The capture IS the pipeline's
+  // fd-1 sink, so the composition is exactly: install the capture target,
+  // run the stages (their last stage writing through the saved sink = the
+  // capture buffer), then the capture's own finish (null-byte strip,
+  // trailing-newline strip, node-temp resolution). Every value and status
+  // — including the pipeline's `pipeStatuses` and lastExit — is identical;
+  // the per-site arrow allocation and one call frame disappear.
+  pipelineCaptureSync(stages, capSpec) {
+    const savedTarget = this.fdTargets[1];
+    const savedStart = this.captureStart;
+    this.fdTargets[1] = { kind: 'capture', buf: '' };
+    this.captureStart = Date.now();
+    try {
+      this.pipelineSync(stages, capSpec);
+      const raw = captureFinish(this.fdTargets[1].buf);
+      if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) return raw;
+      return this.resolveTempResult(String(raw).replace(/\u0000/g, '').replace(/\n+$/, ''));
+    } finally {
+      this.fdTargets[1] = savedTarget;
+      this.captureStart = savedStart;
+    }
+  },
+
+  async pipelineCapture(stages, capSpec) {
+    const savedTarget = this.fdTargets[1];
+    const savedStart = this.captureStart;
+    this.fdTargets[1] = { kind: 'capture', buf: '' };
+    this.captureStart = Date.now();
+    try {
+      await this.pipeline(stages, capSpec);
+      const raw = captureFinish(this.fdTargets[1].buf);
+      if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) return raw;
+      return this.resolveTempResult(String(raw).replace(/\u0000/g, '').replace(/\n+$/, ''));
+    } finally {
+      this.fdTargets[1] = savedTarget;
+      this.captureStart = savedStart;
     }
   },
 
@@ -2143,6 +2812,14 @@ captureSync(fn) {
       if (globMatch(String(pat), ci ? v.toLowerCase() : v)) return p;
     }
     return undefined;
+  },
+
+  // globMatch(pattern, value) — the case-lowering transform's SHARED
+  // glob predicate (the same module-level matcher caseMatch dispatches
+  // with). Pattern first — the shIR call carries globMatch(value,
+  // pattern); the emitter swaps to this order.
+  globMatch(pattern, value) {
+    return globMatch(String(pattern), String(value ?? ''));
   },
 
   // ── functions ──────────────────────────────────────────────────────
@@ -2334,17 +3011,38 @@ captureSync(fn) {
     }
   },
 
-  grepText(text, args, captureMode) {
+  grepText(text, args, captureMode, specs) {
     const s = String(text ?? '');
-    const { opts, patterns } = parseGrepArgs(args, false);
-    const { matchRe, gRe } = grepRegexes(opts, patterns);
-    const out = [];
-    const selected = grepSelect(out, s, opts, matchRe, gRe, '', opts.byteOffset, opts.color);
-    const matched = selected > 0;
-    this.lastExit = matched ? 0 : 1;
-    if (captureMode) return out.join('');
-    if (out.length > 0) emit(this, out.join(''));
-    return matched;
+    const { opts, patterns } = grepParseCached(args, false);
+    const { matchRe, gRe } = grepRegexesCached(opts, patterns);
+    const run = () => {
+      const out = [];
+      const selected = grepSelect(out, s, opts, matchRe, gRe, '', opts.byteOffset, opts.color);
+      const matched = selected > 0;
+      this.lastExit = matched ? 0 : 1;
+      if (captureMode) return out.join('');
+      if (out.length > 0) emit(this, out.join(''));
+      return matched;
+    };
+    // `specs` (4th arg) is the emitter's pipeline-stage redirect collapse
+    // (`echo T | grep A > f`): install → emit → persist/restore, the SAME
+    // pass `builtin`'s 4th parameter runs around the same dispatch, so the
+    // bytes, the fd table and every status are identical — one call frame,
+    // one stage loop and one fd-target save fewer per site.
+    if (Array.isArray(specs) && specs.length > 0) {
+      const saved = { ...this.fdTargets };
+      const persistent = specs.filter((sp) => sp.persist);
+      try {
+        if (!this._applyRedirectSpecs(specs, saved, true)) return false;
+        const r = run();
+        this._ensureRedirectFiles(specs);
+        return r;
+      } finally {
+        this.fdTargets = saved;
+        this._applyRedirectSpecs(persistent, saved, false);
+      }
+    }
+    return run();
   },
 
   // cutText(text, args, captureMode) — the sync twin of the cut builtin
@@ -2875,8 +3573,13 @@ captureSync(fn) {
   // ref holding the copied items; the source list is untouched
   // (`x.out[mark:]` / `x.out[:mark]` on struct-field slices).
   listSlice(id, lo, hi) {
-    const o = this._objStore.get(String(id));
-    const items = o && o.kind === 'list' ? o.items : [];
+    // an INLINE array (a derefGet of an array-backed store, a struct-
+    // literal field value) slices directly — the same tolerance
+    // listGet/listLen already carry; without it
+    // `*rest = (*rest)[1:]` over a pointer-to-array ref silently
+    // sliced a phantom EMPTY list.
+    const items = Array.isArray(id) ? id
+      : (() => { const o = this._objStore.get(String(id)); return o && o.kind === 'list' ? o.items : []; })();
     const l = Math.max(0, Number(lo) || 0);
     const h = hi == null ? items.length : Math.min(items.length, Number(hi) || 0);
     const nid = 'list#' + (++this._objSeq);
@@ -3113,14 +3816,27 @@ captureSync(fn) {
   // listExtend(dst, src) — append ALL of src's items onto dst
   // (Go `append(dst, src...)` variadic spread over a list value);
   // returns the dst id so objSet chains.
+  //
+  // A NON-list src is a ONE-ELEMENT splice, not a no-op: the
+  // go-sh frontend's `return []map[string]any{stmt}` echoes a
+  // single-statement list through the value channel, which
+  // resolveTempResult freezes to the statement OBJECT (not a
+  // list-of-one). Treating that as empty silently dropped every
+  // single-statement body (self-host: `x := 1` vanished from
+  // parseStmt's result while multi-statement bodies survived).
   listExtend(dst, src) {
     const d = this._objStore.get(String(dst));
     if (!d || d.kind !== 'list') return dst;
-    let s = this._objStore.get(String(src));
-    if (!s || s.kind !== 'list') {
-      s = { items: [] };
+    const s = this._objStore.get(String(src));
+    if (s && s.kind === 'list') {
+      for (const it of s.items) d.items.push(it);
+      return dst;
     }
-    for (const it of s.items) d.items.push(it);
+    // one-element splice: a resolved statement object (or any single
+    // value) appends as one item; a genuinely empty/absent src appends
+    // nothing (Go's nil-slice spread).
+    if (src === undefined || src === null || src === '' || src === dst) return dst;
+    d.items.push(src);
     return dst;
   },
   mapNew() {
@@ -3228,6 +3944,61 @@ captureSync(fn) {
     const id = 'list#' + (++this._objSeq);
     this._objStore.set(id, { kind: 'list', items: parts });
     return id;
+  },
+
+  // strStripPrefix(s, p) / strStripSuffix(s, p) — Rust's
+  // `str::strip_prefix` / `strip_suffix`: Some(rest) after an exact
+  // affix, None otherwise. The store's option model is Some(v) ≡ v /
+  // None ≡ "" (t109), so a miss answers "" — what the caller's
+  // if-let/matches! already reads as None. Exact for any affix,
+  // including the empty one (startsWith("") is true and slice(0) is
+  // the whole string, the same Some(s) Rust answers).
+  strStripPrefix(s, p) {
+    const t = String(s ?? ''), q = String(p ?? '');
+    return t.startsWith(q) ? t.slice(q.length) : '';
+  },
+  strStripSuffix(s, p) {
+    const t = String(s ?? ''), q = String(p ?? '');
+    return t.endsWith(q) ? t.slice(0, t.length - q.length) : '';
+  },
+
+  // strIsAsciiAlnum(s) — Rust's `str::is_ascii_alphanumeric`: EVERY
+  // char is in [0-9A-Za-z], vacuously true for the empty string (the
+  // one edge a naive regex-with-+ would invert).
+  strIsAsciiAlnum(s) {
+    return /^[0-9A-Za-z]*$/.test(String(s ?? ''));
+  },
+
+  // strChars(s) — Rust `s.chars()`: Unicode SCALAR VALUES, so a char
+  // outside the BMP is ONE element where split("") would yield the two
+  // UTF-16 surrogate halves ("😀" → 1 element, not 2), and the empty
+  // string yields zero elements. Returns a native array: the caller
+  // adopts it through setArray's Array.isArray splice, so no element
+  // ever passes through expandWord (a line containing `$(` stays
+  // literal text).
+  strChars(s) {
+    return [...String(s ?? '')];
+  },
+
+  // strLines(s) — Rust `s.lines()` exactly (verified against rustc):
+  // split on `\n`, strip a `\r` only when it is part of a `\r\n`
+  // terminator, and a final newline does NOT yield a trailing empty
+  // line — `""` → 0 lines, `"a\r\n\nb\r"` → ["a", "", "b\r"] (the
+  // unterminated final `\r` is content, not a terminator), `"a\n"` →
+  // ["a"]. Native array, same splice rule as strChars.
+  strLines(s) {
+    const t = String(s ?? '');
+    if (t === '') return [];
+    const parts = t.split('\n');
+    const strip = (l) => (l.endsWith('\r') ? l.slice(0, -1) : l);
+    if (t.endsWith('\n')) {
+      parts.pop();                       // the final terminator is optional
+      return parts.map(strip);           // every kept line ended in `\n`
+    }
+    const last = parts.pop();            // unterminated: its `\r` is content
+    const out = parts.map(strip);
+    out.push(last);
+    return out;
   },
   // num_add / num_sub / num_mul: arithmetic over arbitrary WORDS
   // (object-field reads, captures) — operands coerce through Number()
@@ -4086,21 +4857,32 @@ captureSync(fn) {
     return idx >= 0 && idx < arr.length ? String(arr[idx]) : '';
   },
 
-  // `arrayStore(name, idx, v)` — a C array write with a DYNAMIC index
-  // (the c-sh-go frontend's `a[i] = v` with i a variable). The baked-name
-  // `a[$i]` write target would resolve the subscript via the STORE
-  // (evalArith → getVar), which is stale for natively-lifted index vars;
-  // this call receives the index ALREADY lowered (the core's `arith` arm
-  // converts `$i` → the native binding) and writes the runtime array
-  // store directly — the mirror of arrayIndex. Like the setVar subscript
-  // path, an out-of-range index extends the array (bash sparse arrays).
+  // `arrayStore(name, idx, v)` — the WRITE twin of `arrayIndex`, and the
+  // lean form of `setVar("name[idx]", v)`. The name-text setVar path runs a
+  // subscript regex, a list# probe and an assoc/inner dispatch on EVERY
+  // call (measured 1.1-1.5 us against 0.6-0.9 us here); when the emitter
+  // has proven the base's kind it can name it directly. A C array write
+  // with a DYNAMIC index (the c-sh-go frontend's `a[i] = v`) is the other
+  // caller: the baked-name `a[$i]` write target would resolve the subscript
+  // via the STORE (evalArith → getVar), stale for natively-lifted index
+  // vars, so the index arrives ALREADY lowered. Like the setVar subscript
+  // path, an out-of-range index extends the array (bash sparse arrays) and
+  // an assoc base dispatches to the assoc store.
   arrayStore(name, idx, v) {
     const nm = String(name);
+    if (this.assocNames.has(nm)) {
+      if (!this.assocStore.has(nm)) this.assocStore.set(nm, new Map());
+      this.assocStore.get(nm).set(normAssocKey(String(idx)), String(v ?? ''));
+      return true;
+    }
     const arr = this.arrays.get(nm) ?? [];
     let i;
     try { i = evalArith(String(idx), this); } catch { return ARITH_BAD_MAGIC; }
     arr[i] = String(v ?? '');
     this.arrays.set(nm, arr);
+    // truthy on every path, like setVar — a statement-position store write
+    // must never make the errexit guard fire
+    return true;
   },
 
   // ── sh2.mem — allocation_id + offset pointer emulation (slice 1) ──────
@@ -4287,6 +5069,26 @@ captureSync(fn) {
       case '//': return substGlob(this, v, a, b);
       case '/': return substGlobFirst(this, v, a, b);
       case ':-': return v !== '' ? v : expandWord(this, a ?? '');
+      // `${x:+y}` — the ALTERNATE-VALUE twin of `:-`: y only when x is
+      // SET AND NON-EMPTY, else the empty string. Distinct from `:-`
+      // (which yields the DEFAULT on empty); the A1 carries `:+` for it
+      // since zig-20261021-param-lowering-gaps.
+      case ':+': return v !== '' ? expandWord(this, a ?? '') : '';
+      // `${x+w}` — the ALTERNATE word when x is SET (set-but-empty
+      // counts; strictly weaker than `:+`). A trailing `value` override
+      // means the emitter inlined a LIFTED binding, which always exists;
+      // otherwise bash's set-ness is key presence in the store, an
+      // array/assoc declaration, or the environment (the same fallbacks
+      // getVar uses).
+      case '+': {
+        const isSet = value !== undefined
+          ? true
+          : (name in this.vars)
+            || this.arrays.has(name)
+            || this.assocNames.has(name)
+            || (name in process.env);
+        return isSet ? expandWord(this, a ?? '') : '';
+      }
       case ':=':
         if (v === '') { const d = expandWord(this, a ?? ''); this.setVar(name, d); return d; }
         return v;
@@ -4438,7 +5240,13 @@ captureSync(fn) {
           return [...slice];
         }
         const off = sliceOff(a);
-        if (b !== undefined && b !== null && b !== '') return v.slice(off, off + (sliceLen(b) || 0));
+        if (b !== undefined && b !== null && b !== '') {
+          // A NEGATIVE length means "stop |len|-1 characters before the
+          // end" — the end index is v.length + len, not off + len
+          // (`s=hello; ${s:1:-1}` → ell).
+          const ln = sliceLen(b) || 0;
+          return v.slice(off, ln < 0 ? v.length + ln : off + ln);
+        }
         return v.slice(off);
       }
       case '': return v;
@@ -4709,7 +5517,29 @@ captureSync(fn) {
 
   return(value) {
     this.lastExit = value === undefined || value === null ? 0 : Number(value);
-    throw new Signal('RETURN', this.lastExit);
+    throw new Signal('RETURN', this.lastExit, value);
+  },
+
+  // The value a swallowed RETURN signal carried — what a lifted define's
+  // catch boundary returns to its caller. `raw` is the original `return e`
+  // argument; fall back to the signal's numeric payload (older call sites
+  // that construct the signal without `raw`) and finally to `lastExit`.
+  // Shell call sites are unaffected: they read `sh2.lastExit` through their
+  // status sequence, never the define's JS return value.
+  returnSignalValue(e) {
+    if (e && e.raw !== undefined && e.raw !== null) return e.raw;
+    if (e && e.value !== undefined) return e.value;
+    return this.lastExit;
+  },
+
+  // `isReturnSignal(e)` — the RETURN-signal test. A lifted define
+  // (POSITIONAL_LOCAL / param lift) is called as a plain native function, so
+  // it owns the RETURN boundary `fnCall`/`callDirect` provide: a shell
+  // `return` inside one of its runtime loop bodies arrives here as a thrown
+  // Signal, and the define's catch must swallow exactly that (every other
+  // exception rethrows). Emitted once per lifted define that needs it.
+  isReturnSignal(e) {
+    return isSignal(e, 'RETURN');
   },
 
   break() {
@@ -4921,7 +5751,10 @@ captureSync(fn) {
 
 // ── control signals ──────────────────────────────────────────────────
 class Signal {
-  constructor(kind, value) { this.kind = kind; this.value = value; }
+  // `raw` is the ORIGINAL `return e` argument (added for the lifted-define
+  // boundary: `Number("abc")` is NaN, so the numeric status alone cannot
+  // carry a string value back to a value-position caller).
+  constructor(kind, value, raw) { this.kind = kind; this.value = value; this.raw = raw; }
 }
 function isSignal(e, kind) { return e instanceof Signal && e.kind === kind; }
 
@@ -4929,6 +5762,15 @@ function isSignal(e, kind) { return e instanceof Signal && e.kind === kind; }
 const builtins = {};
 
 builtins.echo = function (args) {
+  // A non-scalar argument is an A1 builder value (`echo [jsonObject(…)]`
+  // — the go-sh frontend's statement-list return), not shell text:
+  // `join(' ')` would freeze it as "[object Object]". Emit it as-is.
+  const nonscalar = args.filter((a) => a !== null && typeof a === 'object');
+  if (nonscalar.length === 1 && args.length === 1) {
+    this.lastExit = 0;
+    emit(this, nonscalar[0]);
+    return true;
+  }
   let text;
   if (args[0] === '-n') text = args.slice(1).join(' ');
   else if (args[0] === '-e') text = args.slice(1).join(' ').replace(/\\n/g, '\n').replace(/\\t/g, '\t');
@@ -5489,7 +6331,7 @@ builtins.true = function () { this.lastExit = 0; return true; };
 // the emitter only lowers the bare form (try_native_env_stmt), so any
 // arg that reaches the builtin is an emitter bug.
 builtins.env = function (args) {
-  if (process.env.SH2_ASSUME_ENV === '0') { this.lastExit = 127; return false; }
+  if (!ASSUME_ENV) { this.lastExit = 127; return false; }
   if (args.length > 0) {
     throw new Error(`sh2.builtin: env with args is not a sync builtin form (${args[0]})`);
   }
@@ -5744,7 +6586,7 @@ builtins.basename = function (args) {
 // GNU/Linux box where these mappings are exact; a non-Linux host could
 // diverge from GNU (SH2_ASSUME_UNAME=0 restores the spawn).
 builtins.uname = function (args) {
-  if (process.env.SH2_ASSUME_UNAME === '0') { this.lastExit = 127; return false; }
+  if (!ASSUME_UNAME) { this.lastExit = 127; return false; }
   const sys = os.platform() === 'linux' ? 'Linux' : os.platform() === 'darwin' ? 'Darwin' : os.platform();
   const machine = ({ x64: 'x86_64', arm64: 'aarch64', ia32: 'i686' })[os.arch()] ?? os.arch();
   const fields = {
@@ -5798,7 +6640,7 @@ builtins.uname = function (args) {
 // the same minute, so time-dependent values agree (SH2_ASSUME_DATE=0
 // restores the spawn).
 builtins.date = function (args) {
-  if (process.env.SH2_ASSUME_DATE === '0') { this.lastExit = 127; return false; }
+  if (!ASSUME_DATE) { this.lastExit = 127; return false; }
   let fmt = null;
   let utc = false;
   for (const a of args) {
@@ -5915,7 +6757,7 @@ builtins.readlink = function (args) {
 // (3) the mtime display uses local time (like GNU) and the 6-month
 // year-switch window is never straddled by the corpus.
 builtins.ls = function (args) {
-  if (process.env.SH2_ASSUME_LS === '0') { this.lastExit = 127; return false; }
+  if (!ASSUME_LS) { this.lastExit = 127; return false; }
   let long = false, all = false, almostAll = false;
   let dirFlag = false;
   const files = [];
@@ -6068,7 +6910,13 @@ builtins.ls = function (args) {
     }
     dirEntries.push([d, entries]);
   }
-  const w = widthsOf([...fileEntries, ...dirOwn]);
+  // The column widths exist ONLY for `-l` (longLine). Computing them
+  // unconditionally made every plain `ls` pay the owner/group scan — a
+  // full read of /etc/passwd AND /etc/group — for widths nothing reads.
+  // Measured on this box: `ls` 135 µs → 12 µs (the manual
+  // readdir+lstat+sort work is 9.6 µs); the corpus's 21 `ls` sites all
+  // use the short form.
+  const w = long ? widthsOf([...fileEntries, ...dirOwn]) : null;
   let out = '';
   if (fileEntries.length > 0) {
     for (const [n, st] of fileEntries) out += (long ? longLine(n, st, w) : n) + '\n';
@@ -6083,7 +6931,7 @@ builtins.ls = function (args) {
       for (const [, st] of entries) total += st.blocks;
       out += `total ${Math.floor((total * 512) / 1024)}\n`;
     }
-    const dw = widthsOf(entries);
+    const dw = long ? widthsOf(entries) : null;
     for (const [n, st] of entries) out += (long ? longLine(n, st, dw) : n) + '\n';
   }
   if (out) emit(this, out);
@@ -6098,7 +6946,7 @@ builtins.ls = function (args) {
 // ASSUMPTION (option-gated): SH2_ASSUME_WHICH=0 restores the spawn; the
 // PATH walk uses process.env.PATH exactly like the spawned binary would.
 builtins.which = function (args) {
-  if (process.env.SH2_ASSUME_WHICH === '0') { this.lastExit = 127; return false; }
+  if (!ASSUME_WHICH) { this.lastExit = 127; return false; }
   const out = [];
   let missed = false;
   for (const raw of args) {
@@ -6138,7 +6986,7 @@ builtins.which = function (args) {
 // the node os.hostname() value equals the system hostname on GNU/Linux
 // (verified — both read the same utsname field).
 builtins.hostname = function (args) {
-  if (process.env.SH2_ASSUME_HOSTNAME === '0') { this.lastExit = 127; return false; }
+  if (!ASSUME_HOSTNAME) { this.lastExit = 127; return false; }
   if (args.length > 0 && typeof args[0] === 'string' && args[0].startsWith('-')) {
     process.stderr.write(`hostname: invalid option -- '${args[0].slice(1)}'\n`);
     this.lastExit = 1;
@@ -6368,7 +7216,7 @@ builtins.egrep = function (args) {
 builtins.grep = function (args) {
   let parsed;
   try {
-    parsed = parseGrepArgs(args, true);
+    parsed = grepParseCached(args, true);
   } catch (e) {
     // a missing -f pattern file is a real grep error (exit 2), not an
     // emitter bug — report like GNU and fail the status
@@ -6382,7 +7230,7 @@ builtins.grep = function (args) {
   const { opts, patterns, files } = parsed;
   let matchRe, gRe;
   try {
-    ({ matchRe, gRe } = grepRegexes(opts, patterns));
+    ({ matchRe, gRe } = grepRegexesCached(opts, patterns));
   } catch (e) {
     // an invalid BRE/ERE pattern: GNU reports to fd-2 and exits 2 with
     // no output — replicate (the message text is not corpus-observed)
@@ -7825,22 +8673,31 @@ builtins.find = function (args) {
   }
   const starts = operands.length ? operands : ['.'];
   let failed = false;
+  // SIGPIPE emulation: when the downstream consumer is a bounded `head`
+  // (the emitter's pipeline_head_cap), the pipeline caps this builtin's
+  // fd-1 sink and the rest of the walk is work whose output is discarded —
+  // exactly what happens to real find when head exits. Abort the walk and
+  // report the status bash reports for a SIGPIPE'd stage (141). Without a
+  // cap (sinkClosed is false) nothing changes.
+  let piped = false;
   // dir/file flags come from lstat semantics: the starting operand is
   // stat'ed, children carry their raw dirent types (a symlink is neither
   // f nor d and is never descended — GNU without -L).
   const walk = (dir, depth, isDir, isFile) => {
+    if (piped) return;
     const bn = path.basename(dir);
     const nameOk = namePat === null || globMatch(namePat, bn);
     const typeOk = type === null || (type === 'f' ? isFile : isDir);
     if (nameOk && typeOk && depth >= mindepth && depth <= maxdepth) {
       emit(this, dir + '\n');
+      if (sinkClosed(this)) { piped = true; return; }
     }
     if (!isDir || depth >= maxdepth) return;
     let dh;
     try { dh = fs.opendirSync(dir); } catch { failed = true; return; }
     try {
       let e;
-      while ((e = dh.readSync()) !== null) {
+      while (!piped && (e = dh.readSync()) !== null) {
         walk(dir + '/' + e.name, depth + 1, e.isDirectory(), e.isFile());
       }
     } finally {
@@ -7848,6 +8705,7 @@ builtins.find = function (args) {
     }
   };
   for (const s of starts) {
+    if (piped) break;
     const base = s.replace(/\/+$/, '') || '/';
     let st = null;
     try { st = fs.lstatSync(base); } catch {
@@ -7857,7 +8715,7 @@ builtins.find = function (args) {
     }
     walk(base, 0, st.isDirectory(), st.isFile());
   }
-  this.lastExit = failed ? 1 : 0;
+  this.lastExit = piped ? 141 : (failed ? 1 : 0);
   return !failed;
 };
 
@@ -7889,7 +8747,7 @@ builtins.find = function (args) {
 //     uses zlib's header (mtime 0), which differs from GNU's bytes;
 //     a corrupt stream fails exit 2 (GNU).
 function nativeToolsEnabled() {
-  return process.env.SH2_ASSUME_NATIVE_TOOLS !== '0';
+  return ASSUME_NATIVE_TOOLS;
 }
 
 // rm — GNU status semantics: every operand is attempted; a failure
@@ -8041,6 +8899,132 @@ builtins.mv = function (args) {
   return !failed;
 };
 
+// ln — hard and symbolic links (the GNU coreutils surface the corpus
+// uses): `ln [-s] [-f] TARGET LINKNAME`, `ln SRC... DIR`, `--`. `-f`
+// unlinks an existing destination first (GNU: without it an existing
+// link fails status 1). `-s` creates a SYMBOLIC link whose target text is
+// stored verbatim (relative stays relative, exactly like GNU); otherwise
+// a hard link (fs.linkSync — the same inode, so `test -ef` matches).
+builtins.ln = function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
+  let symbolic = false, force = false;
+  const operands = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--') { operands.push(...args.slice(i + 1)); break; }
+    else if (/^-[sfnvT]+$/.test(a)) {
+      for (const c of a.slice(1)) {
+        if (c === 's') symbolic = true;
+        else if (c === 'f') force = true;
+      }
+    }
+    else if (a.startsWith('-') && a.length > 1) {
+      emitErr(this, `ln: invalid option -- '${a[1]}'\n`);
+      this.lastExit = 1;
+      return false;
+    }
+    else operands.push(a);
+  }
+  if (operands.length < 2) {
+    emitErr(this, 'ln: missing destination file operand after\n');
+    this.lastExit = 1;
+    return false;
+  }
+  const srcs = operands.slice(0, -1);
+  const dst = operands[operands.length - 1];
+  let dstIsDir = false;
+  try { dstIsDir = fs.statSync(dst).isDirectory(); } catch { /* fresh path */ }
+  if (srcs.length > 1 && !dstIsDir) {
+    emitErr(this, `ln: target '${dst}': Not a directory\n`);
+    this.lastExit = 1;
+    return false;
+  }
+  let failed = false;
+  for (const src of srcs) {
+    const target = dstIsDir ? path.join(dst, path.basename(src)) : dst;
+    try {
+      if (force) { try { fs.unlinkSync(target); } catch { /* absent */ } }
+      if (symbolic) fs.symlinkSync(src, target);
+      else fs.linkSync(src, target);
+    } catch (e) {
+      const kind = symbolic ? 'symbolic link' : 'hard link';
+      const msg = e.code === 'EEXIST' ? 'File exists'
+        : e.code === 'ENOENT' ? 'No such file or directory' : e.message;
+      emitErr(this, `ln: failed to create ${kind} '${target}': ${msg}\n`);
+      failed = true;
+    }
+  }
+  this.lastExit = failed ? 1 : 0;
+  return !failed;
+};
+
+// strings — GNU binutils' printable-run extractor, the shapes the corpus
+// uses: FILE operands, `-`/absent = the current fd-0 target, `-n N`/`-N`
+// minimum run length (default 4), `-a`/`--all` (the default — no section
+// scanning). A run is a maximal span of printable bytes (0x20..0x7E);
+// runs shorter than N are dropped and each surviving run is one line.
+// A missing/unreadable file reports on fd-2 and fails the status 1 while
+// the remaining operands still run (GNU's own continuation).
+builtins.strings = function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
+  let min = 4;
+  const files = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--') { files.push(...args.slice(i + 1)); break; }
+    else if (a === '-a' || a === '--all' || a === '-') { files.push(a); }
+    else if (a === '-n' || a === '--bytes') {
+      const n = Number(args[++i]);
+      if (!Number.isFinite(n) || n < 1) {
+        emitErr(this, `strings: invalid number of bytes: '${args[i]}'\n`);
+        this.lastExit = 1;
+        return false;
+      }
+      min = Math.trunc(n);
+    }
+    else if (/^-\d+$/.test(a)) { min = Number(a.slice(1)); }
+    else if (a.startsWith('-') && a.length > 1) {
+      emitErr(this, `strings: invalid option -- '${a[1]}'\n`);
+      this.lastExit = 1;
+      return false;
+    }
+    else files.push(a);
+  }
+  const scan = (buf) => {
+    let out = '';
+    let run = '';
+    for (let i = 0; i < buf.length; i++) {
+      const b = buf[i];
+      if (b >= 0x20 && b <= 0x7e) {
+        run += String.fromCharCode(b);
+      } else {
+        if (run.length >= min) out += run + '\n';
+        run = '';
+      }
+    }
+    if (run.length >= min) out += run + '\n';
+    return out;
+  };
+  let failed = false;
+  const operands = files.length ? files : ['-'];
+  for (const f of operands) {
+    let buf;
+    if (f === '-' || f === '-a' || f === '--all') {
+      buf = readFd0Buffer(this);
+    } else {
+      try { buf = fs.readFileSync(f); }
+      catch {
+        emitErr(this, `strings: '${f}': No such file\n`);
+        failed = true;
+        continue;
+      }
+    }
+    emit(this, scan(buf));
+  }
+  this.lastExit = failed ? 1 : 0;
+  return !failed;
+};
+
 // rmdir — remove an EMPTY directory (fs.rmdirSync, non-recursive); any
 // failure (missing, not empty) reports and exits 1 like GNU.
 builtins.rmdir = function (args) {
@@ -8111,6 +9095,458 @@ builtins.whoami = function () {
   this.lastExit = 0;
   return true;
 };
+
+// ── tty (SH2_ASSUME_NATIVE_TOOLS gate) ──────────────────────────────
+// GNU tty: print the terminal's name for fd 0, or "not a tty" on stderr
+// with status 1. -s/--silent/--quiet suppress the output (status only).
+//
+// The terminal NAME is fd 0's resolved link under /proc/self/fd — exactly
+// what ttyname(3) reports. A tty is a /dev/pts/N pty or a /dev/tty*
+// device; pipes, regular files and the "not a terminal" character devices
+// (/dev/null, /dev/zero, …) are not. Deliberately does NOT touch
+// process.stdin: initializing node's stdin stream would put fd 0 into
+// non-blocking mode and break the runtime's raw readSync-based `read`
+// (heredocs / `while read` loops).
+const TTY_NAME_RE = /^\/dev\/(pts\/\d+|tty[^/]*|console)$/;
+// The tty NAME for the builtin's fd 0. The runtime models redirects as fd
+// targets rather than real fds, so the source of the name depends on the
+// target: a file redirect carries the device path itself (`tty < /dev/pts/N`
+// — the corpus's real-terminal cases), an inherited stdin is the process's
+// real fd 0 (resolved through /proc), and every in-memory target (pipe,
+// heredoc, herestring, capture, /dev/null discard) is NOT a terminal.
+function ttyDeviceName(sh) {
+  const t = sh.fdTargets ? sh.fdTargets[0] : null;
+  let p = null;
+  if (t && t.kind === 'file') p = String(t.target ?? '');
+  else if (!t || t.kind === 'stdin') {
+    try { p = fs.readlinkSync('/proc/self/fd/0'); } catch { return null; }
+  } else return null;
+  if (!p) return null;
+  // (ttyname(3) reports the device, not the redirect spelling: resolve
+  // symlinks/relative paths against the runtime cwd first.)
+  const abs = path.resolve(sh.cwd ?? process.cwd(), p);
+  let resolved = abs;
+  try { resolved = fs.realpathSync(abs); } catch { /* keep lexical */ }
+  if (!TTY_NAME_RE.test(resolved)) return null;
+  try { if (!fs.statSync(resolved).isCharacterDevice()) return null; } catch { return null; }
+  return resolved;
+}
+builtins.tty = function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
+  let silent = false;
+  for (const a of args) {
+    if (a === '--') continue;
+    if (a === '--silent' || a === '--quiet' || a === '-s') { silent = true; continue; }
+    if (typeof a === 'string' && /^-[a-z]+$/.test(a)) { silent = true; continue; }
+    emitErr(this, `tty: extra operand '${a}'\n`);
+    this.lastExit = 1;
+    return false;
+  }
+  const dev = ttyDeviceName(this);
+  this.lastExit = dev === null ? 1 : 0;
+  if (!silent) {
+    // GNU tty writes "not a tty" to STDOUT (POSIX), not stderr.
+    if (dev === null) emit(this, 'not a tty\n');
+    else emit(this, dev + '\n');
+  }
+  return dev !== null;
+};
+
+// ── od (SH2_ASSUME_NATIVE_TOOLS gate) ───────────────────────────────
+// The corpus's shape is `PRODUCER | od -A n -t x1z` — a 16-bytes-per-line
+// hexadecimal dump of fd 0 with no address column, plus od's trailing
+// `>printable<` column (bytes outside 0x20..0x7e become '.') and the
+// duplicate-block `*` compression. Byte-identical to GNU od for that
+// format; every other address base / type string / width falls back to
+// the real binary (still subject to the source allowlist).
+//   line  = (' ' + hex pairs joined by ' ').padEnd(50) + '>' + chars + '<'
+function odX1zLines(buf) {
+  const lines = [];
+  let prevHex = null, star = false;
+  for (let off = 0; off < buf.length; off += 16) {
+    const n = Math.min(16, buf.length - off);
+    const pairs = [];
+    let chars = '';
+    for (let i = 0; i < n; i++) {
+      const b = buf[off + i];
+      pairs.push((b < 16 ? '0' : '') + b.toString(16));
+      chars += b >= 0x20 && b <= 0x7e ? String.fromCharCode(b) : '.';
+    }
+    const hex = pairs.length ? ' ' + pairs.join(' ') : '';
+    if (n === 16 && prevHex === hex) {
+      if (!star) { lines.push('*'); star = true; }
+      continue;
+    }
+    star = false;
+    prevHex = n === 16 ? hex : null;
+    lines.push(hex.padEnd(50) + '>' + chars + '<');
+  }
+  return lines;
+}
+builtins.od = function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
+  let addrNone = false, x1z = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = String(args[i]);
+    if (a === '-A') {
+      const v = String(args[i + 1] ?? '');
+      if (v !== 'n') return this._runProc('od', args);
+      addrNone = true;
+      i++;
+    } else if (a === '-t') {
+      const v = String(args[i + 1] ?? '');
+      if (v !== 'x1z') return this._runProc('od', args);
+      x1z = true;
+      i++;
+    } else if (a === '-v') { /* verbose: od's "no duplicate elision"; the
+        corpus never passes it and the format above always elides — fall
+        back rather than silently ignore. */ return this._runProc('od', args);
+    } else return this._runProc('od', args);
+  }
+  if (!addrNone || !x1z) return this._runProc('od', args);
+  const lines = odX1zLines(readFd0Buffer(this));
+  if (lines.length) emit(this, lines.join('\n') + '\n');
+  this.lastExit = 0;
+  return true;
+};
+
+// ── realpath (SH2_ASSUME_NATIVE_TOOLS gate) ─────────────────────────
+// GNU realpath over the corpus surface: default/-e (every component must
+// exist), -m (missing components allowed), -L/-P (resolve `..` before vs
+// after following symlinks), -s/--strip (lexical cleanup, no symlink
+// expansion), --relative-to / --relative-base, -z, -q, several operands.
+// Errors reproduce GNU's `realpath: PATH: MSG` line and set status 1
+// while the remaining operands still run.
+const REALPATH_ERRS = {
+  ENOENT: 'No such file or directory',
+  ENOTDIR: 'Not a directory',
+  EACCES: 'Permission denied',
+  ELOOP: 'Too many levels of symbolic links',
+};
+// Lexical cleanup: `.` dropped, `..` pops, applied to an absolute path.
+function rpClean(absPath) {
+  const stack = [];
+  for (const c of absPath.split('/')) {
+    if (c === '' || c === '.') continue;
+    if (c === '..') { stack.pop(); continue; }
+    stack.push(c);
+  }
+  return '/' + stack.join('/');
+}
+// Canonicalize one path. opts = {logical, strip, mode: 'exist'|'default'|
+// 'missing'}. Returns the canonical absolute path, or {err} with a GNU
+// errno name.
+//
+// Existence rules (verified against GNU coreutils 9.x):
+//   -e / --canonicalize-existing  every component must exist
+//   (default)                     all but the LAST must exist (a missing
+//                                 leaf is kept; `readlink -f` semantics)
+//   -m / --canonicalize-missing   no component need exist
+// ENOTDIR (a non-directory used as a path prefix) is an error in every
+// mode except -m.
+function rpCanonical(p, opts, cwd) {
+  const trailingSlash = p.length > 1 && p.endsWith('/');
+  const abs0 = p.startsWith('/') ? p : `${cwd.replace(/\/+$/, '')}/${p}`;
+  if (opts.strip) {
+    // --strip: no symlink expansion and no existence requirement (GNU
+    // prints a lexically cleaned path even for a missing target).
+    return rpClean(abs0);
+  }
+  const allowMissing = (isLast) =>
+    opts.mode === 'missing' || (opts.mode === 'default' && isLast);
+  let queue;
+  if (opts.logical) {
+    // -L: resolve `.`/`..` in the INPUT text before any symlink is
+    // followed, then canonicalize the cleaned path.
+    queue = rpClean(abs0).split('/').filter(Boolean);
+  } else {
+    queue = abs0.split('/').filter(Boolean);
+  }
+  const stack = [];
+  let hops = 0;
+  while (queue.length) {
+    const c = queue.shift();
+    const isLast = queue.length === 0;
+    if (c === '.') continue;
+    if (c === '..') { stack.pop(); continue; }
+    const cur = '/' + [...stack, c].join('/');
+    let st = null;
+    let missErr = null;
+    try { st = fs.lstatSync(cur); } catch (e) { missErr = e.code ?? 'ENOENT'; }
+    if (st && st.isSymbolicLink()) {
+      let tgt;
+      try { tgt = fs.readlinkSync(cur); } catch (e) { return { err: e.code }; }
+      if (++hops > 40) return { err: 'ELOOP' };
+      if (tgt.startsWith('/')) stack.length = 0;
+      queue.unshift(...tgt.split('/').filter(Boolean));
+      continue;
+    }
+    if (!st) {
+      // A missing leaf may still be kept (default mode), but a
+      // non-directory path prefix is fatal outside -m.
+      if (missErr === 'ENOTDIR' && opts.mode !== 'missing') return { err: 'ENOTDIR' };
+      if (!allowMissing(isLast)) return { err: 'ENOENT' };
+      stack.push(c);
+      continue;
+    }
+    if (isLast && st && !st.isDirectory() && trailingSlash) return { err: 'ENOTDIR' };
+    stack.push(c);
+  }
+  return '/' + stack.join('/');
+}
+// The shortest relative path from absolute `base` to absolute `target`
+// (GNU relpath: shared prefix, then one `..` per unmatched base dir).
+function rpRelative(target, base) {
+  if (target === base) return '.';
+  const t = target.split('/').filter(Boolean);
+  const b = base.split('/').filter(Boolean);
+  let i = 0;
+  while (i < t.length && i < b.length && t[i] === b[i]) i++;
+  const ups = new Array(b.length - i).fill('..');
+  const rest = t.slice(i);
+  if (ups.length === 0) return rest.length ? rest.join('/') : '.';
+  return [...ups, ...rest].join('/');
+}
+builtins.realpath = function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
+  const opts = { logical: false, strip: false, mode: 'default' };
+  let zero = false, quiet = false;
+  let relativeTo = null, relativeBase = null;
+  const operands = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = String(args[i]);
+    if (a === '--') { operands.push(...args.slice(i + 1).map(String)); break; }
+    if (a.startsWith('--')) {
+      const eq = a.indexOf('=');
+      const name = eq < 0 ? a : a.slice(0, eq);
+      const val = eq < 0 ? undefined : a.slice(eq + 1);
+      if (name === '--canonicalize-existing') { opts.mode = 'exist'; continue; }
+      if (name === '--canonicalize-missing') { opts.mode = 'missing'; continue; }
+      if (name === '--logical') { opts.logical = true; continue; }
+      if (name === '--physical') { opts.logical = false; continue; }
+      if (name === '--strip' || name === '--no-symlinks') { opts.strip = true; continue; }
+      if (name === '--zero') { zero = true; continue; }
+      if (name === '--quiet') { quiet = true; continue; }
+      if (name === '--relative-to' || name === '--relative-base') {
+        let v = val;
+        if (v === undefined) v = String(args[++i] ?? '');
+        if (name === '--relative-to') relativeTo = v;
+        else relativeBase = v;
+        continue;
+      }
+      return this._runProc('realpath', args); // --help/--version/…: real binary
+    }
+    if (a.length > 1 && a.startsWith('-')) {
+      for (const c of a.slice(1)) {
+        if (c === 'e') opts.mode = 'exist';
+        else if (c === 'm') opts.mode = 'missing';
+        else if (c === 'L') opts.logical = true;
+        else if (c === 'P') opts.logical = false;
+        else if (c === 's') opts.strip = true;
+        else if (c === 'z') zero = true;
+        else if (c === 'q') quiet = true;
+        else return this._runProc('realpath', args);
+      }
+      continue;
+    }
+    operands.push(a);
+  }
+  if (operands.length === 0) {
+    emitErr(this, 'realpath: missing operand\n');
+    this.lastExit = 1;
+    return false;
+  }
+  const cwd = this.cwd ?? process.cwd();
+  // --relative-to / --relative-base dirs canonicalize in "missing" mode
+  // (GNU canonicalizes them with CAN_MISSING — a nonexistent DIR is not an
+  // error, it just yields its cleaned absolute form).
+  const dirOpts = { logical: opts.logical, strip: false, mode: 'missing' };
+  const canonDir = (d) => {
+    const r = rpCanonical(String(d), dirOpts, cwd);
+    return typeof r === 'string' ? r : String(d);
+  };
+  const rTo = relativeTo !== null ? canonDir(relativeTo) : null;
+  const rBase = relativeBase !== null ? canonDir(relativeBase) : null;
+  let out = '';
+  let failed = false;
+  const term = zero ? '\0' : '\n';
+  for (const op of operands) {
+    const r = rpCanonical(op, opts, cwd);
+    if (typeof r !== 'string') {
+      failed = true;
+      if (!quiet) emitErr(this, `realpath: ${op}: ${REALPATH_ERRS[r.err] ?? 'No such file or directory'}\n`);
+      continue;
+    }
+    let shown = r;
+    if (rBase !== null) {
+      const below = r === rBase || r.startsWith(rBase === '/' ? '/' : rBase + '/');
+      if (below) shown = rpRelative(r, rTo !== null ? rTo : rBase);
+    } else if (rTo !== null) shown = rpRelative(r, rTo);
+    out += shown + term;
+  }
+  if (out) emit(this, out);
+  this.lastExit = failed ? 1 : 0;
+  return !failed;
+};
+
+// ── id (SH2_ASSUME_NATIVE_TOOLS gate) ───────────────────────────────
+// GNU id for the corpus surface: default `uid=N(name) gid=N(name)
+// groups=N(name),…`, and the -u/-g/-G selections with -n (names), -r
+// (real; identical to effective — the runtime never runs setuid), -z
+// (NUL-terminated) and the ignored compatibility -a. A USER operand
+// resolves through /etc/passwd + /etc/group membership. -Z reports GNU's
+// no-SELinux error verbatim (status 1) — this box has no SELinux, and
+// reproducing the message keeps the corpus's stderr echo byte-identical.
+const idPasswd = (() => { let c = null; return () => {
+  if (c === null) {
+    c = [];
+    try {
+      for (const line of fs.readFileSync('/etc/passwd', 'utf8').split('\n')) {
+        const f = line.split(':');
+        if (f.length < 7) continue;
+        c.push({ name: f[0], uid: Number(f[2]), gid: Number(f[3]) });
+      }
+    } catch { /* no passwd db */ }
+  }
+  return c;
+}; })();
+const idGroups = (() => { let c = null; return () => {
+  if (c === null) {
+    c = [];
+    try {
+      for (const line of fs.readFileSync('/etc/group', 'utf8').split('\n')) {
+        const f = line.split(':');
+        if (f.length < 4) continue;
+        c.push({ name: f[0], gid: Number(f[2]), members: f[3].split(',').filter(Boolean) });
+      }
+    } catch { /* no group db */ }
+  }
+  return c;
+}; })();
+function idUserByName(name) {
+  return idPasswd().find((u) => u.name === name) ?? null;
+}
+function idUserByUid(uid) {
+  return idPasswd().find((u) => u.uid === uid) ?? null;
+}
+function idGroupName(gid) {
+  const g = idGroups().find((x) => x.gid === gid);
+  return g ? g.name : null;
+}
+// The process's supplementary group set — /proc/self/status Groups (the
+// same getgroups(2) list GNU id prints); falls back to just the gid.
+function idProcessGroups(gid) {
+  try {
+    const st = fs.readFileSync('/proc/self/status', 'utf8');
+    const m = /^Groups:\s*(.*)$/m.exec(st);
+    if (m && m[1].trim() !== '') return m[1].trim().split(/\s+/).map(Number);
+  } catch { /* no proc */ }
+  return [gid];
+}
+// A named user's group set: primary gid first, then every /etc/group
+// entry listing them (GNU's order).
+function idUserGroups(user) {
+  const out = [user.gid];
+  for (const g of idGroups()) {
+    if (!g.members.includes(user.name)) continue;
+    if (!out.includes(g.gid)) out.push(g.gid);
+  }
+  return out;
+}
+builtins.id = function (args) {
+  if (!nativeToolsEnabled()) { this.lastExit = 127; return false; }
+  let sel = null;           // 'u' | 'g' | 'G' | null (default format)
+  let names = false, zero = false, context = false;
+  const operands = [];
+  for (const a of args) {
+    if (a === '--') continue;
+    if (typeof a === 'string' && a.startsWith('-') && a !== '-') {
+      if (a === '--user') { sel = 'u'; continue; }
+      if (a === '--group') { sel = 'g'; continue; }
+      if (a === '--groups') { sel = 'G'; continue; }
+      if (a === '--name') { names = true; continue; }
+      if (a === '--zero') { zero = true; continue; }
+      if (a === '--context') { context = true; continue; }
+      if (a.startsWith('--')) {
+        emitErr(this, `id: unrecognized option '${a}'\n`);
+        this.lastExit = 1;
+        return false;
+      }
+      for (const c of a.slice(1)) {
+        if (c === 'u') sel = 'u';
+        else if (c === 'g') sel = 'g';
+        else if (c === 'G') sel = 'G';
+        else if (c === 'n') names = true;
+        else if (c === 'z') zero = true;
+        else if (c === 'Z') context = true;
+        else if (c === 'r' || c === 'a') { /* real == effective; -a ignored */ }
+        else {
+          emitErr(this, `id: invalid option -- '${c}'\n`);
+          this.lastExit = 1;
+          return false;
+        }
+      }
+      continue;
+    }
+    operands.push(String(a));
+  }
+  if (context) {
+    emitErr(this, 'id: --context (-Z) works only on an SELinux-enabled kernel\n');
+    this.lastExit = 1;
+    return false;
+  }
+  if (operands.length > 1) {
+    emitErr(this, 'id: extra operand\n');
+    this.lastExit = 1;
+    return false;
+  }
+  let uid, gid, uname, groups;
+  if (operands.length === 1) {
+    const op = operands[0];
+    const user = /^\d+$/.test(op) ? idUserByUid(Number(op)) : idUserByName(op);
+    if (!user) {
+      emitErr(this, `id: '${op}': no such user\n`);
+      this.lastExit = 1;
+      return false;
+    }
+    uid = user.uid;
+    gid = user.gid;
+    uname = user.name;
+    groups = idUserGroups(user);
+  } else {
+    uid = typeof process.getuid === 'function' ? process.getuid() : (os.userInfo().uid ?? 0);
+    gid = typeof process.getgid === 'function' ? process.getgid() : (os.userInfo().gid ?? 0);
+    const u = idUserByUid(uid);
+    uname = u ? u.name : '';
+    groups = idProcessGroups(gid);
+  }
+  const gname = idGroupName(gid);
+  const sep = zero ? '\0' : '\n';
+  const fieldSep = zero ? '\0' : ' ';
+  const tail = zero ? '\0' : '\n';
+  let out = '';
+  if (sel === 'u') out = (names ? (uname || String(uid)) : String(uid)) + sep;
+  else if (sel === 'g') out = (names ? (gname ?? String(gid)) : String(gid)) + sep;
+  else if (sel === 'G') {
+    out = groups
+      .map((g) => (names ? (idGroupName(g) ?? String(g)) : String(g)))
+      .join(fieldSep) + sep;
+  } else {
+    const ug = `${uid}${uname ? `(${uname})` : ''}`;
+    const gg = `${gid}${gname ? `(${gname})` : ''}`;
+    const gr = groups
+      .map((g) => {
+        const n = idGroupName(g);
+        return n ? `${g}(${n})` : String(g);
+      })
+      .join(',');
+    out = `uid=${ug} gid=${gg} groups=${gr}${tail}`;
+  }
+  emit(this, out);
+  this.lastExit = 0;
+  return true;
+};
+
 
 // sha256sum / sha512sum — the GNU `<hex>  <name>` line format (two
 // spaces), `-` = stdin, per-file continuation on errors with a final
@@ -8460,9 +9896,106 @@ function decodeRawBytes(text) {
   return Buffer.concat(parts);
 }
 
+// captureAppend(buf, text) — append one emitted chunk to a capture
+// buffer. A capture holds a STRING (the shell value channel); a
+// non-scalar chunk is an A1 builder value (`return []map[string]any{stmt}`
+// echoed through the value channel by the go-sh frontend), which must
+// ride RAW. `buf += obj` would freeze it as "[object Object]" and the
+// statement list would be lost. A raw value is stored on the buffer's
+// `vals` side-list; the capture boundary joins strings and returns the
+// single raw value when that is all there was.
+function captureAppend(buf, text) {
+  if (text !== null && typeof text === 'object') {
+    if (typeof buf === 'string') {
+      const carrier = { __captureRaw: true, parts: buf === '' ? [] : [buf], vals: [text] };
+      return carrier;
+    }
+    buf.vals.push(text);
+    return buf;
+  }
+  if (buf !== null && typeof buf === 'object' && buf.__captureRaw) {
+    buf.parts.push(String(text));
+    return buf;
+  }
+  return buf + text;
+}
+
+// captureFinish(v) — the capture boundary: collapse a raw-carrying
+// buffer. A buffer whose ONLY content is a single raw value yields that
+// value (the frontend's single-statement return); anything mixed with
+// text stringifies (shell semantics), so ordinary output is unchanged.
+function captureFinish(v) {
+  if (v !== null && typeof v === 'object' && v.__captureRaw) {
+    if (v.parts.length === 0 && v.vals.length === 1) return v.vals[0];
+    return v.parts.join('') + v.vals.map(String).join('');
+  }
+  return v;
+}
+
+// capCapture(t) — bound a CAPTURE sink to what the next stage actually
+// needs (the `PRODUCER | head -N` producer cap; the cap is installed by
+// pipeline/pipelineSync's 2nd argument and emitted by src/shir.rs
+// `pipeline_head_cap`).
+//
+// WHY: this runtime materialises each pipe stage, so `find . | head -3` ran
+// the producer to COMPLETION before head looked at the first 3 lines — a
+// 568k-entry tree walked in full (14.2 s) where bash's find is killed by
+// SIGPIPE after 7 ms. Capping the producer's sink restores the shell's
+// early-termination behaviour without changing the sequential model.
+//
+// EXACTNESS: `head -N`'s native fold is
+//   `L = s.split("\n"); out = L.slice(0,N).join("\n") + (L.length > N ? "\n" : "")`
+// so its value depends only on the first N elements of L and on whether the
+// buffer held MORE than N of them. Truncating at the Nth newline preserves
+// both (the truncated buffer has exactly N newlines → `L.length === N+1 > N`),
+// and the first N elements are untouched. `head -c N` is a bare
+// `s.slice(0, N)`, so a byte cap is the same argument.
+//
+// The newline scan only walks the newly-appended region (`nlScan`), so a
+// producer emitting one line per write stays O(1) per write.
+function capCapture(t) {
+  const cap = t.cap;
+  if (typeof t.buf !== 'string') { t.closed = true; return; }
+  if (cap.bytes !== undefined) {
+    if (t.buf.length > cap.bytes) {
+      t.buf = t.buf.slice(0, cap.bytes);
+      t.closed = true;
+    }
+    return;
+  }
+  let seen = t.nlSeen || 0;
+  for (let k = t.nlScan || 0; k < t.buf.length; k++) {
+    if (t.buf.charCodeAt(k) === 10) {
+      seen++;
+      if (seen === cap.lines) {
+        t.buf = t.buf.slice(0, k + 1);
+        t.closed = true;
+        t.nlSeen = seen;
+        t.nlScan = k + 1;
+        return;
+      }
+    }
+  }
+  t.nlSeen = seen;
+  t.nlScan = t.buf.length;
+}
+
+// sinkClosed(sh) — true when the current fd-1 sink has been capped out, i.e.
+// the consumer of this pipe needs no more bytes. An interruptible producer
+// (builtins.find's tree walk) polls this to abort instead of finishing work
+// whose output would be discarded — bash's SIGPIPE, modelled explicitly.
+function sinkClosed(sh) {
+  const t = sh.fdTargets[1];
+  return !!(t && t.closed);
+}
+
 function emit(sh, text) {
   const t = sh.fdTargets[1];
-  if (t.kind === 'capture') t.buf += text;
+  if (t.kind === 'capture') {
+    if (t.closed) return;
+    t.buf = captureAppend(t.buf, text);
+    if (t.cap) capCapture(t);
+  }
   else if (t.kind === 'discard') { /* >/dev/null — nothing to write */ }
   else if (t.kind === 'file') writeFileSync(t.target, decodeRawBytes(text) ?? Buffer.from(text, 'utf8'), t.mode);
   else if (t.kind === 'stderr') process.stderr.write(decodeRawBytes(text) ?? text);
@@ -8638,27 +10171,149 @@ export const BUILTIN_NAMES = JSON.parse(
   fs.readFileSync(new URL('./builtins.json', import.meta.url), 'utf8'),
 );
 
+// DIAGNOSTIC (temporary): SH2_PROF=1 wraps every sh2 method + builtin with a
+// self-time accumulator, dumping a per-family report on exit.
+if (PROF_LOG) {
+  const prof = new Map();
+  const wrap = (obj, prefix) => {
+    for (const [k, v] of Object.entries(obj)) {
+      if (typeof v !== 'function') continue;
+      const key = `${prefix}${k}`;
+      obj[k] = function (...a) {
+        const t0 = process.hrtime.bigint();
+        let r;
+        try { return (r = v.apply(this, a)); } finally {
+          const dt = Number(process.hrtime.bigint() - t0) / 1e6;
+          const e = prof.get(key) ?? { n: 0, ms: 0 };
+          e.n++; e.ms += dt; prof.set(key, e);
+        }
+      };
+    }
+  };
+  wrap(sh2, 'sh2.');
+  if (sh2.builtins) wrap(sh2.builtins, 'builtin.');
+  process.on('exit', () => {
+    const rows = [...prof.entries()].sort((a, b) => b[1].ms - a[1].ms);
+    const out = rows.map(([k, v]) => `${v.ms.toFixed(1)}\t${v.n}\t${k}`).join('\n');
+    try { fs.appendFileSync(PROF_LOG, out + '\n'); } catch {}
+  });
+}
+
 export function expandWord(sh, s) {
   let out = String(s);
+  // Fast path: every rewrite below is triggered by `$` (param/cmd
+  // substitution), a backtick (cmd substitution), `~` (tilde), a
+  // backslash (escapes) or a quote (the surrounding-pair strip). A string
+  // with none of them is returned verbatim, skipping runCmdSubst and ~8
+  // regex scans. Plain redirect targets (`/tmp/out.txt`, `/dev/null`) and
+  // most exec words hit this — measured ~1.7µs -> ~30ns per call, and the
+  // redirect/fd path calls it once per spec.
+  if (!/[$`~\\'"]/.test(out)) return out;
+  // Second fast path (Plan 40): a word that is EXACTLY one plain reference
+  // — `$name`, `${name}`, `$1`-style, `$?`/`$#`/`$@` — expands to
+  // `sh.getVar(name)` and nothing else: runCmdSubst has no `$(`/backtick
+  // to run, and no `${#…[@]}` / slice / subscript pattern can match a bare
+  // name, so the `$name` replace is the only one that fires. The replaces
+  // AFTER it re-scan the substituted VALUE, so the fast path only fires
+  // when the value cannot trigger any of them (no `$`, backtick, `~`,
+  // backslash or quote) — that keeps the runtime's existing re-expansion
+  // behavior byte-identical. This is the whole assoc-key path
+  // (`normAssocKey('"$key"')` → expandWord('$key')) and every `"$x"` word
+  // in an exec/redirect arg — measured ~2.0 us -> ~0.1 us per call.
+  const one = /^\$\{([A-Za-z_][A-Za-z0-9_.]*)\}$|^\$([A-Za-z_][A-Za-z0-9_]*|\d+|[@#*?$0-])$/.exec(out);
+  if (one) {
+    const v = sh.getVar(one[1] ?? one[2]);
+    if (typeof v === 'string' && !/[$`~\\'"]/.test(v)) return v;
+  }
+  // Third fast path (Plan 42): a word that is EXACTLY one `${name<op>…}`
+  // expansion — the string slice, the length, the glob-strip, the case ops
+  // and the substitution ops. The general path reaches those only after
+  // runCmdSubst (which allocates its helper closure on every call) plus
+  // five regex passes and an until-stable replace loop: measured 2.7-4.1 us
+  // per call for `${x#--}` / `${x##*/}` / `${x/a/Q}` / `${x^^}` /
+  // `${flags:j:1}`, where `sh.param` itself is ~50 ns. Every arm below
+  // reproduces the general path's own arithmetic verbatim (including the
+  // slice offsets' `Number`-then-`evalArith` rule and the negative-offset
+  // clamp), and the fast path only fires when the RESULT carries no `$`,
+  // backtick, `~`, backslash or quote — i.e. when the general path's
+  // re-expansion loop would be a no-op and its trailing quote-strip could
+  // not fire. This is the option-parser loop's assoc key
+  // (`options["${flags:j:1}"]=true`) and every `${x##*/}`-shaped word.
+  const parm = /^\$\{([A-Za-z_][A-Za-z0-9_]*)([^{}$`\\]*)\}$/.exec(out);
+  if (parm) {
+    const nm = parm[1];
+    const body = parm[2];
+    const v = sh.getVar(nm);
+    let r = null;
+    if (body === '#') {
+      r = String(v.length); // `${#name}` — length ONLY (not a strip op)
+    } else if (body.startsWith(':=') || body.startsWith(':?') || body.startsWith('=') || body.startsWith('?')) {
+      r = null; // side effects (a store write / a diagnostic exit) — general path
+    } else if (body.startsWith(':+') || body.startsWith('+')) {
+      const alt = body.startsWith(':+') ? body.slice(2) : body.slice(1);
+      r = v !== '' ? expandWord(sh, alt) : '';
+    } else if (body.startsWith(':-') || body.startsWith('-')) {
+      const def = body.startsWith(':-') ? body.slice(2) : body.slice(1);
+      r = v !== '' ? v : expandWord(sh, def);
+    } else if (body.charCodeAt(0) === 58 /* ':' */) {
+      // `${name:off}` / `${name:off:len}` — the general path's slice arm
+      const spec = body.slice(1);
+      const c = spec.indexOf(':');
+      const off = c < 0 ? spec : spec.slice(0, c);
+      const len = c < 0 ? undefined : spec.slice(c + 1);
+      let o = Number(off) || 0;
+      if (String(off).trim() !== '' && String(Number(off)) !== String(off).trim()) {
+        try { o = evalArith(String(off), sh); } catch { /* keep 0 */ }
+      }
+      const oo = o < 0 ? Math.max(0, v.length + o) : o;
+      r = len !== undefined && len !== ''
+        ? v.slice(oo, oo + (Number(len) || 0))
+        : v.slice(oo);
+    } else {
+      const om = /^(##?|%%?|\^\^?|,,|\/\/?)([\s\S]*)$/.exec(body);
+      if (om) {
+        const op = om[1];
+        const rest = om[2] ?? '';
+        if (op === '/' || op === '//') {
+          const slash = rest.indexOf('/');
+          if (slash >= 0) r = sh.param(op, nm, rest.slice(0, slash), rest.slice(slash + 1), v);
+        } else {
+          r = sh.param(op, nm, rest, '', v);
+        }
+      }
+    }
+    if (typeof r === 'string' && !/[$`~\\'"]/.test(r)) return r;
+  }
   // command substitution $() / backticks first (nested, quote-aware); the
   // inner code has runtime variables expanded (unquoted parts only) so
   // `$(sort <<<"${config[*]}")` sees the runtime's values.
   out = runCmdSubst(out, sh);
+  // Each rewrite below is GATED on a substring its regex requires (Plan 42).
+  // The gates are exact — `String.prototype.indexOf` scans the same text the
+  // regex would — and they skip the scan outright for the common shapes: a
+  // plain `$a/$b` word now runs ONE replace instead of seven, which was
+  // 2.5 us of mostly-regex-engine overhead per expansion.
   // ${#name[@]} — array length
-  out = out.replace(/\$\{#([A-Za-z_][A-Za-z0-9_]*)\[@\]\}/g, (_, n) => String(sh.arrayLen(n)));
+  if (out.indexOf('${#') >= 0) {
+    out = out.replace(/\$\{#([A-Za-z_][A-Za-z0-9_]*)\[@\]\}/g, (_, n) => String(sh.arrayLen(n)));
+  }
   // ${name[@]:off:len} — array slice (space-joined)
-  out = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\[@\]:([^}]*)\}/g, (_, n, spec) => {
-    const [off, len] = spec.split(':');
-    const arr = sh.arrays.get(n) ?? [];
-    const o = Number(off) || 0;
-    const sl = len !== undefined && len !== '' ? arr.slice(o, o + (Number(len) || 0)) : arr.slice(o);
-    return sl.join(' ');
-  });
+  if (out.indexOf('[@]:') >= 0) {
+    out = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\[@\]:([^}]*)\}/g, (_, n, spec) => {
+      const [off, len] = spec.split(':');
+      const arr = sh.arrays.get(n) ?? [];
+      const o = Number(off) || 0;
+      const sl = len !== undefined && len !== '' ? arr.slice(o, o + (Number(len) || 0)) : arr.slice(o);
+      return sl.join(' ');
+    });
+  }
   // ${name[idx]} — array element
-  out = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\[([^}\]]*)\]\}/g, (_, n, k) => {
-    if (k === '@' || k === '*') return sh.getVar(`${n}[${k}]`); // assoc-aware join
-    return sh.arrayIndex(n, k);
-  });
+  if (out.indexOf(']}') >= 0) {
+    out = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\[([^}\]]*)\]\}/g, (_, n, k) => {
+      if (k === '@' || k === '*') return sh.getVar(`${n}[${k}]`); // assoc-aware join
+      return sh.arrayIndex(n, k);
+    });
+  }
   // ${name} / $name (including special params). The BRACED form also
   // accepts dotted member keys (`${s.X}` — go-sh structType, core request
   // go-sh-structtype-20260814-054454): a struct member name is a store key
@@ -8667,11 +10322,16 @@ export function expandWord(sh, s) {
   // the member (bash-faithful: `$s.X` IS `$s` + literal `.X`). Bash errors
   // on a dotted braced name in any expansion position, so no corpus text
   // can contain one; the dot addition is behavior-neutral for bash scripts.
-  out = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_.]*)\}/g, (_, n) => sh.getVar(n));
+  if (out.indexOf('${') >= 0) {
+    out = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_.]*)\}/g, (_, n) => sh.getVar(n));
+  }
   out = out.replace(/\$([A-Za-z_][A-Za-z0-9_]*|\d+|[@#*?$0-])/g, (_, n) => sh.getVar(n));
   // ${name:-default} / ${name##pat} / ${name:off:len} / ${#name} ... —
   // innermost-first so nested defaults (`${a:-${b:-c}}`) expand correctly.
   for (;;) {
+    // nothing braced left: the replace below could not match, and the
+    // until-stable loop would pay another full scan + closure to learn it.
+    if (out.indexOf('${') < 0) break;
     const next = out.replace(/\$\{([A-Za-z_][A-Za-z0-9_.]*)([^{}]*)\}/g, (m, n, body) => {
       const v = sh.getVar(n);
       if (body === '') return v;
@@ -8747,64 +10407,72 @@ export function expandWord(sh, s) {
   return out;
 }
 
+// A recursive sh2.* helper evaluator for cmdsubs (the go-sh byteAt lowering
+// renders `"$(sh2.byteAt(src, i))"` inside test strings) — evaluate in JS
+// instead of spawning bash (the helper is not a shell command). Split the
+// args at top-level commas (tracking paren depth and nested `$(...)`),
+// recursively evaluate nested sh2.* calls, then dispatch to the runtime
+// helper.
+//
+// Module-level since Plan 42: it closed over nothing but its `sh` argument,
+// and building the closure on EVERY runCmdSubst call was a measurable share
+// of every word expansion in generated code.
+function expandSh2Helper(sh, inner) {
+  const call = inner.slice(0, inner.indexOf('('));
+  const fn = call.trim().replace(/^sh2\./, '');
+  const body = inner.slice(inner.indexOf('(') + 1, -1);
+  // split body at top-level commas (depth-aware)
+  const args = [];
+  let depth = 0;
+  let cur = '';
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (ch === '(') depth++;
+    else if (ch === ')') depth--;
+    if (ch === ',' && depth === 0) { args.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  if (cur.trim() !== '') args.push(cur);
+  // resolve each arg (a nested sh2.* call is evaluated recursively;
+  // a `$(...)` cmdsub used as an arg is resolved)
+  const resolved = args.map((a) => {
+    a = a.trim();
+    if (/^\$\(sh2\.[A-Za-z_][A-Za-z0-9_]*\(/.test(a)) {
+      // find the helper's body: skip the `$(` opener, locate the
+      // helper's `(`, then match its balanced close.
+      const firstOpen = a.indexOf('(');
+      const bodyStart = a.indexOf('(', firstOpen + 1);
+      let d = 0;
+      let j = bodyStart;
+      for (let k = bodyStart; k < a.length; k++) {
+        if (a[k] === '(') d++;
+        else if (a[k] === ')') { d--; if (d === 0) { j = k; break; } }
+      }
+      return expandSh2Helper(sh, a.slice(2, j + 1));
+    }
+    return a;
+  });
+  let val = '';
+  if (fn === 'byteAt' && resolved.length === 2) val = sh.byteAt(resolved[0], resolved[1]);
+  else if (fn === 'objFieldLen' && resolved.length === 2) val = sh.objFieldLen(resolved[0], resolved[1]);
+  else if (fn === 'jsonGet' && resolved.length === 2) val = sh.jsonGet(resolved[0], resolved[1]);
+  else if (fn === 'chr' && resolved.length === 1) val = sh.chr(resolved[0]);
+  else if (fn === 'assocGet' && resolved.length === 2) val = sh.assocGet(resolved[0], resolved[1]);
+  return val;
+}
+
 // Command substitution in plain strings (heredocs, array elements, case
 // patterns): run `$(...)` / backtick bodies through a real shell.
 function runCmdSubst(s, sh) {
-  // sh2.* helper calls in cmdsub (the go-sh byteAt lowering renders
-  // `"$(sh2.byteAt(src, i))"` inside test strings) — evaluate in JS
-  // instead of spawning bash (the helper is not a shell command). The
-  // balanced-paren scan handles nested parens in the args (`byteAt(src,
-  // i+1)` — the generic non-greedy regex below would stop at the first
-  // `)`).
+  // Nothing to run (Plan 42): both rewrites below are keyed on `$(` (the
+  // sh2.* helper form included) or a backtick, so a word carrying neither —
+  // every plain `$name` / `"$a b"` arg and every variable-bearing redirect
+  // target — returns unchanged without building the helper parser below.
+  // The closure allocation + the two dead regex passes were the bulk of a
+  // measured 2.5 us `$a/$b` expansion.
+  if (s.indexOf('$(') < 0 && s.indexOf('`') < 0) return s;
   const sh2re = /\$\(sh2\.([A-Za-z_][A-Za-z0-9_]*)\(/g;
   let out = String(s);
-  // a recursive sh2.* helper evaluator: split args at top-level commas
-  // (tracking paren depth and nested `$(...)`), recursively evaluate
-  // nested sh2.* calls, then dispatch to the runtime helper.
-  const evalSh2 = (inner) => {
-    const call = inner.slice(0, inner.indexOf('('));
-    const fn = call.trim().replace(/^sh2\./, '');
-    const body = inner.slice(inner.indexOf('(') + 1, -1);
-    // split body at top-level commas (depth-aware)
-    const args = [];
-    let depth = 0;
-    let cur = '';
-    for (let i = 0; i < body.length; i++) {
-      const ch = body[i];
-      if (ch === '(') depth++;
-      else if (ch === ')') depth--;
-      if (ch === ',' && depth === 0) { args.push(cur); cur = ''; continue; }
-      cur += ch;
-    }
-    if (cur.trim() !== '') args.push(cur);
-    // resolve each arg (a nested sh2.* call is evaluated recursively;
-    // a `$(...)` cmdsub used as an arg is resolved)
-    const resolved = args.map(a => {
-      a = a.trim();
-      const m2 = /^\$\(sh2\.[A-Za-z_][A-Za-z0-9_]*\([\(]?\)?/;
-      if (/^\$\(sh2\.[A-Za-z_][A-Za-z0-9_]*\(/.test(a)) {
-        // find the helper's body: skip the `$(` opener, locate the
-        // helper's `(`, then match its balanced close.
-        const firstOpen = a.indexOf('(');
-        const bodyStart = a.indexOf('(', firstOpen + 1);
-        let d = 0;
-        let j = bodyStart;
-        for (let k = bodyStart; k < a.length; k++) {
-          if (a[k] === '(') d++;
-          else if (a[k] === ')') { d--; if (d === 0) { j = k; break; } }
-        }
-        return evalSh2(a.slice(2, j + 1));
-      }
-      return a;
-    });
-    let val = '';
-    if (fn === 'byteAt' && resolved.length === 2) val = sh.byteAt(resolved[0], resolved[1]);
-    else if (fn === 'objFieldLen' && resolved.length === 2) val = sh.objFieldLen(resolved[0], resolved[1]);
-    else if (fn === 'jsonGet' && resolved.length === 2) val = sh.jsonGet(resolved[0], resolved[1]);
-    else if (fn === 'chr' && resolved.length === 1) val = sh.chr(resolved[0]);
-    else if (fn === 'assocGet' && resolved.length === 2) val = sh.assocGet(resolved[0], resolved[1]);
-    return val;
-  };
   let m;
   while ((m = sh2re.exec(out)) !== null) {
     const fn = m[1];
@@ -8817,7 +10485,7 @@ function runCmdSubst(s, sh) {
       j++;
     }
     const inner = out.slice(m.index + 2, j - 1); // between $( and the final )
-    let val = evalSh2(inner);
+    let val = expandSh2Helper(sh, inner);
     out = out.slice(0, m.index) + val + out.slice(j);
     sh2re.lastIndex = m.index + (val === undefined ? 0 : val.length);
   }
@@ -8935,19 +10603,46 @@ function printfFormat(format, args) {
   return out;
 }
 
-function formatOnce(format, nextArg) {
+// formatOnce's PARSE is a pure function of the format string: the spec
+// positions and the unescaped literal segments. It used to be redone on
+// every pass (one pass per argument — `printf '%s=%s\n' a b` walked the
+// regex twice and ran unescapeFormat's nine `.replace()` chains four
+// times), which dominated the builtin: measured 4.4-6.7 us/call against
+// echo's 0.5 us. Cache the pieces per format (bounded; the format set of
+// a program is tiny). The EVAL still runs per call, so only literal
+// pieces are shared.
+const printfPiecesCache = new Map();
+function printfPieces(format) {
+  let p = printfPiecesCache.get(format);
+  if (p !== undefined) return p;
   const specs = /%(?:[-+ 0#]*\d*(?:\.\d+)?[diouxXeEfgGcbsq%])/g;
-  let out = '';
+  // Each piece is a literal STRING or a `{ spec }` record — a literal can
+  // itself start with `%` (`"%z then %s"` keeps `%z` in the literal run),
+  // so the shape has to be tagged rather than sniffed from the text.
+  const parts = [];
   let last = 0;
   let m;
   while ((m = specs.exec(format)) !== null) {
-    out += unescapeFormat(format.slice(last, m.index));
+    parts.push(unescapeFormat(format.slice(last, m.index)));
     const spec = m[0];
-    if (spec === '%%') { out += '%'; last = m.index + 2; continue; }
-    out += printfOne(spec, nextArg());
+    if (spec === '%%') { parts.push('%'); last = m.index + 2; continue; }
+    parts.push({ spec });
     last = m.index + spec.length;
   }
-  out += unescapeFormat(format.slice(last));
+  parts.push(unescapeFormat(format.slice(last)));
+  p = parts;
+  if (printfPiecesCache.size >= 1024) printfPiecesCache.clear();
+  printfPiecesCache.set(format, p);
+  return p;
+}
+
+function formatOnce(format, nextArg) {
+  const parts = printfPieces(format);
+  let out = '';
+  for (const part of parts) {
+    if (typeof part === 'string') out += part;
+    else out += printfOne(part.spec, nextArg());
+  }
   return out;
 }
 
@@ -9426,6 +11121,15 @@ function evalUnary(flag, arg, sh) {
     if (flag === '-n') return false;
     return false;
   }
+  // `-n` / `-z` are PURE STRING tests — no filesystem involvement at all.
+  // They used to fall into the lstatSync below (the switch arm was reached
+  // only after the stat), so every `sh2.test("-n x")` /
+  // `sh2.fileTest("-n", x)` paid a path.resolve + lstat SYSCALL on the
+  // argument — a nonexistent operand cost the ENOENT throw/catch path too.
+  // Measured: 16.2 us -> 0.1 us per call (the -n arm of the corpus's
+  // remaining runtime tests). Exact: the value never depended on the stat.
+  if (flag === '-n') return true;
+  if (flag === '-z') return false;
   const p = path.resolve(sh.cwd, String(arg));
   // `-r`/`-w`/`-x` — bash tests access(2) with R_OK/W_OK/X_OK (real
   // effective-uid permission, following symlinks), NOT raw mode bits: a
@@ -9459,14 +11163,11 @@ function evalUnary(flag, arg, sh) {
         // under the same conditions).
         return false;
       }
-      case '-n': return String(arg).length > 0;
-      case '-z': return String(arg).length === 0;
+      // (-n/-z are answered before the stat — see the top of evalUnary)
       default: throw new Error(`test flag ${flag} not supported`);
     }
   } catch {
     if (flag === '-e' || flag === '-f' || flag === '-d' || flag === '-L' || flag === '-h' || flag === '-s' || flag === '-x' || flag === '-w' || flag === '-r') return false;
-    if (flag === '-n') return String(arg).length > 0;
-    if (flag === '-z') return String(arg).length === 0;
     if (flag === '-O' || flag === '-G' || flag === '-N') return false;
     if (flag === '-u' || flag === '-g' || flag === '-k') return false;
     if (flag === '-t') return false;
@@ -9737,49 +11438,123 @@ export function evalFloatArith(src, sh) {
   return v;
 }
 
+// zsh/mathfunc arithmetic functions (the deterministic subset the
+// frontend fleet's zsh corpus exercises — sqrt/hypot/fmod/int/…;
+// int() truncates toward zero). bash has no arithmetic calls — a
+// `name(` there is a syntax error (the arith() wrapper maps the
+// throw to the abort marker / status 1), so this arm only fires for
+// zsh-emitted expressions.
+//
+// MODULE-LEVEL on purpose: this table used to be rebuilt inside every
+// evalArith call (28 fresh arrow closures per invocation). It closes over
+// nothing, so hoisting it is exact and removes the allocation from every
+// non-literal arithmetic evaluation (the corpus's `typeset -i n=n+1`,
+// `$((...))` texts, 2D subscripts). Measured: typeset -i write 27.4 us ->
+// 2.7 us together with the literal fast path.
+const arithFuncs = {
+  abs: a => Math.abs(a[0]),
+  fabs: a => Math.abs(a[0]),
+  int: a => Math.trunc(a[0]),
+  ceil: a => Math.ceil(a[0]),
+  floor: a => Math.floor(a[0]),
+  sqrt: a => Math.sqrt(a[0]),
+  cbrt: a => Math.cbrt(a[0]),
+  exp: a => Math.exp(a[0]),
+  log: a => Math.log(a[0]),
+  log10: a => Math.log10(a[0]),
+  log2: a => Math.log2(a[0]),
+  sin: a => Math.sin(a[0]),
+  cos: a => Math.cos(a[0]),
+  tan: a => Math.tan(a[0]),
+  asin: a => Math.asin(a[0]),
+  acos: a => Math.acos(a[0]),
+  atan: a => Math.atan(a[0]),
+  atan2: a => Math.atan2(a[0], a[1]),
+  sinh: a => Math.sinh(a[0]),
+  cosh: a => Math.cosh(a[0]),
+  tanh: a => Math.tanh(a[0]),
+  asinh: a => Math.asinh(a[0]),
+  acosh: a => Math.acosh(a[0]),
+  atanh: a => Math.atanh(a[0]),
+  hypot: a => Math.hypot(...a),
+  fmod: a => a[0] % a[1],
+  copysign: a => (a[1] < 0 || Object.is(a[1], -0)) ? -Math.abs(a[0]) : Math.abs(a[0]),
+  rint: a => Math.round(a[0]),
+};
+
 export function evalArith(src, sh) {
-  // recursive descent over integers; supports + - * / % ** << >> & | ^
-  // comparison, equality, && || !, ternary, ( ), assignments (x=5, x+=3,
-  // x-=1, x*=2, x/=2, x%=2), and postfix ++ / --.
-  const s = arithExpand(sh, String(src));
+  // THE FAST-PATH WRAPPER. It must stay a SMALL function of its own: the
+  // general parser below declares ~20 inner functions (peek/ws/num/primary/
+  // power/mul/…), and every one of those closures is allocated on entry —
+  // so an early `return` from INSIDE that body still paid for them. Splitting
+  // the fast paths out means a literal / bare-name / `name op int` key never
+  // enters it at all (measured: evalArith("i") 1.8 us -> 0.12 us, and it is
+  // what every baked subscript — `args[i]`, `matrix[$r]` — pays through
+  // arrayIndex/getVar/setVar).
+  const raw = String(src);
+  const fast = arithFast(raw, sh);
+  if (fast !== undefined) return fast;
+  return evalArithGeneral(raw, sh);
+}
+
+// The exact fast paths: each computes what the general parser below
+// computes for that shape, minus the work. `undefined` = "not this shape".
+function arithFast(raw, sh) {
+  //  1. a pure DECIMAL INTEGER literal needs no $-expansion and no parse:
+  //     the parser's num() consumes `-?\d+` and parseInt(raw, 0) — which
+  //     for a decimal string is Number(raw) (ES5: radix 0 ⇒ 10 unless a
+  //     0x prefix is present, and 0x is excluded by the literal regex).
+  if (/^\s*-?[0-9]+\s*$/.test(raw)) return Number(raw);
+  //  2. a bare VARIABLE NAME is the parser's primary() variable arm exactly
+  //     — `Number(sh.getVar(name)) || 0` (unset/empty reads as 0 in bash
+  //     arithmetic). A trailing `[`, `++`, `+=` or `(` cannot match (the
+  //     identifier class stops and the anchor demands end-of-input), so the
+  //     side-effecting and subscript forms keep the parser.
+  //  3. `NAME <op> INTEGER` — one binary operator over a store read and a
+  //     decimal literal: what add()/mul() compute for these operands
+  //     (ident → the same `Number(getVar)||0`, literal → num(), which for a
+  //     decimal string is Number()). `/` and `%` keep the parser's
+  //     zero-divisor THROW (bash aborts the whole expansion — returning a
+  //     value would silently diverge). `**`, `<<`, `>>`, `&&`, `||`, `==`,
+  //     `?:`, the comma operator and every assignment/inc-dec form never
+  //     match these shapes.
+  // A `$`-bearing source can never match either shape, and arithExpand
+  // (which rewrites only `$…` forms) must still run for it — so both are
+  // skipped wholesale for such a source.
+  if (!raw.includes('$')) {
+    if (IDENT_ONLY.test(raw)) return Number(sh.getVar(raw.trim())) || 0;
+    const bm = NAME_OP_INT.exec(raw);
+    if (bm) {
+      const l = Number(sh.getVar(bm[1])) || 0;
+      const r = Number(bm[3]);
+      switch (bm[2]) {
+        case '+': return l + r;
+        case '-': return l - r;
+        case '*': return l * r;
+        case '/': if (r === 0) throw new Error('arith: division by 0'); return Math.trunc(l / r);
+        default: if (r === 0) throw new Error('arith: division by 0'); return l % r;
+      }
+    }
+  }
+  return undefined;
+}
+
+// MODULE-LEVEL so the wrapper never allocates a regex: `^\s*name\s*$` and
+// `^\s*name\s*op\s*int\s*$` (the trimmed literal forms the parser accepts).
+const IDENT_ONLY = /^\s*[A-Za-z_][A-Za-z0-9_]*\s*$/;
+const NAME_OP_INT = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*([-+*/%])\s*(-?[0-9]+)\s*$/;
+
+// The general path: recursive descent over integers; supports + - * / % **
+// << >> & | ^ comparison, equality, && || !, ternary, ( ), assignments (x=5,
+// x+=3, x-=1, x*=2, x/=2, x%=2), the comma operator (`0,0` → 0, the bash
+// pseudo-multidim subscript `matrix[0,0]`), and postfix ++ / --.
+function evalArithGeneral(raw, sh) {
+  // arithExpand rewrites ONLY `$...` forms (all eight replaces start at
+  // `$`), so a source with no `$` is an identity for it — skip the eight
+  // regex passes.
+  const s = raw.includes('$') ? arithExpand(sh, raw) : raw;
   if (s.trim() === '') return 0; // `$(( $1 ))` with $1 unset → `$(( ))` → 0
   let pos = 0;
-  // zsh/mathfunc arithmetic functions (the deterministic subset the
-  // frontend fleet's zsh corpus exercises — sqrt/hypot/fmod/int/…;
-  // int() truncates toward zero). bash has no arithmetic calls — a
-  // `name(` there is a syntax error (the arith() wrapper maps the
-  // throw to the abort marker / status 1), so this arm only fires for
-  // zsh-emitted expressions.
-  const arithFuncs = {
-    abs: a => Math.abs(a[0]),
-    fabs: a => Math.abs(a[0]),
-    int: a => Math.trunc(a[0]),
-    ceil: a => Math.ceil(a[0]),
-    floor: a => Math.floor(a[0]),
-    sqrt: a => Math.sqrt(a[0]),
-    cbrt: a => Math.cbrt(a[0]),
-    exp: a => Math.exp(a[0]),
-    log: a => Math.log(a[0]),
-    log10: a => Math.log10(a[0]),
-    log2: a => Math.log2(a[0]),
-    sin: a => Math.sin(a[0]),
-    cos: a => Math.cos(a[0]),
-    tan: a => Math.tan(a[0]),
-    asin: a => Math.asin(a[0]),
-    acos: a => Math.acos(a[0]),
-    atan: a => Math.atan(a[0]),
-    atan2: a => Math.atan2(a[0], a[1]),
-    sinh: a => Math.sinh(a[0]),
-    cosh: a => Math.cosh(a[0]),
-    tanh: a => Math.tanh(a[0]),
-    asinh: a => Math.asinh(a[0]),
-    acosh: a => Math.acosh(a[0]),
-    atanh: a => Math.atanh(a[0]),
-    hypot: a => Math.hypot(...a),
-    fmod: a => a[0] % a[1],
-    copysign: a => (a[1] < 0 || Object.is(a[1], -0)) ? -Math.abs(a[0]) : Math.abs(a[0]),
-    rint: a => Math.round(a[0]),
-  };
   function peek() { return s[pos]; }
   function ws() { while (/\s/.test(s[pos] ?? '')) pos++; }
   function num() {
@@ -9799,7 +11574,7 @@ export function evalArith(src, sh) {
   }
   function primary() {
     ws();
-    if (s[pos] === '(') { pos++; const v = ternary(); ws(); if (s[pos] !== ')') throw new Error('arith: missing )'); pos++; return v; }
+    if (s[pos] === '(') { pos++; const v = comma(); ws(); if (s[pos] !== ')') throw new Error('arith: missing )'); pos++; return v; }
     if (s[pos] === '!') { pos++; return primary() ? 0 : 1; }
     if (s[pos] === '~') { pos++; return ~primary(); }
     // prefix ++ / -- (`$((++i))`, `(( j = i++ + ++i ))`)
@@ -9944,7 +11719,18 @@ export function evalArith(src, sh) {
     }
     return ternary();
   }
-  const v = assignment();
+  // Comma operator — LOWEST precedence, evaluates left to right and yields
+  // the LAST value (bash/C semantics). The shell-facing shape is the
+  // pseudo-multidim subscript `matrix[0,0]=v` / `${a[1,2]}`, whose
+  // subscript is real arithmetic (`$((0,0))` is 0), plus `((i=0,j=0))`.
+  function comma() {
+    let v = assignment();
+    for (;;) {
+      ws();
+      if (s[pos] === ',') { pos++; v = assignment(); } else return v;
+    }
+  }
+  const v = comma();
   ws();
   // bash parses the WHOLE expanded expression: trailing garbage
   // (`$(( 5 + ))`, `$(( echo "test" ))`) is a syntax error, and the shell
@@ -9961,9 +11747,50 @@ function parseCStyleHeader(header) {
 }
 
 // ── parameter-expansion helpers ──────────────────────────────────────
+// Split a single-star parameter-expansion pattern into `{ side, core }`:
+// `*P` → { side: 'head', core: 'P' }, `P*` → { side: 'tail', core: 'P' }.
+// `null` for anything else (two stars, a metachar-bearing core, an empty
+// core, a bare `*` — those keep the generic glob loop).
+//
+// WHY (Plan 42): the strip engines below test `globMatch` against EVERY
+// prefix/suffix of the value — O(n²) regex work for what is usually ONE
+// `indexOf`. The single-star shapes are the shell's basename/extension
+// idioms (`${f##*/}`, `${f%.*}`, `${s#*:}`), measured 1.1-3.7 us per call
+// on short values. The formula is the SAME one src/shir.rs
+// (`try_native_param`) already emits for word positions, so the two paths
+// agree by construction: with a metachar-free core P, `*P` matches exactly
+// the strings ENDING with P, hence the shortest such prefix is the FIRST
+// occurrence of P and the longest the last one (and mirror-image for P*).
+function stripPatternCore(pattern) {
+  const p = String(pattern ?? '');
+  if (p.length < 2) return null;
+  const headStar = p.charCodeAt(0) === 42 /* '*' */;
+  const tailStar = p.charCodeAt(p.length - 1) === 42;
+  if (headStar === tailStar) return null; // no star, or `**…`
+  const core = headStar ? p.slice(1) : p.slice(0, -1);
+  // A core with any glob syntax — a metachar, or a backslash escape (which
+  // the glob engine interprets but `indexOf` would take literally) — keeps
+  // the generic loop.
+  if (core === '' || /[*?[\\]/.test(core)) {
+    return null;
+  }
+  return { head: headStar, core };
+}
+
 function stripGlobPrefix(v, pattern, longest) {
   if (v === '') return v;
   if (!/[*?[]/.test(pattern)) return v.startsWith(pattern) ? v.slice(pattern.length) : v;
+  const sc = stripPatternCore(pattern);
+  if (sc !== null) {
+    if (sc.head) {
+      // `*P` — strip through the first (shortest) / last (longest) P
+      const ix = longest ? v.lastIndexOf(sc.core) : v.indexOf(sc.core);
+      return ix >= 0 ? v.slice(ix + sc.core.length) : v;
+    }
+    // `P*` — # strips P, ## strips everything
+    if (!v.startsWith(sc.core)) return v;
+    return longest ? '' : v.slice(sc.core.length);
+  }
   let best = -1;
   for (let i = 0; i <= v.length; i++) {
     if (globMatch(pattern, v.slice(0, i))) best = longest ? Math.max(best, i) : (best === -1 ? i : best);
@@ -9973,6 +11800,17 @@ function stripGlobPrefix(v, pattern, longest) {
 function stripGlobSuffix(v, pattern, longest) {
   if (v === '') return v;
   if (!/[*?[]/.test(pattern)) return v.endsWith(pattern) ? v.slice(0, v.length - pattern.length) : v;
+  const sc = stripPatternCore(pattern);
+  if (sc !== null) {
+    if (!sc.head) {
+      // `P*` — % (shortest) strips the LAST occurrence, %% (longest) the first
+      const ix = longest ? v.indexOf(sc.core) : v.lastIndexOf(sc.core);
+      return ix >= 0 ? v.slice(0, ix) : v;
+    }
+    // `*P` — % strips P off the end, %% strips everything
+    if (!v.endsWith(sc.core)) return v;
+    return longest ? '' : v.slice(0, v.length - sc.core.length);
+  }
   let best = -1;
   for (let i = 0; i <= v.length; i++) {
     if (globMatch(pattern, v.slice(i))) {
@@ -10005,6 +11843,27 @@ function substGlob(sh, v, pattern, replacement) {
 function substGlobFirst(sh, v, pattern, replacement) {
   const rep = expandWord(sh, replacement ?? '');
   if (v === '') return v;
+  pattern = String(pattern ?? '');
+  // `${v/#pat/r}` / `${v/%pat/r}` — an unescaped leading `#`/`%` ANCHORS the
+  // match to the start/end (GNU bash pattern substitution). The anchored form
+  // takes the LONGEST match at that end: `${s/#al*/Z}` and `${s/%*bet/Z}` both
+  // replace the whole of "alphabet". `${v//#p/r}` is NOT anchored — bash
+  // treats the `#` there literally — so the caller leaves it to substGlob
+  // (unchanged below).
+  const anchored = pattern[0] === '#' ? 'start' : pattern[0] === '%' ? 'end' : null;
+  if (anchored) pattern = pattern.slice(1);
+  if (anchored === 'start') {
+    for (let len = v.length; len >= 0; len--) {
+      if (globMatch(pattern, v.slice(0, len))) return rep + v.slice(len);
+    }
+    return v;
+  }
+  if (anchored === 'end') {
+    for (let len = v.length; len >= 0; len--) {
+      if (globMatch(pattern, v.slice(v.length - len))) return v.slice(0, v.length - len) + rep;
+    }
+    return v;
+  }
   if (!/[*?[]/.test(pattern)) {
     const i = v.indexOf(pattern);
     if (i < 0) return v;

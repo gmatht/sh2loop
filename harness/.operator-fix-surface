@@ -1,0 +1,27 @@
+# harness/.operator-fix-surface
+#
+# Paths in the estree loop's fix surface that are maintained directly by the
+# operator (human or coding agent) in the shared checkout, NEVER by the
+# worker's model. main_loop_estree.pl's changed_since_snapshot consults this
+# list: entries are never stashed by scoped_stash, regardless of whether they
+# were dirty at the iteration snapshot.
+#
+# WHY (2026-10-21): the dirty-at-snapshot heuristic cannot see an edit made
+# MID-iteration — it looks identical to the worker's own WIP — and it reverted
+# the same operator addition (sh2.globMatch on the sh2 object) four times,
+# each theft landing in a `estree-loop regression` stash.
+#
+# Format: one path per line, relative to the workspace root (or absolute).
+# `#` comments and blank lines are ignored.
+
+harness/sh2-namespace.mjs
+harness/sh2-trace.mjs
+harness/estree_gate.pl
+# New transform file created by the operator's coding agent — no worker
+# owns it, so ALL dirt in it is the operator's (untracked files cannot be
+# stash-pathspecs anyway, but the list documents the ownership).
+sh2perl/src/transforms/case_lowering.rs
+# The rust renderer — operator surface for the rust-idiom work (the rust
+# backend worktree keeps its own copies; the estree loop's model targets
+# estree failures, not this file).
+sh2perl/src/rust_backend.rs

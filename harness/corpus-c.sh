@@ -52,6 +52,9 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 TARGETS=(perl python sh estree js go rust java zig c)
 if [ -n "$ONLY" ]; then IFS=',' read -ra TARGETS <<< "$ONLY"; fi
+# The zig target compiles each example with `zig build-exe` — prune the zig
+# global cache to its 8 GiB ceiling first (best-effort; never fails the gate).
+case " ${TARGETS[*]} " in *" zig "*) "$ROOT/harness/zig-cache-prune.sh" || true ;; esac
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT

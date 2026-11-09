@@ -1,0 +1,28 @@
+name: scalar-localize
+prereqs: [none — a whole-program scope census over the A1]
+// proof: none yet. The Tier-1 obligation is the three-clause invariant
+//   below (verdict => single scope, live at the binding site, no unmodelled
+//   reach); no Isabelle session exists, so this manifest claims nothing.
+invariant: a name is marked SCALAR-LOCAL only when ALL of:
+    (a) every mention sits in ONE scope (`Main` or one named function/sub;
+        a nested `def` body is its OWN scope, not the enclosing one),
+    (b) it is written at least once with a LITERAL or non-self-referential
+        RHS whose first mention is a TOP-LEVEL write of that scope — that is
+        where the renderer's `let` lands (`y=$((y+2))` reads `y` first, so
+        it cannot open a binding),
+    (c) no construct can reach a name the walk cannot see: `eval`/`source`/
+        `.` in either spelling (`Exec` or `Call{exec|builtin}`), a dynamic
+        `getVar`/`setVar`/`param` name argument, `Ext`, `RawText`, `Select`,
+        `Asm`, `Shaderize`.
+  Loop bindings (`for i in …`, a recovered counted loop's counter) are
+  excluded unconditionally: the renderer emits its own binding for them, and
+  a pass-2 `let` either shadows it or leaves the assignment dangling.
+  The `risky` bit of `list_profile::use_scopes` is deliberately NOT
+  consulted — it describes a renderer that lowers an argument through a
+  capturing file-scope helper; a backend whose reads splice inline (Rust:
+  `read_str`/`getvar_str`) legitimately ignores it.
+scope: offered to rs (the `__SHV_*` thread-local → `let` promotion). C has
+  its own `local_owner` verdict and would be adopting a second source for the
+  same fact; estree/go/perl keep variables in a runtime store, so the verdict
+  has nowhere to land there today. Not forced on any backend.
+updates: none (first offer)

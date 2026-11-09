@@ -24,6 +24,22 @@ cannot implement a swap by itself.
 same constant, this was a one-line change; the A/B columns are shown for the
 old rotation shape and are currently all equal.
 
+**Rotation SUSPENDED, fleet on opencode-go/muse-spark-1.3-contributor
+(operator, 2026-10-10).** Glyph Cluster hit its daily wall and the fleet was
+ordered onto `opencode-go/muse-spark-1.3-contributor`. The carrier is NOT pir:
+`pir -m opencode-go/muse-spark-1.3-contributor` resolves the id and then fails
+every call with `HTTP 400: Request is missing x-opencode-session` — opencode-go
+routes only for the OpenCode client — while `opencode run` with the same id
+returns a session and answers (both verified live). So every LLM worker runs
+`WORKER_CLI=opencode` + that exact id via the direct path, with rotation off
+(`WORKER_ROTATE_OFF=1` in `systemd/sh2fleet.env`; honored by
+`setup_backends.sh`'s three rotation setters and `start-worker.sh`, plus an
+`opencode` branch in `main_loop_estree.pl`, which previously dispatched only
+pi|pir|cmd). Consequences: worker_common's in-tier opencode fallback still
+applies; per-call telemetry stops landing in `invocations.jsonl`, so the
+rotation comparison is paused, not broken. Revert: delete the operator block
+from `sh2fleet.env` and restart the workers.
+
 **Model ids are verified, not assumed.** Two different traps, both hit in
 practice:
 

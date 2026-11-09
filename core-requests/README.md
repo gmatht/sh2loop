@@ -15,6 +15,16 @@ need (PLAN §11 marketplace — the core is LLM-free):**
 diagnose its own gate log and file a SPEC or OFFER with the concrete
 change — never an `.md` that says "inspect my log".
 
+**One offer = one directory** (`offered/<name>.rs/` holding `transform.rs`,
+`register`, `manifest`) — the `<name>.rs` above names the offer, not a bare
+file. This matters because the shape is read by code, not by a person:
+`run_core_worker.sh`'s `pending_transforms` kept only regular files, so
+every directory offer was **invisible** — the worker logged
+`iterating (0 offers, …)` for as long as they had existed and gated none of
+them (fixed 2026-10-30, both in discovery and in the `-f` accept-move).
+Both single-file and directory offers are now accepted; if you add a fourth
+shape, run `pending_transforms` on it before trusting a green worker log.
+
 ## The contract-gen spec format (for NEW NODES)
 
 ```json

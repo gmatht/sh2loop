@@ -28,6 +28,28 @@ die() { printf 'bat-triage-repro.sh: %s\n' "$*" >&2; exit 2; }
 [ -x "$CLI" ] || die "otranspilerl-cli not found/executable at $CLI (cargo build --bin otranspilerl-cli in otranspilerl/)"
 [ -f "$EXPECT" ] || die "expectation table missing: $EXPECT"
 
+# rustc: the per-case workdir is `mktemp -d "${TMPDIR:-/tmp}/batrepro…"`, i.e.
+# outside the workspace, and rustup resolves a toolchain only from a
+# settings.toml default or a rust-toolchain.toml in the CWD's ancestry —
+# this box's RUSTUP_HOME has no settings.toml. A bare `rustc` there therefore
+# exits 1 for EVERY case and the rust arm returns EMPTY, which reads as a
+# stdout mismatch instead of a broken oracle. Same defect (and the same
+# resolution) as harness/frontend-stdout.sh; see the long note there.
+rustc_cmd=(rustc)
+{
+  rust_tc="${RUST_TOOLCHAIN:-}"
+  if [ -z "$rust_tc" ] && [ -f "$ROOT/rust-toolchain.toml" ]; then
+    rust_tc=$(awk -F'"' '/^[[:space:]]*channel[[:space:]]*=/ {print $2; exit}' \
+              "$ROOT/rust-toolchain.toml")
+  fi
+  if [ -n "${RUSTC:-}" ] && [ -x "${RUSTC}" ]; then
+    rustc_cmd=("$RUSTC")
+  elif [ -n "$rust_tc" ] && command -v rustup >/dev/null 2>&1 && \
+       rustup run "$rust_tc" rustc --version >/dev/null 2>&1; then
+    rustc_cmd=(rustup run "$rust_tc" rustc)
+  fi
+}
+
 # Recorded expectation for an example name, \n-unescaped to real newlines.
 expected_for() {
   command grep -m1 "^$1|" "$EXPECT" | cut -d'|' -f2- \
@@ -47,7 +69,7 @@ ext_for() {
 run_rendered() { # backend, rendered-file, workdir, source-file -> stdout
   local bk=$1 f=$2 wd=$3 src=$4
   case "$bk" in
-    rust)   ( cd "$wd" && rustc -A warnings -o prog "$f" >/dev/null 2>&1 && ./prog 2>/dev/null ) ;;
+    rust)   ( cd "$wd" && "${rustc_cmd[@]}" -A warnings -o prog "$f" >/dev/null 2>&1 && ./prog 2>/dev/null ) ;;
     sh)     ( cd "$wd" && timeout 10 sh "$f" 2>/dev/null ) ;;
     python) ( cd "$wd" && timeout 10 python3 "$f" 2>/dev/null ) ;;
     perl)   ( cd "$wd" && timeout 10 perl "$f" 2>/dev/null ) ;;

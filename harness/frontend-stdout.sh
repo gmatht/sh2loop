@@ -48,6 +48,9 @@ fi
 set -u
 lang=$1; bin=$2; dir=$3; otranspilerl_cli=$4
 root=${FS_ORIG_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}
+# The zig native arm runs `zig run` per testdata file — prune the zig global
+# cache to its 8 GiB ceiling first (best-effort; never fails the gate).
+if [ "$lang" = zig ]; then "$root/harness/zig-cache-prune.sh" || true; fi
 runner="$root/harness/estree-runner.mjs"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"; rm -f "${FS_SNAPSHOT:-}"' EXIT
 # Oracle stability: otranspilerl/target/debug/otranspilerl-cli is rebuilt CONCURRENTLY by the
@@ -143,6 +146,47 @@ if [ "$lang" = zig ]; then
   fi
   native=( "$zigbin" run )
 fi
+# rustc: rustup can only pick a toolchain from a settings.toml default or a
+# rust-toolchain.toml in the CWD's ancestry. RUSTUP_HOME is /usr/local/rustup
+# on this box, it holds exactly one toolchain (1.90) and NO settings.toml, so
+# there is no default_toolchain at all: bare `rustc` answers
+#   "rustup could not choose a version of rustc to run"
+# for any CWD outside the workspace. The native rust arm compiles in $tmp
+# (mktemp -d under /tmp) precisely to get per-run isolation, i.e. it is
+# ALWAYS outside the workspace, so 2026-10-26 every rust example's native
+# side came back EMPTY while the transpiled side was correct — 65/65 DIFF,
+# which reads as a frontend regression and is not one. Resolve the toolchain
+# the workspace pins (rust-toolchain.toml `channel`, the same pin the core
+# builds with) and run through `rustup run`, so the scratch CWD is
+# irrelevant. Precedents: harness/py-rust-gate.sh (`rustup run 1.90 rustc`).
+# RUSTC= takes a whole path; RUST_TOOLCHAIN= overrides the channel.
+rustc_cmd=(rustc)
+if [ "$lang" = rust ]; then
+  if [ -n "${RUSTC:-}" ] && [ -x "${RUSTC}" ]; then
+    rustc_cmd=("$RUSTC")
+  else
+    rust_tc="${RUST_TOOLCHAIN:-}"
+    if [ -z "$rust_tc" ] && [ -f "$root/rust-toolchain.toml" ]; then
+      rust_tc=$(awk -F'"' '/^[[:space:]]*channel[[:space:]]*=/ {print $2; exit}' \
+                "$root/rust-toolchain.toml")
+    fi
+    if [ -n "$rust_tc" ] && command -v rustup >/dev/null 2>&1 && \
+       rustup run "$rust_tc" rustc --version >/dev/null 2>&1; then
+      rustc_cmd=(rustup run "$rust_tc" rustc)
+    fi
+  fi
+  # FUNCTIONAL probe in the scratch CWD the native arm actually uses. A broken
+  # or unpinned rustup shim answers non-zero for EVERY compile — the same
+  # signal as a legitimately-empty-output program, so it surfaces as N
+  # misleading "DIFF (stdout mismatch)" rows with an empty native side and
+  # sends the worker hunting a frontend bug that does not exist. Probe once
+  # and fail with ONE diagnosable line instead.
+  if ! ( cd "$tmp" && timeout 20 "${rustc_cmd[@]}" --version ) >/dev/null 2>&1; then
+    echo "frontend-stdout.sh: rustc oracle unusable: '${rustc_cmd[*]} --version' fails in a scratch dir (rustup has no default toolchain and no rust-toolchain.toml applies there); refusing to report $lang DIFFs against a dead oracle" >&2
+    echo "frontend-stdout.sh: hints: RUST_TOOLCHAIN=<channel>  RUSTC=<absolute path>  (rustup default <channel> fixes it box-wide)" >&2
+    exit 1
+  fi
+fi
 # pwsh: the /snap/bin wrapper re-execs through snap-confine, which fails
 # in containerized workers (same rationale as the go/zig cases) — prefer
 # the direct snap binary, else a PWSH override, else PATH.
@@ -163,6 +207,23 @@ fi
 cmdbin=""
 if [ "$lang" = bat ] && [ -x /mnt/c/Windows/System32/cmd.exe ]; then
   cmdbin=/mnt/c/Windows/System32/cmd.exe
+  # PROBE the live oracle before trusting it. cmd.exe refuses a UNC
+  # working directory ("\\wsl.localhost\…" — the workspace moved off
+  # /mnt/c on 2026-10-08) and the interop layer leaves
+  # `call "path"` unparseable, so on such a box every native side
+  # comes back EMPTY while the transpiled side is CORRECT — bat-sh-go
+  # gated 0/51 with 51 spurious DIFFs, all `<` (native) empty and `>`
+  # (transpiled) right. One probe with the exact invocation run_native
+  # uses decides whether the live oracle is real; when it is not, the
+  # recorded expectations below stay the oracle (never a weaker check:
+  # the record IS the expected output).
+  probe="$tmp/.cmdprobe.bat"
+  printf '@echo off\r\necho cmdprobe-ok\r\n' > "$probe"
+  if [ "$(timeout 20 "$cmdbin" /c "call \"$probe\"" </dev/null 2>/dev/null | tr -d '\r')" != "cmdprobe-ok" ]; then
+    echo "note: cmd.exe present but unusable from this workspace (UNC cwd / interop quoting) — using the recorded bat expectations as the native oracle" >&2
+    cmdbin=""
+  fi
+  rm -f "$probe"
 fi
 
 # Native-interpreter limitation list: tests the NATIVE interpreter cannot
@@ -226,6 +287,13 @@ t52_pipeline.bat|beta\npipe-end\n
 t53_renpattern.bat|one\ntwo\n
 "
 
+# Per-example wall-clock bound. 20s (the historical value) is ample for a
+# genuine hang, but py-sh-go's t88_factor53 legitimately trial-divides a
+# 53-bit number (~19s for native python3 at fleet load ~44 on 16 cores) and
+# flipped the gate red at random against a hard 20s. A frontend whose
+# fixtures are honestly expensive raises this; nothing else changes.
+FTIMEOUT="${SH2_FRONTEND_TIMEOUT:-20}"
+
 run_native() {  # <file> -> stdout on stdout
   local f=$1
   if [ "$lang" = zig ]; then
@@ -235,7 +303,23 @@ run_native() {  # <file> -> stdout on stdout
     # into the scratch dir first — resolve the (possibly relative) path
     # up front so the compile cache can hash the source.
     fabs=$(readlink -f "$f")
-    (cd "$tmp" && timeout 20 "$zigbin" run "$fabs") < /dev/null 2>&1
+    out="$( (cd "$tmp" && timeout 20 "$zigbin" run "$fabs") < /dev/null 2>&1 )"
+    case "$out" in
+      *"failed to execve"*|*"FileNotFound"*)
+        # A STARVED cold build (the 20s budget, under load) leaves a
+        # manifest in <zig-cache>/h with no artifact under o/, and every
+        # later run for that input then fails INSTANTLY and permanently
+        # with execve FileNotFound — the zig gate went 16/17 red this
+        # way while the transpiled side was correct on every test. The
+        # manifest is pure cache and is not keyed to the artifact dir's
+        # name, so drop the manifests and rebuild once, with a longer
+        # budget.
+        zcache="${ZIG_GLOBAL_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/zig}"
+        rm -f "$zcache"/h/* 2>/dev/null || true
+        out="$( (cd "$tmp" && timeout 60 "$zigbin" run "$fabs") < /dev/null 2>&1 )"
+        ;;
+    esac
+    printf '%s' "$out"
   elif [ "$lang" = c ]; then
     cp "$f" "$tmp/main.c"
     (cd "$tmp" && timeout 20 cc main.c -o main 2>/dev/null && timeout 20 ./main) < /dev/null 2>/dev/null
@@ -254,8 +338,26 @@ run_native() {  # <file> -> stdout on stdout
     cp "$f" "$tmp/main.rs"
     out=""
     for _try in 1 2 3; do
-      out=$( (cd "$tmp" && timeout 60 rustc main.rs -o main 2>/dev/null && timeout 20 ./main) < /dev/null 2>/dev/null ) && break
-      out=""
+      # Retry the COMPILE (the starved/OOM-cold-start path from
+      # 2026-08-12 14:49) — but never discard an HONEST run result:
+      # the old `rustc … && ./main && break` + `out=""` wiped the
+      # captured stdout whenever ./main exited NONZERO, because a
+      # real `exit(7)` made the compound status nonzero and fell
+      # through to the clear — so any testdata whose rust binary
+      # exits nonzero DIFFed with an EMPTY native side while the
+      # transpiled side was correct (t71_process_exit, gate
+      # 2026-10-26). Split the phases: failed compile -> retry;
+      # successful compile's run output — whatever the exit code —
+      # IS the oracle. Only an EMPTY run with a nonzero status (a
+      # possibly-starved run) retries, and an empty status-0 run is
+      # the legitimate "printed nothing" result.
+      if (cd "$tmp" && timeout 60 "${rustc_cmd[@]}" main.rs -o main 2>/dev/null); then
+        out=$( (cd "$tmp" && timeout 20 ./main) < /dev/null 2>/dev/null )
+        st=$?
+        if [ -n "$out" ] || [ "$st" -eq 0 ]; then break; fi
+      else
+        out=""
+      fi
       [ "$_try" -lt 3 ] && sleep 3
     done
     printf '%s' "$out"
@@ -315,7 +417,7 @@ run_native() {  # <file> -> stdout on stdout
     # spurious DIFFs; the zig branch has the same readlink-first
     # pattern).
     fabs=$(readlink -f "$f")
-    (cd "$tmp" && timeout 20 "${native[@]}" "$fabs") < /dev/null 2>/dev/null
+    (cd "$tmp" && timeout "$FTIMEOUT" "${native[@]}" "$fabs") < /dev/null 2>/dev/null
   elif [ "$lang" = bat ]; then
     # cmd.exe REQUIRES CRLF batch files (LF-only files fail with "(echo was
     # unexpected at this time.") — stage a CRLF copy, then run via WSL
@@ -353,7 +455,7 @@ run_estree() {  # <estree-json> <source-file> -> transpiled stdout
     # the scratch dir — the allowlist silently empties and every raw
     # exec-spawn aborts (go-sh t106: only "1" printed, "2" lost).
     srcabs=$(readlink -f "$2")
-    (cd "$tmp" && timeout 20 node "$runner" "$1" --source "$srcabs" 2>"$tmp/estree.err") || true
+    (cd "$tmp" && timeout "$FTIMEOUT" node "$runner" "$1" --source "$srcabs" 2>"$tmp/estree.err") || true
   else
     timeout 20 node "$runner" "$1" --source "$2" 2>"$tmp/estree.err" || true
   fi
@@ -381,7 +483,13 @@ for f in "$dir"/*"$ext"; do
   # emit MUST fail, so they are exercised by the frontend's own gate
   # (make test), never compared here.
   case "$bn" in *_refuse*) record SKIP; echo "SKIP $bn (refusal pin — asserted failing by the frontend gate)"; skips=$((skips+1)); continue ;; esac
-  if [ "$lang" != go ] && [ "$lang" != bat ] && [ "$lang" != powershell ] && ! command -v "${native[0]}" >/dev/null 2>&1; then
+  # powershell is NOT exempt from the missing-interpreter skip: when
+  # this box has no pwsh (and native_limits_powershell is empty, so
+  # there is no recorded oracle either) every test would DIFF with an
+  # empty native side — 0/36 — while the transpiled side is correct.
+  # A missing interpreter is a runtime limitation, never a transpiler
+  # bug, so it skips exactly like zsh/fish do.
+  if [ "$lang" != go ] && [ "$lang" != bat ] && ! command -v "${native[0]}" >/dev/null 2>&1; then
     record SKIP; echo "SKIP $bn (native interpreter '${native[0]}' not installed)"
     skips=$((skips+1)); continue
   fi

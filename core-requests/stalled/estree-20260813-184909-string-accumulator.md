@@ -90,3 +90,5 @@ iterations (including zero — `[].join("")` is `""`); corpus gate
 (`./fail-estree` at the trusted baseline) judges. The bisect's risk is
 a mid-loop read (wrong deferred value) or a slice/len on the
 accumulator — both excluded by the guards above.
+
+## OUTCOME: implemented: `transforms/string_accumulator.rs` now lowers the verified shape for the JS/ESTree renderer — chunk `setArray` init after the `v` init, `setArrayAppend` per self-append, and ONE `concatItems` materialization (`sh2.arrayValues(name).join("")`) immediately after the loop, so no read rewriting is needed. Guards added for loop-header reads (`while [ -n "$v" ]`, `$var` text in test/arith strings) and reserved vars; per-target gated (other backends keep the verdict-only path). Exercises the corpus example tsv-string-accumulate-loop.sh; 6 unit tests; ./fail-estree 562/562 green. This supersedes the earlier perf-only deferral.

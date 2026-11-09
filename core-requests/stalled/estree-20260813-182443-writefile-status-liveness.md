@@ -44,3 +44,5 @@ after either write): two bare `await writeFile(...).catch(report)`.
 Output bytes identical on success (the catch is error-only); corpus
 gate (`./fail-estree`) judges — the risk is a script that reads `$?`
 after a redirect, which the liveness scan must keep live.
+
+## OUTCOME: implemented: `install_unread_status_writes` feeds the writeFile emission, which drops the `.then(r => (sh2.lastExit = 0, true))` closure and keeps the error-reporting `.catch` when the write's status is unread. Verified: `echo hi > f; echo done` emits a bare `await sh2.fs.writeFile(...).catch(report)`; pinned by the `writefile_status_dead_drops_the_then_closure` tests (the live-`$?` half is pinned too).

@@ -1,0 +1,9 @@
+(* string-accumulator: the manifest's `proof:` target. The walks' theory
+   lives in the shared session (proofs/StringAccumulator); this session
+   re-checks it FROM SOURCE as its own theory, so a `checked` claim here
+   cannot be satisfied by a stale heap of another session.
+   Build: isabelle build -c -o quick_and_dirty=false -D . *)
+session StringAccumulatorClaim = HOL +
+  options [quick_and_dirty = false]
+  theories
+    Claim

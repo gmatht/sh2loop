@@ -82,9 +82,34 @@ case "${PWD##*/}" in
         ;;
 esac
 
-# setsid puts the command in a new session; $! is the setsid process, which
-# execs the command, so it carries the same SID.
-setsid "$@" &
+# ── equivalence-gate ENV neutralization ─────────────────────────────────
+# Every caller of this wrapper runs a TRANSLATION against a `bash` REFERENCE
+# and diffs them (setup_backends.sh's backend gate, c_gate_main.sh,
+# chimera-gate.sh, perl_gate_local.sh, batch-triage.sh, the pg-* repros). A
+# non-interactive bash sources $BASH_ENV, so a DEVELOPER environment that
+# defines shell FUNCTIONS there is applied to the reference side only — the
+# translated program's native pipeline execs the real binary, while `bash "$f"`
+# runs the function. The gate then measures the dev shim, not the translator.
+# harness/c_gate_main.sh:104-118 documents exactly this and neutralizes it for
+# BOTH of its sides; this wrapper is the single chokepoint every other caller
+# goes through, so the same neutralization belongs here rather than duplicated
+# at ten call sites.
+#
+# Measured 2026-10-09 on this box, where the agent harness exports
+# BASH_ENV=/tmp/pir-timeout/bashenv defining `grep` -> ripgrep (and `find`,
+# `timeout`): the rust backend's gate reported 015_grep_advanced.sh and
+# 016_grep_basic.sh as EQUIV-FAIL. Re-running the 47 corpus examples that
+# mention grep/egrep/find/timeout in BOTH modes gave exactly those two as
+# shimmed=FAIL / clean=PASS and ZERO as shimmed=PASS / clean=FAIL — the
+# reference was wrong, the renderer was right. (rg is not a grep drop-in:
+# `grep -o "pattern[0-9]\+"` is one-or-more in BRE but a literal `+` in rg's
+# Rust regex, and `--color=always` emits a different SGR sequence.)
+#
+# The wrappers fall back to the real tool for flags they cannot translate, so
+# the blast radius is narrow — 45 of those 47 files were unaffected either way.
+# `env -u` EXECs (it does not fork), so setsid still lands in the same pid and
+# the SID == $child invariant below is unchanged.
+env -u BASH_ENV setsid "$@" &
 child=$!
 
 # The SID is $child, and probing for it is pure cost.
@@ -117,6 +142,36 @@ child=$!
 # setsid(2) yet); the retry could not add information, because the value it
 # converges on is already known.
 sid=$(ps -o sid= -p "$child" 2>/dev/null | tr -d ' ')
+# INVARIANT GUARD (2026-10-21). setsid execs IN PLACE on this path
+# (non-interactive shell, the backgrounded subshell is not a process-group
+# leader), so $child IS its own session leader and its sid must equal its
+# pid. A different value means one of two failure modes, and sweeping the
+# probed session in EITHER case SIGKILLs an innocent workstream:
+#
+#   1. the probe read a RECYCLED pid. This box churns ~60k pids/min
+#      (measured 2026-10-21: 307k→427k in 2 min), and a fast example can
+#      exit, be reaped by the shell, and have its pid reused between the
+#      `setsid … &` above and this `ps`. The probed sid then names some
+#      OTHER live session — e.g. a fleet supervisor's — and the sweep
+#      below kills its whole membership: supervisors vanished mid-gate
+#      with no exit trace, exactly the "unidentified external killer"
+#      repair-workers.sh exists for. Death snapshots recorded kill-session
+#      wrappers active in the dead supervisor's session at every death.
+#   2. setsid(2) returned EPERM (caller already a group leader) and
+#      util-linux forked: $child is then a dead wrapper whose sid is OUR
+#      caller's session — the gate's own worker session — and the sweep
+#      would kill the gate itself.
+#
+# Fall back to the child's own pid, which can only name the session this
+# invocation actually created. The sweep stays fully effective for its
+# purpose (orphans KEEP their session after reparenting); the only cost of
+# the fallback is a missed sweep in the pathological cases, and those
+# orphans are exactly what harness/reap-orphan-examples.sh collects
+# every 10 min. Deliberately fail-open: a missing sweep must never kill a
+# workstream, and it must never hang the gate.
+if [ -n "$sid" ] && [ "$sid" != "$child" ]; then
+    sid="$child"
+fi
 [ -n "$sid" ] || sid="$child"
 
 wait "$child"
