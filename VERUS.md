@@ -12,7 +12,7 @@ framework is Isabelle (`sh2perl/proofs/README.md`, `proofs/ArithIdentity`,
 the two are not double-counted. The tier language (Tier 1/2/3) comes from
 `docs/transform-verification.md`.
 
-Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28; the write-arm and vbuf rows added 2026-10-29):
+Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28; the write-arm and vbuf rows added 2026-10-29; on 2026-11-09 every model below was committed to the tree — the `local-only` badges meant "uncommitted working copy", so the gate could check none of them in a fresh checkout):
 
 | proof file | target | obligations | status |
 |---|---|---|---|
@@ -24,17 +24,17 @@ Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28; t
 | `proofs/verus/dead_fn_elim.rs` | `transforms/dead_fn_elim.rs` Passes 1–4 | 25 verified, 0 errors | committed `46ec35566`, local-only |
 | `proofs/verus/dead_store_elim.rs` | `transforms/dead_store_elim.rs` core | 45 verified, 0 errors | committed `dbd0a5562`, local-only |
 | `proofs/verus/redundant_store_elim.rs` | `transforms/redundant_store_elim.rs` (fixed) | 54 verified, 0 errors | landed, gated — see P1 |
-| `proofs/verus/copy_propagation.rs` | `transforms/copy_propagation.rs` (substitution core) | 27 verified, 0 errors | local-only — see P3 |
-| `proofs/verus/function_purity.rs` | `transforms/function_purity.rs` (verdict) | 41 verified, 0 errors | local-only — see P4 |
-| `proofs/verus/test_lowering.rs` | `transforms/test_lowering.rs` (Tier-1 leaves) | 25 verified, 0 errors | local-only — see P5 |
-| `proofs/verus/string_folds.rs` | `interp_fold` + `default_empty_fold` (string folds) | 11 verified, 0 errors | local-only — see P6 |
-| `proofs/verus/arith_folds.rs` | `arith_normalize` + `bc_float_clean` (arith identities) | 11 verified, 0 errors | local-only — see P6 |
-| `proofs/verus/test_folds.rs` | `test_simplification` (self-comparison table) | 7 verified, 0 errors | local-only — see P6 |
-| `proofs/verus/capture_folds.rs` | `const_capture_fold` + `text_capture_fold` | 15 verified, 0 errors | local-only — see P6 |
-| `proofs/verus/list_folds.rs` | `brace_fold` + `affix_strip_fold` (list/affix) | 12 verified, 0 errors | local-only — see P6 |
-| `proofs/verus/textop_folds.rs` | `text_ops` pure literal arms | 15 verified, 0 errors | local-only — see P6 |
-| `proofs/verus/not_folds.rs` | `not_identity` (double-negation + rust-gated flip) | 13 verified, 0 errors | local-only — see P7 |
-| `proofs/verus/const_cmp_folds.rs` | `const_str_cmp_fold` (literal Eq/Ne + Not-wrapped + globMatch) | 14 verified, 0 errors | local-only — see P8 |
+| `proofs/verus/copy_propagation.rs` | `transforms/copy_propagation.rs` (substitution core) | 27 verified, 0 errors | in-tree 2026-11-09, gated — see P3 |
+| `proofs/verus/function_purity.rs` | `transforms/function_purity.rs` (verdict) | 41 verified, 0 errors | in-tree 2026-11-09, gated — see P4 |
+| `proofs/verus/test_lowering.rs` | `transforms/test_lowering.rs` (Tier-1 leaves) | 25 verified, 0 errors | in-tree 2026-11-09, gated — see P5 |
+| `proofs/verus/string_folds.rs` | `interp_fold` + `default_empty_fold` (string folds) | 11 verified, 0 errors | in-tree 2026-11-09, gated — see P6 |
+| `proofs/verus/arith_folds.rs` | `arith_normalize` + `bc_float_clean` (arith identities) | 11 verified, 0 errors | in-tree 2026-11-09, gated — see P6 |
+| `proofs/verus/test_folds.rs` | `test_simplification` (self-comparison table) | 7 verified, 0 errors | in-tree 2026-11-09, gated — see P6 |
+| `proofs/verus/capture_folds.rs` | `const_capture_fold` + `text_capture_fold` | 15 verified, 0 errors | in-tree 2026-11-09, gated — see P6 |
+| `proofs/verus/list_folds.rs` | `brace_fold` + `affix_strip_fold` (list/affix) | 12 verified, 0 errors | in-tree 2026-11-09, gated — see P6 |
+| `proofs/verus/textop_folds.rs` | `text_ops` pure literal arms | 15 verified, 0 errors | in-tree 2026-11-09, gated — see P6 |
+| `proofs/verus/not_folds.rs` | `not_identity` (double-negation + rust-gated flip) | 13 verified, 0 errors | in-tree 2026-11-09, gated — see P7 |
+| `proofs/verus/const_cmp_folds.rs` | `const_str_cmp_fold` (literal Eq/Ne + Not-wrapped + globMatch) | 14 verified, 0 errors | in-tree 2026-11-09, gated — see P8 |
 | `proofs/verus/array_len_fold.rs` | `transforms/array_len_fold.rs` (`fold`) | 10 verified, 0 errors | landed, gated — see P2 |
 | `proofs/verus/const_status_cond.rs` | `transforms/const_status_cond.rs` (7-row table) | 35 verified, 0 errors | landed, gated — see P2 |
 | `proofs/verus/background_decide.rs` | `transforms/background_decide.rs` (THREAD/FORK verdict for `cmd &`) | 12 verified, 0 errors | **conditional, NOT Tier 1** -- subshell-vs-thread equivalence under a stated model (`&` inherits reads, discards writes, shares stdout). `thread_equals_fork` proves the THREAD routing prints exactly what the subshell prints for every body the ORDERED rule accepts; `intended_implies_shipped` proves that rule refuses nothing the pass accepts; `shipped_check_is_unsound` **refutes the check that ships**: `collect` compares read/assign SETS in no order, so `if [ -n "$x" ]; then x=1; echo 7; fi` goes to a fresh runtime that prints nothing where the subshell prints 7. The classifier is wrong; nothing miscompiles **today** only because the verdict has no consumer yet (`is_thread` has zero call sites), so this is a latent bug in an offered analysis, not a live miscompile. Excluded from the Tier-1 totals. |
@@ -194,11 +194,11 @@ these files — re-running one is a manual command from the README, and a
 `harness/verus-gate.sh` now exists and is green (Tier 0, landed 2026-10-24):
 it re-runs the eight models with exact-count assertions (exit 1 on count
 mismatch or Verus error, exit 2 if the binary is absent — never read
-"not installed" as green) plus an empty sync registry with a comment
-explaining why nothing is registered. The remaining hardening item is pushing
-the three local-only proof commits so the gate means the same thing on a
-fresh clone
-item (P0 in §(d)).
+"not installed" as green) plus the sync registry described in P0(v). As of
+2026-11-09 the gate checks every model and every baseline it names — 123
+passed, 0 failed, 4 extractors refusing rather than skipping — and the one
+thing still open is pushing the branch, because a fresh clone of `origin`
+sees none of it (§(d) P0(v)).
 
 ## (a) Which transforms have been proven correct with Verus
 
@@ -573,8 +573,8 @@ honest after the modelling session ends:
 as a gate.** Isabelle's mirrors are also hand-duplicates ("mirrored
 VERBATIM"), but they are built by `harness/transform-proofs.sh` — 6
 sessions green, sabotage-tested — while Verus, until 2026-10-24, had no
-gate and no binary on the box (now: `harness/verus-gate.sh`, green on all
-locally-present models, and `/opt/verus-0.2026.10.18.7d82994`; still no
+gate and no binary on the box (now: `harness/verus-gate.sh`, green on every
+model in the tree as of 2026-11-09, and `/opt/verus-0.2026.10.18.7d82994`; still no
 manifest `proof:` lines). The three branch-pending FAILs are landed in-tree
 2026-10-26 (`redundant_store_elim`, `array_len_fold`, `const_status_cond`
 re-verified at 53/10/35 on the landed files — no re-proof).
@@ -699,6 +699,27 @@ permanently-red entry — turned out to BE the signal: the extractor's target ha
 already been deleted from the source. 2026-11-08 registered it, retargeted it at
 the live `arith_abs_bound`, and committed the generated baseline, so it is
 green and live instead of silent.
+
+**(v) DONE 2026-11-09 — the gate now checks the tree that ships.** Thirty-eight
+models were named in `harness/verus-gate.sh` and absent from the tree, so in a
+clean checkout `check_model`'s existence pre-check answered for them: a pass
+count of zero that reads exactly like a failed proof and is worth nothing
+either way. All thirty-eight verify at exactly their asserted counts, so they
+are committed rather than re-pinned. The twenty-one sync baselines whose
+entries had been `SKIP`ping as "Tier 1 pending, NOT green-by-absence" are
+generated from HEAD source (every pin mapped, every mapped test executed
+PASS), and the `c_sparse_array` / `c_assoc_array` increments the gate was
+already demanding (45 and 54) are landed. `c_decl_coverage` stays pinned at
+HEAD's 51: its working copy's new pin maps to
+`expr_position_assign_routes_to_the_variable`, a test that is also still
+uncommitted, so the model and that test have to land together. Four
+extractors still refuse instead of skipping — `arr_load_fwd`,
+`exec_call_fold`, `interp_lit_merge` (every mapped test MISSING: the pin_map
+names tests the suites no longer contain) and `strip`
+(`pin_continue_verdict` has no pin_map entry) — and that needs the owner's
+mapping, not a guessed one. Gate on the committed tree: **123 passed, 0
+failed, 4 skipped, 2 retired records**. Unpushed, so a fresh clone of
+`origin` still sees the old state.
 
 **P1 — `redundant_store_elim`.** DONE — see P0(ii): the fixed version is
 proved (shadow argument, observationally exact), with all three bug

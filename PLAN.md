@@ -5603,3 +5603,56 @@ file, failure-name sets identical — zero introduced, zero fixed); my
 11 tests pass. The Core worker was healthy throughout (gate GREEN,
 0 A1 violations, 555 probed; its `lib_fails=19` baseline is measured in
 its own subcheckout, hence the A/B above rather than a count compare).
+
+### 2026-11-09 — the Verus gate finally checks the tree that ships: 38 models and 21 sync baselines land, and four drift pins are settled
+
+The gate named 38 models the tree did not contain. In a clean checkout
+`check_model`'s existence pre-check answered for each of them, so a log skim
+showed `model file absent` — worth nothing, and indistinguishable from a
+failed proof. All 38 verify green at **exactly** their asserted counts
+(`--triggers-mode silent`, the per-entry `--rlimit`, 0 errors, rc=0), so the
+fix was to commit them, not to re-pin them. The 21 sync baselines whose
+entries had been `SKIP`ping as "Tier 1 pending, NOT green-by-absence" are
+generated from HEAD source with every pin mapped and every mapped test
+executed PASS.
+
+Four expectations were **not** lowered and four were:
+
+- `c_sparse_array` (45) and `c_assoc_array` (54): the increments the gate was
+  already demanding are pure additions (837 lines across the three C array /
+  decl models) that verify at those counts, so they are landed.
+- `c_decl_coverage` is pinned 54 → **51**: its working copy's new pin maps to
+  `expr_position_assign_routes_to_the_variable`, a test that is also still
+  uncommitted, so the extractor FATALs at HEAD. The model and that test have
+  to land together; the owner re-blesses then.
+- `c_join_ifs` is pinned 104 → **73** (committed model; the working copy is
+  108 with one failing postcondition, `w3_hole_skip_is_load_bearing`), so the
+  line asserts what the tree checks instead of what a branch will.
+- `test_folds` was not a generator bug: the model and its baseline were
+  asserted by the gate but never committed (now in-tree at 7/0, manifest
+  byte-identical), and the committed trunk did not build at all —
+  `c_backend.rs` called `NumericObserved::arrays()` which the committed
+  `numeric_observed.rs` never had. Restoring that four-line getter took
+  `cargo build --lib` from E0599/E0308 to 0 errors and unblocked every
+  `cargo test --lib`-based sync entry.
+
+Isabelle: `BigIntRange` (and its child `IntervalFloor`) build green from
+source with `quick_and_dirty=false` (58 s / 5:16). The `OF: no unifiers` was
+the **lemma shape**, not the goal — `mod_pos_bounds`/`mod_neg_bounds` carried
+their guard in the conclusion (`shows … ⟹ …`), so a call site's third `OF`
+fact had no premise; the guards are now real assumptions and the goals speak
+about `v1 mod v2`, transferred by `linarith` under `ev`. The stale "not in the
+default build" note in `proofs/ROOT` is gone; `harness/transform-proofs.sh`
+reports **8 checked-and-built, 0 stated-only, 0 failed**.
+
+**Gate on the committed tree** (clean worktree, pinned Verus, workerd-free):
+**123 passed, 0 failed, 4 skipped, 2 retired records**, exit 0. The four skips
+are extractors that *refuse* rather than skip — `arr_load_fwd`,
+`exec_call_fold`, `interp_lit_merge` (every mapped test MISSING: the pin_map
+names tests the suites no longer contain) and `strip`
+(`pin_continue_verdict` has no pin_map entry) — and each needs its owner's
+mapping, not a guessed one.
+
+Not pushed: the work is committed on `background-decide-verdict`
+(`331c53a1a`, `dc8ec80ce`, `f60377733`, `da7ec0979`) and in the workspace
+gitlink, so a fresh clone of `origin` still sees the old state.

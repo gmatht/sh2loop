@@ -256,7 +256,14 @@ MODELS=(
   # while-cond printf, elsif-cond-in-fn, return-collect, select-menu
   # param write, printf/let in fn scope). Three one-token mutants, each
   # killing a named obligation.
-  "c_decl_coverage.rs:54:40"
+  #
+  # PINNED DOWN 2026-11-09: the working copy verifies 54, the committed model
+  # 51. The 54 belongs to an unlanded increment whose new pin
+  # (`pin_assign_chain`) maps to `expr_position_assign_routes_to_the_variable`,
+  # a source test that is also still uncommitted — so the extractor FATALs on
+  # it at HEAD. Owner: when that test lands, commit the model + the
+  # regenerated `c_decl_coverage_sync.txt` together and restore 54 here.
+  "c_decl_coverage.rs:51:40"
   # The C generator's STRING-LITERAL ESCAPER (sh2perl/src/c_backend.rs
   # `cstr`, the single funnel for every emitted literal incl. printf
   # format strings). Models the C lexer as a finite-state machine over
