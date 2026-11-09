@@ -411,6 +411,13 @@ print "Build complete.\n\n";
 # re-checked at the end of the run, which turns "the box was busy" into a
 # one-line receipt instead of a phantom render regression.
 my ($pin_path, $pin_kind);
+# WHO OWNS THE PIN. The cells are FORKED (dispatch/run_one_test), and a child's
+# `exit(0)` runs END blocks — so an unguarded `unlink $pin_path` in END deletes
+# the parent's pin as soon as the first cell finishes. Measured 2026-11-09: the
+# first `jobs` cells passed and every other one reported `exit 127`, which reads
+# like a mass render failure and is a lifetime bug in this script. Only the
+# process that created the pin may remove it.
+my $main_pid = $$;
 my @pin_sig = (stat($run_bin))[7, 9];    # size, mtime of the shared binary
 {
     my $pin = dirname($run_bin) . "/.sh2-pin-$$-" . basename($run_bin);
@@ -429,7 +436,7 @@ my @pin_sig = (stat($run_bin))[7, 9];    # size, mtime of the shared binary
         print "WARNING: could not pin the binary; a concurrent rebuild can fail cells\n";
     }
 }
-END { unlink $pin_path if defined $pin_path && -e $pin_path }
+END { unlink $pin_path if defined $pin_path && $$ == $main_pid && -e $pin_path }
 
 my $work_dir = tempdir("estreefail-XXXXXXXX", CLEANUP => 1, DIR => "/tmp");
 # Deferred reap (see the note in ./fail): CLEANUP removes the tree at scope
