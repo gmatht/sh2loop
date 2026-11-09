@@ -7457,3 +7457,57 @@ backstop (assoc k/v, fn-return storage) whose stores carry the exit-127 guard,
 i.e. the "or the guard engages" half. Pre-existing test state recorded rather
 than papered over: 10 `c_backend::tests` fail identically at HEAD and with the
 patch (verified by diffing the failure sets), so none of them are this change.
+
+**Perl renderer escaping: the one backend with no proof now has one
+(2026-11-09).** `src/perl_backend.rs` was the only backend with zero proof
+coverage, and the funnel it needed one for is `Render::perl_str`: every
+literal `Str` passes through it into a Perl DOUBLE-QUOTED context, where `$`
+interpolates scalars, `@` interpolates arrays and `\` introduces escapes — so
+a wrong arm does not crash, it silently emits a *different string*. That is
+the class behind this session's `${x}` splice failures (`"${x}"` in shell text
+must stay the four characters `${x}`, not expand a Perl variable).
+
+The model (`proofs/verus/perl_str_escape.rs`, 17 verified, 0 errors, gated) is
+two halves and one bridge. The encoder is `perl_str`'s arm table verbatim. The
+decoder is Perl's double-quote parser written as a **one-character-per-step
+state machine** (normal / after-backslash / expecting `{` / hex digits with an
+accumulator), which is why termination is structural: every recursive call
+consumes exactly one character, so there is no length arithmetic to justify —
+the first draft recursed on `s.skip(n)` with `n` from a lookahead and could not
+prove termination at all. The bridge is the part that matters: `roundtrip`
+proves `eval_literal(lit(s)) = Some(s)` for every `s` by composing
+`esc_char_step` (each `esc_char(c)` decodes to `c` **and consumes exactly its
+own characters**, so the parser resumes on the next character's boundary) and
+`hex_walk` (the `\x{h}` digits advance the accumulator). A per-arm table alone
+does not give that: concatenation is where a dangling `\` or an unterminated
+`{` would eat the next character, so the stream property is the claim and the
+per-character lemma is what makes it composable. The proof needed one
+non-obvious fact — `(a + b).skip(n) = a.skip(n) + b` (`skip_add`, by sequence
+extensionality) — because otherwise the SMT cannot keep the parser anchored on
+a literal prefix and every step's tail is opaque.
+
+Non-vacuous: `dollar_is_load_bearing` (drop the `$` arm and the dollar stays
+bare), `slash_is_load_bearing` (drop the `\\` arm and a literal backslash
+before `n` re-parses as a NEWLINE — the `printf '%s\n'` class), and
+`env_dependence_is_the_hazard` / `braced_substitution_is_the_same_hazard`, a
+deliberately small substitution model showing that a bare `$x` or `${x}` makes
+the emitted text's value depend on the environment, i.e. it stopped being a
+literal. `splice_witness_round_trips` is the shipped encoder's answer.
+
+**The consumer is a differential test, not a transcript.**
+`perl_backend::escaping_tests` runs the REAL `perl` over 169 literals — the
+empty string, every ASCII code point on its own, and the `${x}` / `$#x` /
+`@ARGV` / `@{x}` / backslash / quote / `\x41`-looking / control-char shapes —
+hex-dumps each decoded value and compares it to the input bytes. A second test
+gives the harness teeth: `naive_wrapping_is_detected` shows the naively-wrapped
+`${x}` literal evaluates to `ZZ` under `my $x='ZZ'` while the shipped escaper
+stays `${x}`, so a green first test cannot be vacuous. Both pass on the live
+tree. There is no `*_sync.txt` baseline: the differential test is the tie to
+the source, and it fails if `perl_str` changes without the model.
+
+Load-bearing, measured on copies of the model: dropping the `$` arm is
+15v/2e, dropping the `\\` arm is 15v/2e, emitting a raw control char
+instead of `\x{h}` is 16v/1e, and a DECODER mutant (the closing-quote arm
+emits a quote instead of ending the literal) is 15v/2e — the last one
+matters most, because a decoder written to mirror the encoder would have
+kept the round trip green.

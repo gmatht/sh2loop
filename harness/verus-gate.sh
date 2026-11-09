@@ -856,6 +856,32 @@ MODELS=(
   # line in src/transforms.rs, so this proves a rule in the tree that
   # currently changes no emitted byte (the loop_opt `DEAD CODE` class).
   "terminator_binop.rs:19:40"
+  # PERL renderer escaping — the FIRST model of `src/perl_backend.rs`, the
+  # one backend that had no proof coverage. `Render::perl_str` is the single
+  # funnel every literal `Str` passes through into a Perl DOUBLE-QUOTED
+  # context, and Perl interpolates `$`/`@` and eats `\\`, so an escape arm
+  # that is wrong silently emits a DIFFERENT string (this session's `${x}`
+  # splice class). Proves, for EVERY string, that the decoder (Perl's
+  # double-quote parser, written as a one-character-per-step state machine so
+  # termination is structural) evaluates `perl_str(s)` back to exactly `s`;
+  # the per-character lemmas (`esc_char_step`, `hex_walk`) are what make the
+  # concatenation argument — each `esc_char(c)` is self-delimiting, so the
+  # parser resumes on the next character's boundary. Negative controls keep it
+  # non-vacuous: `dollar_is_load_bearing` (drop the `$` arm and the dollar
+  # stays bare), `env_dependence_is_the_hazard` and
+  # `braced_substitution_is_the_same_hazard` (bare `$x`/`${x}` makes the value
+  # environment-dependent, i.e. no longer a literal), and
+  # `slash_is_load_bearing` (drop the `\\` arm and
+  # `\<n>` re-parses as a newline). CONSUMER, not a sync baseline: the Rust
+  # test `perl_backend::escaping_tests` runs the REAL perl over 169 literals
+  # (every ASCII code point + the `${x}`/`@ARGV`/backslash/quote shapes) and
+  # compares the byte-exact result, and a second test proves the harness SEES
+  # interpolation by showing the naively-wrapped literal does not round-trip.
+  # No `*_sync.txt` baseline: the differential test is the tie to the source.
+  # Mutants, measured on copies and each red: drop the `$` arm 15v/2e, drop
+  # the `\\` arm 15v/2e, raw control char instead of `\x{h}` 16v/1e, and a
+  # DECODER mutant (closing-quote arm emits a quote) 15v/2e.
+  "perl_str_escape.rs:17:40"
 )
 
 # RETIRED models: VERIFIED, never counted. `interval.rs` / `i32_bounds_exec.rs`
