@@ -35,6 +35,7 @@ SCALE=2
 BUILD_MODE=auto
 GAME_MEM_MIB=4096
 GEOM=""
+CPU_ONLY=0
 
 FORWARD_ARGS=""
 while [ $# -gt 0 ]; do
@@ -60,9 +61,10 @@ while [ $# -gt 0 ]; do
       FORWARD_ARGS="$FORWARD_ARGS $1"; shift ;;
     --build) BUILD_MODE=force; shift ;;
     --no-build) BUILD_MODE=skip; shift ;;
+    --cpu-only) CPU_ONLY=1; shift ;;
     --) shift; break ;;
     -h|--help)
-      echo "usage: $0 [--scale N] [--mem MB] [--size|--view WxH] [--build|--no-build] [-- <game args...>]"
+      echo "usage: $0 [--scale N] [--mem MB] [--size|--view WxH] [--cpu-only] [--build|--no-build] [-- <game args...>]"
       exit 0 ;;
     *) break ;;
   esac
@@ -89,6 +91,10 @@ case $GEOM in
        fi ;;
   *) echo "play.sh: --size wants WxH (e.g. 800x600)" 1>&2; exit 2 ;;
 esac
+
+if [ "$CPU_ONLY" = "1" ]; then
+  export SH2_FB_CPU_ONLY=1
+fi
 
 # python viewer deps (fail fast with a useful message, not a traceback)
 if ! python3 -c "import Xlib, PIL" 2>/dev/null; then

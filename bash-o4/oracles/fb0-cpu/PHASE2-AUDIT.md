@@ -91,3 +91,59 @@ vert+frag. **Refused (render-time verdict = CPU/fallback, never guess):**
 - Default/`--cpu-only` = current CPU behavior, byte-identical to oracles.
 - No Vulkan/unsupported capability/runtime error ⇒ CPU fallback, clear reason.
 - Refuse > guess; never silent precision narrowing.
+
+## Implemented (this pass): C-ABI host path + dispatch/CPU-fallback wiring
+
+**Blocker addressed (infrastructure):** a C-ABI Vulkan host path and runtime
+dispatch/CPU-fallback wiring now exist; `--cpu-only`/default remains the exact
+CPU path (byte-identical). **Not yet achieved:** GPU-enabled, oracle-equivalent
+full-frame rendering for real MIMEcroft payloads (the render-time/runtime
+verdict is conservative and refuses unproven state; see below).
+
+- **Rust C-ABI host (`bash-o4`, toolkit-purity):** `src/fb_gpu_ffi.rs`, crate
+  builds as `rlib+cdylib` (`target/debug/libbash_o4.so`). Exports
+  `bash_o4_fb_gpu_available/open/close/draw_blocks_text/readback_bgrx/
+  last_error` (catch_unwind, capability-checked, fail-closed). Reuses
+  `fb_draw::RasterRunner`/`fb_frag`/`vkffi`; readback converts RGBA→BGRX
+  (`RasterRunner::rgba8_to_bgrx`).
+- **C runtime dispatch (`sh2perl/runtime/fbdev.c`, materialized/embedded by
+  `bash-o4/src/devices.rs` at compile time):** `fb_blocks` dispatches through a
+  dlopen’d C-ABI host (`BASH_O4_FB_GPU_LIB`, else `libbash_o4.so`) **only** when
+  explicitly enabled and verdict-accepted; otherwise runs the unchanged
+  `fb_blocks_cpu` path. `SH2_FB_CPU_ONLY=1` (and `play.sh --cpu-only`) forces
+  the exact CPU path. On any load/capability/init/verdict/dispatch/readback
+  failure it reports a one-time `fbdev-gpu: CPU fallback (reason: ...)` to
+  stderr and falls back to CPU. GPU readback is written into `S_px`
+  (0xAARRGGBB) so `fb_dump_ppm`/overlay composite/present see consistent pixels.
+- **Conservative render-time/runtime verdict (correctness-first):** refuses
+  (=> CPU fallback) unless `SH2_FB_GPU=1` **and** `SH2_FB_GPU_ACCEPT=blocks_proof`
+  **and** no textures/overlay state that would break parity (`O_have`/textures
+  refused). This proves the C-ABI/dispatch/readback path but does **not** claim
+  oracle-equivalent rendering for real MIMEcroft frames (real atlas textures,
+  overlay/flash HUD compositing, CRT/corrupt/fragment parity, and full payload
+  state mapping still required). Refuse > guess; never silent narrowing.
+- **Phase 0 oracle gate (CPU/default):** 320×240 md5 `965f7b3dad4cfd516ff637c8943681bc`
+  (230415 B) and 800×600 md5 `9e247bc7f5fe65f8be1e09aef420bb41` (1440015 B)
+  still match via `mimecroft-fb-play --first-frame --view ...` (CPU path).
+- **Not committed in sh2perl:** `/mnt/wsl/projects/sh2loop/sh2perl/runtime/fbdev.c`
+  was modified for dispatch wiring (separate repo, dirty/in-flight; no
+  authorization to commit/push). `devices.rs` embeds it at bash-o4 compile time,
+  and the materialized device dir is content-hashed — rebuild bash-o4 and relink
+  the game to pick it up. The committed bash-o4 superproject changes depend on
+  that runtime source for the new behavior.
+
+## Remaining for full Phase 2 gate (GPU oracle-equivalent)
+- Verify/lock readback byte-order contract vs `fbdev.c`/`fbwin`/`fbview` for the
+  live `FB0_DEV`/present path (and composite `ov_composite` before dump where
+  required for parity).
+- Real atlas upload (stable layer mapping matching `fbdev.c`, crack layer 9) and
+  camera/flags parity for MIMEcroft.
+- `fb_overlay`/`overlay_flash` GPU or proven CPU-composite path with parity;
+  extend verdict/acceptance per verb (`call`/`swap` host, `depthmask`/`uniform/*`
+  refused as shaders).
+- Render-time verdict integration honoring `fbdev-gpu-calls`→`fb_*` (c_backend)
+  and toolkit-purity/marketplace rules; `--cpu-only`/default byte-identical.
+- SPIR-V deterministic embedding/caching for the runtime path; capability veto.
+- Per-frame/payload CPU-vs-GPU parity validator (Phase 0 tolerance) + fixtures
+  (HUD/minimap/flash/CRT/corrupt/crack), then enable acceptance; gate
+  `play.sh --no-build [--view 800x600]` GPU oracle-equivalent.

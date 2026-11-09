@@ -38,6 +38,7 @@ pub mod fb_draw;
 pub mod fbnode;
 pub mod fetch;
 pub mod fb_frag;
+pub mod fb_gpu_ffi;
 pub mod int_cycles;
 pub mod pipeline;
 pub mod py;

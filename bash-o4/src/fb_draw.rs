@@ -43,11 +43,11 @@ use crate::vkffi::{
 
 // ---- local handles ----------------------------------------------------
 
-type VkImage = u64;
-type VkImageView = u64;
-type VkSampler = u64;
-type VkRenderPass = u64;
-type VkFramebuffer = u64;
+pub(crate) type VkImage = u64;
+pub(crate) type VkImageView = u64;
+pub(crate) type VkSampler = u64;
+pub(crate) type VkRenderPass = u64;
+pub(crate) type VkFramebuffer = u64;
 
 // ---- sType values (vulkan_core.h, verified by /tmp/vk_sizes) ----------
 
