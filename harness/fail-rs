@@ -83,7 +83,26 @@ for f in "$EX"/*.sh; do
       echo "$name FAIL-emit" >> "$LOG"; fail=$((fail+1)); continue
     fi
   fi
-  if ! rustc --crate-name prog "$rs" -o "$bin" 2>"$OUT/$name.rustcerr"; then
+  # A program whose `__sh_regex` helper uses the `regex` crate cannot be
+  # linked by a bare `rustc` invocation — a single file has no manifest and
+  # therefore no path to an external crate. Those build through the emitted
+  # Cargo project; everything else keeps the single-file rustc path, which
+  # is the fast arm of the same contract. (`command grep`, not the ripgrep
+  # shell function: `-q` is passed through and the function rejects it.)
+  if command grep -q 'regex::Regex' "$rs"; then
+    proj="$OUT/proj_$name"
+    rm -rf "$proj"
+    if ! "$CLI" --target rs --cargo-dir "$proj" "$f" >/dev/null 2>"$OUT/$name.emiterr"; then
+      echo "$name FAIL-emit" >> "$LOG"; fail=$((fail+1)); continue
+    fi
+    if ! ( cd "$proj" && cargo build --offline --release --quiet ) 2>"$OUT/$name.rustcerr"; then
+      echo "$name FAIL-rustc" >> "$LOG"; fail=$((fail+1)); continue
+    fi
+    if ! cp "$proj/target/release/sh2prog" "$bin"; then
+      echo "$name FAIL-rustc" >> "$LOG"; fail=$((fail+1)); continue
+    fi
+    rm -rf "$proj"
+  elif ! rustc --crate-name prog "$rs" -o "$bin" 2>"$OUT/$name.rustcerr"; then
     echo "$name FAIL-rustc" >> "$LOG"; fail=$((fail+1)); continue
   fi
   d="$OUT/d_$name"; rm -rf "$d"; mkdir -p "$d"

@@ -12,6 +12,24 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v145: **Generated Rust can declare a dependency: `regex` replaces the bash shell-out in
+>   `__sh_regex`, and `--cargo-dir` emits the manifest that makes it linkable.** `__sh_regex` used to run
+>   `bash -c '[[ $1 =~ $2 ]]'` per match — a process per test, plus a runtime dependency on bash being on
+>   PATH. It now builds the pattern with the `regex` crate (`nocasematch` → the `(?i)` flag; an INVALID
+>   pattern is a non-match, matching bash's status-2-with-no-match), which makes it the first helper to
+>   reach outside `std`. Generated programs are single files with no manifest, so
+>   `--target rs --cargo-dir DIR` writes `DIR/Cargo.toml` + `DIR/src/main.rs`, and
+>   `rust_backend::cargo_manifest` declares `regex = "1"` **only** when the rendered text references
+>   `regex::Regex` — every other program stays a dependency-free file that plain `rustc` still compiles.
+>   `harness/fail-rs` builds the crate-using programs through that project (`cargo build --offline
+>   --release`) and keeps `rustc` for the rest, so the gate exercises both arms.
+>
+>   Measured: all **16** corpus examples using `=~` build through the manifest and run — **14 are
+>   byte-identical to bash (stdout and rc)**, and the 2 that differ differ only on bash's own stderr
+>   diagnostics (`063_hard_to_parse`'s "division by 0"/"bad substitution", `070_gnuisms_thorough`'s
+>   "err-to-stderr"), both already in the standing diff set and neither on a regex line. Full corpus:
+>   **516 rustc-path + 16 cargo-path = 563**, 0 exit-status differences, the same 32 diffs and the same
+>   single pre-existing compile failure (`parse-brace-in-heredoc`) as v144. 129 `rust_backend` tests pass.
 > - v144: **v136 named the next shared win and refused to half-land it; this lands it — the `DefinedOr` subject was evaluated up to three times per render, and the fix is one IR transform plus a binding in each renderer.** `DefinedOrHoist` runs LAST in `Pipeline::canonical()` and rewrites a single-target statement `x = DefinedOr{a, b}` into `__sh2_dor_N = a; x = DefinedOr{Var(__sh2_dor_N), b}`. Leaves (`Var`/`Int`/`Str`/`Bool`) are skipped because there is nothing to evaluate twice, `Declare` inits and already-nested `DefinedOr`s are left alone, and the temp comes from a per-run counter rather than a `static` — the ten `static Mutex` globals in `shir.rs` are exactly what `PassContext` exists to retire. Statement level is what makes it backend-neutral: an expression-level rewrite would need an expression form of sequencing that not every renderer has.
 >
 >   **What each renderer does with the temp.** C uses the backend's own statement-expression idiom, `({ char *__sh2_dor_t = _sh_sc(<subj>); (__sh2_dor_t && *__sh2_dor_t) ? __sh2_dor_t : (<dflt>); })`, with `_sh_sc`'s NULL guard; that arm previously fell into `other => mark_todo` and emitted a literal `0`. Java gains `shDefinedOr(Supplier<String>, Supplier<String>)`, so the default stays LAZY while the subject is bound once — and the helper must be requested in the scan pass *and* listed in the emitter's hard-coded array, because the `helpers` `BTreeSet` is taken and discarded at emission. Perl binds the subject in a lexical temp inside an immediately-invoked sub and tests `defined($t) && $t ne ""`: bash's `:-` means *unset OR empty*, so `//` alone keeps an empty string where bash substitutes a default. estree and Rust already bound a temp; their half of the bug was in the folding pass, where `copy_propagation::fold_expr` descended into `DefinedOr` and could re-inline a copy or a constant on BOTH sides of the emptiness test, undoing the hoist — the node is opaque there now.

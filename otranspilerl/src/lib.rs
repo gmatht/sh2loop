@@ -939,6 +939,12 @@ const USAGE: &str = "otranspiler <input> [<output>] [flags]
                     round per Number() (t86's all_factors('9007199254740993')
                     factors the rounded even value). BigInt-homed functions
                     (t89's) are exact for arbitrary magnitude.
+  --cargo-dir DIR   Rust target: also write a buildable cargo project —
+                    DIR/Cargo.toml + DIR/src/main.rs. Generated programs are
+                    single files with no way to link a crate; the manifest
+                    declares `regex` only for programs whose `__sh_regex`
+                    helper uses it (bash `=~`). Everything else stays a
+                    dependency-free file that plain `rustc` still compiles.
   --shir            output the raw A1 contract (same as output ext .shir)
   --raw             with --shir: the byte-equality oracle path (shell →
                     ast_to_ir → shir_to_shir_json, no stmt_lines; the old
@@ -985,6 +991,9 @@ pub fn cli_at(
     // None = off; Some(true) = Python reading, Some(false) = bash.
     let mut analyze: Option<bool> = None;
     let mut raw = false;
+    // --cargo-dir DIR: write a cargo project (manifest + src/main.rs) for a
+    // rendered Rust program. None = the historical single-file stdout path.
+    let mut cargo_dir: Option<String> = None;
     let mut embed_opts = EmbedOpts::default();
     let mut positional: Vec<String> = Vec::new();
     // Optimization level (-O0/-Og/-O3/-O4). None = no -O flag given →
@@ -1042,6 +1051,15 @@ pub fn cli_at(
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty())
                     .collect();
+            }
+            "--cargo-dir" => {
+                if i + 1 < args.len() {
+                    cargo_dir = Some(args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            s if s.starts_with("--cargo-dir=") => {
+                cargo_dir = Some(s["--cargo-dir=".len()..].to_string());
             }
             "--backtick" => embed_opts.backtick = true,
             "--english" => embed_opts.english = true,
@@ -1427,7 +1445,34 @@ pub fn cli_at(
             }
         };
     }
+    if let Some(dir) = cargo_dir.as_deref() {
+        if tgt_lang != "rs" {
+            let _ = writeln!(
+                stderr,
+                "otranspiler: --cargo-dir is only supported for --target rs"
+            );
+            return 1;
+        }
+        if let Err(e) = write_cargo_project(Path::new(dir), &out) {
+            let _ = writeln!(stderr, "otranspiler: --cargo-dir: {e}");
+            return 1;
+        }
+    }
     write_out(stdout, stderr, &output, out.as_bytes())
+}
+
+/// `--cargo-dir`: write a buildable Cargo project for a rendered Rust
+/// program (`Cargo.toml` + `src/main.rs`, which is cargo's default binary
+/// path). See `debashl::rust_backend::cargo_manifest` for which
+/// dependencies — if any — the manifest declares.
+fn write_cargo_project(dir: &Path, rendered: &str) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir.join("src"))?;
+    std::fs::write(dir.join("src/main.rs"), rendered)?;
+    std::fs::write(
+        dir.join("Cargo.toml"),
+        debashl::rust_backend::cargo_manifest(rendered),
+    )?;
+    Ok(())
 }
 
 /// `--library` (JS target only): reshape the rendered ESTree program into
