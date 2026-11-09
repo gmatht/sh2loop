@@ -1,0 +1,25 @@
+{
+  "compiler": "Glslang Version: 11:15.1.0",
+  "flags": [
+    "-V"
+  ],
+  "mode": "raw-glslang (no spirv-opt), deterministic embed",
+  "shaders": {
+    "blocks.frag.spv": {
+      "bytes": 8056,
+      "sha256": "a61f9ed8aa4ece4e62a84ce2db69746b20fd0570d7e084858375cf2f3f9d2f58"
+    },
+    "blocks.vert.spv": {
+      "bytes": 7288,
+      "sha256": "d740ffa979ffc46a315ea35e917b8c20c24d93a4039dfc89146c4c4b4086b16d"
+    },
+    "overlay.frag.spv": {
+      "bytes": 608,
+      "sha256": "f1dbb15bb6bcc31cc9e763112b0dd94ed3bf1dd07f0924f8458225ebf06cfbae"
+    },
+    "overlay.vert.spv": {
+      "bytes": 4656,
+      "sha256": "3f1e69c69c6f6463aa8995ab85b4770e2787531c03e441423bcdd66fd97f9183"
+    }
+  }
+}

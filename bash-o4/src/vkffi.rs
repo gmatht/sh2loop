@@ -485,6 +485,28 @@ pub fn has_compute_device() -> bool {
     }
 }
 
+/// Runtime capability veto probe (graphics): true when a loader + ≥1 physical
+/// device with a GRAPHICS queue exists (required by the fb0 raster path,
+/// `RasterRunner`/graphics pipeline). Any failure ⇒ false (callers take the
+/// exact CPU path; refuse > guess).
+pub fn has_graphics_device() -> bool {
+    match Vk::load() {
+        Ok(vk) => match pick_probe_instance_bits(&vk, QUEUE_GRAPHICS_BIT, "graphics") {
+            Ok(()) => true,
+            Err(_) => false,
+        },
+        Err(_) => false,
+    }
+}
+
+fn pick_probe_instance_bits(vk: &Vk, want_bits: u32, want_name: &'static str) -> Result<(), String> {
+    let (inst, _, _) = pick_queue_device(vk, want_bits, want_name)?;
+    let destroy: unsafe extern "C" fn(VkInstance, *const c_void) -> () =
+        ifn(vk, inst, "vkDestroyInstance");
+    unsafe { destroy(inst, ptr::null()) };
+    Ok(())
+}
+
 /// Probe body: create an instance, find a compute device, destroy the
 /// instance. Takes the loaded `Vk` by reference so the caller owns the
 /// loader lifetime (it drops — dlclose — on return).

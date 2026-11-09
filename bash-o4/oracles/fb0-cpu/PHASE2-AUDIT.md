@@ -280,3 +280,25 @@ Extended verdict/acceptance is **per-verb/state** (runtime in `fbdev.c`, uncommi
 **Consistency:** `fb_frag::emit_fb_shader` refuses `call` (host), `depthmask`/`uniform/*` (push-constants) and emits shaders only for `blocks`/`overlay`/`overlay_flash` (and maps `fb_*` call verbs). `fbdev-gpu-calls` (shared sh2perl core, **C-target marketplace-gated**) rewrites `blocks`/`overlay`/`overlay_flash` GpuOps (slot empty, void, payload-direct) → `fb_*` calls for `c_backend` `fb_call_opt`; **refuses** `call` (fb_present non-void/status divergence), `depthmask`/`uniform`/`texture`/`hud`/slot/unsafe-payload — file-write fallback kept (refuse > guess). Transforms/c_backend in the dirty shared core were not modified (coordinated; marketplace rules honored). `fbdev.c` adds `fb_gpu_verb_{is_host_or_refused_shader,blocks,overlay_cpu_composite}` helpers (classification).
 
 Rebuilt bash-O4 + relinked `mimecroft-fb-play`; **Phase 0 oracle gate still byte-identical** (320×240 `965f7b3d...`, 800×600 `9e247bc7...`). `fbdev.c` uncommitted in sh2perl (no auth).
+
+## Deterministic SPIR-V embedding/caching (runtime path) + runtime capability veto
+
+- **Deterministic embedded SPIR-V (runtime):** the C-ABI host (`fb_gpu_ffi.rs`,
+  cdylib loaded by `fbdev.c`) no longer compiles GLSL at runtime (no
+  `glslangValidator` lookup, no temp dir, no per-handle compile). The 4 fixed
+  `fb_frag` shaders (blocks/overlay vert+frag) are **precompiled deterministically**
+  from the canonical `fb_frag` GLSL (`glslangValidator -V`, raw, no `spirv-opt`),
+  committed as `bash-o4/src/fb_spv/*.spv` and **embedded** via `include_bytes!`,
+  with `fb_spv/manifest.json` recording compiler version, flags, byte sizes and
+  SHA-256 (content-hash cache key/verification). Runtime path is toolchain-
+  independent and deterministic; SPIR-V bytes are cached in the binary.
+- **Runtime capability veto (refuse > guess, clear reason, CPU fallback):**
+  `vkffi::has_graphics_device()` probes for a Vulkan **GRAPHICS** queue (the
+  fb0 raster path uses `RasterRunner`/graphics pipeline, not compute).
+  `bash_o4_fb_gpu_available` reports graphics capability; `open` vetoes with
+  `runtime capability veto: no Vulkan graphics device/queue (fb0 raster needs
+  graphics)` if absent. `RasterRunner::new` also fails closed on graphics/open
+  errors; any init/dispatch/readback failure ⇒ CPU fallback with a one-time
+  reason (fbdev.c). Lavapipe = functional capability (not a perf target).
+- Rebuilt bash-O4/lib + relinked; **Phase 0 oracle gate still byte-identical**
+  (320×240 `965f7b3d...`, 800×600 `9e247bc7...`, default/CPU path unchanged).

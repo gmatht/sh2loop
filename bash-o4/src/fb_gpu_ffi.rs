@@ -16,8 +16,18 @@ use std::ptr;
 use std::sync::Mutex;
 
 use crate::fb_draw::{PushConstants, RasterRunner};
-use crate::shader;
 use crate::vkffi;
+
+/// Deterministic embedded SPIR-V (runtime path): precompiled from the canonical
+/// fb_frag GLSL sources (raw `glslangValidator -V`, see src/fb_spv/manifest.json),
+/// content-hashed and committed. No runtime compiler/temp dir — stable, cached in
+/// the binary. Refuse > guess if loading fails (impossible for embedded bytes).
+mod fb_spv {
+    pub const BLOCKS_VERT: &[u8] = include_bytes!("fb_spv/blocks.vert.spv");
+    pub const BLOCKS_FRAG: &[u8] = include_bytes!("fb_spv/blocks.frag.spv");
+    pub const OVERLAY_VERT: &[u8] = include_bytes!("fb_spv/overlay.vert.spv");
+    pub const OVERLAY_FRAG: &[u8] = include_bytes!("fb_spv/overlay.frag.spv");
+}
 
 struct GpuState {
     runner: RasterRunner,
@@ -26,11 +36,11 @@ struct GpuState {
     atlas_img: u64,
     atlas_mem: u64,
     atlas_view: u64,
-    // SPIR-V cached once (deterministic for fixed GLSL sources).
-    bv: Vec<u8>,
-    bf: Vec<u8>,
-    ov: Vec<u8>,
-    of_: Vec<u8>,
+    // Deterministic embedded SPIR-V (cached in binary; no runtime compile).
+    bv: &'static [u8],
+    bf: &'static [u8],
+    ov: &'static [u8],
+    of_: &'static [u8],
     last_err: CString,
 }
 
@@ -48,11 +58,12 @@ fn state_err(st: &mut GpuState, msg: impl Into<String>) {
     st.last_err = CString::new(s.replace('\0', "")).unwrap_or_else(|_| CString::new("gpu error").unwrap());
 }
 
-/// 1 if a Vulkan compute-capable device is detectable, else 0. Cheap probe;
-/// does not create a runner.
+/// 1 if a Vulkan GRAPHICS-capable device is detectable (runtime capability
+/// probe for the fb0 raster path), else 0. Cheap probe; no runner created.
+/// Veto (refuse > guess) => caller takes the exact CPU path.
 #[no_mangle]
 pub extern "C" fn bash_o4_fb_gpu_available() -> c_int {
-    if vkffi::has_compute_device() { 1 } else { 0 }
+    if vkffi::has_graphics_device() { 1 } else { 0 }
 }
 
 /// Copy the last error string into `buf` (NUL-terminated, truncated). Returns
@@ -70,18 +81,8 @@ pub unsafe extern "C" fn bash_o4_fb_gpu_last_error(buf: *mut c_char, len: usize)
     n as c_int
 }
 
-fn build_shaders() -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>), String> {
-    let cache_root = crate::cache::cache_root(None);
-    let dir = std::env::temp_dir().join(format!("bo4gpu{}", std::process::id()));
-    let _ = std::fs::create_dir_all(&dir);
-    let cc = shader::find_spirv_compiler(&cache_root)
-        .ok_or_else(|| "no SPIR-V compiler (need glslangValidator)".to_string())?;
-    let bv = crate::fb_frag::compile_stage(&cc, &crate::fb_frag::blocks_vertex(), &dir, "vert")?;
-    let bf = crate::fb_frag::compile_stage(&cc, &crate::fb_frag::blocks_fragment(), &dir, "frag")?;
-    let ov = crate::fb_frag::compile_stage(&cc, &crate::fb_frag::overlay_vertex(), &dir, "vert")?;
-    let of_ = crate::fb_frag::compile_stage(&cc, &crate::fb_frag::overlay_fragment(), &dir, "frag")?;
-    let _ = std::fs::remove_dir_all(&dir);
-    Ok((bv, bf, ov, of_))
+fn embedded_shaders() -> (&'static [u8], &'static [u8], &'static [u8], &'static [u8]) {
+    (fb_spv::BLOCKS_VERT, fb_spv::BLOCKS_FRAG, fb_spv::OVERLAY_VERT, fb_spv::OVERLAY_FRAG)
 }
 
 fn grey_atlas() -> (Vec<u8>, u32, u32) {
@@ -110,10 +111,10 @@ pub extern "C" fn bash_o4_fb_gpu_open(w: c_int, h: c_int) -> *mut c_void {
         if !(1..=4096).contains(&w) || !(1..=4096).contains(&h) {
             return Err(format!("gpu open: invalid size {w}x{h}"));
         }
-        if !vkffi::has_compute_device() {
-            return Err("no Vulkan device".to_string());
+        if !vkffi::has_graphics_device() {
+            return Err("runtime capability veto: no Vulkan graphics device/queue (fb0 raster needs graphics)".to_string());
         }
-        let (bv, bf, ov, of_) = build_shaders()?;
+        let (bv, bf, ov, of_) = embedded_shaders();
         let mut runner = RasterRunner::new(w as u32, h as u32)?;
         let (atlas, nlayers, size) = grey_atlas();
         let (atlas_img, atlas_mem, atlas_view) = runner.upload_atlas(&atlas, nlayers, size)?;
