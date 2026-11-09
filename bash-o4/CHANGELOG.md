@@ -5,6 +5,24 @@ ends over one pipeline (`ShIR` → C via tcc, or → PTX via the CUDA candidacy)
 sharing one flag surface (`bash-o4/src/flags.rs`) and one dispatch vehicle
 (`bash_o4::cu_run`).
 
+## Unreleased — the fb0 HUD re-draws its static base every frame (parts of the HUD stopped disappearing after frame 1)
+
+The simple framebuffer has no retained HUD layer: `render_frame` opens with
+`rb_clear`, which wipes every pixel before the world is repainted, so the
+static base — the SCORE/HP/ART/FPS/LIC labels, the instructions line, the
+radar base and the gun — has to be re-emitted on every presented frame.
+`draw_hud_canvas` still gated it on `hud_static_dirty` (the rule for a device
+that keeps a persistent layer between swaps), so frame 1 was complete and
+every later frame carried only the dynamic parts (digits, mime blips,
+labels) — the "parts of the HUD disappearing" symptom.
+
+Proof, same build and same frame cadence, only the gate restored: frames 2-4
+of the gated build hash `ae92eced…`, while the fixed build's frames 1-4 all
+hash `965f7b3d…` — the frame-1/oracle image, HUD intact. Cost: the rebuild is
+13 ms/frame at 320x240 under `cc -O1` (hudb, 7% of the frame in the RAM
+build). With the base now re-drawn every frame, `MINIMAP_MODE=0` also skips
+the MAP_W*MAP_D radar scan it used to run and throw away (the default).
+
 ## Unreleased - the fb0 surface is configurable (DISPLAY ladder, `--view WxH`, `$FB0_GEOM`; default frame byte-identical)
 
 The simple framebuffer was pinned to 320x240 while the WebGL build re-shaped

@@ -5360,7 +5360,11 @@ hud_build_static() {
   # radar base: walls + treasure cells (air stays dark; the player and
   # MIMEs are air cells, drawn dynamically over this base each frame).
   # The whole base is skipped when the minimap is OFF; the 50% mode
-  # draws it at half alpha.
+  # draws it at half alpha. Skipping the scan when
+  # it is OFF matters now that this base is re-drawn every frame: the
+  # double loop costs MAP_W*MAP_D get_cell calls even when every cell is
+  # thrown away (MINIMAP_MODE=0 is the default).
+  if [ "$MINIMAP_MODE" -ne 0 ]; then
   radar_a=1.0
   if [ "$MINIMAP_MODE" -eq 2 ]; then radar_a=0.5; fi
   dm_x=0
@@ -5389,6 +5393,7 @@ hud_build_static() {
     done
     dm_x=$((dm_x + 1))
   done
+  fi
   # the viewmodel gun (static) and the sightings list (changes only
   # when mimes spawn/die — hud_static_dirty) join the base layer
   # the static base draws straight into the rows (no retained layer:
@@ -5727,16 +5732,18 @@ draw_flash() {
 }
 
 draw_hud_canvas() {
-  if [ "$hud_static_dirty" -eq 1 ]; then
-    # hudb = the one-time static rebuild (radar base + labels + the
-    # instructions) — the previous gspan ended at the render, so this
-    # first gspan parks the pre-build tail in hudb too; the second
-    # parks the build itself. The main loop's later gspan "hud" then
-    # measures only the per-frame part (minimap + digits + labels +
-    # the layer write).
-    gspan "hudb"
-    hud_build_static
-        hud_static_dirty=0
+  # NO RETAINED HUD LAYER ON THE SIMPLE PATH. render_frame's leading
+  # rb_clear wipes every pixel and then repaints the world, so the STATIC
+  # base — labels, instructions, radar base, gun — has to be re-drawn on
+  # EVERY presented frame. Gating this on hud_static_dirty (the rule for a
+  # device that keeps a persistent HUD layer between swaps) left frame 1
+  # complete and every later frame showing only the dynamic parts: the
+  # "HUD disappears" bug. hudb = this rebuild; the main loop's later gspan
+  # "hud" then measures only the per-frame part (minimap + digits +
+  # labels).
+  gspan "hudb"
+  hud_build_static
+  hud_static_dirty=0
     # the rebuild wiped the whole layer — reset the dynamic-cell state
     # so the triangle, mime blips and labels are redrawn this frame
     prev_px=-1
@@ -5749,10 +5756,9 @@ draw_hud_canvas() {
       dm_i=$((dm_i + 1))
     done
     digits_dirty=1
-    # the rebuild's C-wipe cleared the labels too — redraw them
-    labels_dirty=1
-    gspan "hudb"
-  fi
+  # the rebuild cleared the labels too — redraw them
+  labels_dirty=1
+  gspan "hudb"
   draw_minimap
   # the muzzle flash is a TRANSIENT on-top effect (drawn over the HUD
   # while the muzzle is lit, gone when it expires): two rects, named so
