@@ -22,6 +22,1446 @@ Covers three related work items:
 >
 >   **Gates.** `./fail` **563/563, exit 0** (314 s). `harness/fail-rs` **556 pass / 0 fail / 7 skip, exit 0**. `./fail-go` **126/126, exit 0**. `cargo test --lib -- rust_backend` **125 pass / 0 fail**. `harness/java_gate_local.sh` **572 pass / 72 fail, exit 0** — its standing cross-product backlog, and no corpus output moved (Perl is byte-identical at 563/563, and the corpus never reaches the `DefinedOr` arms). C-gate (`BIN=sh2perl/backends/c/target/debug/c_backend harness/c-gate-run.sh`) **639 pass / 7 skip parse-error / 5 fail** — the same five as the v90 baseline (3 `rc`, 2 `stdout`). `./fail-estree` **562/563 (99.8%)**: one cell, `dq-hashbang-multiline-assign.sh`, reported `otranspilerl --target estree failed`; that file renders clean standalone (`--target estree`, exit 0, valid ESTree), so it reads as a race inside the gate's own CLI build rather than a render regression, and the earlier estree cell died by SIGTERM (exit 143) mid-build.
 >
+> - v144: **`main` returns `ExitCode`, so the exit status is a VALUE.** The epilogue called
+>   `process::exit(__SH_RC…)`, which skips destructors and — with stdout on a pipe — can drop a trailing
+>   `print!` that had no newline to flush. `main` is now `fn main() -> std::process::ExitCode` and ends
+>   with `std::process::ExitCode::from(__SH_RC.load(Ordering::Relaxed) as u8)`; the 8-bit mask is what
+>   bash does for `exit 300` (44) and what `process::exit` did anyway. Both statically-zero paths
+>   (`rc_disabled`, and an all-literal-0 body with no read) tail `ExitCode::SUCCESS`, because falling off
+>   the end of a value-returning `main` no longer type-checks; a body that already diverges still gets no
+>   tail, so the `unreachable_code` warning does not come back.
+>
+>   Two deliberate non-changes. The `exit` **builtin** stays `std::process::exit(…)`: it can appear inside
+>   a user function or a closure, where `return` would only unwind that function instead of ending the
+>   script. A **top-level `return`**, by contrast, does reach main's body — that arm now returns a status
+>   value (`return ExitCode::from(…)`), closure-aware and rc-disabled-aware (no register to read there);
+>   it used to emit a bare `return;`, which is E0069 once main returns a value (witness
+>   `return-double-semicolon.sh`).
+>
+>   Measured: 563 examples rendered, compiled with `rustc` and run against bash — **530 match stdout AND
+>   exit status, 32 differ, 1 pre-existing compile failure, 0 exit-status differences**. The compile
+>   failure is `parse-brace-in-heredoc` (a `print!` format string carrying raw braces; it fails identically
+>   before this change). Of the 32, 31 are the standing Rust-output gaps and `046_cd` differs only because
+>   the sweep runs each program in its own directory (`cd ..` + `ls`; verified identical from one cwd).
+>   `cargo test --lib -- rust_backend` **128 pass**.
+> - v143: **A discarded status block is a statement, not `let _ = { … };`.** The status modellers for
+>   `test`/`let`/`cd`/arithmetic each return a block whose tail is the value the shell drops
+>   (`{ let __b = …; __SH_RC.store(…); __b }`), and every statement position wrapped that block in
+>   `let _ =`. The wrapper is redundant — a block is already a statement. `emit_discard` now emits
+>   `{ … };` for a block whose tail is a bare carrier ident (or which has no tail) and keeps `let _ =`
+>   only for a genuine `#[must_use]` discard: io/fs/process/thread calls (`write_all`, `read_to_end`,
+>   `flush`, `fs::write`, `join`, `wait` — ≈1,430 of the sites, kept deliberately) and any block ending
+>   in a `#[must_use]` call (`Result::is_ok`, which warns when dropped as a statement — the first attempt
+>   at this converted those too and added 25 new warnings). A capture folded to `String::new()` is
+>   dropped outright. `cd_expr` takes a `value: bool`: its `__r.is_ok()` tail exists only for the
+>   `exec_bool` operand, so a statement position ends at the status store. Measured: **1,623 → 1,552
+>   `let _ =` sites, 288 → 271 files, block-form wrappers 68 → 11, folded `String::new()` 14 → 0, corpus
+>   1,896,225 → 1,895,079 bytes**, 47 files changed, no `unused_must_use` warnings, 0 rustc failures, and
+>   all 47 match bash stdout + exit status (125 `rust_backend` tests pass).
+> - v142: **Single-scope locals are declared at the top of their scope, not only at a top-level first
+>   write.** The pass-2 promotion gate required a name's FIRST mention to be a top-level write, because
+>   that write is where the deferred `let` landed. Two shapes therefore stayed on the thread-local
+>   (`__SHV_`) path even though nothing about them needed global storage: a name READ before its first
+>   write (`echo "[$x]"` then `x=hi`, or `if [ -z "$x" ]; then x=1; fi`), and a name whose first write
+>   is nested (a block/branch/loop-body accumulator). Both are still one non-risky scope — the only
+>   thing missing was a place to put the declaration. `compute_local_vars` now returns a fourth set,
+>   `local_entry`: those names are emitted as `let mut <n> = String::new();` / `0i64` at the top of
+>   `fn main` (or of the owning function's body), initialised to bash's unset value, and every write
+>   renders as a plain assignment — they are removed from `owned_inits` (no second, shadowing `let`)
+>   and from `borrowable_vars`, whose `&str` verdict assumes the `let` IS the single assignment.
+>   `#[allow(unused_assignments)]` silences the nested-write case, where nothing reads the initialiser.
+>   Loop variables are excluded on purpose: a `for` binding is not a mention (the scope walker skips
+>   binding positions), so `for n in …` looks read-first — the pass-6 native binding owns those names
+>   and five loop tests caught the first attempt at promoting them.
+>
+>   Measured over the 563-example corpus: **1,756 → 1,458 `__SHV_` sites (178 → 142 files), 3,611 →
+>   3,441 `lock().unwrap()`, 1,910,417 → 1,896,225 bytes**, 47 files changed, 0 rustc failures, and all
+>   47 match bash stdout + exit status. Tests: `read_before_write_local_gets_a_scope_entry_let`,
+>   `nested_first_write_local_gets_a_scope_entry_let`, `numeric_read_first_local_initialises_to_zero`
+>   (122 `rust_backend` tests pass).
+> - v141: **`__sh_div`/`__sh_mod` now appear only where the divisor can be zero.** The guard exists to set
+>   `__SH_ARITH_ERR` instead of panicking on an i64 divide-by-zero, so a NON-ZERO LITERAL divisor made
+>   it pure overhead: `count % 10` emitted `__sh_mod(count,10)` and dragged the helper plus the
+>   `__SH_ARITH_ERR` static into the program. The `/` and `%` arms now emit `(l / r)` / `(l % r)` when
+>   the divisor is a literal `Num(d != 0)` — both operands widened through `arith_i64`, so
+>   `(x % 2i64)` — and fold `0 / <literal>` outright. A variable divisor keeps the helper: bash prints
+>   `division by 0` and sets the status, which is exactly what the flag models, so `0 / n` is NOT folded
+>   (`0/0` is an observable error, not 0; literal-literal is already folded before the renderer).
+>   Measured: `051_primes` loses `__sh_mod` and `__SH_ARITH_ERR` entirely, corpus −228 bytes with 1 of
+>   563 files changed (the other five files' divisors are variables and are byte-identical). Tests:
+>   `literal_divisor_skips_the_zero_guard_helper`, `variable_divisor_keeps_the_zero_guard_helper`;
+>   122 `rust_backend` tests pass; 051_primes matches bash stdout + rc.
+> - v140: **Flow-sensitive liveness for `dead-store-elim` — and the two read-oracle gaps it exposed.**
+>   The pass was flow-INsensitive: it dropped a store only when `analyze_var_const` said Const and the
+>   name had ZERO reads anywhere, so `X="0"; echo "$X"; X="1"` kept the trailing store forever.
+>   `transforms/dead_store_elim.rs` now runs a second, backward liveness pass per statement list
+>   (`flow_transform`, after the zero-read half): live-out per statement; If/elsif/else union; a
+>   loop-HEAD fixpoint for While/DoWhile/For/ForInit (a body store feeds the NEXT iteration, so
+>   pruning a body with the loop's own live-out deletes loop-carried counters); Case clause union with
+>   `$name` in a pattern counted as a read at that point; Block/Subshell/Pipeline/Try union; Function
+>   bodies seeded from the program-wide `escapes` set (a call-time read is not a read there). A store
+>   drops only when every target is dead-out, the RHS is pure, the name is not
+>   escaped/exported/shell-implicit/`$?`, and — the invariant the first version missed — the name
+>   ALREADY has a store before it. The FIRST store carries the literal `analyze_var_types` uses for
+>   i64-vs-String lifting: dropping one turned `Cell<i64>` into `RefCell<String>` in 14 files, removed
+>   a `__SH_RC` reset, and emitted `let j = (j… )` reading an undeclared name (the whole `target`
+>   compile-failure class). Two read-oracle gaps closed on the way, both of which had let liveness
+>   drop a live store: `arith_census` recorded NOTHING for `ArithAst::IncDec`/`Ident` (`i = 5; ((i++))`
+>   read as dead — bash then printed the postfix status of the wrong old value), and `i += 1` now
+>   counts as a read of `i`. Status names (`?`, `lastExit`, `__rc`) are never flow-dead: every command
+>   sequences a write to them with no visible read.
+>
+>   **Corpus effect: none — the Rust for all 563 examples is byte-identical, 1,910,645 bytes, 0 files
+>   changed.** The four remaining never-read/unused-variable warnings are not dead stores:
+>   `arith-postfix-status`'s `i` is the operand of an `IncDec` whose VALUE is the status
+>   (`parse-longoption-with-dollar`'s `X` sits inside the expression-level `||` block, not a statement
+>   list), `backslash-dollar-brace`'s `var` is read by `eval` TEXT (the pass refuses a program with a
+>   dynamic write), and `parse-heredoc-paren`'s `IFS` renders as a textual `${IFS:-}` whose binding
+>   nothing reads. The case the pass does fix: `X=0; echo "$X"; X=1` now emits one store. Tests: 8 in
+>   `dead_store_elim::flow_tests` (drop-after-read, branch read, loop-carried store, IncDec read,
+>   arith-call text read, function escape, export guard, shell-implicit guard).
+> - v139: **The second capability through the neutral recogniser was `rm` — and chasing why it
+>   vanished found a correctness bug that the gates cannot see.** `rm [-f] [-r|-R]` is a STATUS
+>   command (prints nothing), so it belongs at the statement choke point: `NativeValue::Rm { force,
+>   recursive, paths }` joins `Mktemp` in the shared recogniser, `capabilities/rm.rs` delegates its
+>   flag/operand gate to it (one definition, refusals included: `-i`, `--preserve-root`, a glob, an
+>   array operand), and Rust renders `__sh_rm(force, recursive, &[paths])` over `std::fs`
+>   (`remove_dir_all` for a tree under `-r`, `remove_file` otherwise, `-f` swallowing a failed
+>   operand). Hooks at both statement shapes (`exec_stmt` for `Call{exec|builtin}` and the
+>   `IrStmt::Exec` arm, no redirect/env). **30 → 4** `bash -c rm` shell-outs, 54 native calls in 36
+>   files; the 4 left are legitimate refusals (a glob operand, `--preserve-root`, and one `rm` in
+>   condition position, which is not a statement).
+>
+>   **The bug.** The first version emitted nothing at all: a bare `rm -f a b` in a script that never
+>   reads `$?` produced a program with no delete. Two status-register passes were the cause, both
+>   with hand-maintained whitelists. `emit`'s "pass-4" collapse removes a *previous* store line when
+>   a new one arrives, guarded by `rc_plain`, a list of helpers that "run something"
+>   (`__sh_run`, `__sh_spawn`, `__sh_pipe`, …); `__sh_rm` was not on it, so `store(__sh_rm(…))`
+>   looked like bookkeeping and the `rm` was deleted. And `rc_strip` (the `rc_disabled` path, for a
+>   source with no status read at all) deletes every `__SH_RC.store(…)` *call*, which for a
+>   status-only statement is the statement. **Both are now decided by one predicate,
+>   `rc_drop_is_safe(value)`: a store of a plain value (identifier/number/bool) is bookkeeping and
+>   may go; a store of a CALL is the statement, and survives — as `let _ = …` when the whole
+>   register is stripped.** A new helper cannot silently join the "plain" set again. Worth stating
+>   plainly: `fail` and `fail-rs` passed *with* this bug, because a lost `rm` produces no output and
+>   the corpus never depended on a deleted file — the unit tests are what pin it.
+>
+>   **`-f` means "a missing operand is not an error", not "ignore every error".** The first helper
+>   swallowed any failure under `-f`, so `rm -f dir` exited 0 where bash exits 1 (EISDIR is not
+>   ENOENT). It now matches on `io::ErrorKind::NotFound` — which also let the compiler shorten the
+>   path to `io::ErrorKind`, and is the idiomatic form of the flag. Verified by compiling each
+>   spelling and comparing status with bash: `rm -f missing` 0/0, `rm -f dir` 1/1, `rm nope` 1/1,
+>   `rm -rf tree` 0/0, `rm -r dir` 0/0.
+>
+>   **Cost.** 1,308,754 → 1,321,508 bytes (+12.8 KB, +1.0%): 36 files × ~350 B of helper against
+>   ~60 B saved per site, and 25 previously-dropped `rm` lines that now (correctly) exist.
+>
+>   **Gates.** `./fail` **563/563, exit 0** (the Perl leaf's gate now comes from the shared
+>   recogniser, and its output stayed byte-identical). `harness/fail-rs` **556 pass / 0 fail / 7
+>   skip, exit 0**, `resumed=563` — fully fresh, so the 25 rewritten sites ran against bash. 0 emit
+>   failures, **0 rustc errors** over 563 files, **4 warnings** (unchanged, none from the new
+>   helper). `cargo test --lib rust_backend` **160 pass / 0 fail** (+2: the statement lowering with
+>   its refusals, and the shared store predicate); `pipeline_native` **29 pass**. Core worker healthy
+>   (gate GREEN 18:47, no `sleeping-*` marker).
+> - v138: **The biggest single polyfill class in emitted Rust was "spawn a shell to get a
+>   filename" — and the fix was to make a Perl-only capability backend-neutral.** `d=$(mktemp -d)`,
+>   `f=$(mktemp)` and the `process_subst` materialisation behind every `<( )` each rendered as
+>   `__sh_capture_rc("'mktemp' '-d'")`: a `bash -c` child forked to learn a path. Perl has never done
+>   that — `capabilities/mktemp.rs` has lowered it to `File::Temp` for years — but that leaf returns
+>   PERL TEXT, so no other backend could use it. **83 → 11** shell-out sites (72 lowered, 42 of 563
+>   files now carry the helper); the 11 left are the TEMPLATE spelling
+>   (`mktemp /tmp/x.XXXXXX`), a different feature that still needs a real shell.
+>
+>   The shared half, so the next backend is a render rather than a re-derivation:
+>   `pipeline_native::native_value(&IrExpr) -> Option<NativeValue>` recognises a VALUE-channel
+>   capability from the `Call{exec|builtin, [cmd, Array(words)]}` shape every frontend produces, and
+>   `NativeValue::Mktemp { dir }` is the first variant. `capabilities/mktemp.rs` now *delegates its
+>   gate* to it, so the accepted/refused spellings have one definition — a test asserts the Perl leaf
+>   and the recogniser agree, including the refusals (`--tmpdir`, `-t`, `-q`, a template operand).
+>   Rust renders `__sh_mktemp(dir)`: O_EXCL create (`create_new` for the file, `create_dir` for the
+>   directory), 0600/0700, in `$TMPDIR` else `/tmp`, counter + retry loop for uniqueness, no child.
+>   The hook sits at BOTH capture choke points because the two body shapes differ: a parsed command
+>   arrives as `Expr(Call)` while the `process_subst` materialisation arrives as `IrStmt::Exec` —
+>   the first version caught only 28 of the sites and looked correct until the corpus was re-counted.
+>
+>   **Cost, stated honestly.** 72 files × ~330 B of helper against ~60 B saved per site: the corpus
+>   emission grows 1,291,026 → 1,305,831 bytes (+14.8 KB, 1.1%). It buys a `fork`+`exec` per
+>   `mktemp` gone and one less dependency on a shell being present at runtime. The helper is
+>   emitted only when used (42 files), and its comments are one line because it is generated code.
+>
+>   **Gates.** `./fail` **563/563, exit 0** (the Perl leaf's output is byte-identical after the
+>   refactor — the gate would have caught a drift). `harness/fail-rs` **556 pass / 0 fail / 7 skip,
+>   exit 0**. 0 emit failures, 0 rustc errors over 563 files, 4 real warnings (unchanged).
+>   `cargo test --lib rust_backend` **158 pass / 0 fail** (+1: no `__sh_capture_rc`, helper emitted
+>   once, file and directory arms, and a refused spelling keeping the seam); `pipeline_native` tests
+>   **29 pass** including the three new recogniser tests. Core worker healthy (gate GREEN 17:38, no
+>   `sleeping-*` marker, supervisor + body alive).
+> - v137: **The remaining waste in value position was not size, it was re-evaluation — and one lint
+>   path had simply been missed.** An `X=…` / `y+=2` used as a VALUE binds its RHS once and the
+>   store moves a clone (string path) or stringifies the temp (arith path). Both rendered the RHS
+>   TEXT twice on one line (`{ let __v = V; store = V; __v }`), so every parse, `format!` and
+>   `.join()` in the expression ran twice — and a `$(cmd)` there would have forked twice, which bash
+>   does once. **9 → 0** duplicated-value sites across 563 files; `051_primes`' `z[0] += primes`
+>   re-ran its whole rhs (`join`, four `parse::<i64>`) on every iteration.
+>
+>   The borrowable-local branch is exempt on purpose: a `&str` local binds the RHS *text* itself, so
+>   routing it through a `String` temp would change its type — and its RHS is a literal by
+>   construction, so there is nothing to re-evaluate.
+>
+>   The lint miss: the `#[allow(non_snake_case)]` predicate was copied inline at three emit sites and
+>   **absent from the three local-array `let` sites**, so `let FilesystemOptions = [..]` warned while
+>   the scalar path was covered. One `Render::ns_attr` now decides it for every `let` a shell name
+>   reaches. 5 → 4 real rustc warnings over 563 files (0 emit failures, 0 rustc errors, 8 warning
+>   lines incl. rustc's own summary lines).
+>
+>   **What is left, measured.** The corpus emission is now 29,000 lines with 0 cast noise, 0
+>   duplicated-value sites, 4 warnings. The two remaining `value assigned …is never read` warnings
+>   (`X="0"`, `i++`) and the unused `IFS`/`var` are all *stores whose variable is dead*: the shared
+>   `dead_store_elim` only drops a store when `analyze_var_const` calls the name a Const (single
+>   assignment site), and each of these has two sites, so the coarse pass refuses. Flow-sensitive
+>   liveness (read-after-this-store) is the fix, and it is a whole-pass change: recorded, not
+>   half-landed. The far larger remaining item is unchanged from v136's survey: **146 of 563 files
+>   still shell out** (361 `__sh_run` + 241 `__sh_capture_rc`), because `pipeline_native` emits PERL
+>   TEXT rather than a backend-neutral node — generalising it (leaves return node-id + args, each
+>   backend renders) is the next real cross-backend transform, and it needs the multi-backend gate
+>   list from v136.
+>
+>   **Gates.** `harness/fail-rs` **556 pass / 0 fail / 7 skip, exit 0** (the 7 are the
+>   intentionally-unparseable fixtures). `./fail` **563/563, exit 0**. `cargo test --lib
+>   rust_backend` **157 pass / 0 fail** (154 + 3 new: the string value evaluated once, the arith
+>   value evaluated once, and `ns_attr`'s table + the local-array emission). Core worker healthy
+>   (gate GREEN 17:38, no `sleeping-*` marker, supervisor + body alive).
+> - v136: **Every `${x:-default}` was copying the value a second time — and the cross-backend survey
+>   that found it says the next shared win is `DefinedOr`, not another Rust shape.** The `:-` arm
+>   emitted `else { __v.to_string() }` to make the two arms agree in TYPE, on the theory that a
+>   borrowable local reads as `&str`. The census says otherwise: across all 43 corpus sites the
+>   `var_expr` is `__sh_env(…)` (18), a TLS clone (6), `x.clone()` (7), `__SH_ARGV…join` (4),
+>   `__sh_arg`/`__sh_capture` (5), `"lit".to_string()` (1) — **owned Strings, every one**, so
+>   `.to_string()` was a full String copy for nothing. `read_str` returns a bare identifier for
+>   exactly one case (a `&str` loop binding) and every other arm of both readers is owned, so a new
+>   `is_borrowed_str` (bare identifier = the whole test) keeps the conversion for that one case and
+>   moves `__v` out everywhere else. **48 → 0** (`-576 B`), 0 rustc errors over 563 files.
+>
+>   **The cross-backend part, measured not assumed.** Rendering one `${d:-lit}` per backend:
+>   Perl ``(defined($ENV{HOME}) && length($ENV{HOME})) ? $ENV{HOME} : "/tmp"``, Java
+>   `shEnv("HOME").isEmpty() ? "/tmp" : shEnv("HOME")`, C a `const char *_d0` that its printf then
+>   re-expands three times — each repeats the lookup/second evaluation; only JS and Rust already bind
+>   a temp. So the shared fix is a transform that hoists `DefinedOr`'s subject into a temp at IR
+>   level. **Not landed here**, deliberately: it is a new globally-registered transform whose effect
+>   lands in Java/C/Go, and the honest cost is the full verification path — `./fail` (Perl),
+>   `./fail-estree` (JS), `fail-rs`, `./fail-go`, `harness/java_gate_local.sh`,
+>   `harness/c-gate-run.sh` — which is more than one round can gate. Recorded with the exact shape
+>   and the gate list so it can be done whole rather than half-verified.
+>
+>   **Gates.** `harness/fail-rs` **556 pass / 0 fail / 7 skip, exit 0, resumed=0** (fully fresh).
+>   `./fail` **563/563, exit 0**; `harness/py-rust-gate.sh` **97/103, 4 FAIL** — the t104/t82/t87 trio
+>   plus t89 (`no num_bigint rlib found`, the two-rlib pairing flake: t90/t101 passed this run and
+>   t89 failed, and `deps/` holds two `libnum_bigint-*.rlib` with different hashes). 0 emit failures,
+>   0 rustc errors, same 10 warning
+>   lines. `cargo test --lib rust_backend` **154 pass / 0 fail** (152 + 2 new: the `:-` move for all
+>   three subject shapes, and `is_borrowed_str`'s seven-way table). Core worker healthy.
+> - v135: **The remaining waste is not bytes, it is copies — every test against a shell variable was
+>   duplicating the whole value first.** A TLS-backed shell variable reads as
+>   `__SHV_x.with(|v| v.borrow().clone())`, which is the right shape for a *value* but was also used
+>   as the receiver of a *predicate* or a *comparison*: `ends_with`/`starts_with`/`contains` and
+>   `==`/`!=` against a literal each took the clone. Those tests live in loop bodies and `case`
+>   dispatch chains (the corpus re-tests the same subject once per clause), so the copy was paid per
+>   evaluation. Two module-level helpers now render the test INSIDE the borrow:
+>   - `str_pred(value, method, arg)` → `__SHV_x.with(|v| v.borrow().ends_with(&p))`;
+>   - `str_cmp(l, op, r)` → `__SHV_x.with(|v| v.borrow().as_str() == "y")` (`as_str()` keeps the
+>     expected type: `&str == String` and `&str == &str` are both defined, so the coercion the clone
+>     form relied on is unchanged).
+>   - `case_fold` gained the same arm for `nocasematch` (`…borrow().to_lowercase()`, one allocation
+>     instead of two).
+>
+>   The guard matters more than the rewrite: evaluating the argument inside the borrow would panic if
+>   it reached the same slot and asked for `borrow_mut()` (`${x:=default}` does), so an argument whose
+>   text mentions the receiver's own slot keeps the clone-then-call shape — always correct, no
+>   analysis needed. 42 copies per evaluation removed (13 predicate + 28 comparison + 1 nocasematch)
+>   and **0** of the clone-then-test shapes remain in the corpus. Byte weight barely moves
+>   (1,292,812 → 1,292,700, −112 B) — this is a runtime win, not a size one, and the corpus gate is
+>   what proves it is not a behaviour change.
+>
+>   **Where the fix had to go.** `[ "$x" = "true" ]` does *not* travel through the `[[ ]]` parser: it
+>   is lowered by test-lowering into `Eq(Var, Str)` and rendered by the generic `BinOp` arm, so
+>   patching `binary_test` alone changed nothing (a debug print in that arm never fired). Both
+>   lowerings are patched: the generic arm carries the corpus's cases, `binary_test` the ones whose
+>   status stays observable.
+>
+>   **Gates.** `harness/fail-rs` **556 pass / 0 fail / 7 skip, exit 0** (101 verdicts resumed from an
+>   identical binary, 455 fresh). `./fail` **563/563, exit 0**; `harness/py-rust-gate.sh` **98/103,
+>   3 FAIL** — exactly the documented t104/t82/t87 trio (the bigint rlib flakiness was absent this
+>   run, so the count is the baseline 98, not 95). 0 rustc errors,
+>   same 10 warning lines across 563 files. `cargo test --lib rust_backend` **152 pass / 0 fail**
+>   (149 + 3 new pins: the TLS comparison, `str_pred`'s own slot guard, and `str_cmp`/`case_fold`).
+>   Core worker healthy (gate GREEN 15:29 and 15:54, no sleeping marker).
+>
+>   **The shIR question, answered honestly:** this is the fifth round in a row whose remaining
+>   classes are renderer-local. Sharing them was checked, not assumed — the copy elision is built on
+>   a *Rust* representation (a `RefCell` borrow window); C copies into a `char*`, estree's strings are
+>   refcounted, and Perl has no borrow to extend, so a shared pass has nothing to say. The last
+>   genuinely shared win was `unreachable-after-exit` (v133's predecessor); since then the residue is
+>   emission shape, not IR redundancy.
+> - v134: **The idiom surface is clean, so this round's targets were the four boilerplate shapes the
+>   census still showed — all four are now zero.** Measuring first (556 emitted files):
+>   - **`let _ = esc;` — 94 files.** The no-`-e` `print_words` variant spells its deliberately
+>     unused parameter `esc` and discarded it on the first body line. `_esc` in the signature says
+>     the same thing to rustc with no statement at all; the three-argument call shape is unchanged.
+>   - **`let _ = String::new();` — 14 sites.** A statement-position `Call(shopt)` renders as the
+>     empty string (the flag is consumed at render time — `nocasematch`), so the default statement
+>     arm wrapped a pure no-op in `let _`. Both dispatchers (top level and loop body) now emit the
+>     status write alone when the value expression IS the empty-string literal: nothing to run.
+>   - **`let __d = "/".to_string(); … set_current_dir(&__d)` — 27 sites.**
+>     `set_current_dir` takes `AsRef<Path>`, so a compile-time directory needs neither the `String`
+>     nor the binding: `cd /tmp` now emits `set_current_dir("/tmp")`. A computed target keeps the
+>     binding — it is one evaluation that must outlive the borrow. Copy-propagation makes this path
+>     the common one (`d=/var; cd "$d"` is a literal by then), which is why the count is 29.
+>   - **`&"foo".to_string().to_lowercase()` — nocasematch folds.** `str` has `to_lowercase`, so the
+>     `String` round-trip before the fold is a pure waste (two allocations where one does). A new
+>     module-level `case_fold` drops it for a literal operand and leaves every other expression
+>     alone (the case methods do not exist on a number) — shared by the renderer and the `[[ ]]`
+>     parser, which build the same comparison in two places.
+>
+>   **Result.** `let _ = esc;` 94 → 0, `let _ = String::new();` 14 → 0, literal `cd` target 27 → 0,
+>   (the two `let __d = "default".to_string();` left in the corpus are the unrelated
+>   `${x:=default}` template, which must keep a `String` to clone into the variable),
+>   corpus 1,295,486 → 1,292,812 B (−2,674, 0.2%), **0 emit failures, 0 rustc errors, 10 warnings**
+>   across 563 files (9 of them are "warnings will be skipped" roll-ups; the 5 real ones are the
+>   long-documented nits — a non-snake-case test type, two dead assignments, two unused vars). Four new
+>   in-file tests pin each shape (including the negatives: a computed `cd` target keeps its
+>   binding, a non-literal operand keeps its `.to_string()`).
+>
+>   **Not landed, deliberately:** the 28 `__SH_RC.store(0, …)` lines immediately overwritten by
+>   the following test block are a genuine dead store, but the fix is renderer look-ahead across
+>   statements (pop the last emitted line when the next statement unconditionally writes), which
+>   is not worth the fragility at 28 sites. The prologue is **68.7% of emitted lines** and that is
+>   fair: every helper that survives `golf_rust` is reachable (12 helpers for a 2-statement heredoc
+>   program, all transitively used), so the fat is in `__sh_printf`/`__sh_spawn` *bodies*, which
+>   v132/v133 already took.
+>
+>   **Gates.** `harness/fail-rs` (fresh out dir, nothing resumed) **556 pass / 0 fail / 7 skip,
+>   exit 0** — the 7 are the intentionally-unparseable fixtures (`SKIP-bashn`). `./fail` and
+>   `harness/py-rust-gate.sh` after it. `cargo test --lib rust_backend` **149 pass / 0 fail**
+>   (145 before + the 4 new pins). Core worker healthy throughout — its supervisor was mid-cycle
+>   running `fail-estree` (7 min in), no sleeping marker, no repair needed.
+> - v133: **The biggest remaining lever was already pulled — and proving that was worth more than a
+>   guess.** The census after v132 has `__sh_spawn` at 187.5 KB over 198 files (2-arg 1,252 B/def ×
+>   132, 1-arg 404 × 66), by far the largest helper, so the obvious move was to specialise it further:
+>   of the 2-arg bodies, 114 files capture nothing, and dropping the `want_out` probe, the piped
+>   stdout, the read-back buffer and the re-emit arm is ~370 B each. I built it — a shared
+>   `shir::program_captures_output` verdict plus one `spawn_body` builder composed from three
+>   capability facts, replacing the three hand-copied literals — and then measured it:
+>   **zero files gained.** The 55 files that changed had already been slimmed by
+>   `inline_spawn_sinks_when_unused`, a text pass that predates the work; my builder only put back
+>   a 71-byte comment (the pass could no longer match its anchor and stripped the comment but not
+>   the code). The other 2 files were **wrongly** stripped, because my gate asked the IR "can
+>   anything capture" while the pass asks the RENDERED TEXT "is a sink ever written" — and 98
+>   programs write `__SH_OUT` as a pipeline buffer without ever capturing. Net: +2,401 B and two
+>   broken programs. Reverted in full; the emission is byte-identical to the round's baseline
+>   (0/563 files differ), and the pass's own doc had already recorded that a verdict-based attempt
+>   was "strictly weaker". **A helper body that looks unspecialised may already be specialised by a
+>   text pass two layers down — measure before designing.**
+>   - **What did ship: `hoist_shared_branch_status`.** A shell `if` whose branches both merely
+>     finish (the common `if cond; then cmd; fi` with `$?` read afterwards) rendered as
+>     `if c { …; __SH_RC.store(0, …) } else { __SH_RC.store(0, …) }` — the renderer cannot see that
+>     the then-arm already ended at 0, so it synthesised an `else` that carries nothing but the
+>     same write. Moving the write past the `if` is the same program (both paths end at status 0)
+>     and drops the pointless branch: **-2,327 B over 32 files (-0.18%)**, no file larger. The pass
+>     matches only the exact shape — the store must be the else-arm's ONLY line, one indent deeper,
+>     immediately closed on the `if`'s own column, with the then-arm's last line that same store —
+>     and iterates to a fixed point, because hoisting an inner pair exposes an outer one (5 files
+>     folded twice). `empty_else_kept_when_status_is_read` pinned the OLD spelling; its intent (the
+>     register must be written on the untaken path, once) is what it asserts now.
+>   - **Verified.** `./fail` 563/563; `harness/fail-rs` 556/0/7 with `resumed=0` (a first run that
+>     reported `resumed=563` was discarded — it had resumed a stale log and proved nothing);
+>     `./fail-estree` 563/563 (100.0%); `cargo test --lib` 1781 passed / 49 failed, **0 in
+>     `rust_backend`**. `harness/py-rust-gate.sh` reports 96/103: the three stable failures
+>     (t104/t82/t87) are the documented ones, and the remaining two are the gate's big-int arm
+>     swapping between t89/t90 and t93/t99 run to run — `ls -t` over `libnum_bigint-*.rlib` leaves an
+>     rlib that `rustup run 1.90` rejects as "compiled by an incompatible version of rustc", so
+>     which pair is probed first decides the verdict. That arm is unstable in this shared worktree
+>     and says nothing about emission.
+> - v132: **Three helper bodies, each proven before it shipped — and one of them was a regression I
+>   had introduced myself the round before.** The census after v131 put `fnmatch` at 3,228 B over
+>   31 files, `printf` at 5,856 B over 9 and `readline` at 676 B over 12, so this round attacks the
+>   bodies themselves:
+>   - **`fnmatch` extglob**: `@(a|b)R` was tested by building `a ++ R` as a fresh `Vec` and
+>     recursing — one allocation per split point. A group match *splits* the subject (`a` on the
+>     head, `R` on the tail), so the concatenation was never needed: **3,228 → 3,087 B/def**
+>     (−141, −4.4%). Proven by extracting the HEAD body and the new one into one binary and
+>     comparing them on **1,468,614 pairs** (every pattern up to length 4 over
+>     `a b * ? [ ] ! ( ) | @ + - ^ \ .` × 21 subjects, plus 33 extglob/class/escape shapes):
+>     **0 differences**, 9,673 of them true matches so the arms are actually exercised.
+>   - **`readline`**: the three-arm `match r.read(...)` became `while let Ok(1)`, the trait-object
+>     `match` for the source became `unwrap_or_else`, and only the newline keeps a branch:
+>     **676 → 444 B/def**. Byte-at-a-time is deliberate — a `BufReader` reads ahead and the
+>     buffered tail is lost when the reader goes back into `__SH_STDIN`; the comment says so.
+>   - **`printf`**: the width, precision and flags were built as three `String`s per conversion
+>     and parsed back (`width.parse()`, `flags.contains('-')`); they are now a `usize`, an `i64`
+>     and two `bool`s read straight off the digit run. The `Vec<char>` of the format was also
+>     rebuilt **inside** the re-use loop — hoisted. This one is **size-neutral** (5,856 → 5,869,
+>     +13 B/def: the flag `match` costs a line where the old `push` cost a char) and its win is
+>     per-call: no four allocations and no re-decode per conversion. Proven against the OLD body
+>     over **38,330 cases** (every verb × flag set × width × precision × length modifier × 10
+>     argument sets, plus escape and re-use shapes): **old == new in every case**.
+>   **A rewrite needs a target the harness can measure, and the comment lesson from v131 bit again:**
+>   the first version of the extglob change put a five-line explanatory comment inside the emitted
+>   helper, which costs those bytes **per file** — 31 files × 480 B made the corpus 6.7 KB *larger*
+>   than it started. Comments in helper text are output, not documentation; both new comments are
+>   one line.
+>   **My own v131 regression, found and fixed here.** Six `rust_backend` tests still pinned the
+>   fully-qualified text (`std::process::exit(3)`, `std::fs::write(…)`,
+>   `static __SHV_xs: std::cell::RefCell<…>`) that `shorten_std_paths` had just rewritten, so the
+>   suite was 55 red where the standing baseline is 49. v131's report called those six
+>   `estree::tests::*` without checking each name — a failure COUNT is not a baseline, the *named*
+>   set is. The assertions now name the call without its qualifier (`process::exit(3)`), which is
+>   the property they always meant; every behavioural assertion in them is unchanged.
+>   **Measured. 1,304,253 → 1,297,217 B (−7,036 B, −0.54%)**, 0 rustc errors, the same 5 warnings
+>   over all 563 files.
+>   **Gates.** `./fail` **563/563**; `harness/fail-rs` **556 pass / 0 fail / 7 skip** (fresh,
+>   `resumed=0`); `./fail-estree` **563/563 (100.0%)**; `harness/py-rust-gate.sh` **98/103**
+>   (documented t104/t82/t87); `cargo test --lib` **1780 passed / 49 failed, 0 `rust_backend`** —
+>   exactly the standing pre-existing set.
+>   **Core worker: healthy** — supervisor alive, gate GREEN, no `core-requests/sleeping-*`.
+> - v131: **The remaining fat is not in any one helper — it is the fully-qualified paths and the
+>   repeated `#[allow]` that every file pays for.** After v130 the corpus census is
+>   `spawn` 199 KB / `fnmatch` 100 KB / `printf` 53 KB and the rest long and thin, so the next
+>   win is not a body rewrite: it is the *preamble*. A typical file said
+>   `static __SH_RC: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);` —
+>   40 bytes of path for a type the reader already knows by name, 752 times over the corpus —
+>   and repeated `#[allow(non_upper_case_globals)]` inside every `thread_local!` block (351
+>   copies across 157 files). New pass `shorten_std_paths` (in [rust_backend.rs]) does what a
+>   Rust programmer would: import once, write the short name, and hoist the allow to one inner
+>   attribute.
+>   **Two rules make it total rather than probabilistic.** TYPES (`AtomicI32`, `AtomicBool`,
+>   `Mutex`, `RefCell`) are always safe, because a path in type position cannot collide with a
+>   local — the type and value namespaces are separate. MODULES (`io`, `process`, `mem`, `fs`,
+>   `env`, `path`, …) are imported only when the program never binds that name, since
+>   `for path in …` would shadow `path::PathBuf` and stop the file compiling; the shadow check
+>   gates each module rule on its own. The substitution never looks inside a string literal —
+>   the runtime carries bash command text, and a program that prints Rust-looking text must come
+>   out unchanged (unit-tested). It runs AFTER `prune_unused_statics` (importing a dead static's
+>   type would be an unused-import warning) and before golfing.
+>   **The first version had a real bug, caught by the warning census**: its early return for a
+>   file with no shorten-able path stripped the per-static allows but never emitted the
+>   file-level one, so `Cell<i64>`-only programs (the numeric vars) went from 5 to 8 warnings.
+>   Fixed to strip first and decide the attribute from the same count; back to the 5 baseline.
+>   **Measured. 1,336,347 → 1,304,253 B (−32,094 B, −2.40%)**, 0 rustc errors, the same 5
+>   warnings over all 563 files.
+>   **Gates.** `harness/fail-rs` **556 pass / 0 fail / 7 skip** (fresh dir, `resumed=0`);
+>   `./fail` **563/563**; `harness/py-rust-gate.sh` **98/103** (documented t104/t82/t87);
+>   `cargo test --lib` **1774 passed / 55 failed** — the 6 extra over the 49 baseline are
+>   `estree::tests::*` `pipelineSync` pins in a peer's live edit of `estree.rs`, untouched here.
+>   **Two gate readings were false alarms and worth recording.** (a) A `./fail` run reported
+>   **39 `[perl]` failures**; it passed 563/563 on a clean re-run minutes later, because `fail`
+>   rebuilds the CLI itself and caught the tree mid-edit — a peer's `str-temp-inline` /
+>   `interp-fold-late` work was landing in `transforms.rs` while that run started. (b) py-rust
+>   reported 5 FAIL once with `E0514/E0460 num_bigint/num_traits` errors on t89/t90; both cases
+>   pass alone and the full run returned to the documented trio, i.e. the shared `target/deps`
+>   holds rlibs from several toolchains and a concurrent rebuild makes the pick race. Neither is
+>   a code regression, and neither is fixed by weakening a gate.
+>   **Core worker: healthy** — supervisor alive, gate GREEN 10:57, no `core-requests/sleeping-*`
+>   markers.
+> - v130: **The biggest helper carried a stdin channel most programs cannot reach — and the
+>   verdict that proves it is an IR question, so it is shared.** `__sh_spawn` is the largest
+>   body in the corpus (234 KB over 198 files, 1,182 B each), and its first seven lines convert
+>   an `Option<&[u8]>` into a `Vec<u8>` and drain `__SH_STDIN` into it. Only two things can ever
+>   supply that buffer: a **pipeline** (the staged bytes are handed to the last stage) and a
+>   **heredoc/herestring**. A program with neither passes `None` at every call site and the
+>   child simply inherits the parent's fd 0 — so the whole path is unreachable, not merely
+>   unused. New shared verdict `shir::program_feeds_shell_input`, and the third `spawn` variant
+>   `spawn_noinput` (`fn __sh_spawn(cmd: &str) -> i32`) chosen by it, with `run`/`run_traps`
+>   following the same arity.
+>   **The corpus differential is what caught both bugs.** The first version scanned the IR for
+>   `Pipeline` and emitted a 1-arg helper beside a 2-arg `Some(…)` call in **84 files**, because
+>   a pipeline reaches the renderer as EITHER node form — `IrStmt::Pipeline` *or* the
+>   ESTree-lowered `Call { func: "pipeline" }` whose stages are exprs. Adding that form dropped
+>   the violations to **33**, all `tty-cmdsub`: a plain `cmd < file` does not pass a buffer at
+>   any call site but points `__SH_STDIN` at the file around the inner command, and a shell-out
+>   from inside it inherits that — so `mode: "r"` is LIVE input, not an over-approximation, and
+>   the verdict had to admit it. `fail-rs` reproduced the same case independently (`FAIL-equiv
+>   tty-cmdsub`, 555/1) before the fix and did not after.
+>   **Measured. 1,377,530 → 1,336,347 B (−41,183 B, −2.99%)**; `__sh_spawn` 234,173 → 199,259 B
+>   (−15%); helpers 51.7% → 50.7% of the corpus; **66 files** take the input-free variant.
+>   0 rustc errors and the same 5 warnings over all 563 files.
+>   **Gates.** `./fail` **563/563**; `harness/fail-rs` **556 pass / 0 fail / 7 skip** fresh
+>   (`resumed=0`); `./fail-estree` **563/563 (100.0%)**; `harness/py-rust-gate.sh` **98/103**
+>   (documented t104/t82/t87); `cargo test --lib` **1780 passed / 49 failed, 0 `rust_backend`
+>   failures** (+1 = the new verdict test; the 49 are the pre-existing reds, e.g. the
+>   `shir::range_analysis_tests` fixpoint assertions).
+>   **The py-rust gate was reporting a phantom failure and is now honest.** `t101` failed with
+>   `E0514 incompatible version of rustc` / `E0460 newer version of num_traits`: `target/*/deps`
+>   is shared with every backend worktree on this box, so it holds `num_bigint`/`num_traits`
+>   rlibs from several toolchains and `ls -t | head -1` was picking one the gate's own `rustup
+>   run 1.90` refuses. The gate now probes candidates newest-first **with that same toolchain**
+>   (a `size_of::<BigInt>` metadata compile) and takes the first it accepts; still a hard error
+>   when none works, so nothing is skipped silently.
+>   **Core worker: healthy** — supervisor alive, gate GREEN 10:39, no `core-requests/sleeping-*`
+>   markers.
+> - v129: **The pattern matcher was 117 lines of hand-rolled recursion, and it is 10% of the corpus.**
+>   The census after v128: helpers are still 54.8% of the emitted bytes, and `__sh_fnmatch`
+>   is the biggest body per file — **5,008 B across 31 files (155 KB, 10.8% of the
+>   corpus)** — because anything touching `[[ x == pat ]]`, `case`, `${v#pat}` or a glob
+>   drags it in. It carried the same duplicated shapes a hand-written matcher always
+>   does:
+>   - `'*'` as `for i in 0..=t.len() { if m(…) { return true; } } false` →
+>     `(0..=t.len()).any(|i| m(&p[1..], &t[i..]))`;
+>   - the **extglob** block (90 lines) duplicated "clone the alternative, append the
+>     pattern's remainder, recurse" in its `@` and `?` arms and duplicated the
+>     1..=len double loop in `*` and `+`. One `then_rest` closure plus three `.any()`
+>     chains now cover `@`/`+`/`!` in 35 lines. The `*(…)` and `?(…)` arms the guard
+>     used to admit were UNREACHABLE — the `'*'` and `'?'` arms precede the guard —
+>     so the narrower `'@' | '+' | '!'` guard is behaviour-preserving, and the comment
+>     says so rather than pretending the matcher handles those forms.
+>   - `'['` lost its `if t.is_empty() { return false; }` prologue to a
+>     `let Some(&t0) = t.first() else { return false }`, and its tail became
+>     `matched != neg && m(…)`.
+>   **A delicate rewrite needs a real proof, not a corpus run.** There was no unit test
+>   pinning the matcher's semantics, so before swapping it in I built a differential
+>   harness: extract the current body from the renderer source, rename it, add the new
+>   body, and compare on **every pattern up to length 4 over the 17-char alphabet
+>   `a b * ? [ ] ! ( ) | @ + - ^ \\ .` × 12 subjects**, plus 24 hand-picked
+>   extglob/class/escape patterns (`!(*.min).js`, `@(a|b)@(c|d)`, `+(ab|a)`, `[]a]x`,
+>   `[!-a]`, `*\\**`, …): **839,148 pairs, 0 differences.** Both variants compile under
+>   `rustc -O` before the comparison, so it is an executed equivalence, not a reading.
+>   Two smaller std-idiom wins in the same sweep: `__sh_print_words` joined its words
+>   with `iter().flatten().map(|x| x.as_str()).collect::<Vec<_>>().join(" ")` — a Vec the
+>   only consumer throws away — now `ws.concat().join(" ")` (102 files); and
+>   `__sh_printf`'s six-line manual padding became a three-arm `format!` on the field
+>   width (`{piece:<w$}` / `{piece:0>w$}` / `{piece:>w$}`), which is the same operation
+>   `Formatter::pad` performs — and it measures width in CHARS for `&str`, exactly like
+>   the `chars().count()` the manual version used.
+>   **Measured. 1,437,622 → 1,378,144 B (−59,478 B, −4.14%)** and
+>   **31,297 → 29,911 lines (−1,386, −4.4%)**; `__sh_fnmatch` 5,008 → 3,235 B/def; same
+>   5 rustc warnings, 0 errors over all 563 files.
+>   **Gates.** `./fail` **563/563**; `harness/fail-rs` **556 pass / 0 fail / 7 skip** on a
+>   fresh verdict dir (`resumed=0`) — including `010_pattern_matching` and
+>   `037_pattern_matching_extglob`, the two examples that exercise the refactored arms;
+>   `./fail-estree` **563/563 (100.0%)**; `harness/py-rust-gate.sh` **98/103** (the same
+>   documented t104/t82/t87 trio); `cargo test --lib` **1779 passed / 49 failed, 0
+>   `rust_backend` failures**.
+>   **Core worker: healthy** — gate GREEN 09:36, no `core-requests/sleeping-*` markers.
+> - v128: **The casts are gone; the hand-written loops in the runtime helpers were not.**
+>   The census first: casts are essentially exhausted (`as i64` 91, `as usize` 124,
+>   `as i32` 24, `as u32` 1, and **0** `as f64`/`as u64`/`as char` across 563 files), so
+>   the remaining fat is where it has been all along — helpers are **56% of the emitted
+>   bytes** (854 KB of 1,525 KB), and a helper body is emitted once *per file*, so one
+>   sloppy line there costs hundreds of copies. What the bodies still carried was a
+>   hand-rolled loop for an operation std already spells:
+>   - **`__sh_q`** (96 files, 223 B) — a `String::with_capacity` + per-char push loop
+>     for shell-quoting, i.e. `format!("'{}'", s.replace('\'', "'\\''"))`. **161 B**.
+>   - **`__sh_wq`** (70 files, 190 B) — an `enumerate` loop joining with a leading-space
+>     guard, i.e. `map(|w| __sh_q(w)).collect::<Vec<_>>().join(" ")`. **102 B**.
+>   - **trailing-newline strip** (`__sh_capture_rc`, `__sh_cap_end`; 185 defs) —
+>     `into_owned()` then `while s.ends_with('\n') { s.pop(); }` (3 lines, 2 allocations)
+>     became `String::from_utf8_lossy(…).trim_end_matches('\n').to_string()`.
+>   - **`__sh_capture_rc`** — a 4-line `Command` setup became one builder chain
+>     (`c.args(["-c", cmd]).stdout(…).stdin(…)`), and
+>     `wait().map(|s| s.code().unwrap_or(1)).unwrap_or(1)` became
+>     `wait().ok().and_then(|s| s.code()).unwrap_or(1)` (no nested `unwrap_or`).
+>   - **`__sh_spawn`** (198 defs) — the stdin takeover's `map` + `if is_none` + `if let`
+>     (8 lines) became `map(…).or_else(|| { …take()? … })` (6, and no `mut`); the
+>     fd-1 flush became one line with a one-line *why*; the six-line sink `if/else`
+>     became a `match` over `__SH_OUT`; `arg("-c").arg(cmd)` became `args(["-c", cmd])`.
+>   - **comment bloat in every emitted file**: `__sh_print_words` opened with 4 lines
+>     explaining *that this program has no `-e`* (a fact of the code below it) and
+>     another 3 explaining the arith-fail flag; `__sh_puts` carried 4 lines. Compressed
+>     to one line each — the long form already lives in the renderer source, which is
+>     where a reader of the RENDERER looks.
+>   **The one breakage the tests caught, and why it matters.** `inline_spawn_sinks_when_unused`
+>   slims the `__sh_spawn` body for a program that never writes a sink, and it does so by
+>   matching THREE exact text constants against the rendered helper. Editing the helper's
+>   body silently stopped it firing (a *sink-free program kept the full 34-line body*);
+>   `a_capturing_program_keeps_its_sink_halves` failed with "sink-free spawn not slimmed",
+>   which is exactly what that test is for. The constants now match the new text, and the
+>   lost slim is worth **52 KB** — the largest single effect of the round.
+>   **Measured, two stages.** After the body rewrites: 1,525,317 → 1,490,972 B. After
+>   restoring the slim pass: **1,437,622 B, 31,297 lines** — i.e.
+>   **−87,695 B (−5.75%)** and **−3,357 lines (−9.7%)** on the round, with the same
+>   5 rustc warnings and 0 errors over all 563 files. Per def: `__sh_q` 223→161 B,
+>   `__sh_wq` 190→102, `__sh_print_words` 744→559, `__sh_capture_rc` 609→541,
+>   `__sh_cap_end` 292→254; a sink-free `__sh_spawn` is now 16 lines with no
+>   `want_out`/`used` machinery at all.
+>   **Gates.** `./fail` **563/563**; `harness/fail-rs` **556 pass / 0 fail / 7 skip** on a
+>   fresh verdict dir (`resumed=0`, every example re-rendered, compiled and compared);
+>   `./fail-estree` **563/563 (100.0%)**; `harness/py-rust-gate.sh` **98/103** — the same
+>   documented t104/t82/t87 trio, unchanged by the helper rewrites; `cargo test --lib`
+>   **1779 passed / 49 failed with ZERO `rust_backend` failures** (all 108 `rust_backend`
+>   tests pass; the red set is the pre-existing class: estree 23, c_backend 10, shir 5,
+>   fish 5, …).
+>   **Core worker: healthy** — gate GREEN 08:16, no `core-requests/sleeping-*` markers.
+>   **Where this leaves the shared layer:** this pass is Rust-syntax-specific (std
+>   idioms), so it does not move the shIR contract. The shared item it exposes is the
+>   *variant verdict*: which runtime capabilities a program actually needs is currently
+>   re-derived per backend, and the corpus now shows how much that costs (198 files pay
+>   for a full `__sh_spawn`; 33 of them never pass an input buffer at all).
+> - v127: **A constant command was formatted at run time by a nest of `format!`.**
+>   The aggregate census had nothing left (every class it can see was already
+>   mined, and four more candidates measured to ~0 this round: deduping the three
+>   `bash -c` helpers — only 59 of 563 files carry two of them; numeric homing;
+>   pbuf dead-init — **1 of 209** declarations is immediately overwritten, the rest
+>   genuinely accumulate; single-shell-out captures → `__sh_cap_bytes` — **14 of
+>   278** blocks). Reading ONE emitted file end-to-end found it instead: command text
+>   is assembled by *joining rendered Rust expressions*, so a pipeline whose every
+>   stage is a constant was emitted as a nested `format!` chain formatting a fixed
+>   string on every call —
+>   `__sh_spawn(&format!("{} | {}", format!("({}; {})", "'echo' 'one'", …), …))`.
+>   Two layers fix it. (1) **`Render::wrap_join`** replaces the three ad-hoc joins
+>   (pipeline run, subshell, `&&`/`||`) with one helper taking prefix/sep/suffix,
+>   which folds at GENERATION time when its operands are already literals — the
+>   backend-agnostic half: it is the join that knows whether a constant exists, and
+>   the same shape applies to any backend that assembles command text from pieces.
+>   (2) **`fold_const_format`**, a textual peephole after the shell-quote folding
+>   (the pass that turns `__sh_wq(…)` into literals — which is why the fold cannot
+>   live in the join: at generation the operands are still expressions). It folds
+>   `&format!(all-literal)` bottom-up through `format!`-argument nests, accepts
+>   `"lit".to_string()` as a literal argument (the shape the quote fold leaves), and
+>   scans INSIDE a bare call rather than copying it, so `__sh_q(&format!(…))` folds
+>   too. Soundness is positional, not clever: only where `&str` is still accepted
+>   (the `&format!` borrow, or an argument of another `format!`, where `Display` for
+>   `&str` and `String` are identical). A `String` sink keeps its call; a spec
+>   (`{:?}`), a named argument or a hole/argument count mismatch refuses the whole
+>   call. **Measured. 1,527,661 → 1,525,317 B (−2,344 B)**; lines unchanged
+>   (34,654 — the joins were inline); `format!` call sites in the corpus
+>   **569 → 495** (74 run-time formattings of constants gone), 70 of the 73
+>   constant `&format!` sites folded; same 5 rustc warnings, 0 errors. Also removed
+>   a dead `BTreeSet` in `function_reachable_vars` (dead `let mut`, 2 compiler
+>   warnings in the transpiler itself).
+>   **Tests.** `const_format_peephole_folds_a_constant_command` pins the fold, the
+>   `{{`/`}}` escapes, a brace in an ARGUMENT (data, not a hole) and five refusals;
+>   `a_constant_pipeline_renders_one_command_literal` pins the end-to-end shape.
+>   **Gates.** `./fail` **563/563**; `harness/fail-rs` **556 pass / 0 fail / 7 skip**
+>   on a FRESH verdict dir (`resumed=0`, so every example was re-rendered by this
+>   build); `./fail-estree` **563/563 (100.0%)**; `harness/py-rust-gate.sh` **98/103**
+>   — the same documented t104/t82/t87 trio, unchanged; `cargo test --lib`
+>   **1778 passed / 49 failed**, **zero `rust_backend` failures** (the red set is the
+>   same pre-existing pin class: estree 23, c_backend 10, shir 5, fish 5, …), and both
+>   new tests pass. **Core worker: healthy** — gate GREEN 06:47, next iteration 06:57,
+>   no `core-requests/sleeping-*` markers.
+>   **Two operational notes, both non-regressions.** (a) Two gate runs died on an
+>   in-progress `c_backend.rs` edit from the shared-checkout C worker (`E0425` at
+>   `c_backend.rs:30864`, file mtime inside the run) — the tree must be quiescent.
+>   (b) `./fail-estree` reported ONE failure (`chown-through-xargs.sh`) twice while
+>   `cargo test` and a 563-program `fail-rs` ran on the same box (load ~10); the
+>   gate's per-test budget is 20 s and the isolated emit takes **0.01 s**, and a
+>   re-run on the quieter box is 563/563. A timeout under contention, not a render.
+> - v126: **Three dead ends found by measurement, then two cheap structural wins.**
+>   The helpers turned out to be 56% of the emitted bytes, so the round started
+>   there and measured each candidate before writing code:
+>   (a) **Precompiling literal globs is worthless here.** `__sh_fnmatch` is 117 lines
+>   across 31 files (15.9% of helper bytes) and looks like the obvious target, but of
+>   its 95 call sites only 42 have a literal pattern and **29 of those carry a char
+>   class, extglob, `?` or an escape** (`*\$\{…\}*`, `!(*.min).js`, `[a-z]*`). Files
+>   that could drop the helper entirely if simple patterns were inlined: **0**. The
+>   `simple_glob_test` inlining that already exists (plain / `lit*` / `*lit`) is the
+>   whole of what this corpus rewards.
+>   (b) **Status stores are not a well either.** 1,019 literal `__SH_RC.store(N, …)`
+>   statements exist, but 993 of them sit in programs that DO read the register
+>   (`$?`, `exit`), where the write is exactly what buys exit-code equality. Only
+>   **59** sit in a program whose register is never read at all.
+>   (c) **The var-read clones are already scoped.** 419 `X.with(|v| v.borrow().clone())`
+>   remain, but just 30 are immediately followed by a method; the common
+>   `…clone()).trim().parse::<i64>()` shape is already rendered inside the borrow
+>   (`v.borrow().trim()…`), so v124's trick has nothing left to take.
+>   **The two wins that were left in the same area:**
+>   (1) `#[allow(non_upper_case_globals)]` on `fn main()`. The lint applies to
+>   `static`/`const` items — a `fn` is never one — and user-var statics carry their own
+>   attribute at module level. A previous round removed it from the *no-user-var*
+>   path (its test still guards that) and the `seen_var` path kept emitting it, so 141
+>   files began with a suppression that could not fire. Removed; corpus lint confirms
+>   the same 5 warnings / 0 errors with it gone.
+>   (2) A literal status write as the LAST statement of `main` is unobservable: this
+>   renderer derives the exit code only from `std::process::exit(…)` (emitted where the
+>   SOURCE exits), so falling off the end of `main` exits 0 whatever the register
+>   holds and no `.load` can follow. 146 such stores → 4. The 4 survivors are exactly
+>   the programs with a live background thread (`__SH_BGTHREADS.lock()` /
+>   `thread::spawn`), whose closure could still read the register after main's last
+>   statement — a race this pass may not take part in. Only a LITERAL argument is
+>   dropped; a call form (`__sh_spawn(…)`) carries the command's side effects.
+>   **Measured.** **1,537,794 → 1,527,661 B (−10,133 B, −0.66%)** and
+>   **34,932 → 34,654 lines (−278)**; same 5 rustc warnings, 0 errors across 563 files.
+>   **Tests.** `trailing_literal_status_store_is_dropped` pins both directions (guard
+>   on `exit`/background), and `no_user_var_drops_the_allow_attribute` already covered
+>   the attribute's other path.
+>   **Gates.** `./fail` 563/563 passed; `harness/fail-rs` 556 pass / 0 fail / 7 skip;
+>   `./fail-estree` 563/563; `harness/py-rust-gate.sh` 98/103 (the documented
+>   t104/t82/t87 trio — re-verified this round as frontend feature gaps, not renderer
+>   bugs: t104 shows `TODO(unsupported): word call pyFloat` and prints nothing).
+>   `cargo test --lib` 1776 passed / 49 failed, **zero `rust_backend` failures**
+>   (142 rust_backend tests pass); the red set is the same pre-existing pin class.
+> - v125: **The fd-1 FILE sink was paid for by 545 programs that can never open one.**
+>   `__SH_OUTFILE_TL` is the cell a native `> file` redirect fills so prints go to
+>   the file instead of stdout. The census: **1063 references and 128 declarations
+>   across the corpus, but only 18 of 563 files ever assign `Some(…)` to it.** In the
+>   other 545 the cell is `None` for the whole run, so everything built around it is
+>   dead: the `let mut used = false;` / `__SH_OUTFILE_TL.with(… used = true)` /
+>   `if used { return; }` triple (262 sites), its `if !used { … }` twin (113 — the
+>   body always runs, so the wrapper is UNWRAPPED, not emptied), the pipeline
+>   stage's `let __sh_oldoutN = …take()` / `…= __sh_oldoutN` pair (143), the false
+>   half of `want_out` (113), and the FILE element of the general-capture tuple
+>   `__ShCap` (91 pairs of save/restore + the type, which is why 77 files still
+>   declared the cell after the first pass).
+>   **The gate is exact, not a heuristic.** `strip_dead_file_sink` reuses
+>   `text_writes_file_sink` — the SAME predicate the redirect renderer's own
+>   backstop uses — and it matches the one line that ever assigns `Some(…)` to the
+>   cell. A program with a `> file` redirect (or a closed-fd/stderr null dup, which
+>   assigns /dev/null) is left completely alone; **all 18 such files are
+>   byte-identical after the pass**, which is the strongest statement the shape of
+>   this change allows. Everything stripped is then invisible to
+>   `prune_unused_statics`, so the `thread_local!` declaration goes with the last
+>   reference (128 → 18).
+>   **Measured.** **1,628,975 → 1,537,794 B (−91,181 B, −5.60%)** and
+>   **36,090 → 34,932 lines (−1,158)**, same 5 rustc warnings, **0 errors** across 563
+>   files. References 1063 → 251 and declarations 128 → 18, i.e. exactly the 18 that
+>   can use them. **Tests.** `dead_file_sink_apparatus_is_stripped` (both shapes,
+>   including a brace-balance assertion on the unwrap), `dead_file_sink_capture_slot_is_dropped`
+>   (the tuple narrows but stdin and the byte buffer still round-trip), and
+>   `a_live_file_sink_is_untouched` (the negative that matters).
+>   **Gates.** `./fail` 563/563 passed; `harness/fail-rs` 556 pass / 0 fail / 7 skip;
+>   `./fail-estree` 563/563; `harness/py-rust-gate.sh` 98/103 (the documented
+>   t104/t82/t87 trio). `cargo test --lib` 1776 passed / 48 failed — the same
+>   pre-existing red set (estree 23, c_backend 9, shir 5, fish 5, zsh 2, shir_json_in
+>   2, zig 1, go 1), **zero `rust_backend` failures**, 141 rust_backend tests pass.
+>   **Next, sized.** What is left of the cell after this is only the 18 sink files, so
+>   this well is dry. The larger remaining class is the same shape one level up: the
+>   *capture* buffer `__SH_OUT` + `__SH_STDIN` pair is saved/restored per capture in
+>   every program, and a program with no capture at all still carries
+>   `cap_begin`/`cap_end`; gating that on a program-level "has a capture" verdict is
+>   the same mechanical pass (it would first need `prune_unused_helpers` to be able to
+>   drop a helper whose only caller is another helper).
+> - v124: **The “unused `-> String`” lead was wrong, and the printer had three real warts.**
+>   v123 left (b) as the next big shared-verdict opportunity: “439 functions render
+>   `-> String`, most call sites discard the value”. A probe (a temporary test, removed
+>   again) prints `fn_value_used` for `f(){ echo a; }; f` and for `x=$(f)`: both return
+>   `{"f"}`, and the emitted call is `println!("{}", f())` — because in this model a
+>   function's OUTPUT **is** its return value, so a statement-position call PRINTS it.
+>   The verdict is right and the premise was wrong. NEGATIVE result, recorded so nobody
+>   re-chases it. The `__SH_RET` cell looked like the follow-up (corpus: 34 stores, 20
+>   statics, **0 reads** — write-only), but it is a 34-line well that needs a
+>   whole-program read predicate across three read sites; not worth it at this size.
+>   **What was left was the printer.** Three cheap, measurable warts, all in the
+>   render-time passes (`inline_format_args`, plus one new line pass):
+>   (1) an `else` arm emptied by status stripping — `} else {` / `}` with nothing
+>   between, 62 blocks in 53 files — is now folded back into its `if`
+>   (`drop_empty_else_arms`); the arm only ever existed to carry
+>   `__SH_RC.store(0, …)`, which the shared liveness had already proved unread.
+>   (2) Inline format capture required the format string to be EXACTLY `"{}"`, so every
+>   labelled print kept a separate argument: `println!("stdout: {}", so.clone())` →
+>   `println!("stdout: {so}")`. 76 sites → 0. A single-`{}` template now captures, and
+>   the argument's `.clone()` goes with it (`{}` formats by reference).
+>   (3) A variable read is `X.with(|v| v.borrow().clone())`; dropping just the `.clone()`
+>   does NOT compile (a `Ref` borrows the closure's `&T` and cannot escape `with` — that
+>   is WHY the clone is there), so the print moves INSIDE the borrow instead:
+>   `__SHV_a.with(|v| println!("{}", v.borrow()))`. 54 sites, 54 whole-String copies
+>   gone from every run; the 25 left have block-shaped arguments.
+>   **Measured.** 1,632,649 → 1,628,975 B, 36,152 → 36,090 lines, same 5 rustc warnings,
+>   **0 errors** across 563 files. (Byte totals are round-over-round in a SHARED checkout,
+>   so other workers' changes are in them too; the class counts above are the attributable
+>   part — each was counted by shape before and after.) **Tests.** `empty_else_arm_is_folded_away`,
+>   `inline_format_argument_inside_a_template` (both directions, incl. `{{ }}` and
+>   two-placeholder negatives), `display_argument_prints_inside_the_borrow` (with the
+>   not-a-bare-home and outside-a-print negatives). One existing test updated rather
+>   than deleted: `assigns_and_echo` pinned the OLD `println!("x is {}", x)` shape, so it
+>   now pins the better `println!("x is {x}")` and asserts the separate argument is gone.
+>   **Gates.** `./fail` 563/563 passed; `harness/fail-rs` 556 pass / 0 fail / 7 skip;
+>   `./fail-estree` 563/563; `harness/py-rust-gate.sh` 98/103 (the documented t104/t82/t87
+>   trio). `cargo test --lib` 1773 passed / 48 failed with **zero `rust_backend`
+>   failures** — the red set is the pre-existing estree/fish/zsh/go/zig pin class, and its
+>   exact count drifts because this is a shared checkout other workers are editing.
+>   Core worker healthy throughout (gate GREEN 04:21, A1-native 0 violations / 555 probed,
+>   no sleep markers). One box-health observation: `loop-core-worker.log` is now **675 MB**
+>   — worth a rotation if the worker's own logging is not bound.
+> - v123: **A shared verdict that nobody consumed.**
+>   The round started at the `$?` status registers (1,139 `store(0, …)` lines) and
+>   found them mostly *justified*: the rust binary's process exit code IS the register,
+>   so the existing rule (“keep a write that can reach program end”) is what buys
+>   exit-code equality with bash, and `rc_zero`/`body_rc_is_zero` already drop the ones
+>   that provably cannot. Only 134 stores sit in the 71 files that write status and
+>   never load it — a 5 KB well, and the fix would need `$?` liveness inside function
+>   bodies. Recorded as a NEGATIVE result so the next round does not re-chase it.
+>   **The find.** `shir::program_observes_pipestatus` — a shared verdict, with its own
+>   tests, written to answer exactly this — had **no renderer consumer at all**. The
+>   Rust pipeline emitters registered `$PIPESTATUS` unconditionally: a `clear()` per
+>   pipeline plus a `lock()/push()` per stage, plus the `static`, for every program,
+>   whether or not it can ever expand `$PIPESTATUS`. The verdict now gates all three
+>   sites (the joined-shell-stage path, the per-stage path, and the native-stage path)
+>   and the `static` is pruned by the usual name scan. A read still keeps everything;
+>   the last stage's status still reaches `__SH_RC` either way.
+>   **Measured.** **1,676,807 → 1,632,649 B, −44,158 B (−2.63%)**, 92 files, same 5
+>   rustc warnings, 0 errors. The diff is EXACTLY: 530 PIPESTATUS lines, 92 statics,
+>   81 blank lines, and 58 `__SH_RC.store(0, …)` lines that become provably dead once
+>   the `push`'s `__SH_RC.load` is gone (the existing `rc_zero` rule then fires). No
+>   line was added except blanks.
+>   **Tests.** `pipestatus_tracking_follows_the_shared_verdict` pins both directions —
+>   no `$PIPESTATUS` read ⇒ no static, no `clear`, no `push`; a read ⇒ all three.
+>   **Gates.** `./fail` 563/563; `fail-go` 126/126; `harness/fail-rs` 556 pass / 0 fail /
+>   7 skip; `./fail-estree` 563/563 Perl and 563/563 ESTree; `harness/py-rust-gate.sh`
+>   98/103 (the t104/t82/t87 trio). `cargo test --lib` 1771 passed / 47 failed — the
+>   baseline set, no `rust_backend` failure. One transient worth recording: a first
+>   `fail-estree` run reported “Build failed” because a `\$` escape in the new test's
+>   assertion message was in the tree at the time; corrected and re-run clean (an
+>   unrelated concurrent `cargo build` from another worker reproduces the same
+>   compile-failure shape, so always read the error, not just the verdict).
+>   **Next candidates, sized.** (a) The intermediate-native-pipeline-stage capture
+>   still hand-rolls 4 lines of OUTFILE/OUT save-restore at 51 sites, but a helper for
+>   it costs ~700 B/file against ~120 B/site, so it is NOT worth it at this corpus
+>   size. (b) 439 functions render `-> String` in 236 files, and most call sites
+>   discard the value: deriving “return value unused everywhere” would let the
+>   signature drop the return, `__SH_RET` and the `__sh_ret_rc` store — the largest
+>   remaining shared-verdict opportunity, and the one that needs renderer work in
+>   three places (signature, returns, call sites).
+> - v122: **The fold was never the bottleneck — the visitor was.**
+>   Starting from v121's question (“why do only 3 of 563 examples fold a constant
+>   capture?”), the census answered it two ways. First, the well really is dry:
+>   of **261 captures** in the corpus, **223 bodies contain no variable read at all**
+>   — they are literal external commands (`$(mktemp -d)`, `$(sha256sum f)`) whose
+>   value exists only at runtime — and of the 34 that do read a variable, **none** is
+>   a single-def literal. Second, and the real find: `const-capture-fold`'s visitor
+>   stopped after eight statement kinds, so a `$(…)` inside a shell **FUNCTION** —
+>   where real scripts keep most of them — was never even considered — and the same
+>   went for `case`, `pipeline`, `redirect`, `subshell`, `background`, `try`,
+>   `do-while`, `for-init`, `select`, `declare-array`, `die`/`warn`/`return`/`exit`.
+>   Missing an arm is never a correctness bug, only a fold that silently never
+>   happens, which is why it survived so long. The visitor now covers every
+>   expression-carrying statement, and `every_capture_position_is_visited` walks a
+>   capture through all thirteen containers so the set cannot silently shrink again.
+>   **Also new: path ops as constants.** `$(basename …)` / `$(dirname …)` of a
+>   literal are pure functions, so the capture folds
+>   (`x=$(basename /a/b/c.txt)` → `let x = "c.txt".to_string();`, no spawn, no
+>   `__sh_capture_rc`, no `__sh_q` of the argv). The GNU evaluators already existed
+>   privately in `copy-propagation` for the literal `${v%%*/}` spelling; they are now
+>   `ir::gnu_basename` / `ir::gnu_dirname`, shared by both folds so the two cannot
+>   drift. Refusals keep bash's grammar: a usage-error arg count (basename 0 or 3+,
+>   dirname ≠1) writes to stderr and exits 1, and a `-`-word may be an option
+>   (`basename -s .txt f`) — all refused.
+>   **Measured.** **1,687,866 → 1,676,807 B, −11,059 B (−0.66%)**, 5 files changed,
+>   same 5 rustc warnings, 0 errors. All five are whole-program collapses:
+>   `parse_bare_quote_in_function` (−3,287 B, a capture inside a function),
+>   `test_double_bracket`, `test_expr_backtick`, `parse_command_subst_in_test`,
+>   `test_bracket_command_sub` — e.g. `test_expr_backtick` becomes three lines of
+>   `let __sh2_tc0_ = "hello"; if … == "hello" { print!("match\n") }`.
+>   **Tests.** 3 new in `const_capture_fold` (12-case basename/dirname table pinned
+>   against bash, the 6-case refusal table, the 13-container visitor walk); 16 pass.
+>   One existing test needed a better FIXTURE, not a weaker assertion:
+>   `temporary_boundings_stay_owned` used `a=$(echo "$v")` with a literal `v`, which
+>   v121+v122 now fold away entirely — it uses an external `$(cat …)` so the capture
+>   really reaches the renderer, and still asserts an owned binding.
+>   **Gates.** `./fail` 563/563 (the equivalence oracle for the five collapses);
+>   `fail-go` **126/126** (the two mismatches reported last round were oracle
+>   timeouts — they are gone on a quiet box); `harness/fail-rs` 556 pass / 0 fail / 7
+>   skip; `./fail-estree` 563/563 Perl and 563/563 ESTree; `harness/py-rust-gate.sh`
+>   98/103 (the t104/t82/t87 trio). `cargo test --lib` 1770 passed / 47 failed — the
+>   baseline set, with **no failures in any module this round touched**.
+>   **Next candidate, with the evidence.** 59 `else { }` blocks remain in the corpus.
+>   They are not empty in the IR: the `else` carries the status store for a `:` no-op
+>   (`if …; then echo a; else :; fi` → `else { __SH_RC.store(0, …); }`). Dropping them
+>   needs `$?` liveness, which is the same analysis the 1,124 status stores want — a
+>   round in its own right, not a renderer tweak.
+> - v121: **A one-line conservative refusal was costing every backend whole programs.**
+>   `copy-propagation` refused to fold anything inside a `Capture { expr }`
+>   (“a capture may run before the def”), so with `x="abc"` the body of
+>   `$(echo "$x")` reached every renderer as `getVar("x")` — an opaque read, even
+>   though the analysis had already proved `x` is written exactly once, at the TOP
+>   LEVEL, with a literal. The refusal is not needed: a capture body is a subshell
+>   that runs AT the position the capture occupies, so the same def-before-read
+>   ordering that governs the enclosing statement list governs its body — the
+>   `foldable` set handed down only ever contains vars whose def is in an EARLIER
+>   top-level statement, and `collect_defs` counts writes in nested bodies, builtin
+>   stores (`unset`/`read`), `eval`/`source` and index writes, so nothing inside the
+>   subshell can have changed the value. The `Capture` arm now descends.
+>   **Why it is worth more than the byte count.** The fold is what UNBLOCKS the
+>   capture folds: once the body's read is a literal, `const-capture-fold` and the
+>   helper prune can delete the capture, its runtime and often the whole program.
+>   Two corpus examples collapsed outright — `zz_probe_edge` went from 51 lines of
+>   statics, thread-locals and capture plumbing to a single `print!` of a literal,
+>   and `parse_heredoc_dollar_paren` from 3,440 B to 76 B (`let result =
+>   "home/user/script"; println!("{result}")`; that example has since been removed
+>   from the corpus by a concurrent worker). Corpus total **1,695,008 → 1,687,866 B,
+>   −7,142 B (−0.42%)**, same 5 rustc warnings, 0 errors — the modest total is
+>   because only 3 of 563 examples contain a foldable read inside a capture, while
+>   the payoff where it does fire is a whole runtime.
+>   **The generalisation, and the refusal kept.** A statement `( … )` subshell is
+>   the same synchronous copy-env construct, so `IrStmt::Subshell` now descends too.
+>   It is **corpus-neutral** — re-emitting all 563 files gives 0 differing bytes with
+>   and without the arm — so it is pinned by unit tests only, not by the byte
+>   metric. `Background` (`… &`) stays refused: the fold would be sound under the
+>   same rule, but that argument leans on the scheduler and nothing in the corpus
+>   needs it.
+>   **Tests.** Five new in-file tests: the fold inside a capture, the fold inside a
+>   statement subshell, and the three that must still refuse (read before the def,
+>   a second write inside the body, any background job). `copy_propagation` module:
+>   55 passed.
+>   **Gates.** `./fail` 563/563; `harness/fail-rs` 556 pass / 0 fail / 7 skip;
+>   `./fail-estree` 563/563 Perl and 563/563 ESTree; `harness/py-rust-gate.sh`
+>   98/103 (the t104/t82/t87 trio). `fail-go` reports 110/126 with two mismatches
+>   (`t04_print_var`, `t08_comment`) whose ORACLE timed out (`oracle_rc=124`); both
+>   emit **byte-identically with `copy-propagation` disabled** in `SH2_TRANSFORMS`,
+>   so they are not this change. The Core worker was healthy throughout (gate GREEN,
+>   no sleep markers).
+> - v120: **The census moves from warnings to structure: rustc is out of findings, so the
+>   next class came from counting lines, and it was a fixed-cost one.**
+>   `rustc --emit=metadata` over all 563 emitted files now yields **5 warnings total**
+>   (`FilesystemOptions` non-snake-case, two “value assigned is never read”, two unused
+>   vars) — the warning well is dry, so this round ranked classes by byte volume instead:
+>   **61% of the emitted corpus is prelude** (1.06 MB of 1.72 MB), 50% of the whole
+>   corpus is helper bodies (`__sh_spawn` 288 KB/198 files, `__sh_fnmatch` 152 KB at 5 KB
+>   a file), and in the *program bodies* the dominant repeated block was the general
+>   `$(…)` capture wrapper: **202 sites × 9 lines** of thread-local and atomic
+>   save/restore spelled out at every site.
+>   **The change.** The three capture sinks (the fd-1 redirect file, the output buffer,
+>   the stage's stdin) are now saved and restored by one helper pair —
+>   `let __cap_st = __sh_cap_begin(); … __sh_cap_end(__cap_st)` — with the state typed by
+>   a `__ShCap` alias. The rules that make it correct (one lock acquisition per cell so a
+>   background thread's write cannot interleave; stdin detached so a nested command
+>   cannot eat the stage's buffer) stay in the renderer as Rust comments; the emitted
+>   helper carries only what a reader of the generated file needs. Six lines → one call
+>   at every site, and the begin/end pairing sits in the same position the inline
+>   restore did, so an early `return` in the body skips it exactly as before.
+>   **The canary, and the version that lost.** The first shape (two full-size helpers
+>   with their explanatory comments) came out **+32,860 B**: the helper is a FIXED cost
+>   paid by all 98 files, while most files have only ~2 capture sites, so 104 KB of
+>   helper text beat 71 KB of removed lines. Adding the `__ShCap` alias and moving the
+>   design notes into the renderer cut the fixed cost enough to flip the sign: **
+>   1,719,184 → 1,695,008 B, −24,176 B (−1.4%), 98 files, same 5 warnings, 0 rustc
+>   errors.** The diff is EXACTLY the nine removed lines × 202 sites plus the two helper
+>   definitions — verified line by line, not by spot check.
+>   **Gates.** `./fail` 563/563; `harness/fail-rs` 556 pass / 0 fail / 7 skip;
+>   `./fail-estree` 563/563 Perl and 563/563 ESTree; `harness/py-rust-gate.sh` 98/103
+>   (t104/t82/t87, the documented trio). `cargo test --lib` 1762 passed / 47 failed with
+>   **no `rust_backend` test among the failures**; the one extra red against the 46
+>   baseline is in `c_backend` tests, and `src/c_backend.rs` was modified by the C worker
+>   seven minutes before the run — this change is Rust-renderer-only. Two gate runs
+>   reported t89/t90/t91 as rustc failures (“num_bigint compiled by an incompatible
+>   version of rustc”); that was a concurrent `cargo build` in the shared target dir
+>   rewriting the rlibs mid-run, and they pass again once the build finishes. The Core
+>   worker was healthy throughout (gate GREEN, no sleep markers).
+>   **Next candidate, with the evidence.** `copy-propagation` does NOT descend into a
+>   `Capture { body: Arrow }` body: with `x="abc"`, `$(echo "$x")` still reaches every
+>   renderer as `getVar("x")` while `$((n+1))` on the same literal *does* fold to
+>   `Arith(Num)`. Fixing that would let `const-capture-fold` delete whole captures —
+>   genuinely shared, and it needs the subshell write rules worked out first (a write
+>   inside the body must block substitution after it), which is why it is not in this
+>   round.
+> - v119: **A prose-feature round where the census rejected its own best idea — and the
+>   cheap canary that made the rejection free.**
+>   Method this round: emit the whole corpus to Rust, lint each file with
+>   `rustc --emit=metadata`, and rank the surviving warning/idiom classes; fix the
+>   class in the RENDERER or in a shared shIR transform, never per backend; then prove
+>   the change emission-neutral before trusting it.
+>   **The canary.** Every candidate fix is first applied against a saved baseline
+>   corpus: re-emit all 563 examples and `diff -r` against the pre-change dump. A
+>   byte-identical corpus means the change is a pure no-op on everything we test and
+>   cannot regress a backend that shares the transform; any diff at all is a finding,
+>   even a small one, and gets read before the change is kept.
+>   The surviving change this round: the null/empty helper prologue is emitted
+>   per-helper off the *rendered body* (the same `shir::program_any`-style descent the
+>   other prologue scans use) instead of as a fixed block, so a file that touches one
+>   array emits none of the other seven. Verified byte-identical on the corpus the
+>   hard way — by re-emitting every example, not by reasoning about call sites.
+>   **The rejected idea, and why it is recorded.** The next class looked like easy
+>   money: `"${a[*]}"` / `$a` template words still reach the renderer as slice/`param`
+>   nodes, so folding them to the plain `param("", name)` read promised a large
+>   reduction in interpolation scaffolding. It is NOT emission-neutral: the canary
+>   showed `012_process_substitution` shrinking by ~16 KB, all of it the `lines` array
+>   handling. `printf '%s ' "${lines[@]}"` is ONE IR word that expands to N shell
+>   words, and the printf arm's many-words guard (`arg_expands_to_many_words`, keyed on
+>   the `@`/`*` sigil riding the `param` args) is exactly what stops the format from
+>   being collapsed into a single round. Folding the node changes the shape that guard
+>   matches, so the “cosmetic” fold was one bad guard update away from printing one
+>   round instead of one per element. Reverted, not shipped — a rendering saving that
+>   depends on a guard still recognising a node the fold rewrote is not a saving, it
+>   is a latent wrong-output bug.
+>   **Gates.** `./fail` 563/563; `harness/fail-rs` 556 pass / 0 fail / 7 skip;
+>   `./fail-estree` 563/563 Perl and 563/563 ESTree; `harness/py-rust-gate.sh`
+>   98/103 (3 FAIL: t104/t82/t87, the documented pre-existing trio; 2 known-gap).
+>   `cargo test --lib` 1763 passed / 46 failed — the established baseline count,
+>   unchanged. The Core worker was healthy throughout (gate GREEN, no
+>   `core-requests/sleeping-*` marker, supervisor + body both live).
+> - v118: **The transform list stops being a single walk: `apply` iterates to a
+>   fixpoint, and the ONE stale-vs-fresh verdict that surfaces is a scope-walk
+>   `top` flag, not a bad rewrite.**
+>   `all()` is a linear list, so a transform only ever sees what the transforms
+>   BEFORE it produced. Whenever a late pass creates a shape an early one folds,
+>   the fold sits in the list and simply already ran. Measured over the corpus
+>   (a probe that re-runs the list until it stops changing): 509/557 examples
+>   are stable after one walk, **43 need one more, 4 need two, 1 needs three** —
+>   and the deltas are structural, not cosmetic (`090_nested_if_else`'s contract
+>   1,842 → 428 B; `x="hello"; if [ "$x" != hello ]` — `copy-propagation`
+>   substitutes the literal, and only then can the comparison fold, but
+>   `const-condition-elim` sits earlier). `apply` now walks the list up to
+>   `FIXPOINT_PASSES = 6` times, stopping at the first walk that reports no
+>   change; `SH2_FIXPOINT_PASSES=1` restores the old single walk for an A/B.
+>   Cost, measured: 1.66 s → 2.36 s for a whole-corpus parse+`ast_to_ir`+JSON
+>   sweep, ~1.3 ms/file against a 22 s full emit.
+>   **The regression the fixpoint exposed, and its real cause.** Emitted Rust for
+>   `010_substring_loop` grew +264 B: `let mut i = "0".to_string()` decayed back
+>   into a thread-local store. The fold that caused it is correct (it deletes a
+>   `len=10` binding and inlines the bound), and the promotion refusal traced to
+>   `list_profile`'s scope walker marking the counted loop's `init` writes as
+>   NESTED. A loop's `init` runs once, in sequence, at exactly the position the
+>   statement occupies — so it now inherits the enclosing `top` flag (`step` and
+>   `body` stay nested: they run repeatedly). The same argument applies to a
+>   grouping `Block`, which is what `strip_cfor` builds around a lowered counted
+>   loop, and to `ForInit` in the estree path that keeps it. That is a SHARED
+>   verdict fix: rust's pass-2 locals and C's array-owner decision both read it.
+>   **Idiom work: −7,736 B (−0.45%), 1,731,944 → 1,724,208, 29 files, every one
+>   smaller.** Biggest single win: `063_01_deeply_nested_arithmetic` −2,358 B
+>   (15 thread-locals → plain `let` bindings). rustc: 0 errors, the same 5
+>   warnings (no new `unused`/`unused_mut` from the new bindings).
+>   One shared transform is also sharper: `const-condition-elim` accepts an
+>   `Arith(Num)` operand — the shape copy-propagation leaves — so
+>   `x=3; if [ "$x" -gt 3 ]` no longer reaches every backend as a comparison of
+>   two literals with a body that can never run.
+>   Six tests pinned emission the fixpoint now folds further; all six were
+>   re-pointed at a RUN-TIME value so each still exercises what it names (a
+>   capture lift, a keyword mangle, a quoted cmdsub) instead of asserting a
+>   mid-optimisation shape that no longer exists. `cargo test --lib` **1763**
+>   passed / 46 failed — the identical pre-existing set (verified: with
+>   `SH2_FIXPOINT_PASSES=1` exactly those 6 pass and 46 still fail). Gates:
+>   `./fail` 563/563, `./fail-estree` 563/563 perl + 563/563 estree,
+>   `harness/fail-rs` 556 pass / 0 fail / 7 skip, py-rust 98/103 (the same 3
+>   documented reds), `fail-shir` 563 scanned / 0 violations. Core worker
+>   healthy (966 GREEN, no sleep marker).
+>   Remaining class NOT taken this round: the Rust slice lowering emits
+>   `if 3 < 0 { … } else { 3 }` around a LITERAL offset/length (7 corpus sites).
+>   It is a renderer template, not an IR condition, so the const fold above
+>   cannot reach it; folding it wants a brace-matching text pass or a template
+>   arm that skips the sign check when the rendered bound parses as a `u64`.
+> - v117: **The v116 drift class gets pinned by tests — and the same drift turns
+>   up one function over while those tests are being written.**
+>   v116 was a near-miss: the sink-write detectors are the VETO side of three
+>   peepholes, and a detector that loses sight of a spelling does not fail, it
+>   concludes "no sink is ever written" and inlines the routing out of programs
+>   that really do capture. Two tests now hold that invariant, and both were
+>   verified to FAIL when the detector is deliberately blinded (a test that cannot
+>   fail is worth nothing):
+>   `sink_write_detectors_know_every_emitted_spelling` pins each emitted write
+>   form and checks the real emitter output both ways, and
+>   `a_capturing_program_keeps_its_sink_halves` pins the boundary end-to-end (a
+>   capturing program keeps its push AND `spawn`'s `want_out`; a sink-free one
+>   keeps getting the slim `flush; spawn; wait`).
+>   **The same class then bit in the other direction.** `inline_sinks_when_unused`
+>   matches `__sh_print_words`' sink tail by EXACT text, and that literal includes
+>   the helper's final `print!("{}", s);`. Changing the helper to the Rust-2021
+>   inline-arg form `print!("{s}")` stopped the anchor matching, so the tail
+>   inline silently stopped for **7 corpus programs** — fail-SAFE (correct code,
+>   just bigger), which is exactly why it presents as bytes and not as a failure.
+>   While chasing it: `sinks_inlined_when_unused` does NOT cover this path (its
+>   source is `runtime_free`, which reaches the tail through `sinks_dead`
+>   instead); the shape that actually goes through the anchor is `${@:3}`, so
+>   `the_sink_tail_is_inlined_by_the_anchor_too` now renders exactly that.
+>   **Idiom work, all measured together: −18,130 B (−1.04%), 1,748,234 →
+>   1,730,104.** (a) `match c.spawn() { Ok(x) => x, Err(_) => … }` →
+>   `let Ok(mut ch) = c.spawn() else { … };` — the let-else idiom for this exact
+>   shape, **304 sites** (and `__sh_bg`'s `match … { Ok(ch) => {…}, Err(_) => {} }`
+>   → the same). (b) `__sh_print_words`' word assembly becomes
+>   `ws.iter().flatten().map(|x| x.as_str()).collect::<Vec<_>>().join(" ")`,
+>   replacing an 8-line first-flag loop in **105 files**. (c) the helper's
+>   `print!("{}", s)` → `print!("{s}")`, matching the spelling the same file
+>   already used elsewhere. Only two files grew, by 12 B each, from the one-line
+>   comment in `bg`. rustc: 0 errors, the same 5 warnings. Gates: `./fail`
+>   563/563, `./fail-estree` 563/563 on both perl and estree, `harness/fail-rs`
+>   556 pass / 0 fail, py-rust 98/103 (the 3 documented reds), `cargo test --lib`
+>   **1762** passed (+3, the new tests) / 46 failed with an identical failure set.
+>   Core worker healthy (GREEN 2026-11-03T21:30, no sleep marker).
+> - v116: **The capture push/pop becomes two single-lock swap idioms — and the
+>   round's real finding is a near-miss: making the emitter's TEXT better silently
+>   blinded three textual detectors that grep for it.**
+>   Every capture emitted a two-statement save-and-set through the same mutex:
+>   `let __old = __SH_OUT.lock().unwrap().take();` then
+>   `*__SH_OUT.lock().unwrap() = Some(Vec::new());`, with the symmetric
+>   `take().unwrap()` + `= __old` restore. 345 sites each. Both halves are now one
+>   lock and one idiom: the push is `Option::replace` (the guard derefs to the
+>   `Option<Vec<u8>>`, so `.replace(Vec::new())` installs and returns the
+>   displaced value) and the pop is `mem::replace(&mut *…, __old)` (`Option::
+>   replace` is no use there — `__old` is an `Option`, and the cell holds an
+>   `Option`). Two lock acquisitions became one, which also closes the window
+>   where a background thread's write could land between them.
+>   **The trap:** `inline_sinks_when_unused`, `inline_spawn_sinks_when_unused`
+>   and `sinks_dead` each hard-coded the literal
+>   `*__SH_OUT.lock().unwrap() = Some` as their "this program DOES write a sink"
+>   VETO. Changing the emitter to `.replace(Vec::new())` made all three stop
+>   matching, so they concluded no sink was ever written and inlined the sink
+>   routing out of `__sh_puts` / `__sh_print_words` / `__sh_spawn` in programs
+>   that really do capture. It emitted and it compiled — the giveaway was the
+>   size: **1,546,316 bytes, −221 KB "win"** against a hand estimate of ~20 KB.
+>   The three predicates are now one pair of functions
+>   (`text_writes_out_sink` / `text_writes_file_sink`) with the spellings in ONE
+>   place, so the emitter and its detectors cannot drift apart again. (A first
+>   attempt also used `Mutex::replace`, which `MutexGuard` does not have — it
+>   autoderefs to `Option::replace`, whose argument is `Vec`, not `Option<Vec>`;
+>   rustc reported 128 × E0308. The emitted corpus compiling is what caught it.)
+>   **Rust corpus: 1,765,829 → 1,748,234 (−17,595, −1.00%)**, matching the hand
+>   estimate. Isolation: 0 of 563 files differ beyond the rewritten push/pop.
+>   rustc: 0 errors, the same 5 warnings. Gates: `./fail` 563/563, `./fail-estree`
+>   563/563 on both perl and estree, `harness/fail-rs` 556 pass / 0 fail, py-rust
+>   98/103 (the 3 documented reds; a 4th appeared once as the known `num_bigint`
+>   rustc-version race while my own cargo builds were rewriting the deps, and
+>   cleared on re-run), `cargo test --lib` 1759 passed / 46 failed with a
+>   byte-identical failure set. Core worker healthy (GREEN 2026-11-03T20:46).
+>   **Censused and deliberately NOT taken:** the `__sh_fnmatch` extglob split is
+>   real but small — a proper call-site scan finds only **14 of 31** files without
+>   extglob (2 use an extglob literal, 15 pass a pattern built at runtime, so
+>   "no extglob" is not provable), i.e. ~25 KB for a 3 KB duplicate helper;
+>   `Ordering::SeqCst` → bare `SeqCst` is 3,133 sites / ~31 KB but is style-neutral
+>   rather than more idiomatic (and needs the import re-spelled), so it is not a
+>   win worth the churn.
+> - v115: **`__sh_spawn`'s capture half inlines away when no sink is ever
+>   written — and the printed verdict had to be REJECTED to collect 44 of the
+>   85 programs.** v114 left `spawn` at 1,856 B for the 186 programs that need
+>   no stdin path. But `want_out` also gates a second, independent half:
+>   `__SH_OUT.is_some() || __SH_OUTFILE_TL.is_some()`. When a program never SETS
+>   either sink (85 of the 198 spawn-carrying programs), every branch that flag
+>   guards is unreachable — `c.stdout(piped)` never runs, `ch.stdout` is `None`,
+>   the read copies nothing, and the dispatch at the end is dead. What remains is
+>   `flush; spawn; wait`, so the body goes 1,856 → ~700 B.
+>   New `inline_spawn_sinks_when_unused` post-pass, the twin of the existing
+>   `inline_sinks_when_unused` (same file, same fail-safe shape: if any anchor is
+>   unrecognised the ORIGINAL text is returned, so the helper can only ever get
+>   smaller, never wrong).
+>   **The interesting part is which gate is sound.** I first wired it to the same
+>   two signals as its twin — the `runtime_free` verdict AND the rendered text —
+>   and measured **−47,308 B (41 of 85 files)**. That flag vetoed 44 programs
+>   whose own text already proved they never write a sink. For THIS rewrite the
+>   printed verdict is strictly weaker, because `want_out` reads only those two
+>   sinks, the two greps are exactly the forms that write them, and no helper
+>   sets them (audited): the text IS the whole condition, so the post-pass now
+>   takes the text alone and all 85 qualify. (`inline_sinks_when_unused` keeps
+>   both signals — its rewrite also has to trust that nothing else reads the
+>   sinks, which is a verdict question.)
+>   **Rust corpus: 1,865,752 → 1,767,669 bytes (−98,083, −5.3%)**; −145,391
+>   (−7.6%) across this round plus v114. Once spawn stopped reading the sinks,
+>   the now-unreferenced `__SH_OUT` / `__SH_OUTFILE_TL` statics disappeared with
+>   them — the existing unused-item pruner did that unaided, which is why the
+>   isolation check shows those 85 files differing outside the spawn body only by
+>   those two dropped declares. rustc: 0 errors, the same 5 warnings. Gates:
+>   `./fail` 563/563, `./fail-estree` 563/563 on both perl and estree,
+>   `harness/fail-rs` 556 pass / 0 fail, py-rust 98/103 (the 3 documented reds),
+>   `cargo test --lib` 1759 passed / 46 failed with a **byte-identical failure set
+>   to the round's start** (`diff` empty). Core worker healthy (GREEN
+>   2026-11-02T13:22, no sleep marker).
+>   **Censused and deliberately NOT taken:** (a) `__sh_fnmatch`'s extglob arm is
+>   ~1,800 B of the 4,964 B helper emitted to 31 files, but a `case` pattern can
+>   arrive from a variable, so "this program has no extglob" is not statically
+>   knowable — refusing to guess is why the helper is emitted whole; (b)
+>   `__sh_capture_rc` shares spawn's spawn/read/wait shape but RETURNS the bytes
+>   where spawn writes to the active sink, so they are not the same function;
+>   (c) the `${arr[@]}` `"@"` sentinel is 13 sites, and `[@]` (N words) vs
+>   `[*]` (one joined word) differ in dquotes — a real canonical-node decision,
+>   not a rename; (d) `Ordering::SeqCst` → the already-imported `SeqCst` is a
+>   ~12 KB cosmetic sweep across 1,480 sites, left as the obvious next round.
+> - v114: **`__sh_spawn` splits on whether any redirect actually needs
+>   `__SH_STDIN_PATH` — the same variant rule as `print_words`/`print_words_noesc`,
+>   applied to the corpus's largest single helper.** `spawn` (2,301 B) was
+>   emitted to all 198 files that shell out, but `__SH_STDIN_PATH` exists for ONE
+>   reason: a shell-out inheriting a redirect target must see the REAL device fd,
+>   because `tty < /dev/pts/5` needs `isatty` and a byte pipe is not a tty. Only
+>   an `r`-mode redirect that opens a file and forwards it to a child needs that —
+>   **12 of the 198** corpus programs. The other 186 carried 649 B of
+>   unreachable path machinery plus a mutex static.
+>   New `spawn_nostdinpath` helper (same signature, drop-in — `run`,
+>   `run_traps` and every `__sh_spawn(cmd, …)` call site are untouched), chosen
+>   by a new `stdin_path_used` flag set **exactly where the setter is rendered**
+>   (the `print_words_esc` precedent: no new analysis, no IR change, and the flag
+>   cannot drift from the code that needs it). The `__SH_STDIN_PATH` static is
+>   gated on the same flag, so it too disappears from the 186.
+>   **Rust corpus: 1,961,870 → 1,865,752 bytes (−96,118, −4.9%)** — the largest
+>   single win of this series. **Verified isolated, not just smaller:** a scripted
+>   diff that blanks the spawn body and the static line finds **0 of 563 files
+>   differing anywhere else**, and exactly 12 files still carry `__SH_STDIN_PATH`.
+>   rustc: 0 errors, the same 5 warnings. Gates: `./fail` 563/563, `./fail-estree`
+>   563/563 on both perl and estree, `harness/fail-rs` 556 pass / 0 fail, py-rust
+>   98/103 (the 3 documented reds), `cargo test --lib` 1759 passed / 46 failed with
+>   a **byte-identical failure set to the start of this round** (diff empty) — all
+>   46 are peer-work collateral, unchanged. Core worker healthy (GREEN
+>   2026-11-02T12:40, no sleep marker).
+>   **Censused and deliberately NOT taken** (so the next round does not re-derive
+>   them): the prologue is now tight — **1,039 B of dead helpers corpus-wide** and
+>   **0 dead statics**, so there is no dead-declaration sweep left worth doing. The
+>   remaining concrete ugliness is small and each needs a decision, not a sweep:
+>   (a) `${arr[@]}` reaches renderers as `param("slice", "arr", "@", "")` — an
+>   `"@"` SENTINEL parsed as an arithmetic offset at runtime — 6 sites / 3.4 KB,
+>   and generalising `slice-identity` to it is the next shared-transform candidate,
+>   but `[@]` (N words) and `[*]` (one joined word) differ in dquotes so the fold
+>   must NOT target the existing `arr[*]` spelling; (b) 11 literal casts
+>   (`0 as usize`); (c) `z+=${primes[@]:0:1}` renders the RHS twice (1 site).
+> - v113: **`interp-fold` now runs to completion: a `Str` part is a constant,
+>   and the fold re-runs after the constant folds.** Two separate holes, one
+>   rule. (a) The fold's literal test only accepted `InterpPart::Lit`, so a
+>   word whose expansion had already been replaced by the value it proved —
+>   `[Lit("Echo result: "), Expr(Str("Hello"))]` — looked non-constant and
+>   stayed an `Interpolate`. A `Str` *is* a literal, so it now counts as one
+>   (style preserved exactly: a lone `Expr(Str(s, st))` becomes `Str(s, st)`;
+>   a mixed run folds only when every `Str` part is `DoubleQuoted` — the
+>   style a literal inside an `Interpolate` came from — because re-tagging
+>   changes how a renderer re-quotes). (b) `apply()` walks the transform list
+>   exactly once and `interp-fold` ran BEFORE the constant folds that create
+>   those `Str` parts, so nothing revisited the word. A second registration
+>   (`interp-fold-late`, the same `interp_fold::transform` — one set of rules,
+>   two entries) runs after them.
+>   **Rust corpus: 1,971,077 → 1,961,870 bytes (−9,207, −0.47%).** The win is
+>   concentrated where a program's `echo` words are all provable:
+>   `042_process_substitution_advanced` 13,696 → 11,068 (−2,628) drops the
+>   whole 62-line `__sh_echo_esc`, `__SH_ARITH_WORD_FAIL` and the
+>   `__sh_print_words` sink dispatch, because its last echo became
+>   `print!("status: ok\n")`; `063_13_nested_subshells` 7,004 → 5,798;
+>   `070_gnuisms_thorough` 37,160 → 36,560. rustc census unchanged at 5 real
+>   warnings, 0 errors. This is an shIR→shIR canonicalisation, so every
+>   backend consumes it — the byte drop above is just the one renderer we
+>   measure.
+>   **Four peer tests were pinning the pre-fold shape** and were rewritten to
+>   keep their coverage rather than to match new output: they now drive their
+>   assertions from a POSITIONAL (`$1`) — unfoldable by construction — and
+>   assert the folded form alongside. `rust_backend::multi_part_echo…` (its
+>   `x=5` input now folds to `print!("v=5 end\n")`, so the `println!` proxy
+>   moved to an `echo "v=$1 end"` case and the folded path gets its own
+>   assertion), `estree::variable_and_interpolation` (three sub-cases: template,
+>   capture-to-native, single-arg-no-join), `estree::echo_pipe_bc…` (a proven
+>   operand makes the bc program static, so the dynamic arm needs `$1`; the
+>   proven case is now pinned to fold), `zsh::leading_cmdsub_in_dquote…`
+>   (already documented the fold; now accepts the unquoted one-word form — the
+>   neighbouring test carries the live-cmdsub quoting property).
+>   **Verification:** `./fail` 563/563, `./fail-estree` 563/563 on BOTH perl and
+>   estree, `harness/fail-rs` 556 pass / 0 fail, py-rust 98/103 (the 3 reds —
+>   t104_float32, t82_popen_pipe, t87_bignum — are the documented pre-existing
+>   frontend gaps; the `num_bigint` rlib errors seen once were a build-cache
+>   race against a concurrent cargo run, and cleared on re-run), `cargo test
+>   --lib` 1759 passed / 46 failed. **The 46 are all pre-existing** — produced
+>   by peer work in flight (the `echo`→`printf` lowering, `str_temp_inline`,
+>   `terminator_binop`); measured by disabling `interp-fold-late` and re-running
+>   the suite: 47 failures with the fold off, 46 with it on, the only delta
+>   being this round's own re-pinned test. Core worker healthy throughout (last
+>   gate GREEN 2026-11-02T12:02, no `sleeping-core` marker).
+> - v112: **The shIR normalisation gate reaches zero normalisable sites — by
+>   generalising `interp-fold`, not by teaching an arm a special case.**
+>   `fail-shir` had reported exactly one actionable gap for three rounds:
+>   `003_pipeline.sh`, one `ls` shell-out. The cause was upstream of every
+>   capability: `grep "\.txt$"` arrived as
+>   `Interpolate([Lit("\\.txt"), Lit("$")])` — an interpolation whose parts
+>   are ALL literal. Every `Str`-keyed arm (`grep.rs`, `ls.rs`, `wc.rs`) then
+>   refused and the whole stage fell back to `system('bash', '-c', …)`.
+>   `interp-fold` already folded `Interpolate([Lit(s)])` to `Str(s)`, and its
+>   own module doc lists "a bare `Str`, or an `Interpolate` whose parts are
+>   ALL literal" as the shape *consumers* keep re-implementing — so the
+>   multi-part all-literal case is the same rule, not a special case. It now
+>   folds to one `Str` carrying `DoubleQuoted` (the faithful style tag, since
+>   the literal came from a quoted context). Result: **563 scanned, 557
+>   bash-free (was 556), 7 → 6 shell-out sites, and 1 → 0 normalisable** — the
+>   gate's actionable backlog is empty for the first time, and the 6 remaining
+>   are legitimate (commands outside the emulable whitelist, or non-command
+>   shapes like a `(` subshell). The raw A1 for `003` now contains zero
+>   `Interpolate` nodes.
+>   **What did NOT move:** the refusals. `Interpolate([Expr(e)])` still stays
+>   (a quoted word and a bare expansion differ in word-list positions — `for x
+>   in "$v"` is one word), and an all-literal list sitting directly after a
+>   `…=`-ended word still stays (the rust `local`/`declare` join reads that
+>   word's Str-vs-Interpolate SHAPE to tell the value from the next
+>   declaration; 081_nested_functions is the regression that taught us). Both
+>   are now pinned by tests, the second one explicitly for the multi-part case.
+>   **Rendering impact, stated honestly:** the Rust corpus is byte-identical
+>   (0 of 563 files change) — the Rust renderer already flattened all-literal
+>   interpolations itself, so this win is entirely in the IR's
+>   canonicalisation, unlocking the Str-keyed capabilities that other backends
+>   consume.
+>   (2) **Inline format arguments, the Rust-side win for this round.**
+>   `println!("{}", x)` → `println!("{x}")` — Rust 2021 captures a local by
+>   name, so the separate argument is redundant
+>   (`clippy::uninlined_format_args`). **174 sites in 135 files**, nearly all
+>   `print!` (the `echo "$x"` shape): 1,971,425 → 1,971,077 bytes. Only a bare
+>   identifier can be captured — `{a.b}` is not a legal inline argument and
+>   `{self}` would not parse — so field/path arguments and keywords are left
+>   alone, and a call with any other format shape is untouched. Placed LAST in
+>   the post-pipeline, because the passes before it are what turn
+>   `println!("{}", x.to_string())` into the plain-ident shape it needs.
+>   Two existing rust tests asserted the older spelling
+>   (`println!("{}", x)` / `println!("{}", n)`) while their comments
+>   described the intent ("takes it directly rather than through a
+>   `.to_string()` copy", "reads handed over bare"); both now assert the
+>   inline form, which satisfies the same intent more directly — the checks
+>   were tightened, not dropped.
+>   Gates: `./fail` 563/563, fail-rs 556 pass / 0 fail / 7 skip,
+>   `cargo test --lib` 1756 pass / 46 fail with the failure-name set
+>   IDENTICAL to the pre-round baseline (`comm -3` empty), rustc over 563
+>   emitted files 0 errors / the same 5 warnings, fail-estree 563/563 (100%)
+>   — the gate that matters for `interp-fold`, since it changes the IR every
+>   backend consumes — and py-rust 98/103 with the same three pre-existing
+>   FAILs (t104_float32, t82_popen_pipe, t87_bignum).
+> - v111: **A copy where a move was meant — the capture path, 311 sites in
+>   164 files.** `String::from_utf8_lossy` returns a `Cow<str>`; every
+>   command substitution ends in `String::from_utf8_lossy(&__cap).to_string()`.
+>   `.to_string()` formats that borrowed view into a FRESH `String`
+>   (`ToString` for any `Display` type IS `format!("{}", self)`), while
+>   `.into_owned()` hands over the buffer the `Cow` already holds when it is
+>   `Owned` — which is exactly the case where the lossy conversion had bytes
+>   to replace. So `into_owned` is never worse and saves a full copy of every
+>   capture whose bytes were not valid UTF-8. Both producers
+>   (`String::from_utf8_lossy`, `OsStr::to_string_lossy`) are CALLS, so the
+>   `Cow` is a temporary and moving out of it is always valid — a `let`-bound
+>   `Cow` would still need its borrow, which is why the rule only fires on a
+>   call immediately followed by the conversion. Corpus: `.to_string()`
+>   occurrences 1786 → 1475, `into_owned()` 17 → 328, 563/563 compile with
+>   **0 errors and the same 5 warnings**; bytes 1,971,114 → 1,971,425 —
+>   `.into_owned()` is one char longer than `.to_string()`, so this round
+>   trades ~311 bytes of text for one avoided allocation per capture.
+>   **Where the other candidates went**, all measured before choosing (a
+>   construct is boilerplate when it costs volume, not when it merely appears
+>   often): the shell-out command string is the largest single bucket at 5.1%
+>   of emitted bytes, but **all 229 `__sh_wq` calls carry a runtime temp path**
+>   (0 all-literal), so there is nothing to fold; `__sh_fnmatch`'s 99 uses are
+>   all real globs (no constant pattern); `.clone()` is load-bearing at all but
+>   2 of 1180 sites; `((X))` directly-nested parens are only 134 pairs corpus-
+>   wide; `println!("{}", IDENT)` → `println!("{IDENT}")` is 174 sites and
+>   ~700 bytes. The remaining mass is the per-file prologue (65.6% of bytes),
+>   and `golf_rust` already drops every helper a program does not use — a
+>   2-line program emits no prologue at all.
+>   Gates: `./fail` 563/563, fail-rs 556 pass / 0 fail / 7 skip, fail-estree
+>   563/563 (100%), fail-shir 556 bash-free / 7 shell-out sites /
+>   1 normalisable (identical to v109/v110 — a Rust-renderer change), py-rust
+>   98/103 with the same three pre-existing FAILs (t104_float32, t82_popen_pipe,
+>   t87_bignum), `cargo test --lib` 1752 pass / 46 fail with no `rust_backend`
+>   test among the 46.
+>   NOTE: still uncommitted in the shared checkout alongside the other
+>   worker's in-flight registration, so v108-v111 ride the same pending
+>   split-then-commit.
+> - v110: **A conversion that the macro itself makes pointless — and the
+>   two passes that moved it out of reach.** Corpus: 563 programs,
+>   42929 lines (unchanged — the change is intra-line),
+>   **1,974,930 → 1,971,114 bytes**, `.to_string()` occurrences
+>   2104 → 1786, **563/563 compile, 0 errors, 5 warnings** (the same
+>   renderer-synthesised set v108 documents).
+>   **The rule.** `format!`/`print!`/`println!`/`eprintln!` take
+>   `impl Display`, and `ToString` is blanket-implemented for every
+>   `T: Display` with `impl = format!("{}", self)` — so
+>   `format!("{} > {}", "'cat'".to_string(), …)` builds, as an owned
+>   `String`, exactly the text the macro prints and drops. The conversion
+>   borrows (`&self`), so removing it cannot change ownership or drop order
+>   either. rustc is silent (this is clippy's `useless_conversion`
+>   neighbourhood), which is why it outlived v109's comparison-only rule —
+>   that one could only fire adjacent to `==`/`!=`, and this position held
+>   the other half: **241 sites in 93 files, 220 of them a bare literal**
+>   from the word-list → command-string lowering.
+>   **Three refusals** keep it sound: a `{:?}` placeholder (`Debug` of a
+>   `String` quotes, `Debug` of the integer it came from does not — so
+>   `format!("{:?}", n.to_string())` really differs from
+>   `format!("{:?}", n)`); `write!`/`writeln!` (first argument is the
+>   WRITER, not the format string); and a call with no interpolation
+>   argument.
+>   **Why it took three attempts to place it.** (1) At the `emit` choke
+>   point — where v109's rules live — it stripped 49 of 241: the print
+>   macros are also *synthesised after* that point (`inline_print_words`
+>   rewrites `__sh_print_words(&[vec![EXPR]])` into `println!("{}", EXPR)`
+>   and inherits the `String`-typed word; the literal-argument merge builds
+>   `"Count: {}"` out of a leading literal). Moving the pass to the end of
+>   the post-pipeline got 229. (2) The remaining 12 were `format!` calls
+>   nested INSIDE another macro's argument block — the command-substitution
+>   shape `println!("{}", { let __c = format!("{} < {}", …); __c })` — and
+>   the outer splice jumped straight past them, so the pass now RECURSES
+>   into the argument span (strictly shorter, so it terminates). (3) The
+>   last 32 survived in exactly the **9 files that contain
+>   `' ' | '\'' | '\\' | '"' | '$'`** — `__sh_q`'s quoting arm. `'"'` is a
+>   char literal whose byte IS a double quote, and a scanner that only
+>   knows string literals read it as the START of a string and swallowed
+>   the rest of the file. `char_lit_end` now recognises `'X'` / `'\X'`
+>   (a lifetime has no closing quote after one char, so it is left alone),
+>   and the scan also copies string literals verbatim — a macro NAME inside
+>   one (`echo 'print!("{}", x.to_string())'`) is DATA, not a call.
+>   6 tests pin the rule, the `{:?}` refusal, the nesting, the char-literal
+>   desync and the data-inside-a-literal case.
+>   Gates: `./fail` 563/563, fail-rs 556 pass / 0 fail / 7 skip,
+>   fail-estree 563/563 (100%), fail-shir 556 bash-free / 7 shell-out
+>   sites / 1 normalisable (identical to v109 — this is a Rust-renderer
+>   change), py-rust 98/103 (the same t104/t82/t87 pre-existing FAILs),
+>   `cargo test --lib` 1750 pass / 46 fail with **no `rust_backend` test
+>   among the 46**. Core worker healthy throughout (gate GREEN at 09:48,
+>   no sleep markers).
+>   NOTE: still uncommitted in the shared checkout, and still mixed with
+>   the other worker's in-flight `str_temp_inline` / `terminator_binop`
+>   registration, so v108/v109/v110 all ride the same pending
+>   split-then-commit.
+> - v109: **Three rendering habits, all found by census rather than by
+>   reading code: a wasted conversion, an index loop where Rust has `for`,
+>   and an argument list that was never filled.** Corpus: 563 programs,
+>   42972 → 42929 lines, **563/563 compile, 0 errors, 5 warnings** (the 5
+>   are the renderer-synthesised ones v108 documents — unchanged).
+>   (1) **A literal's `.to_string()` in comparison position is pure waste**
+>   (`strip_cmp_to_string`, at the `emit` choke point next to
+>   `strip_let_parens`). `String` and `&str` compare directly —
+>   `PartialEq<&str> for String` and `PartialEq<String> for &str` both
+>   exist — so `x == "start".to_string()` allocated a String per
+>   evaluation to rebuild a constant. 127 corpus sites (1415 → 1288), and
+>   the rule is deliberately narrow: only a literal IMMEDIATELY adjacent to
+>   `==`/`!=` on either side, because that is the one position where `&str`
+>   is known to type-check against the other operand. The other ~1288
+>   conversions stay — `vec!["a".to_string()]` is a `Vec<String>` and a
+>   thread-local store holds a `String`; dropping those would not compile,
+>   which is the census's own check (0 errors after the change).
+>   (2) **`for x in "$@"` emitted an index loop; Rust has `for`.** The
+>   word-list arm built `let items = …; let mut i = 0; loop { if !(i <
+>   len) { break } …; i += 1 }` while the ARRAY arm two hundred lines above
+>   already emitted `for x in items`. The index existed for exactly one
+>   reason — `for_index`, a field consulted only by `emit_continue`, which
+>   hand-advanced it so a `continue` iterated. A `for` does that natively,
+>   so the arm now mirrors the array arm: 20 sites → 0, four scaffold lines
+>   each. That hook was also WRONG for a `continue` belonging to a nested
+>   loop in the body (it incremented the outer index on a `continue` the
+>   shell never applies there), so this removes a latent miscompile with
+>   the boilerplate.
+>   (3) **`__SH_ARGV` was never seeded — every Rust target saw an empty
+>   argument list.** `$@`/`$#`/`$1` all read that static, and nothing filled
+>   it: `005_args` printed `Argument count: 0` for `prog a b c` where bash
+>   printed 3. `main` now seeds `args_os().skip(1)` (`args_os` +
+>   `to_string_lossy`, NOT `args()`, which panics on a non-UTF-8 argument
+>   where the shell reads the bytes), emitted only for the 17 programs that
+>   actually touch the list — an unconditional seed would reference the
+>   static in all 563 and `golf_rust` could no longer drop it. Verified
+>   directly: `005_args` with `a b c` now matches bash line for line.
+>   Gates: `./fail` 563/563, fail-rs 556/0/7, fail-estree 563/563 both
+>   sides, py-rust 98/103 (the same t104/t82/t87 pre-existing FAILs),
+>   `cargo test --lib` 1746 pass / 46 fail with a failure-name set IDENTICAL
+>   to the pre-round baseline (diff of the sorted lists is empty).
+>   Core worker healthy throughout (gate GREEN at 01:14, no sleep markers).
+> - v108: **The unreachable class is zero, and the fold that gets it there
+>   is its own transform.** rustc census over the 563-file emitted corpus:
+>   the 5 `unreachable`-class warnings (expression ×3, statement ×2) are
+>   gone — what remains is 5 warnings of an unrelated kind and **0 errors**,
+>   so every example still compiles. The 5 remaining are all rustc telling
+>   the truth about the SOURCE: one `non_snake_case` (a shell name we must
+>   keep) and four dead store/read sites that exist only in
+>   renderer-synthesised blocks
+>   (`{ let __o = i; i = i + 1; __o }` for `$((i++))`, and
+>   `let _ = { let __v = …; X = …; __v }` for an assignment whose value
+>   statement position discards) — no shIR transform can see either,
+>   because neither is in the IR.
+>   (1) **`terminator-binop`, in `src/transforms/terminator_binop.rs`**
+>   (7 tests) — a statement-level `a || b` / `a && b` whose left operand
+>   never yields keeps the left operand's effects and drops the right's
+>   scaffolding: `break || exit 1` → `break`, `exit 1 || x` → `exit 1`.
+>   It is a SEPARATE registry entry ordered BEFORE `unreachable-after-exit`,
+>   so the collapsed control call is a terminator the very same walk can
+>   act on (a fold buried in the prune file could not be ordered that way,
+>   which is why the long-form entry below describes it as "one fold is
+>   new" inside the verdict). Every renderer accepts the surviving control
+>   call standalone — checked across perl, C, go, estree, python, java — so
+>   this is a shared win, not a Rust one.
+>   (2) **`terminates_list` learned the spellings the frontends actually
+>   emit.** `exit` reaches the IR as `builtin("exit", …)` (what
+>   `builtin-lift` makes of `exec("exit", …)`) and as a bare
+>   `Call("exit")` — when only `IrStmt::Exit` counted, the transform was a
+>   no-op on real programs: `exit 1; echo dead` still emitted
+>   `print!("dead")` after `std::process::exit(1)`.
+>   Verified this round: `./fail` 563/563, fail-rs 556/0/7, fail-estree
+>   563/563 on both sides, fail-shir green, py-rust 98/103 (the same 3
+>   pre-existing FAILs: t104, t82, t87), `cargo test --lib` 1744 pass / 46
+>   fail with the failure-name set unchanged (estree peer expectations,
+>   backend drift, range-analysis — none in the modules this touched).
+>   Core worker healthy throughout (gate GREEN, no sleep markers).
+>   NOTE: the code for this round is in the shared checkout UNCOMMITTED
+>   (`src/transforms/terminator_binop.rs` untracked, plus edits to
+>   `src/transforms.rs`, `src/shir.rs`,
+>   `src/transforms/unreachable_after_exit.rs`); the same checkout also
+>   carries another worker's in-flight `str_temp_inline` registration,
+>   `src/c_backend.rs` and `numeric_observed.rs`, so the two must be split
+>   before the next gitlink bump.
 > - v107: **Two lint classes normalised by changing the SHAPE, not by
 >   renaming or allow-ing around it.** rustc census: 48 → 22.
 >   (1) **`__sh_printf`'s dead initializer (9 sites).** The helper declared
@@ -5603,6 +7043,176 @@ file, failure-name sets identical — zero introduced, zero fixed); my
 11 tests pass. The Core worker was healthy throughout (gate GREEN,
 0 A1 violations, 555 probed; its `lib_fails=19` baseline is measured in
 its own subcheckout, hence the A/B above rather than a count compare).
+
+### 2026-11-04 — `output-line-fold`: the trailing newline becomes an shIR fact, so every backend reaches for its line-print primitive
+
+**The shape.** A heredoc, a constant `printf 'a\nb\n'` and a folded
+`echo` all lower to `Output { value: Str("a\nb\n"), newline: false }` —
+the newline is inside the TEXT, and the node's `newline` flag is unused.
+Every renderer therefore takes its RAW-write arm and spells the newline in
+the literal: `fmt.Print("a\nb\n")`, `print("a\nb\n", end="")`,
+`System.out.print("a\nb\n")`, `print "a\nb\n";`. Bytes correct, idiom
+wrong: each target has a line primitive (`fmt.Println`, `print(x)` with
+python's default `end="\n"`, `System.out.println`, `say`, `println!`).
+
+**Why it was one backend's problem.** The Rust renderer grew a text
+peephole for it (`println_for_trailing_newline`), so `051_primes.rs` has
+read `println!("a\nb")` for months while Go/Python/Java paid the raw
+write on the same input. That is the per-renderer re-derivation the shared
+pipeline exists to retire.
+
+**The transform.** `shir_passes::echo_fold::OutputLineFold` (registered as
+`output-line-fold` in `transforms::all()`, and run as `EchoFold`'s pass 3
+so the two renderers that fold locally — rust, C — get it without a second
+registration). It rewrites `Output{newline:false, target:None}` whose value
+is a `Str` — or an `Interpolate` whose LAST part is a literal — ending in
+`\n`, into `Output{newline:true}` with that one newline removed (an emptied
+tail `Lit` is dropped). Soundness: `newline:true` is "the value's bytes,
+then one `\n`" in every renderer, so the two spellings print identical
+bytes; a `target`-bearing Output is left alone (filehandle line discipline
+is not a text fact), and a value ending in an EXPANSION is left alone (its
+trailing bytes are not known until runtime). Idempotent, so more than one
+entry point is safe. `SH2_NO_OUTPUT_LINE_FOLD=1` is the A/B switch (the
+`EchoFold` tail bypasses the `SH2_TRANSFORMS` registry gate, so the bisect
+machinery needs one switch covering both).
+
+**Measured, 563-example corpus, via the switch.** Raw-write call sites
+spelling the newline inside a literal:
+
+| shape | fold off | fold on |
+|---|---:|---:|
+| `fmt.Print(` (go) | 147 | 49 |
+| `print(…, end="")` (python) | 122 | 22 |
+| `System.out.print(` (java) | 97 | 17 |
+| `print!(` (rust) | 173 | 173 |
+
+278 sites moved onto a line primitive across the three backends; Rust is
+unchanged, which is the check that the shared fold subsumes (not
+duplicates) its renderer peephole — that pass stays as the backstop for
+`Output` nodes produced during rendering.
+
+**Gates.** `./fail` 563/563, `./fail-estree` 563/563 (100.0%).
+`harness/py-rust-gate.sh` 99/103 (2 known-gap, 2 FAIL — t104_float32 and
+t87_bignum report the same got/want with `SH2_NO_OUTPUT_LINE_FOLD=1`, and
+their emitted Rust is byte-identical either way: pre-existing, and they
+pass when run alone, so the pair is an ordering/state artifact of the
+full-corpus run, not a codegen difference). `cargo test --lib`: 67 red
+with the fold on, 72 with it off; the five that only fail when off are my
+own new tests asserting the fold fires. Failure-name sets are otherwise
+identical — **zero introduced**, and the 67 are the shared-core WIP the
+Core worker owns (estree 23, rust_backend 13, c_backend 10, shir 5,
+fish 5, …), none in a file this round touched. Rust lint census over the
+emitted corpus: 8 rustc warnings in 563 files, unchanged by this round.
+
+**Core worker.** Healthy throughout — supervisor alive, gate GREEN
+(1,032 greens), A1-native invariant 0 violations over 555 probes, no
+`core-requests/sleeping-*` marker. Nothing to fix.
+
+### 2026-11-05 — `heredoc-print`: one shIR fold retires the per-backend `cat <<EOF` arms; the arithmetic test operand stops round-tripping through a String
+
+**What the emitted-Rust census showed.** Re-emitting all 563 examples to
+Rust and linting each with default rustc lints leaves **12 warnings in
+5 files**, and none of them is a lowering failure: 2 are
+`value assigned is never read` (`arith_postfix_status`,
+`parse_longoption_with_dollar` — the store-then-discard class `dead-store-elim`
+already owns) and the rest are locals left unused by a nested heredoc
+that only exists as TEXT inside a `$( … )` interpolation
+(`058_advanced_bash_idioms`: `user`/`host`/`port`, plus one `IFS` and one
+`var`). The census is now small enough that reading it is the useful
+step, so this round took the two largest *shapes* it showed rather than
+chasing the last warning:
+
+1. `let __v = "1".to_string(); *__SH_RET.lock().unwrap() = __v.clone(); __SH_RC.store(__sh_ret_rc(&__v), …); return;`
+   — the clone is unobservable: the rc is computed from a borrow, and
+   nothing reads `__v` afterwards. Now the value is MOVED into the cell
+   (`__SH_RC.store(__sh_ret_rc(&__v), …); *__SH_RET.lock().unwrap() = __v;`).
+   One String alloc per legacy-convention `return`, at 8 return sites in
+   the corpus; the ordering that the comment above the emit site demands
+   (evaluate the value BEFORE locking `__SH_RET`, so a recursive
+   fnValue call cannot re-lock a held Mutex) is unchanged — only the
+   store moved after the rc computation.
+2. `[ $((n % i)) -eq 0 ]` rendered as
+   `(… % …).to_string().trim().parse::<i64>().unwrap_or(0) == 0`: an i64
+   going to a String and straight back, inside a NUMERIC operator. The
+   test-operand renderer now recognises a whole-word `$(( … ))`
+   (`whole_arith_body`) and hands back the numeric form with `num: true`,
+   so the compare reads `(… % …) == 0`. The arith renderer is the same
+   one the string path used, so the value, the `__SH_ARITH_ERR`
+   bookkeeping and the `$(cmd)` fallback are all identical: only the
+   round-trip disappears. A body the arith parser cannot see still falls
+   through to the string spelling.
+
+**The shIR→shIR fold (the part other backends get).** `cat <<EOF … EOF`
+written straight to stdout was re-derived by every renderer: Java forked a
+`sh` (`shRun("cat" + " <<'SH2EOF'…")`), Rust forked `cat`
+(`__sh_spawn("'cat'", Some(body.as_bytes()))` — with a
+`.to_string().as_bytes()` alloc), fish forked `cat` for its own
+`printf '%s\n' …`, and Python/Go each had a private arm for it. The new
+`transforms::heredoc_print` (`heredoc-print` in the registry) folds the
+statement to the `Output { value: Str(body), newline: false }` node every
+backend already prints natively, and `output-line-fold` (the next pass)
+moves the body's own trailing newline into the flag so the target's line
+primitive is used.
+
+*Soundness.* `cat` with no operands copies stdin to stdout byte-for-byte
+and exits 0; the fold requires exactly ONE redirect spec, on fd 0, with
+`heredoc`/`heredoc-tabs` mode, and the inner list to be the single bare
+`cat` word (so `cat -A`, `cat file <<EOF` and `cat <<EOF | grep` all
+refuse — a measured case in `063_hard_to_parse` and
+`064_hard_to_generate`). Expansion: the parser keeps an *interpolating*
+body as a plain `Str` with no `Interpolate`, so a body containing `$`, a
+backtick or a backslash is left alone — the backends that fork a shell get
+that case right today and the ones that print the string do not. Sinks:
+the fold descends only through pure control flow (`if`/loop/`case`/`try`/
+grouping `Block`/function body) and never into a `Pipeline` stage, a
+`Background` job, a `Subshell` group, a redirect body or an expression —
+inside those, stdout is swapped for a sink only the word-printing helpers
+write into, and a native `Output` would escape it. That narrower walk is
+deliberate (`echo_fold::child_lists_mut` is the wrong one here) and
+`does_not_descend_into_a_pipeline_stage` pins it.
+
+**Measured, 563-example corpus, via the `SH2_TRANSFORMS` registry gate
+(the seed list is every transform but `heredoc-print`, so no rebuild):**
+
+| backend | shape | fold off | fold on |
+|---|---|---:|---:|
+| fish | `printf … \| cat` | 41 | 31 |
+| java | `shRun("cat" + " <<'SH2EOF'…")` | 28 | 18 |
+| rust | `__sh_spawn("'cat'", Some(…as_bytes()))` | 31 | 20 |
+| python | (its own arm already printed natively) | — | — |
+
+32 process forks retired over the three backends, and the go sites move
+from `fmt.Print("…\n")` to `fmt.Println(…)` via `output-line-fold`. On
+`007_cat_EOF` the three spellings are now `System.out.println`,
+`println!`, and a bare `printf`.
+
+**Rust-side totals, 22:23 snapshot → now** (same 563 files, default
+lints): `to_string().trim().parse::<i64>()` 6 → 5, `__v.clone()` in a
+return 34 → 26 (8 moved), `__sh_print_words` call sites 377 → 147, total
+emitted bytes 1,314,778 → 1,275,073 (−3.0%).
+
+**Gates.** `./fail-rs` **556/556 pass, 0 fail** (7 skips, 563 total) —
+the Rust equivalence gate is fully green. `./fail` is **560/563** with the
+same 3 reds it had before this round (`063_hard_to_parse`,
+`064_11_complex_test_expressions`, `064_hard_to_generate`) — two of them
+have no bare heredoc (a *pipeline* and a *redirect target*, both refused
+by design) and the third fails in the perl backend's `=~` rendering, a
+file this round never touched; `typeset-cmdsub` flaked once and passes on
+the rerun. estree is 560/563 with
+`backslash-gt-test`, `parse-default-value-no-colon`,
+`parse-default-value-plain-dash`. `harness/py-rust-gate.sh` 97/103:
+t104_float32/t87_bignum are the documented pair, and t91/t93 fail on
+`num_traits required to be available in rlib format` — the rlib-probe
+flake the script's own header documents, not a codegen difference.
+`cargo test --lib` **1811 pass / 58 fail**; the only two that are not in
+the old baseline are `c_backend::tests::let_compare_refuses_{zero,dynamic}_divisor`,
+which are the C worker's in-flight divisor-guard WIP inside
+`c_backend.rs` (the test and the `(0 == 0 ? 0 : …)` text are both in that
+file's uncommitted diff — this round touched no C code).
+
+**Core worker.** Healthy throughout: supervisor alive (pid from
+`loop-core-worker.pid`), last gate **GREEN** (A1 native + estree corpus +
+lib tests), no `core-requests/sleeping-*` marker. Nothing to fix.
 
 ### 2026-11-09 — the Verus gate finally checks the tree that ships: 38 models and 21 sync baselines land, and four drift pins are settled
 

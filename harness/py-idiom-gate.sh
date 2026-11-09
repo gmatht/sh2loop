@@ -139,8 +139,12 @@ check t52_full_prog '' 'greet\('
 # …and no blank line immediately after `fn main() {`. This is an awk check on
 # purpose: `grep -E` cannot span lines, so the absent-pattern this replaced
 # ('fn main\(\) \{\n\n') matched nothing and could never fail.
+# The anchor is `fn main()` WITHOUT the brace: the signature now carries a
+# return type (`fn main() -> std::process::ExitCode {`), and a pattern that
+# pinned the brace would silently stop matching — which is exactly how the
+# check this replaced became vacuous in the first place.
 if printf '%s\n' "$("$CLI" "$DIR/t52_full_prog.py" - --target rs 2>&1)" \
-    | awk '/^fn main\(\) \{$/ { after=1; next } after { if ($0 == "") blank=1; after=0 } END { exit (blank ? 1 : 0) }'; then
+    | awk '/^fn main\(\)/ { after=1; next } after { if ($0 == "") blank=1; after=0 } END { exit (blank ? 1 : 0) }'; then
     pass=$((pass + 1))
 else
     echo "FAIL t52_full_prog: blank line immediately after fn main() {"
