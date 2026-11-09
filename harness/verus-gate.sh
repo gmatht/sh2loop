@@ -1040,20 +1040,33 @@ check_sync_cov() { # $1=script $2=model $3=baseline(rel to root)
   local gen="$root/$1" model="$2" base="$root/$3"
   local name="verus-sync-coverage.sh:$model"
   [ -x "$gen" ] || { echo "SKIP  $name — generator not executable"; skip=$((skip+1)); return 0; }
-  if [ ! -f "$base" ]; then
-    echo "SKIP  $name — baseline $3 absent (Tier 1 pending, NOT green-by-absence)"
-    skip=$((skip+1)); return 0
-  fi
   local tmp; tmp=$(mktemp)
   local rc=0
   # Strip the volatile sha header (source/proof revisions are tracked by
   # git, not by the manifest) before diffing: only pin/guard/count facts
   # must reproduce. A fact change still fails loudly.
   OUT_TMP="$tmp" "$gen" "$model" >/dev/null 2>"$tmp.err" || rc=$?
+  # A model whose source file is not a module of the crate cannot execute any
+  # pin — that is a stated gap, not a drifted fact, so it is counted as a SKIP
+  # with its reason on the line, the same way an absent baseline is. It must
+  # never read as green: the summary keeps SKIPs separate from passes.
+  if [ "$rc" -ne 0 ] && command grep -q "is not a module of the crate" "$tmp.err"; then
+    echo "SKIP  $name — source module not wired into the crate (model cannot execute):"
+    sed -n 's/.*FATAL: //p' "$tmp.err" | head -1
+    skip=$((skip+1)); rm -f "$tmp" "$tmp.err"; return 0
+  fi
   if [ "$rc" -ne 0 ]; then
     echo "FAIL  $name — generator errored (source outgrew the checker?)" >&2
     tail -8 "$tmp.err" >&2; rm -f "$tmp" "$tmp.err"
     fail=$((fail+1)); return 0
+  fi
+  # The baseline is consulted only AFTER the generator has run: skipping on a
+  # missing file first made a dead extractor and an unwritten baseline
+  # indistinguishable, and hid the three unwired models below behind "baseline
+  # absent" long after the cause was nameable.
+  if [ ! -f "$base" ]; then
+    echo "SKIP  $name — generator clean but $3 absent (Tier 1 pending, NOT green-by-absence)"
+    skip=$((skip+1)); rm -f "$tmp" "$tmp.err"; return 0
   fi
   if diff <(command grep -v "^# source sha:" "$base") <(command grep -v "^# source sha:" "$tmp") >/dev/null 2>&1; then
     echo "OK    $name — pin/guard facts reproduce the live source"

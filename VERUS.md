@@ -721,6 +721,24 @@ mapping, not a guessed one. Gate on the committed tree: **123 passed, 0
 failed, 4 skipped, 2 retired records**. Unpushed, so a fresh clone of
 `origin` still sees the old state.
 
+**(vi) DONE 2026-11-09 — the last four skips.** `strip` generates now: its
+`pin_continue_verdict` was the only pin without a pin_map entry, and because
+`src/shir_passes/strip.rs` tests the splice that consumes the verdict rather
+than the predicate, the entry is a conscious UNMIRRORED with that sentence
+beside it instead of a guessed test name. The other three cannot execute at
+all: `src/transforms/arr_load_fwd.rs`, `exec_call_fold.rs` and
+`interp_lit_merge.rs` are tracked files that **no `mod` declaration reaches**
+(`src/transforms.rs` declares 71 modules and none of them; `builtin_lift.rs`
+is tracked and dead in the same way), so their `#[test]`s are never compiled.
+That is why every pin reported `MISSING (renamed? filtered?)` — the tests ARE
+in those files, and no filter can reach them because the module is not in the
+crate. The extractor now says so in words ("is not a module of the crate"),
+`check_sync_cov` runs it before consulting the baseline, and the gate counts
+the entry as a SKIP that prints the reason instead of a red that hides behind
+"generator errored". Gate after the pass: **124 passed, 0 failed, 3 skipped,
+2 retired records**. Wiring those modules in is the owner's call — the same
+fork as `interval.rs`, where a permanently-red entry was the signal.
+
 **P1 — `redundant_store_elim`.** DONE — see P0(ii): the fixed version is
 proved (shadow argument, observationally exact), with all three bug
 scenarios as pins and both fix-mutants as negative controls. LANDED

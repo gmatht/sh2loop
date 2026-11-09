@@ -5651,8 +5651,32 @@ are extractors that *refuse* rather than skip — `arr_load_fwd`,
 `exec_call_fold`, `interp_lit_merge` (every mapped test MISSING: the pin_map
 names tests the suites no longer contain) and `strip`
 (`pin_continue_verdict` has no pin_map entry) — and each needs its owner's
-mapping, not a guessed one.
+mapping, not a guessed one. (The pass below fixes `strip` and renames the
+other three: they were never test renames.)
 
 Not pushed: the work is committed on `background-decide-verdict`
 (`331c53a1a`, `dc8ec80ce`, `f60377733`, `da7ec0979`) and in the workspace
 gitlink, so a fresh clone of `origin` still sees the old state.
+
+A follow-up pass closed the last four sync skips. `strip` got its baseline:
+`pin_continue_verdict` was the one pin without a pin_map entry, and since
+`src/shir_passes/strip.rs` tests the splice that consumes the verdict rather
+than the predicate, the entry is UNMIRRORED with the reason beside it instead
+of a guessed test name.
+
+The other three were not test renames at all. `src/transforms/arr_load_fwd.rs`,
+`exec_call_fold.rs` and `interp_lit_merge.rs` are **tracked files that no `mod`
+declaration reaches** — `src/transforms.rs` declares 71 modules and none of
+them — so their `#[test]`s never compile, which is exactly why every mapped pin
+reported `MISSING (renamed? filtered?)`: the tests are in the file, and no
+filter can reach a module that is not in the crate. (`builtin_lift.rs` is
+tracked and dead in the same way.) The extractor now names the cause
+(`is not a module of the crate`), `check_sync_cov` runs the generator *before*
+consulting the baseline — the ordering fix the legacy driver already carried,
+because skipping on a missing file first made a dead extractor and an unwritten
+baseline indistinguishable — and the gate counts those entries as SKIPs that
+print the reason rather than reds that hide behind "generator errored".
+Wiring the modules in (or retiring the models) is the owners' call.
+
+**Gate after this pass: 124 passed, 0 failed, 3 skipped (unwired modules), 2
+retired records, exit 0.** Still unpushed.
