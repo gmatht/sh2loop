@@ -125,11 +125,12 @@ for d in $dirs; do
         continue
     fi
     # Build exactly the sessions whose theory is present. A ROOT may declare
-    # a session that is NOT in the default build (BigIntRange is recorded in
-    # proofs/ROOT as not-yet-checking); building by name would fail on a
-    # missing-theory error rather than on the session's own state, so those
-    # are skipped BY NAME — and the run is bounded in TIME, because Isabelle
-    # can take minutes per session and a gate that hangs is a gate nobody runs.
+    # a session that is NOT in the default build (proofs/ROOT records such a
+    # claim in a comment until someone drives it green); building by name
+    # would fail on a missing-theory error rather than on the session's own
+    # state, so those are skipped BY NAME — and the run is bounded in TIME,
+    # because Isabelle can take minutes per session and a gate that hangs is a
+    # gate nobody runs.
     log=$(mktemp)
     names=""
     if [ -f "$d/ROOT" ]; then

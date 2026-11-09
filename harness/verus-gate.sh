@@ -438,7 +438,20 @@ MODELS=(
   # non-empty, leaving the empty-IFS `[*]` row as the erasure's only cost.
   # The fix is a contract change, so it is filed as an OFFER:
   # core-requests/c-20261105-keys-face-collapse.md.
-  "c_join_ifs.rs:104:40"
+  #
+  # COUNT (measured 2026-11-09, the pinned binary): the COMMITTED model
+  # verifies `73 verified, 0 errors` at `--rlimit 40`, not 104. The 104 was
+  # recorded for the §6/§7 extension while it was still IN FLIGHT, and
+  # neither state in the tree equals it: `git show HEAD:…/c_join_ifs.rs`
+  # gives 73/0, and the uncommitted working copy gives
+  # `108 verified, 1 errors` (`w3_hole_skip_is_load_bearing` fails its
+  # `at_words(empty_word_first()).len() == 2` postcondition). The entry
+  # therefore asserts what the COMMITTED model actually checks, so this
+  # gate line reports the truth instead of a target it cannot verify. When
+  # the extension lands, its author re-blesses this number WITH the
+  # measurement in the same commit — an exact count is the point, so do not
+  # round it back up to the old target.
+  "c_join_ifs.rs:73:40"
   # The C generator's WORD-EXPANSION ORDER (c_backend.rs: `stmt` /
   # `stmt_inner` / `stmt_has_elem_assign` / `snap_elem` / `array_index_read`,
   # plus the `set --` arm's field splitting). THE DENOTATIONAL EXTENSION: a
