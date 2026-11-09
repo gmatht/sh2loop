@@ -173,3 +173,53 @@ verdict is conservative and refuses unproven state; see below).
   flight, no auth to commit/push). Rebuild bash-o4 + relink the game to pick up
   (devices.rs embeds it at compile time). The running game process (if any)
   continues on its old inode until restarted.
+
+## Verified/locked: readback byte-order/layout contract + ov_composite dump/present parity
+
+**Byte-order/layout contract (locked):**
+- **`S_px` (fbdev.c canonical, in-memory):** `uint32_t`, row-major `W*H`. Logical
+  `0xAARRGGBB` (`R=(p>>16)&0xFF, G=(p>>8)&0xFF, B=p&0xFF`). On little-endian this
+  is raw bytes `[B,G,R,A]` per pixel (BGRX8888). `ov_composite` writes
+  `0xFF000000u|(R<<16)|(G<<8)|B`; `fb_dump_ppm` reads logical shifts → P6 RGB.
+- **`fb_present` / fbwin (X11 present path):** `fb_present` composites
+  (`ov_composite`) into `S_px` then `fbwin_present(S_px,W,H)`. fbwin interprets
+  logical `0xAARRGGBB`, maps through X visual channel masks/shifts and packs in
+  image byte order (handles MSB/LSB, 16/32bpp) — display-adaptive, not a raw
+  memory byte copy assumption.
+- **GPU readback (C-ABI host path):** `bash_o4_fb_gpu_readback_bgrx` returns BGRX
+  bytes `[B,G,R,X]`. `fbdev.c` dispatch converts to canonical `S_px`
+  `0xFF000000u|(R<<16)|(G<<8)|B`, so `fb_dump_ppm`/composite/present see the same
+  logical layout. (Live `FB0_DEV`/present parity for GPU frames still depends on
+  the conservative verdict refusing unproven state until atlas/overlay/composite
+  parity is gated.)
+- **Live `FB0_DEV` file / fbview path (play.sh + shell `rb_present`):** raw BGRX
+  bytes `[B,G,R,X]`, row-major `W*H*4`. Shell rasterizer `rb_mkhex R G B` emits
+  `${B}${G}${R}00` and `rb_present` writes via `xxd -r -p` to `$RFB_PATH/FB0_DEV`.
+  `bash-o4/tools/fbview.py` reads `W*H*4`, passes the bytes through as a raw
+  ZPixmap (depth 24, 32bpp) matching the common LE 24/32bpp TrueColor visual
+  (BGRX) — PIL "RGBA" is a byte-passthrough/resize vehicle only (no channel
+  swizzle). Note: the compiled `fbdev.c` runtime presents via `fbwin_present`
+  (and mmaps a real `/dev/fb0` device when present) and does not itself write raw
+  BGRX frames to a regular file `FB0_DEV` path; the file-backed viewer contract
+  above is the shell/`rb_present` live path. Contract comments added/locked in
+  `fbview.py`.
+
+**`ov_composite` timing / dump-present parity (ensured):**
+- `fb_present` composites overlay+flash into `S_px` and consumes flash
+  (`ov_composite()` → `ov_composite_to(S_px,1)`) — canonical frame-output path.
+- `fb_dump_ppm` now produces the **composited visual** with dump/present parity:
+  canonical flow is **present-then-dump** (e.g. `--first-frame` dumps after
+  present), where `S_px` is already composited and flash consumed — dump snapshots
+  `S_px` (identical). To avoid double-blending a persistent overlay already baked
+  into `S_px`, a pre-present dump snapshot does not reapply the persistent
+  overlay; it applies only any still-live flash (non-destructive) for visual
+  parity. Flash-consumption semantics remain with `fb_present`.
+- Refactored in `sh2perl/runtime/fbdev.c` (`ov_composite_to` + snapshot dump).
+  **Uncommitted in `/mnt/wsl/projects/sh2loop/sh2perl` (no auth).** Embedded via
+  `bash-o4/src/devices.rs` at compile time; rebuilt bash-O4 + relinked
+  `mimecroft-fb-play` to pick up.
+
+**Parity re-verified (CPU/default, post-refactor, byte-identical to Phase 0):**
+320×240 `965f7b3dad4cfd516ff637c8943681bc` (230415 B), 800×600
+`9e247bc7f5fe65f8be1e09aef420bb41` (1440015 B); `SH2_FB_CPU_ONLY=1` 320×240 also
+identical. fbview.py `py_compile` OK.

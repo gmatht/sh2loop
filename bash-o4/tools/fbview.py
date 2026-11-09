@@ -212,11 +212,14 @@ def main(argv):
           flush=True)
 
     def present_data(data):
-        # The frame is already BGRX — what a 24-bit ZPixmap wants — so it
-        # rides through as RGBA, whose raw codec and NEAREST resize only
-        # copy. Decoding BGRX to RGB and re-encoding to BGRX (what
-        # put_pil_image does for an RGB image) swizzles every pixel twice:
-        # measured 9.9ms of a 31ms present against 3ms of the 15ms below.
+        # CONTRACT (locked, live FB0_DEV file path): the file is raw BGRX bytes
+        # per pixel, [B,G,R,X], row-major W*H*4 — same LE memory layout as
+        # fbdev.c S_px (logical 0xAARRGGBB) / MIMEcroft shell rb_present
+        # (xxd of B,G,R,00). We send these native bytes straight to X11
+        # ZPixmap (depth 24, 32bpp), which matches the common LE 24/32bpp
+        # TrueColor visual (B,G,R,X). PIL "RGBA" is used only as a byte-
+        # passthrough/resize vehicle (labels bytes R,G,B,A but we keep them
+        # identical end-to-end) — no channel swizzle.
         img = Image.frombytes("RGBA", (W, H), data)
         if scale != 1:
             img = img.resize((ww, wh), Image.NEAREST)
