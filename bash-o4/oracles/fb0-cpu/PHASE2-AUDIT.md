@@ -147,3 +147,29 @@ verdict is conservative and refuses unproven state; see below).
 - Per-frame/payload CPU-vs-GPU parity validator (Phase 0 tolerance) + fixtures
   (HUD/minimap/flash/CRT/corrupt/crack), then enable acceptance; gate
   `play.sh --no-build [--view 800x600]` GPU oracle-equivalent.
+
+## Policy update: GPU by default (when correct)
+
+- `fbdev.c` verdict changed to **attempt GPU by default**, but only for
+  render-time verdict-accepted (**proven-correct**) frame/state. `SH2_FB_CPU_ONLY=1`
+  or `SH2_FB_GPU=0` forces the exact CPU path (byte-identical). No `SH2_FB_GPU=1`
+  opt-in required. Any capability/load/init/dispatch/readback failure, or any
+  unproven state, refuses and falls back to CPU with a one-time clear reason
+  (refuse > guess; no silent narrowing).
+- Current verdict remains **conservative** (correctness-first): refuses when
+  textures/overlay/composite state is present or block shading/atlas parity is
+  not yet proven against fbdev.c CPU + Phase 0 oracles, so real MIMEcroft frames
+  take the CPU path and remain byte-identical. `SH2_FB_GPU_ACCEPT=blocks_proof`
+  is an explicit, non-oracle C-ABI dispatch test hook for proven-safe
+  (untextured, no-overlay) state only. As per-frame oracle parity is gated for
+  each mapping, lift acceptance there (GPU becomes the default for those proven
+  frames).
+- **Gate re-verified (new `mimecroft-fb-play` linked with updated fbdev.c),
+  CPU/default and `SH2_FB_CPU_ONLY=1`, byte-identical to Phase 0 oracles:**
+  320×240 `965f7b3dad4cfd516ff637c8943681bc` (230415 B),
+  800×600 `9e247bc7f5fe65f8be1e09aef420bb41` (1440015 B).
+- **Still uncommitted in sh2perl:** the verdict/runtime change is in
+  `/mnt/wsl/projects/sh2loop/sh2perl/runtime/fbdev.c` (separate repo, dirty/in-
+  flight, no auth to commit/push). Rebuild bash-o4 + relink the game to pick up
+  (devices.rs embeds it at compile time). The running game process (if any)
+  continues on its old inode until restarted.
