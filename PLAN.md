@@ -7402,3 +7402,29 @@ the escape-classes interval refinement for variable reads. Until it lands,
 any i32 consumer — C, Go, Rust or GLSL — is decorative, and this one is
 labelled as such in `VERUS.md` and in the model's header rather than counted
 as live coverage.
+
+**`background-decide`: the fixed classifier is proved, not just preferred
+(2026-11-09).** The model had a refutation (`shipped_check_is_unsound`: the old
+`collect` compares read/assign sets in no order, so
+`if [ -n "$x" ]; then x=1; echo 7; fi` was classified THREAD and would print
+nothing on a fresh runtime) and a soundness theorem for an ordered RULE — but
+nothing connecting the rule to the code that decides. So the replacement
+`walk_self_contained` / `is_thread_body` was a verdict with no theorem and no
+reader, i.e. the same shape as `interval.rs` with better comments.
+Now: `walk_ok_implies_intended` bridges the shipped walk to the sound rule —
+the walk's post-set keeps straight-line binds only (a branch may not run), the
+rule's also keeps what both arms bind, and `walk_ok_mono` carries that
+monotonicity through `Seq`; `classify_thread_sound` composes the bridge with
+`thread_equals_fork` for THREAD ⇒ identical bytes; `route_thread_is_sound`
+does the same over the shipped PREDICATE, assuming only `classify`'s own
+insertion rule. The refusal direction is proved, not promised:
+`unclassified_stays_fork` / `absent_table_routes_fork` (no table — transform
+absent or cleared — or no entry ⇒ FORK, so a consumer can never be handed a
+guess) and `side_effect_stays_fork` (a file write or control transfer is never
+accepted, hence can never enter the table). 27 verified, 0 errors (was 12);
+the gate entry moved 12→27. `is_thread_body` still has zero call sites, so
+this is a sound verdict ready to consume — the wiring, not the proof, is the
+remaining work, and the model header and VERUS.md say so instead of implying
+live coverage. Also fixed the module's stale `invariant:` line (still claimed
+pointer-keyed verdicts, three days after the fix that made them body-text
+keyed).

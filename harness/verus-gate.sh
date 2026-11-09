@@ -66,7 +66,7 @@ MODELS=(
   # `if [ -n "$x" ]; then x=1; echo 7; fi` is sent to a fresh runtime that
   # prints nothing where the sibling shell prints 7. Excluded from VERUS.md's
   # Tier-1 totals.
-  "background_decide.rs:12:40"
+  "background_decide.rs:27:40"
   # CONDITIONAL, NOT TIER 1: process-subst (the fd-carrying `<( )` shapes).
   # The materialization lemma: the consumer's input is exactly the producer's
   # output, the temp path is unlinked, other temps are untouched, and the
