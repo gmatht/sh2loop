@@ -7372,3 +7372,33 @@ keeps what must hold whatever shell answers — no externals, no duplicates.
 Result: 61 == 61, 9/9 tests green in a clean worktree, Verus model unchanged at
 17/0, and no corpus example spells those three names, so emitted output cannot
 move.
+
+**`i32-provable` has a reader — and the measurement says it is inert
+(2026-11-09).** The verdict was registered and `is_i32` was called from
+nothing in `src/`: the exact shape `interval.rs` shipped in. So both halves
+landed this time. **Call site:** `c_backend.rs`'s `tiered_i64_expr` takes the
+exact-width form for a marked subtree — a bare `long long` C expression with
+no `__builtin_{add,sub,mul}_overflow` guard — and keeps every check otherwise;
+the predicate is a VALUE (`exact_i32_bound`), because a store expression's
+subtrees have no statement index to key `is_i32` by. **Proof:**
+`proofs/verus/i32_emit.rs` (20 verified, 0 errors, gated) shows the estimator
+puts EVERY node of a marked tree inside i32 — not just the root, and per-node
+rather than under the root's bound, because `2 * 0` has a root bound smaller
+than an operand — so the guard the fast path drops is dead; that
+`plain_i64_expr` has an arm for every markable shape (the fast path cannot
+fall through and lose a tiered mirror); that the decision is total (unmarked ⇒
+every check retained: refusing costs the narrow form, never correctness); and
+the leaf-only mutant that marks `2^29·2^29·2^29 = 2^87`.
+**Measured reach — the honest half:** 12 marked statements across 10 of 896
+corpus examples (1.3%), and the fast path fires on **0** of them, because the
+verdict's domain is literal-only (`arith_abs_bound` refuses every variable
+read) while `tiered_i64_expr` is only reached by a tiered store that needs a
+growing var in the tree. A literal-only tree is a compile-time constant to
+every backend, so today this constrains emitted text, not emitted behaviour.
+The C gate re-run over the 10 marked files adds no red (the 2 reds on the live
+tree reproduce with the seam disabled: pre-existing, from other in-flight
+work). **The prerequisite is named in the transform's own `prereqs:` line:**
+the escape-classes interval refinement for variable reads. Until it lands,
+any i32 consumer — C, Go, Rust or GLSL — is decorative, and this one is
+labelled as such in `VERUS.md` and in the model's header rather than counted
+as live coverage.

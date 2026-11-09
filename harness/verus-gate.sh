@@ -108,6 +108,18 @@ MODELS=(
   # mixed pair (numeric-homed var vs string literal, the string-eq lift's
   # `[ "$i" = "2" ]`) as UB under the shipped two-armed decision.
   "c_eqne_emit.rs:11:40"
+  # The i32-provable VERDICT's render decision: `exact_i32_bound`
+  # (transforms/i32_provable.rs) over the C tier's new fast path
+  # (`c_backend.rs` `tiered_i64_expr` + `plain_i64_expr`). Proves the
+  # estimator puts EVERY node of a marked tree inside i32 (so the dropped
+  # `__builtin_*_overflow` guard is dead), that `plain_i64_expr` covers every
+  # markable shape, that the decision is total (unmarked ⇒ every check kept),
+  # and the leaf-only mutant that marks 2^87. NOTE: the call site is measured
+  # INERT — 12 marked statements in 10 of 896 corpus examples, and a
+  # literal-only subtree in a tiered store in none of them — so this is a
+  # proof about shipped text, not yet about shipped behaviour; the file says
+  # so and names the estimator refinement that would change it.
+  "i32_emit.rs:20:40"
   # The C generator's checked i64 arithmetic tier — the overflow-flag
   # protocol of both fast arms (`__builtin_*_overflow` walk, the gated
   # commit, the spill/break escape hatches). This is C_UB_PROOF.md §2a's
