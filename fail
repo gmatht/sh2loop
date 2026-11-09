@@ -16,6 +16,9 @@ my $sh2perl = "$root/sh2perl";
 # pipeline (byte-identical output, verified) without the legacy CLI
 # Generator paths.
 my $otranspilerl = "$root/otranspilerl/target/debug/otranspilerl-cli";
+# What the cells actually exec: the plain shared path until the build pins
+# this run's inode (see "PIN THE BINARY" after the build).
+my $run_bin = $otranspilerl;
 # Corpus override: FAIL_CORPUS=/path/to/dir runs only that corpus (used by
 # ./fail-coreutils for the workspace-side GNU coreutils regression tests in
 # tests/coreutils/). Defaults to the sh2perl examples corpus.
@@ -154,14 +157,19 @@ sub run_one_test {
 
     # Step 1: Run otranspilerl to generate Perl code (the whole stdout IS
     # the Perl — no banner to strip)
-    my $gen_out = `timeout $timeout_per_test sh -c '"$otranspilerl" --target pl "$test_file" 2>/dev/null'`;
-    if ($? != 0 && !defined $gen_out) {
+    my $gen_out = `timeout $timeout_per_test sh -c '"$run_bin" --target pl "$test_file" 2>/dev/null'`;
+    # Name WHICH failure: a 20s timeout (124) and a render error both used to
+    # reach the summary as "failed to generate code".
+    my $gen_status = $?;
+    if ($gen_status != 0) {
+        my $code = $gen_status >> 8;
+        my $sig  = $gen_status & 127;
         remove_tree($tmp_dir);
-        return { status => 'FAIL', detail => 'otranspilerl timed out' };
-    }
-    if ($? != 0) {
-        remove_tree($tmp_dir);
-        return { status => 'FAIL', detail => 'otranspilerl failed to generate code' };
+        my $detail = $sig
+            ? "otranspilerl killed by signal $sig"
+            : "otranspilerl failed to generate code (exit $code"
+              . ($code == 124 ? " = timeout ${timeout_per_test}s" : "") . ")";
+        return { status => 'FAIL', detail => $detail };
     }
 
     # Extract Perl code: the whole stdout (otranspilerl has no banner)
@@ -287,6 +295,43 @@ if ($? != 0) {
 }
 print "Build complete.\n\n";
 
+# ── PIN THE BINARY (2026-11-09) ─────────────────────────────────────────
+# Same race as ./fail-estree, and this gate is the one that CREATES it: the
+# build above runs under build-lock.sh --role core, which escalates and
+# SIGTERMs whoever holds the lock, then renames a fresh inode into
+# target/debug/otranspilerl-cli while another gate's ~jobs cells are exec'ing
+# that path. Those cells then report "otranspilerl failed to generate code"
+# for a script that renders clean on its own (the 562/563 class of reading).
+#
+# Pin the inode this run built with a hardlink beside it (same device, no
+# copy), falling back to a copy if the filesystem refuses the link; the cells
+# exec the pin, so a rebuild's rename cannot reach them. The shared path is
+# re-checked after the cells to turn "the box was busy" into one receipt line.
+my ($pin_path, $pin_kind);
+# The cells are FORKED, and a child's exit() runs END blocks: an unguarded
+# unlink here would delete the parent's pin when the first cell finishes
+# (measured in ./fail-estree: 4 passes, then every other cell `exit 127`).
+my $main_pid = $$;
+my @pin_sig = (stat($run_bin))[7, 9];    # size, mtime of the shared binary
+{
+    my $pin = dirname($run_bin) . "/.sh2-pin-$$-" . basename($run_bin);
+    if (link($run_bin, $pin)) {
+        $pin_path = $pin; $pin_kind = 'hardlink';
+    } else {
+        require File::Copy;
+        if (File::Copy::copy($run_bin, $pin)) {
+            chmod 0755, $pin; $pin_path = $pin; $pin_kind = 'copy';
+        }
+    }
+    if ($pin_path) {
+        $run_bin = $pin_path;
+        print "Binary pinned ($pin_kind): $pin_path\n";
+    } else {
+        print "WARNING: could not pin the binary; a concurrent rebuild can fail cells\n";
+    }
+}
+END { unlink $pin_path if defined $pin_path && $$ == $main_pid && -e $pin_path }
+
 # The per-test scratch dir is removed with CLEANUP => 1, i.e. at scope exit.
 # That races a straggler: 096_head_procsub.sh is
 # `head <(while true; do echo .; sleep 1; done)`, so if the writer outlives
@@ -305,7 +350,8 @@ print "Build complete.\n\n";
 my $work_dir = tempdir("failtest-XXXXXXXX", CLEANUP => 1, DIR => "/tmp");
 # Deferred reap: CLEANUP already tried at scope exit. A straggler still
 # holding the tree makes that fail, so retry briefly — but never fatally.
-# (Only ONE END block in this file: the WorkerPool::release() one above.)
+# (END blocks in this file: WorkerPool::release() above, the binary pin just
+# after the build, and this one.)
 END {
     if (defined $main::work_dir && -d $main::work_dir) {
         for my $try (1 .. 3) {
@@ -429,6 +475,19 @@ if ($failed || $timed) {
         next if $r->{status} eq 'PASS';
         my $reason = $r->{status} eq 'TIMEOUT' ? "Timed out after ${timeout_per_test}s" : $r->{detail};
         printf "  FAIL: %s [perl] — %s\n", $r->{file}, $reason;
+    }
+}
+
+# Race receipt: did the shared binary change under us while the cells ran?
+# Without this the only evidence of a lost race is a cell whose detail blames
+# the transpiler; with it, a busy box is one line and needs no re-run.
+if ($pin_kind) {
+    my @now = (stat($otranspilerl))[7, 9];
+    if (@now && defined $pin_sig[0]
+        && ($now[0] != $pin_sig[0] || $now[1] != $pin_sig[1])) {
+        print "\nnote: the shared otranspilerl-cli was REPLACED during this run "
+            . "(size/mtime $pin_sig[0] $pin_sig[1] -> $now[0] $now[1]); "
+            . "the cells ran the pinned inode\n";
     }
 }
 
