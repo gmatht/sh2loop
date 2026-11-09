@@ -5676,7 +5676,15 @@ consulting the baseline — the ordering fix the legacy driver already carried,
 because skipping on a missing file first made a dead extractor and an unwritten
 baseline indistinguishable — and the gate counts those entries as SKIPs that
 print the reason rather than reds that hide behind "generator errored".
-Wiring the modules in (or retiring the models) is the owners' call.
+
+Wiring the modules in is **not** a one-line change: declaring them fails to
+compile against the current crate — E0603 for four private helpers
+(`census`, `exported_names`, `is_shell_implicit`, `expr_pure`) and E0432 for
+`super::READ_ONLY_CALLS` and `string_accumulator::{callee_write_sets, Cw}`.
+They are stale copies of an older API, so the fork is a port or a retirement
+(the one `interval.rs` took). `builtin_lift.rs` is tracked and unreachable in
+the same way and also fails to compile when declared (E0631); it has no model
+at all, so it is simply dead weight. Porting/retiring is the owners' call.
 
 **Gate after this pass: 124 passed, 0 failed, 3 skipped (unwired modules), 2
 retired records, exit 0.** Still unpushed.

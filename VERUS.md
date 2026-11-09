@@ -736,8 +736,18 @@ crate. The extractor now says so in words ("is not a module of the crate"),
 `check_sync_cov` runs it before consulting the baseline, and the gate counts
 the entry as a SKIP that prints the reason instead of a red that hides behind
 "generator errored". Gate after the pass: **124 passed, 0 failed, 3 skipped,
-2 retired records**. Wiring those modules in is the owner's call — the same
-fork as `interval.rs`, where a permanently-red entry was the signal.
+2 retired records**.
+
+**Wiring them in is not an edit.** Declaring the three modules does not
+compile against the current crate: E0603 for four private helpers the models'
+files still call (`census`, `exported_names`, `is_shell_implicit`,
+`expr_pure`) and E0432 for `super::READ_ONLY_CALLS` and
+`string_accumulator::{callee_write_sets, Cw}`. They are stale copies of an
+older API, not finished work waiting for a `mod` line, so the real fork is a
+port or a retirement — the one `interval.rs` took when its target was gone.
+`builtin_lift.rs` is tracked and unreachable in exactly the same way, and
+fails to compile when declared too (E0631, a function-argument mismatch);
+with no model of its own it is simply dead weight in the tree.
 
 **P1 — `redundant_store_elim`.** DONE — see P0(ii): the fixed version is
 proved (shadow argument, observationally exact), with all three bug
