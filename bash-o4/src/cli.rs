@@ -303,7 +303,8 @@ pub fn run(args: &[String]) -> i32 {
         Some(false) => "t64=0",
         None => "t64=env",
     };
-    let opts_key = format!("opt={} {t64key} gpu={:?}", o.common.opt_level, o.common.gpu);
+    let rt_fp = crate::cache::runtime_fingerprint();
+    let opts_key = format!("opt={} {t64key} gpu={:?} rt={rt_fp}", o.common.opt_level, o.common.gpu);
     let key = crate::cache::artifact_key(&a1, &opts_key, &tc_id);
     let opt_level = o.common.opt_level.clone();
     let true64 = o.common.true64;

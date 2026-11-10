@@ -191,6 +191,80 @@ pub const RENDERER_REV: u32 = 14;
 // the key (safe direction: miss, never stale-hit).
 include!(concat!(env!("OUT_DIR"), "/pipeline_rev.rs"));
 
+
+/// Fingerprint of runtime/device inputs that affect the compiled executable:
+/// selected fbdev source dir (override path + contents, or embedded device bytes),
+/// uu runtime sources when relevant are covered by prog.c/sh2perl tree state, and
+/// any fb_spv shaders/manifest found under common locations. Folded into the exe
+/// cache key so BASH_O4_FBDEV_DIR overrides and runtime/SPIR-V changes invalidate
+/// cached binaries (no stale-cache serving).
+pub fn runtime_fingerprint() -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    // GPU path mode envs affect runtime behavior selection/build expectations.
+    for k in [
+        "SH2_FB_CPU_ONLY",
+        "SH2_FB_GPU",
+        "SH2_FB_GPU_PROVE",
+        "SH2_FB_GPU_ACCEPT",
+        "BASH_O4_FBDEV_DIR",
+    ] {
+        h.update(format!("{k}={}\0", std::env::var(k).unwrap_or_default()).as_bytes());
+    }
+    if let Ok(dir) = std::env::var("BASH_O4_FBDEV_DIR") {
+        h.update(b"fbdev_dir=override\0");
+        h.update(dir.as_bytes());
+        h.update([0]);
+        for name in [
+            "fbdev.c", "fbdev.h", "fbwin.c", "fbwin.h", "fbinput.c", "fbinput.h",
+            "fbsound.c", "fbsound.h", "fb_gpu.c", "fb_gpu.h", "uu_run.c", "uu_run.h",
+        ] {
+            let p = std::path::Path::new(&dir).join(name);
+            match std::fs::read(&p) {
+                Ok(b) => { h.update(name.as_bytes()); h.update([0]); h.update(&b); h.update([0]); }
+                Err(_) => { h.update(name.as_bytes()); h.update(b"=missing\0"); }
+            }
+        }
+    } else {
+        h.update(b"fbdev_dir=embedded\0");
+        h.update(crate::devices::content_digest().as_bytes());
+        h.update([0]);
+    }
+    // SPIR-V shaders/manifest (if present) must invalidate exe cache.
+    let mut spv_paths: Vec<std::path::PathBuf> = Vec::new();
+    for root in [
+        std::env::current_dir().ok(),
+        std::env::var("BASH_O4_SH2PERL").ok().map(std::path::PathBuf::from),
+    ].into_iter().flatten() {
+        let d = root.join("fb_spv");
+        if let Ok(rd) = std::fs::read_dir(&d) {
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.extension().and_then(|s| s.to_str()) == Some("spv")
+                    || p.file_name().and_then(|s| s.to_str()) == Some("manifest")
+                    || p.file_name().and_then(|s| s.to_str()).map(|n| n.contains("manifest")).unwrap_or(false)
+                {
+                    spv_paths.push(p);
+                }
+            }
+        }
+    }
+    spv_paths.sort();
+    for p in spv_paths {
+        if let Ok(b) = std::fs::read(&p) {
+            h.update(p.to_string_lossy().as_bytes());
+            h.update([0]);
+            h.update(&b);
+            h.update([0]);
+        }
+    }
+    // Link-relevant compile flags/env that affect produced binary.
+    for k in ["CC", "CFLAGS", "LDFLAGS", "BASH_O4_TCC", "BASH_O4_CC"] {
+        h.update(format!("{k}={}\0", std::env::var(k).unwrap_or_default()).as_bytes());
+    }
+    hex_of(&h.finalize())
+}
+
 /// SHA-256 hex of bytes.
 pub fn sha256_hex(bytes: &[u8]) -> String {
     let mut h = Sha256::new();

@@ -422,6 +422,25 @@ fn find_device_write_stmt(st: &IrStmt, verb: &str) -> Option<String> {
     }
 }
 
+
+/// Phase 2: rb_frag-parity fragment shader scaffold (oracle-derived).
+///
+/// Structure follows Phase-0 semantics: tex sample/wrap -> tint/shade bridge ->
+/// optional CRT scanline+vignette -> crack/damage (atlas slot 9, rbp_fdam mix) ->
+/// optional CORRUPT noise -> clamp/pack. Deterministic integer/fixed-point
+/// transcription is REQUIRED for parity (no silent precision narrowing); this
+/// scaffold mirrors the blocks-fragment device math and MUST be validated/tuned
+/// against state-aligned j.cmd/JS/bash oracle vectors (Phase 0) before claiming
+/// correctness.
+pub fn rb_frag_fragment_scaffold() -> String {
+    let mut s = String::new();
+    s.push_str("#version 450\n");
+    s.push_str("// bash-O4 Phase 2: rb_frag parity scaffold (oracle-derived; validate vs j.cmd/JS/bash)\n");
+    s.push_str(&push_constants_glsl());
+    s.push_str('layout(set = 0, binding = 1) uniform sampler2DArray atlas;\nconst int CRACK_LAYER = 9; // slot 9 crack/damage\nlayout(location = 0) in vec3 vTint;\nlayout(location = 1) in float vShade;\nlayout(location = 2) in vec2 vUv;\nlayout(location = 3) flat in int vTex;\nlayout(location = 4) flat in int vDmg;\nlayout(location = 0) out vec4 o;\n\nivec4 sample_tex(int layer, vec2 uv) {\n  // Wrap semantics must match rb_tex_sample/oracle exactly (validate).\n  vec2 w = fract(uv);\n  return ivec4(texture(atlas, vec3(w, float(layer))) * 255.0);\n}\n\nvoid main() {\n  ivec4 tx = sample_tex(vTex, vUv);\n  // Tint/shade bridge: preserve integer divide/truncation and 127/128 scaling\n  // per oracle/_sh_div* semantics (no silent float narrowing).\n  int tr = int(vTint.x * 255.0 + 0.5);\n  int tg = int(vTint.y * 255.0 + 0.5);\n  int tb = int(vTint.z * 255.0 + 0.5);\n  int sh = int(vShade * 1000.0);\n  tr = tr * sh / 1000; tg = tg * sh / 1000; tb = tb * sh / 1000;\n  if (tr < 0) tr = 0; if (tr > 255) tr = 255;\n  if (tg < 0) tg = 0; if (tg > 255) tg = 255;\n  if (tb < 0) tb = 0; if (tb > 255) tb = 255;\n  int r = tr * tx.r / 128;\n  int g = tg * tx.g / 128;\n  int b = tb * tx.b / 128;\n\n  // Device y-down vs gl_FragCoord y-up for scanline/vignette parity.\n  int px = int(gl_FragCoord.x);\n  int vh = int(cam1.w > 0.5 ? cam1.w : 1.0);\n  int py = vh - 1 - int(gl_FragCoord.y);\n\n  // CRT (scanline/vignette) — order per oracle/spec.\n  if ((cfg.x & 1) != 0) {\n    if (py % 6 == 0) { r = r * 90 / 100; g = g * 90 / 100; b = b * 90 / 100; }\n    int vx = px - int(cam1.z) / 2; if (vx < 0) vx = -vx;\n    int vy = py - vh / 2; if (vy < 0) vy = -vy;\n    int edge = vx + vy;\n    if (edge > 450) {\n      int dim = edge - 450; if (dim > 30) dim = 30;\n      r = r - r * dim / 256; g = g - g * dim / 256; b = b - b * dim / 256;\n    }\n  }\n\n  // Crack/damage blend (slot 9) — mix factor must match rbp_fdam/oracle.\n  if (vDmg > 0) {\n    ivec4 ck = sample_tex(CRACK_LAYER, vUv);\n    int mix = vDmg * ck.a / 4;\n    if (mix > 127) mix = 127;\n    r = r - (r - ck.r) * mix / 128;\n    g = g - (g - ck.g) * mix / 128;\n    b = b - (b - ck.b) * mix / 128;\n  }\n\n  // Corruption noise (deterministic hash per oracle/spec).\n  if ((cfg.x & 2) != 0) {\n    int hash = px * 7 + py * 13;\n    if (hash % 97 == 0) { r = 255; g = g / 2; b = b / 2; }\n  }\n\n  if (r < 0) r = 0; if (g < 0) g = 0; if (b < 0) b = 0;\n  uint packed = (uint(r) << 16u) | (uint(g) << 8u) | uint(b);\n  o = vec4(float((packed >> 16u) & 0xFFu), float((packed >> 8u) & 0xFFu), float(packed & 0xFFu), 1.0) / 255.0;\n}\n');
+    s
+}
+
 /// Compile one GLSL stage to SPIR-V (`glslangValidator -V`), returning
 /// the SPIR-V bytes. Stage-aware sibling of `shader::compile_spv`
 /// (which hardcodes the `.comp` compute shape): `ext` is `vert` or
