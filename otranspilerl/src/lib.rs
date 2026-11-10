@@ -945,6 +945,14 @@ const USAGE: &str = "otranspiler <input> [<output>] [flags]
                     declares `regex` only for programs whose `__sh_regex`
                     helper uses it (bash `=~`). Everything else stays a
                     dependency-free file that plain `rustc` still compiles.
+  --regex-engine E  Rust target: which engine backs `=~` (default `rust`).
+                    `rust` uses the `regex` crate — fast, Unicode, but
+                    Perl-flavoured: `\\d` is a digit class where bash reads a
+                    literal `d`. `posix` uses `revera`: POSIX ERE, so
+                    alternation is leftmost-longest and bracket classes are
+                    POSIX's, which is what bash's glibc `=~` means. The posix
+                    engine is bigger (embedded locale data) and its crate must
+                    be fetched once.
   --shir            output the raw A1 contract (same as output ext .shir)
   --raw             with --shir: the byte-equality oracle path (shell →
                     ast_to_ir → shir_to_shir_json, no stmt_lines; the old
@@ -994,6 +1002,9 @@ pub fn cli_at(
     // --cargo-dir DIR: write a cargo project (manifest + src/main.rs) for a
     // rendered Rust program. None = the historical single-file stdout path.
     let mut cargo_dir: Option<String> = None;
+    // --regex-engine rust|posix: which engine backs `__sh_regex`. Per render,
+    // restored immediately after, because test harnesses call this in-process.
+    let mut regex_engine = String::from("rust");
     let mut embed_opts = EmbedOpts::default();
     let mut positional: Vec<String> = Vec::new();
     // Optimization level (-O0/-Og/-O3/-O4). None = no -O flag given →
@@ -1060,6 +1071,15 @@ pub fn cli_at(
             }
             s if s.starts_with("--cargo-dir=") => {
                 cargo_dir = Some(s["--cargo-dir=".len()..].to_string());
+            }
+            "--regex-engine" => {
+                if i + 1 < args.len() {
+                    regex_engine = args[i + 1].clone();
+                    i += 1;
+                }
+            }
+            s if s.starts_with("--regex-engine=") => {
+                regex_engine = s["--regex-engine=".len()..].to_string();
             }
             "--backtick" => embed_opts.backtick = true,
             "--english" => embed_opts.english = true,
@@ -1383,6 +1403,13 @@ pub fn cli_at(
             }
         }
     }
+    if regex_engine != "rust" && regex_engine != "posix" {
+        let _ = writeln!(
+            stderr,
+            "otranspiler: --regex-engine must be `rust` or `posix` (got `{regex_engine}`)"
+        );
+        return 1;
+    }
     // `--library` exports the functions, so an external caller could pass
     // any argument — the interprocedural param-range analysis (drop the
     // `|| 0` NaN/zero normalizer) is unsound for exported functions. Set
@@ -1393,7 +1420,10 @@ pub fn cli_at(
     } else {
         false
     };
-    let out = match render_with_source(&a1, &tgt_lang, Some(&src_lang)) {
+    debashl::rust_backend::set_regex_engine_posix(regex_engine == "posix");
+    let rendered = render_with_source(&a1, &tgt_lang, Some(&src_lang));
+    debashl::rust_backend::set_regex_engine_posix(false);
+    let out = match rendered {
         Ok(out) => out,
         Err(e) => {
             let _ = writeln!(stderr, "otranspiler: {e}");
@@ -1781,6 +1811,36 @@ mod tests {
 
     fn embed(args: &[&str]) -> (i32, String, String) {
         cli_captured(&root(), &args.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn regex_engine_selects_the_helper_and_does_not_leak() {
+        // `--regex-engine posix` changes the emitted helper (and therefore
+        // the manifest's dependency), and the choice must not survive the
+        // render: harnesses call this repeatedly on one thread.
+        let src = "x=abc\nif [[ $x =~ ^a ]]; then echo yes; fi\n";
+        let dir = std::env::temp_dir().join(format!("sh2-rx-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("t.sh");
+        std::fs::write(&path, src).expect("write");
+        let p = path.to_string_lossy().to_string();
+
+        let (_, dflt, _) = embed(&["--target", "rs", p.as_str()]);
+        assert!(dflt.contains("regex::Regex"), "default engine:\n{dflt}");
+        assert!(!dflt.contains("revera::"), "default engine:\n{dflt}");
+
+        let (rc, posix, err) = embed(&["--target", "rs", "--regex-engine", "posix", p.as_str()]);
+        assert_eq!(rc, 0, "stderr: {err}");
+        assert!(posix.contains("revera::Regex"), "posix engine:\n{posix}");
+        assert!(!posix.contains("regex::Regex"), "posix engine:\n{posix}");
+
+        let (_, again, _) = embed(&["--target", "rs", p.as_str()]);
+        assert!(again.contains("regex::Regex"), "engine leaked:\n{again}");
+
+        let (bad, _, berr) = embed(&["--target", "rs", "--regex-engine", "nope", p.as_str()]);
+        assert_eq!(bad, 1, "unknown engine must be refused");
+        assert!(berr.contains("--regex-engine"), "stderr: {berr}");
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

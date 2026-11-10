@@ -83,13 +83,13 @@ for f in "$EX"/*.sh; do
       echo "$name FAIL-emit" >> "$LOG"; fail=$((fail+1)); continue
     fi
   fi
-  # A program whose `__sh_regex` helper uses the `regex` crate cannot be
+  # A program whose `__sh_regex` helper uses `regex` or `revera` cannot be
   # linked by a bare `rustc` invocation — a single file has no manifest and
   # therefore no path to an external crate. Those build through the emitted
   # Cargo project; everything else keeps the single-file rustc path, which
   # is the fast arm of the same contract. (`command grep`, not the ripgrep
   # shell function: `-q` is passed through and the function rejects it.)
-  if command grep -q 'regex::Regex' "$rs"; then
+  if command grep -qE 'regex::Regex|revera::' "$rs"; then
     proj="$OUT/proj_$name"
     rm -rf "$proj"
     if ! "$CLI" --target rs --cargo-dir "$proj" "$f" >/dev/null 2>"$OUT/$name.emiterr"; then

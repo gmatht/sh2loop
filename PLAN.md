@@ -12,6 +12,37 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v146: **`=~` can use a POSIX ERE engine (`--regex-engine posix`), because bash's
+>   semantics are not Rust's.** The `regex` crate is leftmost-first and Perl-flavoured:
+>   in bash `\d` is a literal `d` (POSIX ERE has no such escape) while Rust reads a digit
+>   class. `--regex-engine posix` renders `__sh_regex` against `revera` 0.2 instead —
+>   POSIX.1-2024 ERE, leftmost-longest, POSIX bracket classes, no Perl escapes (measured:
+>   `a|ab` on `abc` yields `ab`, which the `regex` crate never does) — and
+>   `cargo_manifest` then declares `revera` rather than `regex`. The engine is a
+>   per-render thread-local, restored immediately, because harnesses render many programs
+>   in one process; the default engine is unchanged, so this is opt-in per program.
+>
+>   One trap worth recording: helpers are emitted by walking `HELPER_ORDER`, so a new
+>   helper name that is absent from that list is silently dropped — the call site still
+>   references `__sh_regex`, and the generated program fails with E0425 rather than
+>   emitting an obviously wrong body.
+>
+>   Measured with the posix engine: all **16** corpus examples using `=~` render, build
+>   offline and run — **14 are byte-identical to bash (stdout and rc)**, and the 2 that
+>   differ are the same 2 as under the default engine and differ only on bash's own
+>   stderr text (`063_hard_to_parse`, `070_gnuisms_thorough`). So the switch is
+>   corpus-neutral: it changes semantics only where the dialects disagree.
+>
+>   Dialect probe (text `a-b`, pattern `\w+`): bash NOMATCH, `regex` engine MATCH, posix
+>   engine NOMATCH — revera reproduces bash's literal-`w` reading where Rust's engine
+>   invents a word class. Limits: revera is pure POSIX, so glibc's GNU operators (`\<`,
+>   `\>`, `\b`) are not expressible on it either; and the probe surfaced a separate
+>   latent bug — a `=~` whose LHS is an int-typed variable renders `__sh_regex(&t, …)`
+>   and fails to compile. That is still open, and is not blessed by any gate.
+>
+>   `revera` is not in the offline registry by default: the first posix build fetches it
+>   once, after which `cargo build --offline` works. 129 `rust_backend` tests pass, plus a
+>   CLI test that `--regex-engine posix` selects the helper and does not leak.
 > - v145: **Generated Rust can declare a dependency: `regex` replaces the bash shell-out in
 >   `__sh_regex`, and `--cargo-dir` emits the manifest that makes it linkable.** `__sh_regex` used to run
 >   `bash -c '[[ $1 =~ $2 ]]'` per match — a process per test, plus a runtime dependency on bash being on
