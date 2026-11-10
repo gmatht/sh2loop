@@ -40,12 +40,14 @@ const FBINPUT_C: &str = include_str!("../../sh2perl/runtime/fbinput.c");
 const FBINPUT_H: &str = include_str!("../../sh2perl/runtime/fbinput.h");
 const FBSOUND_C: &str = include_str!("../../sh2perl/runtime/fbsound.c");
 const FBSOUND_H: &str = include_str!("../../sh2perl/runtime/fbsound.h");
+const FB_GPU_C: &str = include_str!("../../sh2perl/runtime/fb_gpu.c");
+const FB_GPU_H: &str = include_str!("../../sh2perl/runtime/fb_gpu.h");
 
 /// Every embedded file, as (name, text). The headers must be written
 /// too: the render does `#include <fbdev.h>` and the sources do
 /// `#include "fbdev.h"`, and both need a real header on disk for the C
 /// compiler to find.
-const ALL: [(&str, &str); 8] = [
+const ALL: [(&str, &str); 10] = [
     ("fbdev.c", FBDEV_C),
     ("fbdev.h", FBDEV_H),
     ("fbinput.c", FBINPUT_C),
@@ -54,13 +56,15 @@ const ALL: [(&str, &str); 8] = [
     ("fbwin.h", FBWIN_H),
     ("fbsound.c", FBSOUND_C),
     ("fbsound.h", FBSOUND_H),
+    ("fb_gpu.c", FB_GPU_C),
+    ("fb_gpu.h", FB_GPU_H),
 ];
 
 /// A short, stable digest of the embedded device bytes. FNV-1a: this is
 /// a cache-key component, not a security property, and it only has to
 /// change when the bytes change. (The same choice as `build.rs`'s
 /// pipeline revision, for the same reason.)
-fn digest() -> String {
+pub fn content_digest() -> String {
     let mut h: u64 = 0xcbf29ce484222325;
     for (name, text) in ALL {
         for b in name.as_bytes().iter().chain(text.as_bytes()) {
@@ -75,7 +79,7 @@ fn digest() -> String {
 /// for the CONTENT, so two builds with two sh2perl revisions write two
 /// different directories and neither clobbers the other.
 pub fn device_dir(cache_root: &Path) -> PathBuf {
-    cache_root.join("bash-o4").join("devices").join(digest())
+    cache_root.join("bash-o4").join("devices").join(content_digest())
 }
 
 /// Write the embedded device files into `cache_root` and return the
@@ -252,6 +256,6 @@ mod tests {
             "a device edit must move the directory, or two builds share one"
         );
         // Stable across calls: same bytes, same name.
-        assert_eq!(digest(), digest());
+        assert_eq!(content_digest(), content_digest());
     }
 }

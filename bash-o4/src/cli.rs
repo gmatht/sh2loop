@@ -385,6 +385,11 @@ pub fn run(args: &[String]) -> i32 {
             opts_key.push_str(&format!(" {v}={x}"));
         }
     }
+    // Runtime/device inputs (fbdev override dir + contents, embedded device
+    // digest, fb_spv/manifest, GPU selection envs) change the compiled
+    // executable, so they bust the artifact cache exactly like the switches
+    // above — same silent-stale-hit prevention.
+    opts_key.push_str(&format!(" rt={}", crate::cache::runtime_fingerprint()));
     let key = crate::cache::artifact_key(&a1, &opts_key, &tc_id);
     let opt_level = o.common.opt_level.clone();
     let true64 = o.common.true64;
