@@ -12,6 +12,28 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v147: **`=~` correctness pass: numeric operands, `nocasematch`, invalid-pattern status, and a gate
+>   against the dropped-helper trap.** (1) `[[ $t =~ 3 ]]` with `t=3` rendered `__sh_regex(&t, …)`
+>   against an `i32` and failed to compile (E0308): the existing numeric coercion covers numeric
+>   *literals* only (`[[ 1 =~ 2 ]]` worked), because a variable's type is not visible at the test site,
+>   so both operands are now stringified unconditionally. (2) `shopt -s nocasematch` was tracked for
+>   `==`/fnmatch but never reached `=~` (the arm hard-coded empty flags); it now passes `"i"`, which the
+>   `regex` engine folds with `(?i)` and revera folds with `case_insensitive` — exact `REG_ICASE`, no
+>   approximation. (3) An invalid pattern now returns `None` rather than `false`, so the condition
+>   stores bash's status 2 (measured: bash prints *nothing* for a runtime-invalid pattern; the familiar
+>   message belongs to the parse-time case of a literal unbalanced pattern). `if [[ … =~ $bad ]]` now
+>   matches bash exactly. **Residual:** the BARE-statement form still reports status 1 — the generic
+>   test-statement wrapper (`{ let __b = …; __SH_RC.store(if __b { 0 } else { 1 }); __b }`, three
+>   emission sites) overwrites the condition's status with 0/1. Fixing that needs a tri-state through
+>   the wrapper rather than another text hack, so it is recorded open, not blessed. (4) `helper_source`'s
+>   unknown-name fallback now `debug_assert!`s, and a test scans this file for every literal
+>   `add_helper("…")` and requires the name to be in `HELPER_ORDER` AND to have a `fn __sh_` body — the
+>   trap that cost the `regex_posix` work a build.
+>
+>   Measured: 131 `rust_backend` tests pass (129 + the helper-registry and regex-shape tests); the 16
+>   `=~` corpus examples still build through the cargo path with **14 byte-identical to bash** and the
+>   same 2 stderr-only diffs; full corpus unchanged at 516 ok / 30 diff / 1 pre-existing compile failure
+>   / 0 status diffs, with an identical diff-name set.
 > - v146: **`=~` can use a POSIX ERE engine (`--regex-engine posix`), because bash's
 >   semantics are not Rust's.** The `regex` crate is leftmost-first and Perl-flavoured:
 >   in bash `\d` is a literal `d` (POSIX ERE has no such escape) while Rust reads a digit
@@ -38,7 +60,7 @@ Covers three related work items:
 >   invents a word class. Limits: revera is pure POSIX, so glibc's GNU operators (`\<`,
 >   `\>`, `\b`) are not expressible on it either; and the probe surfaced a separate
 >   latent bug — a `=~` whose LHS is an int-typed variable renders `__sh_regex(&t, …)`
->   and fails to compile. That is still open, and is not blessed by any gate.
+>   and fails to compile — fixed in v147 (numeric operands are stringified).
 >
 >   `revera` is not in the offline registry by default: the first posix build fetches it
 >   once, after which `cargo build --offline` works. 129 `rust_backend` tests pass, plus a
