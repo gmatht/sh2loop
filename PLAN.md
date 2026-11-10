@@ -12,6 +12,35 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v149: **C: bash is no longer the runtime for pattern matching, uid or hostname.** (1) `grepMatches`
+>   (and the grep -o lift) spawned `bash -c 'printf … | grep -o …'` for EVERY match.
+>   `__sh_grepmatches` is now native: POSIX BRE is TRANSLATED to ERE (`\+`, `\?`, `\|`, `\(`, `\{`
+>   become operators; unescaped ERE metacharacters become literals; bracket expressions copy
+>   verbatim), `-E` passes through, `-i` folds, `(?m)` gives grep's per-line `^`/`$`, and
+>   `find_iter` advances exactly like `-o`, one match per line. An invalid pattern now exits 2 like
+>   grep instead of 1. The helper's dependency moved from `cap_bytes` to `regex`, so the emitted
+>   project declares the crate it calls. Verified byte-identical to bash on the five grep -o
+>   programs in the corpus, including `pattern[0-9]\+` — the BRE case a pass-through would have read
+>   as a literal `+`.
+>   (2) `$UID`, `$EUID`, `$HOSTNAME` rendered `__sh_capture("id -u")` / `("hostname")` — a process
+>   for a constant. They read `/proc/self/status` (`Uid:` real/effective, `Gid:`) and
+>   `/proc/sys/kernel/hostname`, and `-O`/`-G` compare against the same native uid/gid instead of
+>   spawning `id -u`/`id -g` themselves. Verified against bash: uid, euid, hostname, `-O /tmp`,
+>   `-G /tmp` all identical.
+>   (3) `harness/shellout-census.sh` makes the remaining dependency measurable: per-program list,
+>   `--quiet`, `--json`. Measured: **563 programs, 337 spawn no bash, 226 still emit a
+>   bash-spawning helper** (`spawn` 186, `capture_rc` 63, `run` 57, `run_traps` 29, `cap_bytes` 9,
+>   `bg` 3). The three grep -o programs left that set; the rest are bodies the backend cannot
+>   reconstruct (eval, command, trap, and command substitutions whose text is not known at render
+>   time).
+>
+>   **Still open (recorded, not blessed):** `arith_text_unparsed` — arithmetic containing nested
+>   `$(…)` — still evaluates through `capture_rc`. `parse_arith` returns `None` for any `$` operand
+>   BY DESIGN (bash expands `$var` into the arithmetic text before parsing, so `$(( $j * 2 ))` with
+>   `j` unset is a syntax error, which a native read of 0 cannot express). The fix is to extract the
+>   `$(…)` spans, lower each through the existing cmdsub path, bind the results as numeric locals,
+>   parse the remaining arithmetic against those bindings, and keep the shell fallback only for text
+>   that is still not parseable.
 > - v148: **The rust parse-error verdict, and a real diagnostic channel for `Warn`.** (1) `--target rs`
 >   had NO parse-error fallback: estree and Perl both render an exit-2 program for an unparseable
 >   source, rust rendered the EMPTY program, which exits 0. Five examples were exactly that in the
