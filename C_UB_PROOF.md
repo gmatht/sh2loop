@@ -96,10 +96,26 @@ sites are `snprintf`, the `(_sh_cmd[l] = c; _sh_cmd[l+1] = 0)` style appends
 (`c_backend.rs:8762,8971`), and the `static char _sN[32]` num-temp buffers
 whose `snprintf` bound is a format-width claim, not a length claim.
 
-`array_caps` gets the same treatment: `ARR_CAP = 1024` is the unproven
-default (`c_backend.rs:786`), and the "sizing from proofs: max literal reset
-bulk + bounded appends" claim (`:350-352`) is exactly a length abstraction to
-mechanize.
+`array_caps` had the same treatment, and as of 2026-11-09 the part that
+matters is mechanized: `ARR_CAP = 1024` is a CEILING, not the sizing — an
+array whose census `need` reaches it is routed to the growable vec instead of
+being declared as a table — and `proofs/verus/c_arr_cap.rs` proves that a
+fixed table is at least as large as the literal bulk the renderer writes into
+it, that anything at or above the ceiling is never a fixed table, and that the
+write guard admits exactly the in-bounds writes. That last obligation caught a
+real defect: the `"$@"` spread guard compared the write count against `ARR_CAP`
+rather than the DECLARED cap (`c_backend.rs` `emit_set_array`), so a
+proof-sized `a[3]` would have admitted four stores into it; the guard now uses
+`acap`, the same number the declaration uses.
+
+The assumption is observable rather than assumed: a `debug_assert!` at the
+reset emitter refuses to emit a literal bulk larger than the declared cap, and
+`harness/c-arr-cap-scan.sh` renders the example set and reports the numbers —
+555 of 563 examples rendered, 72 fixed tables, largest bulk 5, largest
+capacity below the ceiling 10, **0** tables whose bulk exceeds their cap. The
+41 tables AT the ceiling are the deliberate unproven backstop (assoc k/v
+stores, fn-return arrays) whose writes carry the exit-127 guard, i.e. the
+"or the guard engages" half of the claim rather than a proved size.
 
 ### 2c. The renderer itself (optional, expensive)
 
@@ -611,7 +627,13 @@ always carries the NUL at `b[23]`); `size_itoa_exact` (result is
 zero arm); `max_digits_64` (the shared width fact, proved once).
 
 **Isabelle half (`proofs/ArithIdentity/ArithDec.thy`, §5 of the
-arithmetic denotation, green under `quick_and_dirty = false`).** The bytes
+arithmetic denotation, green under `quick_and_dirty = false`).** Until
+2026-11-09 this sentence rested on a file nothing built: `ArithDec.thy` was
+untracked and in no `ROOT`, so the gate never reached it. It now rides in the
+`ArithIdentity` session's `theories` list (after `ArithWidth`, which it
+imports) and checks in 31 s as part of that session — `ArithIdentity` 4.6 s,
+`ArithWidth` 2.2 s, `ArithDec` 31.2 s, all under `quick_and_dirty = false`,
+and `harness/transform-proofs.sh` rebuilds them every run. The bytes
 those helpers promise are proved against the shIR denotation, not against
 a model of C: `parse_dec_bytes` (the fold reader inverts `dec_bytes`),
 `parse_render_id` (`parse (render v) = v` — the round trip `ll2s_exact`

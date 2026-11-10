@@ -438,6 +438,11 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     strip:pin_nested_opaque) echo UNMIRRORED ;;
     strip:pin_normal_path_runs_step) echo strip:forinit_lowers_to_while_with_step_and_continue_splice ;;
     strip:pin_both_spellings_continue) echo strip:legacy_continue_call_gets_the_step_splice ;;
+    # The verdict itself (`is_continue(Continue) && !is_continue(Break)`).
+    # `src/shir_passes/strip.rs` has no test that isolates the predicate — the
+    # nearest, the for-init splice test, exercises the consumer, not the
+    # verdict — so this is a conscious UNMIRRORED rather than a guessed map.
+    strip:pin_continue_verdict) echo UNMIRRORED ;;
     counted_arith_forinit:pin_incdec_step_folds) echo counted_arith_forinit:prefix_incdec_step_recovers ;;
     counted_arith_forinit:pin_expr_step_normalizes) echo counted_arith_forinit:expr_incdec_step_recovers ;;
     counted_arith_forinit:pin_plus_one_step_folds) echo counted_arith_forinit:plus_one_assign_recovers ;;
@@ -777,12 +782,24 @@ case "$MODEL" in
     sgrep -q "fn is_bare_literal" \
       || fail "const-condition-elim is_bare_literal not found in source"
     echo "guard const-condition-elim is_bare_literal gate: PRESENT"
-    # unreachable-after-exit: direct-Exit trigger + fn-gated Return + dead flag.
-    sgrep -q "IrStmt::Exit" \
-      || fail "unreachable-after-exit Exit trigger not found in source"
+    # unreachable-after-exit: the terminator verdict MOVED into the shared
+    # `shir::stmt_terminates` (the `IrStmt::Exit`/`IrStmt::Return` arms live
+    # there now), so the transform no longer names the nodes at the trigger —
+    # it imports the verdict and passes `in_fn` through. The guard checks the
+    # two hops that make the claim true: the delegation in the transform, and
+    # the arms where they now live. Anchoring on the old literals made this
+    # entry fail for a REASON THAT WAS NOT DRIFT, and the emitted lines are
+    # kept byte-identical to the baseline on purpose (this is a re-anchor, not
+    # a re-bless).
+    sgrep -q "use crate::shir::stmt_terminates" \
+      || fail "unreachable-after-exit does not use the shared stmt_terminates"
+    command grep -q "IrStmt::Exit" "$root/sh2perl/src/shir.rs" \
+      || fail "shared terminator verdict no longer names IrStmt::Exit"
     echo "guard unreachable-after-exit Exit trigger: PRESENT"
-    sgrep -q "IrStmt::Return" \
-      || fail "unreachable-after-exit Return trigger not found in source"
+    sgrep -q "terminates(&st, in_fn)" \
+      || fail "unreachable-after-exit does not thread in_fn into the verdict"
+    command grep -q "IrStmt::Return(_) => in_fn" "$root/sh2perl/src/shir.rs" \
+      || fail "shared terminator verdict no longer scopes Return to in_fn"
     echo "guard unreachable-after-exit Return trigger: PRESENT"
     # merge-init-assignments: literal-default + pure-rhs + no-self-read gates.
     sgrep -q "fn is_literal" \
@@ -1469,6 +1486,22 @@ echo "# source file) and records the per-test PASS/FAIL verdict below."
 #     read as verified.
 #   TEST-FAIL/MISSING: per-test verdicts below; the manifest names the
 #     broken fragment.
+# A source file that is not a module of the crate is DEAD CODE: its
+# `#[test]`s are never compiled, so every mapped pin reports MISSING ("renamed?
+# filtered?") and the real cause stays buried. Three models sat in that state
+# (arr_load_fwd, exec_call_fold, interp_lit_merge — files present, referenced
+# nowhere in `src/`), which reads like a test rename and is a module gap.
+case "$SRCDIR" in
+  "") parent="$root/sh2perl/src/lib.rs" ;;
+  *)
+    parent="$root/sh2perl/src/$SRCDIR/mod.rs"
+    [ -f "$parent" ] || parent="$root/sh2perl/src/$SRCDIR.rs"
+    ;;
+esac
+for src in $SRCS; do
+  command grep -qE "^[[:space:]]*(pub )?mod $src\\b" "$parent" \
+    || fail "src/${SRCDIR:+$SRCDIR/}$src.rs is not a module of the crate (no 'mod $src;' in src/${parent#*/sh2perl/src/}) — its #[test]s never compile, so no pin can execute: wire the module in or retire the model"
+done
 test_out=""; suite_blocked=0
 for src in $SRCS; do
   # Test filter: namespaced sources are `transforms::<src>`; a crate-root

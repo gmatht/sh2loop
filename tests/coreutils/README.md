@@ -48,7 +48,7 @@ would hide a transpiler bug (AGENTS.md guardrail).
 | `coreutils-printf-env-prefix-if.sh` | env-var-prefixed variable command in an if condition (`if POSIXLY_CORRECT=1 $prog ...`) | `Lexer error: Unexpected character: $` |
 | `coreutils-dd-cmdsub-digit-suffix.sh` | digit directly after a command-substitution `)` / brace `}` (`long_multiplier=$(... )1`) misparsed as a redirect fd | `Invalid syntax: Invalid redirect operator` |
 | `source-inline.sh` | `. file` / `source file` are not inlined by the Perl backend; sourced definitions are lost | stdout mismatch (bash sources, Perl doesn't) |
-| `check-estree-default-param.sh` | `${var:=default}` (and `:-`/`:?`/`:+`) lowers to `sh2.unsupported` in the ESTree emitter — the dominant gap (645/650 scripts, from `. "${srcdir=.}/tests/init.sh"`) | exits 1 while `sh2.unsupported` is emitted |
+| `check-estree-default-param` (manual — no `.sh`, so `fail-coreutils` does not glob it) | `${var:=default}` family; it measures the retired `debashc file --estree`, NOT the `otranspilerl --target estree` path the gates use, where the family lowers with no marker (measured 2026-11-09) | exits 1: `debashc` is not built here, so the test cannot run (it used to PASS vacuously on empty output) |
 
 ## Fix targets
 

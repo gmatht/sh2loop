@@ -259,6 +259,20 @@ children, so after editing `setup_backends.sh` check for orphaned
   transforms, and pattern lifts. Every backend consumes the same
   pipeline; the only thing that varies is the renderer.
 - `./fail <prefix>` — subset by filename prefix
+- `node harness/estree-contract.mjs` — **the sh2.* op contract** (validation,
+  not semantics). Renders the corpus once (563 artifacts, ~6 s) and checks that
+  every emitted `sh2.*` callee resolves on `harness/sh2-namespace.mjs` with a
+  compatible arity; that `estree_gate.pl`'s hand-maintained `%whitelist` admits
+  only names the runtime has; that the emitted surface matches the committed
+  `harness/estree-contract.json` (any drift needs a deliberate `--update`); and
+  that the `runtime/README.md` §1 polyfill inventory exists in both mirrors.
+  `--selftest` is 6 negative controls; `--namespace <file>` checks an
+  alternative runtime. It runs as a **pre-flight inside `./fail-estree`**
+  (against its pinned binary; a failure aborts a `--gate` run before the corpus
+  loop). This is the check that catches a runtime RENAME before the corpus can:
+  `fail-estree` only sees names some example reaches — which is how an emitted
+  but unimplemented `sh2.die` survived until this script existed (2026-11-09;
+  the op is now implemented and the gap is the reason section B exists).
 - `./fail-coreutils` — red regression tests from the GNU coreutils suite
   probe (`tests/coreutils/`; each documents a known parser/transpiler gap
   and goes green as the fix lands — never bless them)

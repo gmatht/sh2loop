@@ -241,12 +241,33 @@ pub fn parse_error_perl_fallback(msg: &str) -> String {
         .replace('@', "\\@")
         .replace('`', "\\`")
         .replace('\n', "\\n");
+
     format!(
         "#!/usr/bin/env perl\n\
          use strict;\n\
          use warnings;\n\
          print STDERR \"syntax error: {msg}\\n\";\n\
          exit 2;\n"
+    )
+}
+
+/// The parse-error RUST fallback: a program that prints the diagnostic to
+/// stderr and exits 2 — bash's syntax-error verdict. The `rs` target had no
+/// fallback at all, so an unparseable script rendered the EMPTY program,
+/// which exits 0 (`fail-rs` "bash_rc=2 rust_rc=0" on parse-double-semicolon,
+/// parse-error-doublesemicolon, parse-parameter-expansion-eof,
+/// parse-paren-after-do and parse-unexpected-end-of-input). estree and perl
+/// already had this parity; the message goes through `eprintln!("{}", …)`
+/// with a separate argument so braces/quotes in the parser's text cannot
+/// collide with a format string.
+pub fn parse_error_rust_fallback(msg: &str) -> String {
+    // The message is a RAW-STRING ARGUMENT and never the format string: the
+    // parser's own text can contain `${`, `{` and `"`, which a format literal
+    // would read as a placeholder or a premature end of string. `"#` is the
+    // only sequence that closes `r#"…"#`, so it is neutralised.
+    let msg = msg.replace("\"#", "'#");
+    format!(
+        "fn main() -> std::process::ExitCode {{\n    eprintln!(\"{{}}\", r#\"syntax error: {msg}\"#);\n    std::process::ExitCode::from(2)\n}}\n"
     )
 }
 
@@ -939,6 +960,20 @@ const USAGE: &str = "otranspiler <input> [<output>] [flags]
                     round per Number() (t86's all_factors('9007199254740993')
                     factors the rounded even value). BigInt-homed functions
                     (t89's) are exact for arbitrary magnitude.
+  --cargo-dir DIR   Rust target: also write a buildable cargo project —
+                    DIR/Cargo.toml + DIR/src/main.rs. Generated programs are
+                    single files with no way to link a crate; the manifest
+                    declares `regex` only for programs whose `__sh_regex`
+                    helper uses it (bash `=~`). Everything else stays a
+                    dependency-free file that plain `rustc` still compiles.
+  --regex-engine E  Rust target: which engine backs `=~` (default `rust`).
+                    `rust` uses the `regex` crate — fast, Unicode, but
+                    Perl-flavoured: `\\d` is a digit class where bash reads a
+                    literal `d`. `posix` uses `revera`: POSIX ERE, so
+                    alternation is leftmost-longest and bracket classes are
+                    POSIX's, which is what bash's glibc `=~` means. The posix
+                    engine is bigger (embedded locale data) and its crate must
+                    be fetched once.
   --shir            output the raw A1 contract (same as output ext .shir)
   --raw             with --shir: the byte-equality oracle path (shell →
                     ast_to_ir → shir_to_shir_json, no stmt_lines; the old
@@ -985,6 +1020,12 @@ pub fn cli_at(
     // None = off; Some(true) = Python reading, Some(false) = bash.
     let mut analyze: Option<bool> = None;
     let mut raw = false;
+    // --cargo-dir DIR: write a cargo project (manifest + src/main.rs) for a
+    // rendered Rust program. None = the historical single-file stdout path.
+    let mut cargo_dir: Option<String> = None;
+    // --regex-engine rust|posix: which engine backs `__sh_regex`. Per render,
+    // restored immediately after, because test harnesses call this in-process.
+    let mut regex_engine = String::from("rust");
     let mut embed_opts = EmbedOpts::default();
     let mut positional: Vec<String> = Vec::new();
     // Optimization level (-O0/-Og/-O3/-O4). None = no -O flag given →
@@ -1042,6 +1083,24 @@ pub fn cli_at(
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty())
                     .collect();
+            }
+            "--cargo-dir" => {
+                if i + 1 < args.len() {
+                    cargo_dir = Some(args[i + 1].clone());
+                    i += 1;
+                }
+            }
+            s if s.starts_with("--cargo-dir=") => {
+                cargo_dir = Some(s["--cargo-dir=".len()..].to_string());
+            }
+            "--regex-engine" => {
+                if i + 1 < args.len() {
+                    regex_engine = args[i + 1].clone();
+                    i += 1;
+                }
+            }
+            s if s.starts_with("--regex-engine=") => {
+                regex_engine = s["--regex-engine=".len()..].to_string();
             }
             "--backtick" => embed_opts.backtick = true,
             "--english" => embed_opts.english = true,
@@ -1365,6 +1424,29 @@ pub fn cli_at(
             }
         }
     }
+
+    // The same parity for the Rust backend: the `rs` target had no parse-error
+    // fallback, so an unparseable source rendered an empty program that exits
+    // 0 where bash exits 2 (five corpus reds in fail-rs).
+    if tgt_lang == "rs" && src_lang == "sh" {
+        if let Ok(content) = read_source(&input) {
+            if let Err(e) = debashl::Parser::new(&content).parse() {
+                return write_out(
+                    stdout,
+                    stderr,
+                    &output,
+                    parse_error_rust_fallback(&e.to_string()).as_bytes(),
+                );
+            }
+        }
+    }
+    if regex_engine != "rust" && regex_engine != "posix" {
+        let _ = writeln!(
+            stderr,
+            "otranspiler: --regex-engine must be `rust` or `posix` (got `{regex_engine}`)"
+        );
+        return 1;
+    }
     // `--library` exports the functions, so an external caller could pass
     // any argument — the interprocedural param-range analysis (drop the
     // `|| 0` NaN/zero normalizer) is unsound for exported functions. Set
@@ -1375,7 +1457,10 @@ pub fn cli_at(
     } else {
         false
     };
-    let out = match render_with_source(&a1, &tgt_lang, Some(&src_lang)) {
+    debashl::rust_backend::set_regex_engine_posix(regex_engine == "posix");
+    let rendered = render_with_source(&a1, &tgt_lang, Some(&src_lang));
+    debashl::rust_backend::set_regex_engine_posix(false);
+    let out = match rendered {
         Ok(out) => out,
         Err(e) => {
             let _ = writeln!(stderr, "otranspiler: {e}");
@@ -1427,7 +1512,34 @@ pub fn cli_at(
             }
         };
     }
+    if let Some(dir) = cargo_dir.as_deref() {
+        if tgt_lang != "rs" {
+            let _ = writeln!(
+                stderr,
+                "otranspiler: --cargo-dir is only supported for --target rs"
+            );
+            return 1;
+        }
+        if let Err(e) = write_cargo_project(Path::new(dir), &out) {
+            let _ = writeln!(stderr, "otranspiler: --cargo-dir: {e}");
+            return 1;
+        }
+    }
     write_out(stdout, stderr, &output, out.as_bytes())
+}
+
+/// `--cargo-dir`: write a buildable Cargo project for a rendered Rust
+/// program (`Cargo.toml` + `src/main.rs`, which is cargo's default binary
+/// path). See `debashl::rust_backend::cargo_manifest` for which
+/// dependencies — if any — the manifest declares.
+fn write_cargo_project(dir: &Path, rendered: &str) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir.join("src"))?;
+    std::fs::write(dir.join("src/main.rs"), rendered)?;
+    std::fs::write(
+        dir.join("Cargo.toml"),
+        debashl::rust_backend::cargo_manifest(rendered),
+    )?;
+    Ok(())
 }
 
 /// `--library` (JS target only): reshape the rendered ESTree program into
@@ -1736,6 +1848,82 @@ mod tests {
 
     fn embed(args: &[&str]) -> (i32, String, String) {
         cli_captured(&root(), &args.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn shell_parse_error_renders_an_exit_2_program_for_rust() {
+        // bash exits 2 on a syntax error; the empty program exits 0. estree and
+        // perl already had a fallback, rust did not (fail-rs bash_rc=2/rust_rc=0).
+        let dir = std::env::temp_dir().join(format!("sh2-pe-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("bad.sh");
+        std::fs::write(&p, "echo hello;; echo world\n").unwrap();
+        let (rc, out, _err) = cli_captured(
+            &dir,
+            &["--target".to_string(), "rs".to_string(), p.display().to_string()],
+        );
+        assert_eq!(rc, 0);
+        assert!(out.contains("ExitCode::from(2)"), "no exit-2 verdict:\n{out}");
+        assert!(!out.contains("__SH_RC.load"), "empty program rendered:\n{out}");
+        // a parser message containing `${`/`{` must stay an ARGUMENT
+        let p2 = dir.join("bad2.sh");
+        std::fs::write(&p2, "echo \"${var:?unset\"\n").unwrap();
+        let (rc2, out2, _e2) = cli_captured(
+            &dir,
+            &["--target".to_string(), "rs".to_string(), p2.display().to_string()],
+        );
+        assert_eq!(rc2, 0);
+        assert!(
+            out2.contains("eprintln!(\"{}\""),
+            "message interpolated into the format string:\n{out2}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stray_token_prints_a_diagnostic_instead_of_a_todo() {
+        let dir = std::env::temp_dir().join(format!("sh2-wr-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("paren.sh");
+        std::fs::write(&p, "echo hello\n)\n").unwrap();
+        let (rc, out, _err) = cli_captured(
+            &dir,
+            &["--target".to_string(), "rs".to_string(), p.display().to_string()],
+        );
+        assert_eq!(rc, 0);
+        assert!(out.contains("eprintln!"), "Warn dropped as a TODO:\n{out}");
+        assert!(!out.contains("TODO(unsupported): stmt Warn"), "still a TODO:\n{out}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn regex_engine_selects_the_helper_and_does_not_leak() {
+        // `--regex-engine posix` changes the emitted helper (and therefore
+        // the manifest's dependency), and the choice must not survive the
+        // render: harnesses call this repeatedly on one thread.
+        let src = "x=abc\nif [[ $x =~ ^a ]]; then echo yes; fi\n";
+        let dir = std::env::temp_dir().join(format!("sh2-rx-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("t.sh");
+        std::fs::write(&path, src).expect("write");
+        let p = path.to_string_lossy().to_string();
+
+        let (_, dflt, _) = embed(&["--target", "rs", p.as_str()]);
+        assert!(dflt.contains("regex::Regex"), "default engine:\n{dflt}");
+        assert!(!dflt.contains("revera::"), "default engine:\n{dflt}");
+
+        let (rc, posix, err) = embed(&["--target", "rs", "--regex-engine", "posix", p.as_str()]);
+        assert_eq!(rc, 0, "stderr: {err}");
+        assert!(posix.contains("revera::Regex"), "posix engine:\n{posix}");
+        assert!(!posix.contains("regex::Regex"), "posix engine:\n{posix}");
+
+        let (_, again, _) = embed(&["--target", "rs", p.as_str()]);
+        assert!(again.contains("regex::Regex"), "engine leaked:\n{again}");
+
+        let (bad, _, berr) = embed(&["--target", "rs", "--regex-engine", "nope", p.as_str()]);
+        assert_eq!(bad, 1, "unknown engine must be refused");
+        assert!(berr.contains("--regex-engine"), "stderr: {berr}");
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

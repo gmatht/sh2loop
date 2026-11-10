@@ -22,6 +22,13 @@
 # case then prints RESOLVED and moves out of @known_limitations).
 #
 # Usage: harness/check_ast.pl     (builds otranspilerl-cli + dump_ast if missing)
+#
+# `dump_ast` is `sh2perl/src/bin/dump_ast.rs` (auto-discovered, no [[bin]]
+# needed). It was deleted with the debashc dump-bins layer (sh2perl 4d5d2d2c6)
+# and nothing noticed for months: the script died at its own build step, so
+# every `ast_*` case below was UNRUN rather than passing. If this script exits
+# 2 with "cargo build (dump_ast) failed", that is what happened again — restore
+# the bin, do not delete the cases.
 
 use strict;
 use warnings;

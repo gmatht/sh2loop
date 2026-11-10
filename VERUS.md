@@ -12,7 +12,7 @@ framework is Isabelle (`sh2perl/proofs/README.md`, `proofs/ArithIdentity`,
 the two are not double-counted. The tier language (Tier 1/2/3) comes from
 `docs/transform-verification.md`.
 
-Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28; the write-arm and vbuf rows added 2026-10-29):
+Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28; the write-arm and vbuf rows added 2026-10-29; on 2026-11-09 every model below was committed to the tree — the `local-only` badges meant "uncommitted working copy", so the gate could check none of them in a fresh checkout):
 
 | proof file | target | obligations | status |
 |---|---|---|---|
@@ -24,20 +24,20 @@ Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28; t
 | `proofs/verus/dead_fn_elim.rs` | `transforms/dead_fn_elim.rs` Passes 1–4 | 25 verified, 0 errors | committed `46ec35566`, local-only |
 | `proofs/verus/dead_store_elim.rs` | `transforms/dead_store_elim.rs` core | 45 verified, 0 errors | committed `dbd0a5562`, local-only |
 | `proofs/verus/redundant_store_elim.rs` | `transforms/redundant_store_elim.rs` (fixed) | 54 verified, 0 errors | landed, gated — see P1 |
-| `proofs/verus/copy_propagation.rs` | `transforms/copy_propagation.rs` (substitution core) | 27 verified, 0 errors | local-only — see P3 |
-| `proofs/verus/function_purity.rs` | `transforms/function_purity.rs` (verdict) | 41 verified, 0 errors | local-only — see P4 |
-| `proofs/verus/test_lowering.rs` | `transforms/test_lowering.rs` (Tier-1 leaves) | 25 verified, 0 errors | local-only — see P5 |
-| `proofs/verus/string_folds.rs` | `interp_fold` + `default_empty_fold` (string folds) | 11 verified, 0 errors | local-only — see P6 |
-| `proofs/verus/arith_folds.rs` | `arith_normalize` + `bc_float_clean` (arith identities) | 11 verified, 0 errors | local-only — see P6 |
-| `proofs/verus/test_folds.rs` | `test_simplification` (self-comparison table) | 7 verified, 0 errors | local-only — see P6 |
-| `proofs/verus/capture_folds.rs` | `const_capture_fold` + `text_capture_fold` | 15 verified, 0 errors | local-only — see P6 |
-| `proofs/verus/list_folds.rs` | `brace_fold` + `affix_strip_fold` (list/affix) | 12 verified, 0 errors | local-only — see P6 |
-| `proofs/verus/textop_folds.rs` | `text_ops` pure literal arms | 15 verified, 0 errors | local-only — see P6 |
-| `proofs/verus/not_folds.rs` | `not_identity` (double-negation + rust-gated flip) | 13 verified, 0 errors | local-only — see P7 |
-| `proofs/verus/const_cmp_folds.rs` | `const_str_cmp_fold` (literal Eq/Ne + Not-wrapped + globMatch) | 14 verified, 0 errors | local-only — see P8 |
+| `proofs/verus/copy_propagation.rs` | `transforms/copy_propagation.rs` (substitution core) | 27 verified, 0 errors | in-tree 2026-11-09, gated — see P3 |
+| `proofs/verus/function_purity.rs` | `transforms/function_purity.rs` (verdict) | 41 verified, 0 errors | in-tree 2026-11-09, gated — see P4 |
+| `proofs/verus/test_lowering.rs` | `transforms/test_lowering.rs` (Tier-1 leaves) | 25 verified, 0 errors | in-tree 2026-11-09, gated — see P5 |
+| `proofs/verus/string_folds.rs` | `interp_fold` + `default_empty_fold` (string folds) | 11 verified, 0 errors | in-tree 2026-11-09, gated — see P6 |
+| `proofs/verus/arith_folds.rs` | `arith_normalize` + `bc_float_clean` (arith identities) | 11 verified, 0 errors | in-tree 2026-11-09, gated — see P6 |
+| `proofs/verus/test_folds.rs` | `test_simplification` (self-comparison table) | 7 verified, 0 errors | in-tree 2026-11-09, gated — see P6 |
+| `proofs/verus/capture_folds.rs` | `const_capture_fold` + `text_capture_fold` | 15 verified, 0 errors | in-tree 2026-11-09, gated — see P6 |
+| `proofs/verus/list_folds.rs` | `brace_fold` + `affix_strip_fold` (list/affix) | 12 verified, 0 errors | in-tree 2026-11-09, gated — see P6 |
+| `proofs/verus/textop_folds.rs` | `text_ops` pure literal arms | 15 verified, 0 errors | in-tree 2026-11-09, gated — see P6 |
+| `proofs/verus/not_folds.rs` | `not_identity` (double-negation + rust-gated flip) | 13 verified, 0 errors | in-tree 2026-11-09, gated — see P7 |
+| `proofs/verus/const_cmp_folds.rs` | `const_str_cmp_fold` (literal Eq/Ne + Not-wrapped + globMatch) | 14 verified, 0 errors | in-tree 2026-11-09, gated — see P8 |
 | `proofs/verus/array_len_fold.rs` | `transforms/array_len_fold.rs` (`fold`) | 10 verified, 0 errors | landed, gated — see P2 |
 | `proofs/verus/const_status_cond.rs` | `transforms/const_status_cond.rs` (7-row table) | 35 verified, 0 errors | landed, gated — see P2 |
-| `proofs/verus/background_decide.rs` | `transforms/background_decide.rs` (THREAD/FORK verdict for `cmd &`) | 12 verified, 0 errors | **conditional, NOT Tier 1** -- subshell-vs-thread equivalence under a stated model (`&` inherits reads, discards writes, shares stdout). `thread_equals_fork` proves the THREAD routing prints exactly what the subshell prints for every body the ORDERED rule accepts; `intended_implies_shipped` proves that rule refuses nothing the pass accepts; `shipped_check_is_unsound` **refutes the check that ships**: `collect` compares read/assign SETS in no order, so `if [ -n "$x" ]; then x=1; echo 7; fi` goes to a fresh runtime that prints nothing where the subshell prints 7. The classifier is wrong; nothing miscompiles **today** only because the verdict has no consumer yet (`is_thread` has zero call sites), so this is a latent bug in an offered analysis, not a live miscompile. Excluded from the Tier-1 totals. |
+| `proofs/verus/background_decide.rs` | `transforms/background_decide.rs` (THREAD/FORK verdict for `cmd &`) | 27 verified, 0 errors | **conditional, NOT Tier 1** -- subshell-vs-thread equivalence under a stated model (`&` inherits reads, discards writes, shares stdout). THE VERDICT (2026-11-09): `walk_ok_implies_intended` bridges the SHIPPED walk (`walk_self_contained`) to the proved-sound ordered rule -- its post-set keeps straight-line binds only, which is the monotonicity the `Seq` arm needs; `classify_thread_sound` then gives THREAD ⇒ identical bytes end to end over that walk, and `route_thread_is_sound` the same over the SHIPPED predicate (`is_thread_body`, body-text table), given only the insertion rule itself (`table_sound`). Refusal direction: `unclassified_stays_fork` / `absent_table_routes_fork` (no table or no entry ⇒ FORK -- the verdict never guesses) and `side_effect_stays_fork` (a file write or control transfer is never accepted, so it cannot enter the table). The refutation is kept as the pre-fix record: `shipped_check_is_unsound` proves the OLD `collect` set-comparison accepts `if [ -n \"$x\" ]; then x=1; echo 7; fi`, which prints 7 in the subshell and nothing on a fresh runtime; `intended_implies_shipped` proves the ordered rule refuses nothing that check accepts. `is_thread_body` still has zero call sites outside its own file, so this is a sound verdict ready to consume, not a live constraint: nothing miscompiles today, and the wiring is the remaining work. Excluded from the Tier-1 totals. |
 | `proofs/verus/process_subst.rs` | `transforms/process_subst.rs` (fd-carrying `<( )` shapes) | 6 verified, 0 errors | **conditional, NOT Tier 1** -- the materialization lemma: the consumer's input is exactly the producer's output byte for byte, the temp path is unlinked, other temps are untouched, and the negative control proves the fd/mode inversion the pass's tests pin yields an empty consumer input (so the inversion is load-bearing). Excluded from the Tier-1 totals. |
 | `proofs/verus/elim_trio.rs` | `const_condition_elim` + `unreachable_after_exit` + `merge_init_assignments` | 22 verified, 0 errors | landed, gated — see P9 |
 | `proofs/verus/slice_identity.rs` | `transforms/slice_identity.rs` (zero-offset fold) | 10 verified, 0 errors | landed, gated — see P10 |
@@ -49,6 +49,8 @@ Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28; t
 | `proofs/verus/f32_narrow.rs` | **verdict analysis**: `transforms/f32_narrow.rs` form table + `operand_exact` | 8 verified, 0 errors | landed, gated — see P12 |
 | `proofs/verus/c_eqne_emit.rs` | **C generator**: `c_backend.rs` `expr()` Eq\|Ne arm (`str_cmp_valued` decision) | 11 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §14a |
 | `proofs/verus/c_checked_arith.rs` | **C generator**: `c_backend.rs` checked i64 tier (`tiered_i64_expr` / `tiered_store_general` + spec arm) | 38 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §13 |
+| `proofs/verus/c_arr_cap.rs` | **C generator**: `array_fixed_caps` / `array_cap()` sizing + the reset emitter's write guard | 13 verified, 0 errors | landed, gated — corpus scan `harness/c-arr-cap-scan.sh`: 555/563 examples rendered, 72 fixed tables, 0 bulk > cap, 0 at-cap above their bulk (see PLAN 2026-11-09) |
+| `proofs/verus/i32_emit.rs` | **verdict → render decision**: `transforms/i32_provable.rs` `arith_abs_bound`/`exact_i32_bound` over the C tier's fast path (`c_backend.rs` `tiered_i64_expr` + `plain_i64_expr`) | 20 verified, 0 errors | landed, gated — **measured inert** (0/896 corpus files reach it; see PLAN 2026-11-09) |
 | `proofs/verus/c_dec_str.rs` | **C generator**: `_sh_ll2s` + the inline `size_t` itoa it emits | 26 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §14b |
 | `proofs/verus/c_width_store.rs` | **C generator**: `Width` + `width_of_var`/`effective_widths` store condition | 20 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §15 |
 | `proofs/verus/c_buf_copy.rs` | **C generator**: `buf_bound` + `emit_guarded_copy` store contract | 14 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §16 |
@@ -59,6 +61,8 @@ Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28; t
 | `proofs/verus/c_capture_wrap.rs` | **C generator**: capture/wrap quoting (injection-freedom + status mapping) | 16 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §21 |
 | `proofs/verus/c_decl_coverage.rs` | **C generator**: the three decl-census walkers + const-lift veto (`collect_store_expr` / `collect_assigned_vars` / `hoist_vars` / `collect_param_write_targets`) | 54 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §22; **registered sync**: `declcov-extract.py` diffs the live walker arm chains vs `c_decl_coverage_sync.txt` (v20 — the sync caught the new expr-position `assign` arm before the model had it, which is what a transcription checker is for). v20 adds `pin_assign_chain`: `true && x=v || y=w` writes inside a chain EXPRESSION (no `IrStmt::Assign`), and without the arm the read routed to `_sh_env("x")` while the write hit the C variable — measured, the echo printed an empty value. `base_of` takes the base before `[` (element writes hoist the array), `is_ident` refuses a phantom name, and the pin is fidelity-both-ways (INVENTORY/VETO still do NOT see it). Its unit test `expr_position_assign_routes_to_the_variable` is a proven TRIPWIRE — disabling the guard makes it fail with the `_sh_env("x")` read in the output |
 | `proofs/verus/c_str_lit.rs` | **C generator**: `cstr` — the string-literal escaper (finite-state C lexer + round-trip vs the shipped `\x` spelling) | 19 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §23 |
+| `proofs/verus/perl_str_escape.rs` | **Perl generator**: `Render::perl_str` — the one funnel every literal `Str` passes through into a Perl DOUBLE-QUOTED context (`src/perl_backend.rs:319`). Perl interpolates `$` (scalars, `${x}`, `$#x`) and `@` (arrays), and treats `\` as an escape introducer, so a wrong arm silently emits a DIFFERENT string. Proves, for EVERY string, that Perl's double-quote parser — modelled as a one-character-per-step state machine (normal / after-backslash / expecting `{` / hex digits), so termination is structural rather than a length-arithmetic side condition — evaluates `perl_str(s)` back to exactly `s`; the per-character lemmas (`esc_char_step`, `hex_walk`) are the concatenation argument: each `esc_char(c)` is self-delimiting (a complete escape or one literal byte), so the parser resumes exactly on the next character's boundary, which is the property a stream-level round trip needs and a per-arm table alone does not give. Non-vacuous by four controls: `dollar_is_load_bearing` (drop the `$` arm and the dollar stays bare in the emitted text), `slash_is_load_bearing` (drop the `\\` arm and a literal backslash before `n` re-parses as a NEWLINE, the `printf '%s\n'` class), and `env_dependence_is_the_hazard` / `braced_substitution_is_the_same_hazard` (a bare `$x` / `${x}` makes the emitted text's value environment-dependent, i.e. no longer a literal — the `${x}` splice class in model form, with `splice_witness_round_trips` as the shipped-encoder witness). NOT MODELLED (stated in-file): heredocs, `\Q..\E`, `$#`/`$1`/`$x[0]` subscripts, the exact `$name`-vs-`${name}` key normalization (the substitution model keys on the reference's SOURCE text and only claims the value came from the environment), byte-vs-character UTF-8 semantics, and the non-`Str` templates (file modes, `require` names) | 17 verified, 0 errors | landed, gated — the FIRST Perl-backend proof coverage. **The consumer is a differential test, not a sync baseline**: `perl_backend::escaping_tests::perl_str_literals_evaluate_back_to_the_ir_string` runs the real `perl` over 169 literals (the empty string, every ASCII code point on its own, and the `${x}` / `@ARGV` / `@{x}` / backslash / quote / `\x41`-looking / control-char shapes) and compares the byte-exact decoded value; `naive_wrapping_is_detected` proves the harness can SEE the bug class by showing the naively-wrapped `${x}` literal interpolates to `ZZ` while the shipped escaper stays `${x}`. A change to `perl_str` that the model was not updated for shows up there. No `*_sync.txt` baseline (the differential test is the source tie). Mutants (measured on copies, each red): drop the `$` arm 15v/2e, drop the `\\` arm 15v/2e, emit a raw control char instead of `\x{h}` 16v/1e, and a DECODER mutant (the closing-quote arm emits a quote) 15v/2e — so the model bites on both halves, not just the one it mirrors |
+| `proofs/verus/word_boundary.rs` | **Parser**: the word-boundary rule behind the AST gate's `$$` distinguishability case — `echo x $$` must not parse like `echo x$$` (bash prints `x 1234` vs `x1234`, and the renderers have nothing to go on if both arrive as `[Literal("x"), Variable("$")]`). Reduced to the two mechanisms `src/parser/words.rs` actually uses: **G1** whitespace tokens are never consumed by the combine loop in `parse_word_inner` (~:530-620), and **G2** `merge_contiguous_quoted_fragments` (~:180) glues a `$`-expansion part only when the fragments are BYTE-ADJACENT (`next_start != prev_end` breaks out). `starts_word(s,i)` is the predicate those produce, `words(s)` the argument count `dump_ast` prints one `WORD:` line per. Proves the two sources give 1 vs 2 words (`glued_is_one_word` / `spaced_is_two_words` / `the_argument_vectors_differ`), each mechanism separately (`lemma_whitespace_ends_the_word`, `lemma_gap_ends_the_word`), and that the boundary is value-preserving on both sides (`the_word_keeps_its_text` — the word is `x` then the pid, nothing dropped; `the_split_keeps_the_pid`). Controls are proved FACTS about the mutant rules, so they fail if the rule is re-derived the other way: remove G1 (`starts_word_nows`) and BOTH sources yield one word; restore the old "always cut `$$` off the word" behaviour (`starts_word_bug`) and BOTH yield two — indistinguishable either way, which is exactly the miscompile the check tracks. NOT MODELLED (in-file): the real `Token` enum (only Ident / `$`-expansion / Space kinds occur), the rest of the combine loop's continuation set (test operators, keywords, escapes — none can be `$$`), quoting, `$var` vs `$$` key resolution, and the renderer | 14 verified, 0 errors | landed, gated — the **AST gate's own falsifier had been dead**: `dump_ast`, the bin `harness/check_ast.pl` builds, was deleted with the debashc dump-bins layer in `4d5d2d2c6` and never restored, so every `ast_*` case (all 7, including this pair) could not run at all — the script died at its build step instead. Restored as `sh2perl/src/bin/dump_ast.rs` (parse + one `WORD:` line per arg, the contract the check greps); with it back all 22 cases pass, `0 known AST gaps`, exit 0. Tie to the source: the Rust test `parser::words::word_boundary_tests` (3 tests) pins the same counts on the live AST — `x $$` = 2 args ending in `Variable("$")`, `x$$` = 1 `StringInterpolation` part `["x", "$"]`, and `x$$/suffix`/`$`-in-a-redirect-target stay fused — so a regression is red in `cargo test` even if `dump_ast` goes missing again. Mutants measured on copies: drop G1 fails `spaced_is_two_words` (`1 == 2` at the claim), always-split fails `glued_is_one_word` (`2 == 1`). No `*_sync.txt` baseline |
 | `proofs/verus/c_write_arm.rs` | **C generator**: `${name=word}` write arm + `param_write_target` census gate + `supplement_write_lengths` bounds | 17 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §24 |
 | `proofs/verus/c_vbuf.rs` | **C generator**: the emitted growth-helper family (`_sh_grow` / `_sh_vgrow` / `_sh_grow_str` + zero-fill / `_sh_reserve_*` guard, plus the add/fa/snprintf-grow/vec-guard/fgets consumers) | 39 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §25; discharges §20/§21's "vbuf growth assumed" provisos |
 | `proofs/verus/c_sparse_array.rs` | **C generator**: the sparse-array read faces over dense `char**` storage (`_sh_icount` count / `_sh_join_arr` separator / `_sh_join_ikind` keys / for-in hole-skip / free+NULL invariant / class-from-writes dispatch) | 45 verified, 0 errors | landed, gated — see `C_UB_PROOF.md` §26 (§26b/§26c: the `=`/`:=` faces write the word through `arr_set`, `assign_state`/`colon_assign_state`, +2 mutants) (and §26b, the no-colon SET-NESS faces on an element: `${a[i]-/+ /= / ?}` resolve through the store's presence answer, 4 mutants); fixes `${!arr[@]}`-on-indexed cc-red + the `${#arr[@]}`/`${arr[*]}`/for-in hole divergence |
@@ -99,7 +103,7 @@ Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28; t
 | `proofs/verus/loop_opt.rs` | `shir_passes/loop_opt.rs` (leading-run hoist) | 21 verified, 0 errors | landed, gated — loop-hoist-shir |
 | `proofs/verus/restructure.rs` | `shir_passes/restructure.rs` (goto-elimination shapes) | 20 verified, 0 errors | landed, gated — restructure-carveout |
 | `proofs/verus/optimize.rs` | `shir_passes/optimize.rs` (census shapes + drop) | 17 verified, 0 errors | landed, gated — optimize-delta |
-| `proofs/verus/type_query.rs` | `transforms/type_query.rs` (`type NAME...` -> `echo` of the answers) | 17 verified, 0 errors | landed, gated -- the unproven Tier-1 candidate: answers come from the program's functions and the 58-entry true-builtin table, or the call is kept. Proves names+ORDER preserved (so `type f | head -1` reports f), every emitted line answered (`all_classified`), and a mixed known/unknown list refused WHOLE -- no partial answer swallowing bash's not-found line. Function beats builtin; an external is never answered. Table pinned Rust-side (`builtin_table_is_the_58_true_builtins`: 58, dedup, `ls`/`head` absent), since the model takes it as a parameter |
+| `proofs/verus/type_query.rs` | `transforms/type_query.rs` (`type NAME...` -> `echo` of the answers) | 17 verified, 0 errors | landed, gated -- the unproven Tier-1 candidate: answers come from the program's functions and the true-builtin table (61 entries, measured), or the call is kept. Proves names+ORDER preserved (so `type f | head -1` reports f), every emitted line answered (`all_classified`), and a mixed known/unknown list refused WHOLE -- no partial answer swallowing bash's not-found line. Function beats builtin; an external is never answered. Table MEASURED Rust-side, since the model takes it as a parameter: `builtin_table_matches_compgen` asserts it equals `compgen -A builtin` on the bash that runs the suite (which is how `.`, `:`, `break` were found missing from a table that had been recited as 58), and `builtin_table_excludes_externals_and_has_no_copies` keeps `ls`/`head` out and the list duplicate-free |
 
 **Obligation accounting for THIS checkout** (measured 2026-11-08 against
 `harness/verus-gate.sh`'s `MODELS` list — the only authority for what the gate
@@ -129,6 +133,20 @@ have their own paragraph below). Until 2026-11-08 the
 gate reported them as `? verified, ? errors`: an absent file was handed to
 Verus, so a missing model was indistinguishable from a failing proof in a log
 skim. `check_model` now has an existence pre-check that names the missing file.
+
+**Update 2026-11-09 (second): `word_boundary.rs` (14 verified) joins the gate**
+— the parser half of the same session, and the first model of `src/parser/`. It
+is committed on the branch, so "committed on the branch" becomes **43 models /
+1151 obligations** and the gate total **1889** (the 41/1120 and 80/1858 rows
+above remain the 2026-11-08 measurement; the branch-only column is unchanged).
+
+**Update 2026-11-09: `perl_str_escape.rs` (17 verified) joins the gate**, the
+first model of `src/perl_backend.rs` — the last backend with no coverage. It is
+committed on the branch (`git -C sh2perl ls-files proofs/verus` lists it), so
+it moves the "committed on the branch" column of the table above from 41
+models / 1120 obligations to **42 / 1137** and the gate total from 1858 to
+**1875**; the branch-only column is unchanged. The remaining numbers in that
+table are the 2026-11-08 measurement and were not re-derived for this one row.
 
 The retired i32 pair (`interval.rs` 5, `i32_bounds_exec.rs` 7 — target never
 landed, §(d) P0(iv)) is 12 obligations that count toward no Tier-1 total — the gate still verifies
@@ -194,11 +212,11 @@ these files — re-running one is a manual command from the README, and a
 `harness/verus-gate.sh` now exists and is green (Tier 0, landed 2026-10-24):
 it re-runs the eight models with exact-count assertions (exit 1 on count
 mismatch or Verus error, exit 2 if the binary is absent — never read
-"not installed" as green) plus an empty sync registry with a comment
-explaining why nothing is registered. The remaining hardening item is pushing
-the three local-only proof commits so the gate means the same thing on a
-fresh clone
-item (P0 in §(d)).
+"not installed" as green) plus the sync registry described in P0(v). As of
+2026-11-09 the gate checks every model and every baseline it names — 123
+passed, 0 failed, 4 extractors refusing rather than skipping — and the one
+thing still open is pushing the branch, because a fresh clone of `origin`
+sees none of it (§(d) P0(v)).
 
 ## (a) Which transforms have been proven correct with Verus
 
@@ -573,8 +591,8 @@ honest after the modelling session ends:
 as a gate.** Isabelle's mirrors are also hand-duplicates ("mirrored
 VERBATIM"), but they are built by `harness/transform-proofs.sh` — 6
 sessions green, sabotage-tested — while Verus, until 2026-10-24, had no
-gate and no binary on the box (now: `harness/verus-gate.sh`, green on all
-locally-present models, and `/opt/verus-0.2026.10.18.7d82994`; still no
+gate and no binary on the box (now: `harness/verus-gate.sh`, green on every
+model in the tree as of 2026-11-09, and `/opt/verus-0.2026.10.18.7d82994`; still no
 manifest `proof:` lines). The three branch-pending FAILs are landed in-tree
 2026-10-26 (`redundant_store_elim`, `array_len_fold`, `const_status_cond`
 re-verified at 53/10/35 on the landed files — no re-proof).
@@ -699,6 +717,70 @@ permanently-red entry — turned out to BE the signal: the extractor's target ha
 already been deleted from the source. 2026-11-08 registered it, retargeted it at
 the live `arith_abs_bound`, and committed the generated baseline, so it is
 green and live instead of silent.
+
+**(v) DONE 2026-11-09 — the gate now checks the tree that ships.** Thirty-eight
+models were named in `harness/verus-gate.sh` and absent from the tree, so in a
+clean checkout `check_model`'s existence pre-check answered for them: a pass
+count of zero that reads exactly like a failed proof and is worth nothing
+either way. All thirty-eight verify at exactly their asserted counts, so they
+are committed rather than re-pinned. The twenty-one sync baselines whose
+entries had been `SKIP`ping as "Tier 1 pending, NOT green-by-absence" are
+generated from HEAD source (every pin mapped, every mapped test executed
+PASS), and the `c_sparse_array` / `c_assoc_array` increments the gate was
+already demanding (45 and 54) are landed. `c_decl_coverage` stays pinned at
+HEAD's 51: its working copy's new pin maps to
+`expr_position_assign_routes_to_the_variable`, a test that is also still
+uncommitted, so the model and that test have to land together. Four
+extractors still refuse instead of skipping — `arr_load_fwd`,
+`exec_call_fold`, `interp_lit_merge` (every mapped test MISSING: the pin_map
+names tests the suites no longer contain) and `strip`
+(`pin_continue_verdict` has no pin_map entry) — and that needs the owner's
+mapping, not a guessed one. Gate on the committed tree: **123 passed, 0
+failed, 4 skipped, 2 retired records**. Unpushed, so a fresh clone of
+`origin` still sees the old state.
+
+**(vi) DONE 2026-11-09 — the last four skips.** `strip` generates now: its
+`pin_continue_verdict` was the only pin without a pin_map entry, and because
+`src/shir_passes/strip.rs` tests the splice that consumes the verdict rather
+than the predicate, the entry is a conscious UNMIRRORED with that sentence
+beside it instead of a guessed test name. The other three cannot execute at
+all: `src/transforms/arr_load_fwd.rs`, `exec_call_fold.rs` and
+`interp_lit_merge.rs` are tracked files that **no `mod` declaration reaches**
+(`src/transforms.rs` declares 71 modules and none of them; `builtin_lift.rs`
+is tracked and dead in the same way), so their `#[test]`s are never compiled.
+That is why every pin reported `MISSING (renamed? filtered?)` — the tests ARE
+in those files, and no filter can reach them because the module is not in the
+crate. The extractor now says so in words ("is not a module of the crate"),
+`check_sync_cov` runs it before consulting the baseline, and the gate counts
+the entry as a SKIP that prints the reason instead of a red that hides behind
+"generator errored". Gate after the pass: **124 passed, 0 failed, 3 skipped,
+2 retired records**.
+
+**(vii) DONE 2026-11-09 — ported two, retired two.** Declaring each module
+settled it, and the split is not the one the SKIP suggested. Two were one
+missing line, two were unsalvageable:
+
+- `exec_call_fold` and `interp_lit_merge` compile against the current crate and
+their suites pass (4 and 7 tests, all green). The `mod` line was the entire
+gap — the 2026-10-29 commit that added the files claims the `transforms.rs`
+wiring was "present but files absent"; it was neither, because that commit
+does not touch `transforms.rs` at all. Both are modules now, every pin
+executes, and their sync baselines are committed. **Neither is registered with
+a backend**: a `mod` line proves the pass, it does not put it in the pipeline,
+and registering stays the marketplace's call (PLAN §11).
+- `arr_load_fwd` cannot be ported: it imports `super::READ_ONLY_CALLS` and
+`string_accumulator::{callee_write_sets, Cw}`, none of which exist anywhere
+outside that file, and calls four helpers the crate has since made private
+(E0432/E0603). Its 1518 lines are deleted; the model keeps a banner and moves
+to RETIRED_MODELS — verified as a superseded-design record, outside every
+total, the treatment `interval.rs` got.
+- `builtin_lift` is recorded WITHDRAWN in
+`core-requests/transforms/rejected/builtin-lift/WITHDRAWN` ("superseded by the
+landed builtin transform") and fails to compile when declared (E0631).
+Deleted; it had no model.
+
+Gate after this pass: **125 passed, 0 failed, 0 skipped, 3 retired records**,
+exit 0 — the sync section now covers every entry the gate names.
 
 **P1 — `redundant_store_elim`.** DONE — see P0(ii): the fixed version is
 proved (shadow argument, observationally exact), with all three bug

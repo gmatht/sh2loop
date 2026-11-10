@@ -64,6 +64,11 @@ my $outdir = -d $sh2perl ? $sh2perl : $root;
 # isolated Core-linked binary (harness/core_verify.sh) and points the gate at
 # it, so the verdict is genuinely the core worktree's. Default = unchanged.
 my $otranspilerl = $ENV{OTRANSPILERL_BIN} // "$root/otranspilerl/target/debug/otranspilerl-cli";
+# The binary the CELLS exec. It is reassigned by the pin step after the build
+# (see "PIN THE BINARY" below): the shared path is rebuilt in place by other
+# gates, and a cell that execs it mid-replacement fails for no reason of its
+# own. Until the pin runs this is the plain path, so a skipped build still works.
+my $run_bin = $otranspilerl;
 my $otranspilerl_manifest = $ENV{OTRANSPILERL_MANIFEST} // "$root/otranspilerl";
 my $skip_build = ($ENV{OTRANSPILERL_SKIP_BUILD} // '') eq '1';
 my $examples = "$sh2perl/examples";
@@ -184,7 +189,7 @@ sub run_one_test {
     # ---- PERL path (mirrors ./fail) ----
     my $perl_verdict = 'PASS';
     my $perl_reason = '';
-    my $gen_out = `timeout $timeout_per_test sh -c '"$otranspilerl" --target pl "$test_file" 2>/dev/null'`;
+    my $gen_out = `timeout $timeout_per_test sh -c '"$run_bin" --target pl "$test_file" 2>/dev/null'`;
     if ($? != 0) {
         $perl_verdict = 'FAIL';
         $perl_reason = 'otranspilerl failed';
@@ -251,10 +256,24 @@ sub run_one_test {
     # ---- ESTREE path ----
     my $est_verdict = 'PASS';
     my $est_reason = '';
-    my $json_out = `timeout $timeout_per_test sh -c '"$otranspilerl" -O3 --target estree "$test_file" 2>/dev/null'`;
-    if ($? != 0 || $json_out =~ /Parse error/) {
+    my $json_out = `timeout $timeout_per_test sh -c '"$run_bin" -O3 --target estree "$test_file" 2>/dev/null'`;
+    # Capture the wait status ONCE and say WHICH failure it was. The old message
+    # said "otranspilerl --target estree failed" for a nonzero exit of any kind,
+    # so a 20s TIMEOUT (124) on a loaded box read exactly like a render
+    # regression — that ambiguity is what hid this cell's real cause.
+    my $est_status = $?;
+    if ($est_status != 0 || $json_out =~ /Parse error/) {
         $est_verdict = 'FAIL';
-        $est_reason = $? != 0 ? 'otranspilerl --target estree failed' : 'parse error';
+        if ($est_status != 0) {
+            my $code = $est_status >> 8;
+            my $sig  = $est_status & 127;
+            $est_reason = $sig
+                ? "otranspilerl --target estree killed by signal $sig"
+                : "otranspilerl --target estree failed (exit $code"
+                  . ($code == 124 ? " = timeout ${timeout_per_test}s" : "") . ")";
+        } else {
+            $est_reason = 'parse error';
+        }
     } else {
         my $json_file = "$art/prog.estree.json";
         open my $jfh, '>', $json_file or die "write $json_file: $!";
@@ -376,17 +395,100 @@ if ($skip_build) {
 }
 print "Build complete.\n\n";
 
+# ── PIN THE BINARY (2026-11-09) ─────────────────────────────────────────
+# The build above runs ONCE, before any cell — but the binary it produces is
+# not private to this run: target/debug/otranspilerl-cli is shared with every
+# gate on the box, and `./fail` builds it under --role core, which escalates
+# and SIGTERMs the lock holder. A concurrent rebuild renames a new inode into
+# that path while ~jobs cells are exec'ing it, and the victim cell reports
+# `otranspilerl --target estree failed` (or dies by SIGTERM mid-build) for a
+# file that renders clean standalone — exactly what happened to
+# dq-hashbang-multiline-assign.sh, the single cell of the 562/563 run.
+#
+# Pin the inode this run built: a hardlink beside it (same device, no copy),
+# falling back to a copy only if the filesystem refuses the link. Cells then
+# exec the pin, so a rebuild's rename cannot reach them. The shared path is
+# re-checked at the end of the run, which turns "the box was busy" into a
+# one-line receipt instead of a phantom render regression.
+my ($pin_path, $pin_kind);
+# WHO OWNS THE PIN. The cells are FORKED (dispatch/run_one_test), and a child's
+# `exit(0)` runs END blocks — so an unguarded `unlink $pin_path` in END deletes
+# the parent's pin as soon as the first cell finishes. Measured 2026-11-09: the
+# first `jobs` cells passed and every other one reported `exit 127`, which reads
+# like a mass render failure and is a lifetime bug in this script. Only the
+# process that created the pin may remove it.
+my $main_pid = $$;
+my @pin_sig = (stat($run_bin))[7, 9];    # size, mtime of the shared binary
+{
+    my $pin = dirname($run_bin) . "/.sh2-pin-$$-" . basename($run_bin);
+    if (link($run_bin, $pin)) {
+        $pin_path = $pin; $pin_kind = 'hardlink';
+    } else {
+        require File::Copy;
+        if (File::Copy::copy($run_bin, $pin)) {
+            chmod 0755, $pin; $pin_path = $pin; $pin_kind = 'copy';
+        }
+    }
+    if ($pin_path) {
+        $run_bin = $pin_path;
+        print "Binary pinned ($pin_kind): $pin_path\n";
+    } else {
+        print "WARNING: could not pin the binary; a concurrent rebuild can fail cells\n";
+    }
+}
+END { unlink $pin_path if defined $pin_path && $$ == $main_pid && -e $pin_path }
+
+# ── THE sh2.* OP CONTRACT (2026-11-09) ───────────────────────────────────
+# This gate proves the transpiler and the runtime agree on BEHAVIOUR over the
+# corpus; it cannot see a name that no example reaches. harness/estree-contract.mjs
+# checks the other, mechanical half: every `sh2.*` op the emitter produces
+# resolves on the runtime with a compatible arity, the structural gate's
+# whitelist admits only names the runtime has, the emitted surface matches its
+# committed snapshot, and the documented polyfill mirror exists. Without it a
+# rename on either side is a TypeError at run time (or a dead whitelist entry)
+# with no compile error anywhere — which is how `sh2.die` shipped missing.
+#
+# Runs against the PINNED binary (so it measures the tree this run is about)
+# and prints one line per section. A failure ABORTS a --gate run before the
+# corpus loop: every estree cell would be suspect, and 563 confusing per-file
+# failures hide the one-line cause. In report mode it is a loud warning.
+my $contract_out = '';
+my $contract_rc = 0;
+if (-e "$root/harness/estree-contract.mjs") {
+    $contract_out = `OTRANSPILERL_BIN='$run_bin' SH2PERL_DIR='$sh2perl' node "$root/harness/estree-contract.mjs" 2>&1`;
+    $contract_rc = $? >> 8;
+} else {
+    $contract_out = "harness/estree-contract.mjs is MISSING — the op contract was not checked\n";
+    $contract_rc = 1;
+}
+print $contract_out;
+if ($contract_rc != 0) {
+    if ($do_gate) {
+        print "ESTREE CONTRACT: FAIL (see above) — aborting before the corpus run\n";
+        exit 1;
+    }
+    print "ESTREE CONTRACT: FAIL (see above; report mode continues — a --gate run would stop here)\n";
+} else {
+    print "ESTREE CONTRACT: ok (ops, arity, gate whitelist, snapshot, polyfill mirror)\n";
+}
+
 my $work_dir = tempdir("estreefail-XXXXXXXX", CLEANUP => 1, DIR => "/tmp");
 # Deferred reap (see the note in ./fail): CLEANUP removes the tree at scope
 # exit, but an example straggler still holding an fd into it makes that fail
 # and leaves it blocked in __wait_on_buffer on a deleted inode. Retry
 # briefly; never fatal. A separate END block from the WorkerPool one above.
 END {
-    if (defined $main::work_dir && -d $main::work_dir) {
+    # `$main::work_dir` was NEVER ASSIGNED: this block has been dead code since
+    # it was written (nothing sets the package variable), so the deferred reap
+    # never ran and a straggler's tree stayed behind. Use the lexical the gate
+    # actually created — and only in the process that created it: cells are
+    # forked and a child's exit() runs END blocks, so an unguarded reap here
+    # would delete the shared tree (and every other child's result file).
+    if (defined $work_dir && $$ == $main_pid && -d $work_dir) {
         for my $try (1 .. 3) {
-            last unless -d $main::work_dir;
+            last unless -d $work_dir;
             sleep 1;
-            remove_tree($main::work_dir, { safe => 0, error => \my $ignore });
+            remove_tree($work_dir, { safe => 0, error => \my $ignore });
         }
     }
 }
@@ -453,6 +555,14 @@ print "----------------------------------------\n";
 printf "PERL:   %d passed, %d failed out of %d\n", $perl_pass, $perl_fail, $total;
 printf "ESTREE: %d passed, %d failed out of %d  (%.1f%%)\n", $estree_pass, $estree_fail, $total,
     $total ? 100 * $estree_pass / $total : 0;
+# Race receipt: did the shared binary change under us while the cells ran?
+if ($pin_kind) {
+    my @now_sig = (stat($otranspilerl))[7, 9];
+    if ("@now_sig" ne "@pin_sig") {
+        print "note: the shared otranspilerl-cli was REPLACED during this run ",
+              "(size/mtime @pin_sig -> @now_sig); the cells ran the pinned inode\n";
+    }
+}
 # the KNOWN report location (summarize-progress.sh reads this, not the log)
 {
     my $stamp = localtime;

@@ -66,7 +66,7 @@ MODELS=(
   # `if [ -n "$x" ]; then x=1; echo 7; fi` is sent to a fresh runtime that
   # prints nothing where the sibling shell prints 7. Excluded from VERUS.md's
   # Tier-1 totals.
-  "background_decide.rs:12:40"
+  "background_decide.rs:27:40"
   # CONDITIONAL, NOT TIER 1: process-subst (the fd-carrying `<( )` shapes).
   # The materialization lemma: the consumer's input is exactly the producer's
   # output, the temp path is unlinked, other temps are untouched, and the
@@ -108,6 +108,18 @@ MODELS=(
   # mixed pair (numeric-homed var vs string literal, the string-eq lift's
   # `[ "$i" = "2" ]`) as UB under the shipped two-armed decision.
   "c_eqne_emit.rs:11:40"
+  # The i32-provable VERDICT's render decision: `exact_i32_bound`
+  # (transforms/i32_provable.rs) over the C tier's new fast path
+  # (`c_backend.rs` `tiered_i64_expr` + `plain_i64_expr`). Proves the
+  # estimator puts EVERY node of a marked tree inside i32 (so the dropped
+  # `__builtin_*_overflow` guard is dead), that `plain_i64_expr` covers every
+  # markable shape, that the decision is total (unmarked ⇒ every check kept),
+  # and the leaf-only mutant that marks 2^87. NOTE: the call site is measured
+  # INERT — 12 marked statements in 10 of 896 corpus examples, and a
+  # literal-only subtree in a tiered store in none of them — so this is a
+  # proof about shipped text, not yet about shipped behaviour; the file says
+  # so and names the estimator refinement that would change it.
+  "i32_emit.rs:20:40"
   # The C generator's checked i64 arithmetic tier — the overflow-flag
   # protocol of both fast arms (`__builtin_*_overflow` walk, the gated
   # commit, the spill/break escape hatches). This is C_UB_PROOF.md §2a's
@@ -116,6 +128,15 @@ MODELS=(
   # and whenever needed. Includes the MAX+1 negative controls (an
   # unguarded commit ships the wrapped -2^63).
   "c_checked_arith.rs:18:40"
+  # The C backend's FIXED-ARRAY capacity decision (`array_fixed_caps`,
+  # `array_cap()`, the reset emitter and its spread guard). C_UB_PROOF.md §2b
+  # calls `array_caps` the unproven bound: proves a fixed table is at least as
+  # large as the literal bulk written into it, that anything reaching ARR_CAP
+  # (or unproven) is routed to the growable vec instead, and that the write
+  # guard must admit exactly the in-bounds writes — with the pre-fix
+  # `> ARR_CAP` guard as the refuted negative control (a proof-sized `a[3]`
+  # admitted 4 stores).
+  "c_arr_cap.rs:13:40"
   # The C generator's DECIMAL RENDERERS — the hand-rolled itoas it emits:
   # `_sh_ll2s` into num_temp's `static char _sN[32]`, and the inline
   # `size_t` itoa of FieldStrip/FieldStripEnd into str_temp(24). Proves
@@ -256,7 +277,14 @@ MODELS=(
   # while-cond printf, elsif-cond-in-fn, return-collect, select-menu
   # param write, printf/let in fn scope). Three one-token mutants, each
   # killing a named obligation.
-  "c_decl_coverage.rs:54:40"
+  #
+  # PINNED DOWN 2026-11-09: the working copy verifies 54, the committed model
+  # 51. The 54 belongs to an unlanded increment whose new pin
+  # (`pin_assign_chain`) maps to `expr_position_assign_routes_to_the_variable`,
+  # a source test that is also still uncommitted — so the extractor FATALs on
+  # it at HEAD. Owner: when that test lands, commit the model + the
+  # regenerated `c_decl_coverage_sync.txt` together and restore 54 here.
+  "c_decl_coverage.rs:51:40"
   # The C generator's STRING-LITERAL ESCAPER (sh2perl/src/c_backend.rs
   # `cstr`, the single funnel for every emitted literal incl. printf
   # format strings). Models the C lexer as a finite-state machine over
@@ -438,7 +466,27 @@ MODELS=(
   # non-empty, leaving the empty-IFS `[*]` row as the erasure's only cost.
   # The fix is a contract change, so it is filed as an OFFER:
   # core-requests/c-20261105-keys-face-collapse.md.
-  "c_join_ifs.rs:104:40"
+  #
+  # COUNT (re-measured 2026-11-10, the pinned binary): the COMMITTED model
+  # verifies `73 verified, 0 errors` at `--rlimit 40`, not 104. The 104 was
+  # recorded for the §6/§7 extension while it was still IN FLIGHT and never
+  # equal to any state in the tree. The entry therefore asserts what the
+  # COMMITTED model actually checks, so this gate line reports the truth
+  # instead of a target it cannot verify. When the extension lands, its
+  # author re-blesses this number WITH the measurement in the same commit —
+  # an exact count is the point, so do not round it back up to the old
+  # target.
+  #
+  # WHY THE LINE CAN STILL BE RED ON A WORKING TREE: some other worker's
+  # uncommitted `proofs/verus/c_join_ifs.rs` (measured 2026-11-10: 2479 lines,
+  # `109 verified, 0 errors`) supersedes the committed 1356-line model, so
+  # the entry FAILS with `got 109 expected 73` while the committed model is
+  # exactly 73/0. That failure is the gate telling the truth about the tree,
+  # not a stale expectation — the owner of the extension re-blesses WITH the
+  # commit. Verify the pin itself with
+  #   git -C sh2perl show HEAD:proofs/verus/c_join_ifs.rs > /tmp/m.rs
+  #   verus --triggers-mode silent --rlimit 40 /tmp/m.rs
+  "c_join_ifs.rs:73:40"
   # The C generator's WORD-EXPANSION ORDER (c_backend.rs: `stmt` /
   # `stmt_inner` / `stmt_has_elem_assign` / `snap_elem` / `array_index_read`,
   # plus the `set --` arm's field splitting). THE DENOTATIONAL EXTENSION: a
@@ -708,11 +756,19 @@ MODELS=(
   # Per-site payload preservation + idempotence; carrier flag as
   # parameter; 4 unit-test pins. Mutant (cleanup refusal dropped)
   # red 7v/1e.
+  # PORTED 2026-11-09: the `mod exec_call_fold;` line was the whole gap — it
+  # compiles against the current crate and its 4 unit tests pass, so the pins
+  # execute and the sync entry now runs. Still NOT registered with any backend
+  # (the offer is the marketplace's call), so this proves the pass, not a
+  # pipeline that runs it.
   "exec_call_fold.rs:8:40"
   # Part-canonicalization (Tier-1): frozen-literal Expr part -> Lit +
   # adjacent-Lit merge (interp_lit_merge.rs 494 lines). Concat
   # denotation identity via whole-seq cons lemmas; style gate as data;
   # 6 unit-test pins. Mutant (Command style folds) red 23v/1e.
+  # PORTED 2026-11-09: same as exec_call_fold — the missing `mod` was the only
+  # gap; it compiles and its 7 unit tests pass, so the pins execute. Not
+  # registered with any backend.
   "interp_lit_merge.rs:24:40"
   # ForInit-lowering (Tier-1): ForInit -> Block(init + While) with the
   # step spliced before every first-class continue (strip.rs).
@@ -729,11 +785,14 @@ MODELS=(
   # step spellings + Arith-cond gates; 6 unit-test pins. Mutant
   # (accepting +2) red 9v/3e.
   "counted_arith_forinit.rs:12:40"
-  # Element-forward (Tier-1): single-def element load -> forwarded
-  # reads (arr_load_fwd.rs 1518 lines). Single-store induction with
-  # span oracle (mono + soundness); 9 unit-test pins. Mutant (no
-  # clean-span gate) red 33v/4e.
-  "arr_load_fwd.rs:37:40"
+  # Element-forward: single-def element load -> forwarded reads. RETIRED
+  # 2026-11-09 — see RETIRED_MODELS below. Its target could not be ported:
+  # `src/transforms/arr_load_fwd.rs` imported `super::READ_ONLY_CALLS` and
+  # `string_accumulator::{callee_write_sets, Cw}`, none of which exist
+  # anywhere outside that file, and called four helpers the crate has since
+  # made private; declaring the module did not compile (E0432/E0603). The
+  # source file is deleted and the model is kept as a superseded-design
+  # record, verified but counted outside every total (same as `interval.rs`).
   # Temp-isolation (Tier-1): single-use pure temp -> inlined use
   # (isolate_accumulate.rs 1038 lines). Substitution agreement; 8
   # unit-test pins. Mutant (multi-use inlines) red 17v/1e.
@@ -775,9 +834,12 @@ MODELS=(
   # their ORDER (so `type f | head -1` reports f), that every emitted line
   # has an answer (all_classified premise), and that a mixed known/unknown
   # list is refused WHOLE (no partial answer that would swallow bash's
-  # not-found line). The table itself is pinned Rust-side
-  # (`builtin_table_is_the_58_true_builtins`: count, dedup, `ls`/`head`
-  # absent), since the model takes it as a parameter.
+  # not-found line). The table itself is MEASURED Rust-side
+  # (`builtin_table_matches_compgen` asserts it equals `compgen -A builtin`
+  # on the running bash — 61 names; that is how `.`, `:`, `break` were found
+  # missing from the recited 58 — and
+  # `builtin_table_excludes_externals_and_has_no_copies` keeps dedup and
+  # `ls`/`head` absent), since the model takes it as a parameter.
   "type_query.rs:17:40"
   # Terminator-binop (Tier-1): `break || exit 1` — a control call as the
   # LEFT operand of `&&`/`||` transfers control, so the right operand is
@@ -801,6 +863,51 @@ MODELS=(
   # line in src/transforms.rs, so this proves a rule in the tree that
   # currently changes no emitted byte (the loop_opt `DEAD CODE` class).
   "terminator_binop.rs:19:40"
+  # PERL renderer escaping — the FIRST model of `src/perl_backend.rs`, the
+  # one backend that had no proof coverage. `Render::perl_str` is the single
+  # funnel every literal `Str` passes through into a Perl DOUBLE-QUOTED
+  # context, and Perl interpolates `$`/`@` and eats `\\`, so an escape arm
+  # that is wrong silently emits a DIFFERENT string (this session's `${x}`
+  # splice class). Proves, for EVERY string, that the decoder (Perl's
+  # double-quote parser, written as a one-character-per-step state machine so
+  # termination is structural) evaluates `perl_str(s)` back to exactly `s`;
+  # the per-character lemmas (`esc_char_step`, `hex_walk`) are what make the
+  # concatenation argument — each `esc_char(c)` is self-delimiting, so the
+  # parser resumes on the next character's boundary. Negative controls keep it
+  # non-vacuous: `dollar_is_load_bearing` (drop the `$` arm and the dollar
+  # stays bare), `env_dependence_is_the_hazard` and
+  # `braced_substitution_is_the_same_hazard` (bare `$x`/`${x}` makes the value
+  # environment-dependent, i.e. no longer a literal), and
+  # `slash_is_load_bearing` (drop the `\\` arm and
+  # `\<n>` re-parses as a newline). CONSUMER, not a sync baseline: the Rust
+  # test `perl_backend::escaping_tests` runs the REAL perl over 169 literals
+  # (every ASCII code point + the `${x}`/`@ARGV`/backslash/quote shapes) and
+  # compares the byte-exact result, and a second test proves the harness SEES
+  # interpolation by showing the naively-wrapped literal does not round-trip.
+  # No `*_sync.txt` baseline: the differential test is the tie to the source.
+  # Mutants, measured on copies and each red: drop the `$` arm 15v/2e, drop
+  # the `\\` arm 15v/2e, raw control char instead of `\x{h}` 16v/1e, and a
+  # DECODER mutant (closing-quote arm emits a quote) 15v/2e.
+  "perl_str_escape.rs:17:40"
+  # word_boundary: the PARSER's word-boundary rule, in service of the AST
+  # gate's `$$` distinguishability case (`echo x $$` must not parse like
+  # `echo x$$` — bash prints `x 1234` vs `x1234`). Reduced to the two
+  # mechanisms words.rs actually uses: G1 whitespace tokens are never
+  # consumed by the combine loop, G2 `merge_contiguous_quoted_fragments`
+  # requires byte-adjacency (`next_start == prev_end`). Proves one word vs
+  # two for the two sources, plus each mechanism separately
+  # (`lemma_whitespace_ends_the_word`, `lemma_gap_ends_the_word`) and that
+  # the merge keeps the word's text (`x` + the pid) instead of dropping or
+  # duplicating it. Controls are proved FACTS about the mutant rules:
+  # remove G1 (`starts_word_nows`) and both sources yield one word; restore
+  # the old "always cut `$$` off" rule (`starts_word_bug`) and both yield
+  # two — indistinguishable either way. Mutants measured on copies: drop G1
+  # fails `spaced_is_two_words` (1v1e at the claim), always-split fails
+  # `glued_is_one_word` (1v1e). Tie to the source: the Rust test
+  # `parser::words::word_boundary_tests` pins the same counts on the live
+  # AST, and check_ast.pl's `ast_dollardollar_*` / `beh_dollardollar_*`
+  # cases are the end-to-end falsifier. No `*_sync.txt` baseline.
+  "word_boundary.rs:14:40"
 )
 
 # RETIRED models: VERIFIED, never counted. `interval.rs` / `i32_bounds_exec.rs`
@@ -813,6 +920,9 @@ MODELS=(
 RETIRED_MODELS=(
   "interval.rs:5:40"
   "i32_bounds_exec.rs:7:40"
+  # arr_load_fwd: source deleted 2026-11-09 — unportable against the current
+  # API (see the note where it used to sit in MODELS). Verified as a record.
+  "arr_load_fwd.rs:37:40"
 )
 
 # extractor:baseline — the generator script and the file it must reproduce.
@@ -874,7 +984,6 @@ SYNCS=(
   "harness/verus-sync-coverage.sh:interp_lit_merge:sh2perl/proofs/verus/interp_lit_merge_sync.txt"
   "harness/verus-sync-coverage.sh:strip:sh2perl/proofs/verus/strip_sync.txt"
   "harness/verus-sync-coverage.sh:counted_arith_forinit:sh2perl/proofs/verus/counted_arith_forinit_sync.txt"
-  "harness/verus-sync-coverage.sh:arr_load_fwd:sh2perl/proofs/verus/arr_load_fwd_sync.txt"
   "harness/verus-sync-coverage.sh:isolate_accumulate:sh2perl/proofs/verus/isolate_accumulate_sync.txt"
   "harness/verus-sync-coverage.sh:lane_private:sh2perl/proofs/verus/lane_private_sync.txt"
   "harness/verus-sync-coverage.sh:analysis:sh2perl/proofs/verus/analysis_sync.txt"
@@ -1020,20 +1129,33 @@ check_sync_cov() { # $1=script $2=model $3=baseline(rel to root)
   local gen="$root/$1" model="$2" base="$root/$3"
   local name="verus-sync-coverage.sh:$model"
   [ -x "$gen" ] || { echo "SKIP  $name — generator not executable"; skip=$((skip+1)); return 0; }
-  if [ ! -f "$base" ]; then
-    echo "SKIP  $name — baseline $3 absent (Tier 1 pending, NOT green-by-absence)"
-    skip=$((skip+1)); return 0
-  fi
   local tmp; tmp=$(mktemp)
   local rc=0
   # Strip the volatile sha header (source/proof revisions are tracked by
   # git, not by the manifest) before diffing: only pin/guard/count facts
   # must reproduce. A fact change still fails loudly.
   OUT_TMP="$tmp" "$gen" "$model" >/dev/null 2>"$tmp.err" || rc=$?
+  # A model whose source file is not a module of the crate cannot execute any
+  # pin — that is a stated gap, not a drifted fact, so it is counted as a SKIP
+  # with its reason on the line, the same way an absent baseline is. It must
+  # never read as green: the summary keeps SKIPs separate from passes.
+  if [ "$rc" -ne 0 ] && command grep -q "is not a module of the crate" "$tmp.err"; then
+    echo "SKIP  $name — source module not wired into the crate (model cannot execute):"
+    sed -n 's/.*FATAL: //p' "$tmp.err" | head -1
+    skip=$((skip+1)); rm -f "$tmp" "$tmp.err"; return 0
+  fi
   if [ "$rc" -ne 0 ]; then
     echo "FAIL  $name — generator errored (source outgrew the checker?)" >&2
     tail -8 "$tmp.err" >&2; rm -f "$tmp" "$tmp.err"
     fail=$((fail+1)); return 0
+  fi
+  # The baseline is consulted only AFTER the generator has run: skipping on a
+  # missing file first made a dead extractor and an unwritten baseline
+  # indistinguishable, and hid the three unwired models below behind "baseline
+  # absent" long after the cause was nameable.
+  if [ ! -f "$base" ]; then
+    echo "SKIP  $name — generator clean but $3 absent (Tier 1 pending, NOT green-by-absence)"
+    skip=$((skip+1)); rm -f "$tmp" "$tmp.err"; return 0
   fi
   if diff <(command grep -v "^# source sha:" "$base") <(command grep -v "^# source sha:" "$tmp") >/dev/null 2>&1; then
     echo "OK    $name — pin/guard facts reproduce the live source"
