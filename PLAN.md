@@ -14,9 +14,12 @@ Covers three related work items:
 > **Revision history**
 > - v148: **The rust parse-error verdict, and a real diagnostic channel for `Warn`.** (1) `--target rs`
 >   had NO parse-error fallback: estree and Perl both render an exit-2 program for an unparseable
->   source, rust rendered the EMPTY program, which exits 0. Five corpus reds were exactly that
->   (`fail-rs` bash_rc=2 rust_rc=0): parse-double-semicolon, parse-error-doublesemicolon,
->   parse-parameter-expansion-eof, parse-paren-after-do, parse-unexpected-end-of-input.
+>   source, rust rendered the EMPTY program, which exits 0. Five examples were exactly that in the
+>   ad-hoc corpus runner (bash_rc=2 / rust_rc=0): parse-double-semicolon,
+>   parse-error-doublesemicolon, parse-parameter-expansion-eof, parse-paren-after-do,
+>   parse-unexpected-end-of-input. They are `SKIP-bashn` in `harness/fail-rs` (`bash -n` rejects
+>   them, so the gate has no reference arm), so this fixes emitted-program behaviour, NOT a gate
+>   verdict; it is verified directly instead (all five: empty stdout, rc 2, matching bash).
 >   `parse_error_rust_fallback` mirrors the Perl one, and the parser's own message is passed as a
 >   RAW-STRING ARGUMENT (`eprintln!("{{}}", r#"…"#)`) — the first attempt interpolated it into the
 >   format literal, so a message containing `${` failed to compile ("invalid format string"). All
