@@ -7572,3 +7572,42 @@ mode aborts there — every estree cell would be suspect and 563 per-file failur
 would hide the one-line cause. Measured: `--gate 001_simple` green with the
 pre-flight, and with the baseline removed it prints `ESTREE CONTRACT: FAIL …
 aborting before the corpus run`, rc=1, no corpus summary line.
+
+**The AST gate's falsifier was dead, and the `$$` case is now proved at the
+tokenizer level (2026-11-09, parser/AST-gate workstream).** The fix-and-prove
+list item 8 asked for one parser distinguishability case retired *honestly* —
+"stating it as a tokenizer-level property, with the gate as the falsifier" —
+rather than blessed. Investigating that turned up the reason the case had
+looked dormant: **`harness/check_ast.pl` could not run its AST half at all.**
+Its `dump_ast` bin (parse + one `WORD:` line per argument) went with the
+debashc dump-bins layer in `4d5d2d2c6` and was never restored, and
+`sh2perl/Cargo.toml` declares no such target, so `cargo build --bin dump_ast`
+fails and the script dies at its build step — **all seven `ast_*` cases,
+including both `$$` ones, were unrun**, not passing. That is the more serious
+finding of the two: a gate whose subject cannot be exercised is indistinguishable
+from a green gate in a log skim, and `check_ast.pl`'s policy ("KNOWN AST GAP
+counts as a failure") had nothing to count. `sh2perl/src/bin/dump_ast.rs` is
+restored with the same contract; `perl harness/check_ast.pl` then reports
+**22 passed, 0 FAILED (0 unexpected, 0 known AST gaps), 0 resolved, exit 0** —
+the `$$` pair and its redirect sibling pass, so the parser gap the script's own
+comments describe was closed by the earlier `$`-fusion work and only the
+falsifier was missing.
+
+The proof is the *rule* the gate is implicitly testing, in
+`sh2perl/proofs/verus/word_boundary.rs` (**14 verified, 0 errors**, registered
+in `harness/verus-gate.sh`). A word is bounded by exactly two mechanisms in
+`src/parser/words.rs`: **G1** the combine loop does not continue over a
+whitespace token, and **G2** `merge_contiguous_quoted_fragments` merges a
+`$`-expansion only at byte-adjacency. From those, `starts_word` and `words`
+(the argument count — the quantity `dump_ast`'s `WORD:` lines report) give
+**1 word for `echo x$$` and 2 for `echo x $$`**, plus each mechanism on its own
+as a lemma and the value-preservation of both halves (the fused word is `x`
+then the pid; the split keeps the pid whole). The two controls are proved
+*facts about the mutant rules*, which is what makes them bite: drop G1 and both
+sources yield one word; restore the old "always cut `$$` off the word"
+behaviour and both yield two — indistinguishable either way. Measured on
+copies: drop-G1 fails `spaced_is_two_words` (`1 == 2` at the claim),
+always-split fails `glued_is_one_word` (`2 == 1`). The tie from model to source
+is `parser::words::word_boundary_tests` (3 tests, green), which pins the same
+counts on the live AST — so the property is enforced by `cargo test` even if
+the bin goes missing again.

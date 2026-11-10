@@ -882,6 +882,25 @@ MODELS=(
   # the `\\` arm 15v/2e, raw control char instead of `\x{h}` 16v/1e, and a
   # DECODER mutant (closing-quote arm emits a quote) 15v/2e.
   "perl_str_escape.rs:17:40"
+  # word_boundary: the PARSER's word-boundary rule, in service of the AST
+  # gate's `$$` distinguishability case (`echo x $$` must not parse like
+  # `echo x$$` — bash prints `x 1234` vs `x1234`). Reduced to the two
+  # mechanisms words.rs actually uses: G1 whitespace tokens are never
+  # consumed by the combine loop, G2 `merge_contiguous_quoted_fragments`
+  # requires byte-adjacency (`next_start == prev_end`). Proves one word vs
+  # two for the two sources, plus each mechanism separately
+  # (`lemma_whitespace_ends_the_word`, `lemma_gap_ends_the_word`) and that
+  # the merge keeps the word's text (`x` + the pid) instead of dropping or
+  # duplicating it. Controls are proved FACTS about the mutant rules:
+  # remove G1 (`starts_word_nows`) and both sources yield one word; restore
+  # the old "always cut `$$` off" rule (`starts_word_bug`) and both yield
+  # two — indistinguishable either way. Mutants measured on copies: drop G1
+  # fails `spaced_is_two_words` (1v1e at the claim), always-split fails
+  # `glued_is_one_word` (1v1e). Tie to the source: the Rust test
+  # `parser::words::word_boundary_tests` pins the same counts on the live
+  # AST, and check_ast.pl's `ast_dollardollar_*` / `beh_dollardollar_*`
+  # cases are the end-to-end falsifier. No `*_sync.txt` baseline.
+  "word_boundary.rs:14:40"
 )
 
 # RETIRED models: VERIFIED, never counted. `interval.rs` / `i32_bounds_exec.rs`
