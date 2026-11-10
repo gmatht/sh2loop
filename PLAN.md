@@ -26,12 +26,17 @@ Covers three related work items:
 >   case folding.
 >   (3) `harness/rust-warning-census.sh` (per-program, `--quiet`, `--json`) makes generated-code
 >   warnings measurable, because `fail-rs` compiles with warnings ignored and cannot see them grow.
->   Baseline measured over the corpus: 058_advanced_bash_idioms carries the only multi-warning
->   program — 3 `value assigned is never read` on the numeric prologue (`let mut a = 0i64;` before an
->   unconditional `a=10`) and 3 `unused variable` bindings (`user`, `host`, `port`) whose only reads
->   were inside a heredoc body that the renderer folded to a string literal. Both need read-tracking
->   the emitter does not have (definite-first-assignment for the prologue; "was this `$var` inside a
->   folded heredoc a real read?" for the bindings), so neither is silenced with an `allow`.
+>   Measured baseline over the corpus: **563 programs, 29 with warnings, 77 warnings total** (1 not
+>   compiled, 19 skipped because they need the cargo `regex`/`revera` dep). Largest classes:
+>   `variable does not need to be mutable` 19, dead initializers across many names (`i` 4, `x` 2,
+>   `r` 2, then one each of y/result/name/j/divisor/count/X/VAR/…), `unreachable expression` 4,
+>   `unreachable statement` 3, unused variables (`var`, `value`, `key`, `IFS`). 058_advanced_bash_idioms
+>   — the example that first surfaced this — carries 3 dead initializers plus 3 bindings whose only
+>   reads were inside a heredoc body the renderer folded to a literal. The emitter ALREADY has the
+>   analysis points these need: `local_mut` drives `let`/`let mut`, and `local_dead_init` already
+>   emits `#[allow(unused_assignments)]` for some locals (the 058 names are simply not in that set).
+>   So this is an analysis-coverage gap in `compute_local_vars`, not a missing mechanism — it is
+>   recorded with the measured numbers rather than papered over with a blanket `allow`.
 >   (4) BigInt (`~18337`) remains sound-but-broad: `stmt_huge`/`expr_huge` mark a whole function
 >   BigInt when any reachable expression is, with a TODO for precise per-function mapping. The named
 >   prerequisite is param-position tracking (which positions actually receive huge values), not a
