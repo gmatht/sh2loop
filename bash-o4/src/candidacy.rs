@@ -168,13 +168,44 @@ fn for_bounds(iter: &IrExpr) -> Result<(i64, i64, i64), &'static str> {
             if let Some(r) = range {
                 return Ok(r);
             }
+            // An `IrExpr::Range` that went through `brace-fold` arrives here
+            // already expanded, as a flat list of integer words:
+            //   `for i in {0..7}` -> Array[Str("0")..Str("7")]
+            // (`transforms/brace_fold.rs` splices the `brace` callout into
+            // its words in list positions). Same shape as the `brace` form
+            // above, so read it the same way -- refuse > guess below.
             if all_ints {
+                if let Some(r) = ascending_int_run(items) {
+                    return Ok(r);
+                }
                 return Err("non-range-iter");
             }
             Err("non-counted-iter")
         }
         _ => Err("non-counted-iter"),
     }
+}
+
+/// Read a fully expanded integer word list as an inclusive range.
+///
+/// `{a..b}` expands to every word in between, so the list carries the
+/// same information as the pre-fold `brace` callout -- but only while it
+/// is a contiguous +1 run. `{0..9..2}` expands to `0 2 4 6 8` and
+/// `{a,b}`-style words are not integers at all; those refuse (None)
+/// rather than guess a stride from the first two steps.
+fn ascending_int_run(items: &[IrExpr]) -> Option<(i64, i64, i64)> {
+    let mut nums = Vec::with_capacity(items.len());
+    for it in items {
+        match it {
+            IrExpr::Str(s, _) => nums.push(s.parse::<i64>().ok()?),
+            _ => return None,
+        }
+    }
+    let (&first, rest) = nums.split_first()?;
+    if !rest.iter().enumerate().all(|(k, n)| *n == first + k as i64 + 1) {
+        return None;
+    }
+    Some((first, *nums.last()?, 1))
 }
 
 /// Parse the Json range payload: `[[{"range": ["lo","hi",step?,…]}]]`.
