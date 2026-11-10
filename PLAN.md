@@ -12,6 +12,29 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v148: **The rust parse-error verdict, and a real diagnostic channel for `Warn`.** (1) `--target rs`
+>   had NO parse-error fallback: estree and Perl both render an exit-2 program for an unparseable
+>   source, rust rendered the EMPTY program, which exits 0. Five corpus reds were exactly that
+>   (`fail-rs` bash_rc=2 rust_rc=0): parse-double-semicolon, parse-error-doublesemicolon,
+>   parse-parameter-expansion-eof, parse-paren-after-do, parse-unexpected-end-of-input.
+>   `parse_error_rust_fallback` mirrors the Perl one, and the parser's own message is passed as a
+>   RAW-STRING ARGUMENT (`eprintln!("{{}}", r#"…"#)`) — the first attempt interpolated it into the
+>   format literal, so a message containing `${` failed to compile ("invalid format string"). All
+>   five now run with bash's stdout and rc 2. (2) `IrStmt::Warn` had no rust arm and became a TODO
+>   marker, so a lowered syntax error (the stray `)`/`}` transform emits Warn + exit 2) exited 2 in
+>   silence; it now renders `eprintln!("{{}}", msg)`.
+>
+>   **What the 30-diff list actually was.** `harness/fail-rs` compares STDOUT and rc only. Measured
+>   with a clean gate run, the authoritative red set is ONE: `parse-brace-in-heredoc` FAIL-rustc, the
+>   pre-existing compile failure. The other 29 came from an ad-hoc runner that also compared stderr,
+>   and several were artifacts of that runner — it used `timeout` (which resets argv[0]) and a shared
+>   `sh2prog` output path, so `$0` examples such as 057_case and qx-var-builtin-cd ran the wrong
+>   binary, and 046_cd. is cwd-sensitive and passes under the gate. The rest are stderr-only fidelity
+>   gaps, real but ungated: (a) exec diagnostics leak `bash: line 1:` instead of `$0: line N:`
+>   because `__sh_run` shells out and bash formats its own message; (b) lowered builtins print nothing
+>   where bash diagnoses (bad substitution, arithmetic errors, `cd` failures); (c) `Warn` has no
+>   `$0: line N:` prefix or echoed source line, because the IR carries no source position. Those
+>   three need a position-carrying diagnostic channel; recorded open, not blessed.
 > - v147: **`=~` correctness pass: numeric operands, `nocasematch`, invalid-pattern status, and a gate
 >   against the dropped-helper trap.** (1) `[[ $t =~ 3 ]]` with `t=3` rendered `__sh_regex(&t, …)`
 >   against an `i32` and failed to compile (E0308): the existing numeric coercion covers numeric
