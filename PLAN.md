@@ -12,6 +12,30 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v150: **D: one derivation for helper pruning, and warnings made measurable.** (1) The emitter's
+>   text passes stay, but `prune_unused_helpers` no longer owns its copy of the "rendered name" rule:
+>   `helper_rendered_names()` reads the registry (`HELPER_ORDER` x `helper_source`) once, and a new
+>   test requires every `add_helper("k")` key to render `fn __sh_k` in that list, every rendered name
+>   to sit in the `__sh_` namespace, and the list to hold at least 60 entries. A helper body whose
+>   shape the parse cannot read is now a test failure instead of dead code that silently survives
+>   (the failure mode item 4 of C described).
+>   (2) The `flags` parameter of `__sh_regex` is NOT dead: it carries `nocasematch` (`"i"`), wired in
+>   v147 — verified by rendering a case-folding `=~`, which emits `__sh_regex("ABC", "^abc$", "i")`.
+>   The engine choice stays in the helper NAME (`regex` vs `regex_posix`), which is what
+>   `cargo_manifest` keys on; the parameter carries only the runtime flag, so dropping it would lose
+>   case folding.
+>   (3) `harness/rust-warning-census.sh` (per-program, `--quiet`, `--json`) makes generated-code
+>   warnings measurable, because `fail-rs` compiles with warnings ignored and cannot see them grow.
+>   Baseline measured over the corpus: 058_advanced_bash_idioms carries the only multi-warning
+>   program — 3 `value assigned is never read` on the numeric prologue (`let mut a = 0i64;` before an
+>   unconditional `a=10`) and 3 `unused variable` bindings (`user`, `host`, `port`) whose only reads
+>   were inside a heredoc body that the renderer folded to a string literal. Both need read-tracking
+>   the emitter does not have (definite-first-assignment for the prologue; "was this `$var` inside a
+>   folded heredoc a real read?" for the bindings), so neither is silenced with an `allow`.
+>   (4) BigInt (`~18337`) remains sound-but-broad: `stmt_huge`/`expr_huge` mark a whole function
+>   BigInt when any reachable expression is, with a TODO for precise per-function mapping. The named
+>   prerequisite is param-position tracking (which positions actually receive huge values), not a
+>   different integer strategy; recorded here so the optimisation is scoped rather than folklore.
 > - v149: **C: bash is no longer the runtime for pattern matching, uid or hostname.** (1) `grepMatches`
 >   (and the grep -o lift) spawned `bash -c 'printf … | grep -o …'` for EVERY match.
 >   `__sh_grepmatches` is now native: POSIX BRE is TRANSLATED to ERE (`\+`, `\?`, `\|`, `\(`, `\{`
