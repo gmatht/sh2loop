@@ -12,6 +12,20 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v152: **The helper registry has declared variant pairs, not unique names.** The v151 test's
+>   count/injectivity assertion went red with `75 != 77`: two pairs of registry entries render the
+>   SAME `fn` name on purpose — `regex`/`regex_posix` (same `fn __sh_regex`, different engine crate,
+>   exactly one emitted per program) and `print_words`/`print_words_noesc` (same
+>   `fn __sh_print_words`, the unescape arm compiled out when no `echo -e` exists, again one per
+>   program). Uniqueness was the wrong invariant, and "just drop the assert" would have hidden the
+>   risk it guards: two UNRELATED helpers sharing a name could be emitted together as a duplicate
+>   definition. `helper_rendered_pairs()` now exposes key -> rendered name, and the test requires
+>   every collision to be a declared pair in a `VARIANTS` table, so a new collision fails until a
+>   human states why it is safe. Registry totals: 77 entries, 77 rendered bodies, 75 distinct names.
+>   This test earned its keep by going red three times before green (key == rendered name assumed
+>   false: `outbytes` -> `__sh_out_bytes`; doc prose read as a call site: `add_helper("…")`; then
+>   the variant pairs) — each red was a wrong assumption in the TEST, not in the emitter, which is
+>   exactly what a test over a registry should surface.
 > - v151: **D measured, and two false assumptions removed.** The `fail-rs` gate after v150's prune
 >   refactor: **555 pass / 1 fail / 7 skip** — unchanged from baseline, the fail still being the
 >   pre-existing `parse-brace-in-heredoc FAIL-rustc`. The warning census (`563 programs, 29 warned,
@@ -29,7 +43,8 @@ Covers three related work items:
 >   The same round killed two false assumptions in v150's own test: it required `add_helper("<key>")`
 >   to render literally `__sh_<key>` (false — `outbytes` renders `__sh_out_bytes`), and its scanner
 >   read `add_helper("…")` out of doc prose. It now requires each key to be a HELPER_ORDER member,
->   the rendered list to be total (one name per entry) and injective, and skips non-identifier keys.
+>   the rendered list to be total (one name per entry) with collisions confined to declared variant
+>   pairs (see v152), and skips non-identifier keys.
 > - v150: **D: one derivation for helper pruning, and warnings made measurable.** (1) The emitter's
 >   text passes stay, but `prune_unused_helpers` no longer owns its copy of the "rendered name" rule:
 >   `helper_rendered_names()` reads the registry (`HELPER_ORDER` x `helper_source`) once, and a new
