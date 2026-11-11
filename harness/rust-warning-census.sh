@@ -10,6 +10,7 @@
 #   ./harness/rust-warning-census.sh --quiet    summary only
 #   ./harness/rust-warning-census.sh --json     {"programs":N,"warned":M,"warnings":W,"by_kind":{...}}
 #   ./harness/rust-warning-census.sh <prefix>   only examples whose name starts with <prefix>
+#   ./harness/rust-warning-census.sh --kinds=mut  which programs emit which warning kind
 #
 # A program that fails to compile is reported as COMPILEFAIL and counted
 # separately: it is a `fail-rs` red, not a warning.
@@ -24,6 +25,8 @@ for a in "$@"; do
   case "$a" in
     --quiet) quiet=1 ;;
     --json) json=1 ;;
+    --kinds) kinds=1 ;;
+    --kinds=*) kinds=1; kinds_grep="${a#--kinds=}" ;;
     -*) echo "census: unknown argument $a" >&2; exit 2 ;;
     *) prefix="$a" ;;
   esac
@@ -57,6 +60,7 @@ for f in "$EX"/"$prefix"*.sh; do
     warned=$((warned + 1)); total=$((total + n))
     echo "$name $n" >> "$tmp"
     printf '%s\n' "$err" | command grep '^warning: ' | sed 's/^warning: //' >> "$tmp.k"
+    printf '%s\n' "$err" | command grep '^warning: ' | sed "s/^warning: //;s/^/$name|/" >> "$tmp.kinds"
   fi
 done
 
@@ -71,6 +75,13 @@ if [ "$json" = 1 ]; then
     done
   fi
   printf '}}\n'
+  exit 0
+fi
+
+if [ "${kinds:-0}" = 1 ]; then
+  # per-program kinds, so a warning class can be traced to the example that
+  # emits it (e.g. which programs carry `variable does not need to be mutable`)
+  sort "$tmp.kinds" 2>/dev/null | command grep -F -- "${kinds_grep:-}" || true
   exit 0
 fi
 
