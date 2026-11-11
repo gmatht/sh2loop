@@ -12,13 +12,14 @@ output (bare `rustc`, `cc -fsyntax-only`, `py_compile`, `node --check`).
 
 | fixture | source program | what it pins |
 | --- | --- | --- |
-| `bigint-arith.shir` | `n=$((2**64+1)); echo $((n*2))` | a huge value reaching a variable: the arithmetic renders through the BigInt domain |
-| `positional-bigint.shir` | `f() { echo $(($1+1)); }; f $((2**64))` | **positional** taint: the huge argument marks `$1` only, because the callee's `$N` is the only thing it can reach |
+| `bigint-arith.shir` | `n=$((2**64+1)); echo $((n*2))` | a huge value through a variable stays exact; its arithmetic folds at render time, so it compiles with bare `rustc` (no crate) |
+| `positional-bigint.shir` | `f() { echo $(($1+1)); }; f $((2**64))` | **positional** taint: the huge argument marks `$1` only, and the callee's arithmetic on `$1` is the case that actually emits `num_bigint` |
 
-`positional-bigint.shir` needs the emitted Cargo project (it pulls `num_bigint`),
-so the fixture runner reports it as `dep` and skips the bare-`rustc` arm; the
-other three backends compile it directly. That skip is a property of a
-single-file program with no manifest, not a gap in the fixture.
+Measured, not assumed: `--target rs bigint-arith.shir` contains no
+`num_bigint`, while `positional-bigint.shir` does. The latter therefore needs
+the emitted Cargo project, so the runner reports it as `dep` and skips the
+bare-`rustc` arm; the other three backends compile it directly. That skip is a
+property of a single-file program with no manifest, not a gap in the fixture.
 
 Adding a fixture: write the shell source, run
 `otranspilerl-cli --shir <source> > harness/ir-fixtures/<name>.shir`, add a row
