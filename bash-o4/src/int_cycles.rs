@@ -1826,6 +1826,19 @@ fn elem_int(e: &IrExpr) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    /// `kill_switch_disables` sets `SH2_NO_INT_CYCLES` PROCESS-WIDE, and
+    /// `seed_int_cycles` reads it. Every other test in this module calls
+    /// `seed_int_cycles`, so under cargo's parallel test threads they raced:
+    /// `swap_cycle_homes_int` failed 1 run in 8 with
+    /// `assertion failed: seed_int_cycles(&mut p)` whenever the kill-switch
+    /// test happened to hold the env var. Poisoning is recovered because a
+    /// panic in one test must not cascade into spurious failures in the rest.
+    fn env_lock() -> MutexGuard<'static, ()> {
+        static L: OnceLock<Mutex<()>> = OnceLock::new();
+        L.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner())
+    }
 
     fn prog_of(src: &str) -> IrProgram {
         debashl::transforms::set_target(Some("c"));
@@ -1835,6 +1848,7 @@ mod tests {
 
     #[test]
     fn swap_cycle_homes_int() {
+        let _env = env_lock();
         // The rb_tri shape: corners from a literal table, permuted
         // through a temp. All three must home Int.
         let mut p = prog_of(
@@ -1849,6 +1863,7 @@ mod tests {
 
     #[test]
     fn hex_and_row_text_stays_str() {
+        let _env = env_lock();
         // Non-canonical text is never proposed, even beside int mixes.
         let mut p = prog_of(
             "#!/bin/bash\nT=(0 0 0 0)\nfx() {\n  h=${T[0]}\n  h=\"00ff\" \n  r=\"row: $h\"\n  echo \"$r\"\n}\nfx\n",
@@ -1861,6 +1876,7 @@ mod tests {
 
     #[test]
     fn echoed_var_is_excluded() {
+        let _env = env_lock();
         // A directly string-observed var is excluded from the push even
         // when every assign is numeric (the str_use gate). Note the pass
         // only ADDS verdicts — the core's own Int for `n` (if any) is
@@ -1876,6 +1892,7 @@ mod tests {
 
     #[test]
     fn kill_switch_disables() {
+        let _env = env_lock();
         std::env::set_var("SH2_NO_INT_CYCLES", "1");
         let mut p = prog_of("#!/bin/bash\nfx() {\n  a=$((1))\n  b=$a\n}\nfx\n");
         assert!(!seed_int_cycles(&mut p));

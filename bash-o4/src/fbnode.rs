@@ -446,6 +446,18 @@ pub fn to_ppm(pixels: &[u8], geom: Geom, path: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    /// `geom_parsing` and `path_and_disable_resolution` set `FB0_*` in the
+    /// PROCESS environment and do not always restore it, while `publish`
+    /// (called by the other tests) reads those same names. Under cargo's
+    /// parallel test threads that raced: `node_is_not_a_kernel_framebuffer`
+    /// failed 1 run in 10 with `$FB0_GEOM="640x0"` leaking in from
+    /// `geom_parsing`. Poisoning is recovered so one panic cannot cascade.
+    fn env_lock() -> MutexGuard<'static, ()> {
+        static L: OnceLock<Mutex<()>> = OnceLock::new();
+        L.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner())
+    }
 
     fn tmp(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("bo4-fbnode-{}-{name}", std::process::id()));
@@ -458,6 +470,7 @@ mod tests {
     /// reading them back agrees byte for byte.
     #[test]
     fn published_node_holds_pixels() {
+        let _env = env_lock();
         let path = tmp("pixels").join("fb0");
         let mut node = publish(&path).expect("publish");
         assert_eq!(node.geom(), Geom::DEFAULT);
@@ -482,6 +495,7 @@ mod tests {
     /// a strip of the PREVIOUS frame on screen, which reads as a rendering bug.
     #[test]
     fn short_frame_is_refused() {
+        let _env = env_lock();
         let path = tmp("short").join("fb0");
         let mut node = publish(&path).expect("publish");
         let e = node.write_frame(&[0u8; 8]).unwrap_err();
@@ -493,6 +507,7 @@ mod tests {
     /// another: a stale node of the wrong size shears every row.
     #[test]
     fn stale_node_is_resized() {
+        let _env = env_lock();
         let path = tmp("resize").join("fb0");
         {
             let _n = publish(&path).expect("first");
@@ -507,6 +522,7 @@ mod tests {
     /// Publishing twice must not disturb the inode a running writer holds.
     #[test]
     fn publish_is_idempotent() {
+        let _env = env_lock();
         let path = tmp("idem").join("fb0");
         let a = publish(&path).expect("first");
         let ino0 = {
@@ -528,6 +544,7 @@ mod tests {
     /// root and the test must not depend on having it.
     #[test]
     fn non_regular_path_is_refused() {
+        let _env = env_lock();
         let root = tmp("dir");
         fs::create_dir_all(&root).unwrap();
         // A directory in the way is refused…
@@ -554,6 +571,7 @@ mod tests {
     /// until someone looks at the frame.
     #[test]
     fn geom_parsing() {
+        let _env = env_lock();
         assert_eq!(Geom { w: 64, h: 48 }.len(), 64 * 48 * 4);
         assert_eq!(Geom::DEFAULT, Geom { w: 320, h: 240 });
 
@@ -587,6 +605,7 @@ mod tests {
     /// The path resolution order, and the two ways to switch publishing off.
     #[test]
     fn path_and_disable_resolution() {
+        let _env = env_lock();
         static G: std::sync::Mutex<()> = std::sync::Mutex::new(());
         let _g = G.lock().unwrap();
         let clear = || unsafe {
@@ -621,6 +640,7 @@ mod tests {
     /// test is the tripwire for that.
     #[test]
     fn node_is_not_a_kernel_framebuffer() {
+        let _env = env_lock();
         let path = tmp("notkfb").join("fb0");
         let _node = publish(&path).expect("publish");
         let file = fs::File::open(&path).unwrap();
@@ -652,6 +672,7 @@ mod tests {
     /// dumped as PPM and written into the node without a byte changing.
     #[test]
     fn ppm_round_trip_is_lossless() {
+        let _env = env_lock();
         let g = Geom { w: 3, h: 2 };
         // A frame with every channel distinct, so a swapped byte is visible.
         let mut px = vec![0u8; g.len()];
@@ -674,6 +695,7 @@ mod tests {
     /// refused: each would otherwise shear or half-fill the frame silently.
     #[test]
     fn bad_ppm_is_refused() {
+        let _env = env_lock();
         let g = Geom { w: 2, h: 1 };
         assert!(from_ppm(b"P6\n2 1\n255\n\x00\x01\x02\x03\x04\x05", g).is_ok());
         // wrong dimensions
@@ -698,6 +720,7 @@ mod tests {
     /// `fb_dump_ppm` output reads a node's frame unchanged.
     #[test]
     fn ppm_bridge_matches_the_dump_layout() {
+        let _env = env_lock();
         let dir = tmp("ppm");
         fs::create_dir_all(&dir).unwrap();
         let geom = Geom { w: 2, h: 1 };
