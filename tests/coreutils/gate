@@ -104,10 +104,10 @@ for f in "$corpus"/tests/*/*.sh; do
     printf '%s\n' "$perl" > "$perl_file"
     if [ -z "$perl" ]; then
         verdict="FAIL debashc-produced-no-perl"
-    elif grep -q "system('bash', '[^']*')" "$perl_file"; then
+    elif command grep -q "system('bash', '[^']*')" "$perl_file"; then
         verdict="FAIL parser-fallback-bash-wrapper"
-    elif grep -q 'tests/init\.sh' "$f" \
-        && grep -qE 'system\(.*tests/init\.sh' "$perl_file"; then
+    elif command grep -q 'tests/init\.sh' "$f" \
+        && ! command grep -qE '(sub +compare_|tests/init\.sh)' "$perl_file"; then
         verdict="FAIL init.sh-not-sourced-source-not-inlined"
     else
         # Execution verdict: transpile → run → judge by the test's own
