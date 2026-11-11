@@ -12,6 +12,26 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v153: **Investigated and reverted: precise `mut` for read-only locals.** The corpus's largest
+>   warning class (19 × `variable does not need to be mutable`) is entirely top-of-function
+>   `let mut <v> = String::new();` for locals that are only ever READ (`$var` in `test-expr-true.sh`,
+>   `$VAR1`/`$VAR2` in `parse-bracket-chain.sh`), where bash keeps the ""/0 default forever. THREE
+>   independent causes had to change together, and each alone measured as a no-op: (a)
+>   `compute_local_vars` inserted every entry-declared local into `need_mut`; (b) the entry-declaration
+>   emitter was the one of five sites that hardcoded `let mut` instead of consulting the verdict; (c)
+>   the shared walker records a builtin's write target (`printf -v x`, `read x`, `typeset x`) as a
+>   plain READ because there is no assignment node for it. Measured progression on the corpus:
+>   (a)+(b) → needless-mut 19 → 4, but three programs stopped compiling
+>   (`parse-case-dollarparen-pattern`, `printf-format-and-v`, `typeset-cmdsub`); adding `Use::namearg`
+>   (the command-word rule: a position where a builtin can write) → 2 compile failures, warnings
+>   77 → 54; inverting to a positive `local_immutable` whitelist → needless-mut 4, but the lib suite
+>   went RED. The blocker is `__sh2_casesubj_0_`: the case lowering's synthetic subject temp is
+>   declared through a path outside the declaration block and never reaches `use_scopes`, so no
+>   decl-site verdict can classify it — a negative rule is unsound for it, and a positive whitelist
+>   does not reach the emitting path at all. Everything was reverted; the tree is back to its green
+>   state and the experiment is parked at `/tmp/exp_rust_backend.rs` and `/tmp/exp_scopes.rs`. The
+>   prerequisite for retrying is a verdict for synthetic temps (declare the temp at its write, or mark
+>   generated names), not a broader read analysis.
 > - v152: **The helper registry has declared variant pairs, not unique names.** The v151 test's
 >   count/injectivity assertion went red with `75 != 77`: two pairs of registry entries render the
 >   SAME `fn` name on purpose — `regex`/`regex_posix` (same `fn __sh_regex`, different engine crate,
