@@ -319,8 +319,9 @@ children, so after editing `setup_backends.sh` check for orphaned
 - **The escalation queue is capped, not just counted.**
   `harness/core-requests-queue.pl` prints age buckets, per-language totals,
   repeat classes (the same ask filed N times) and the highest-priority rows;
-  `--admit` exits 4 when open > `SH2_CORE_WIP_CAP` (default 8), so a filing
-  path must triage rather than add to a sink.
+  `--admit` exits 4 when open > `SH2_CORE_WIP_CAP` (default 8); a filing path
+  calls it before writing. Workers write their `.md` directly today, so this
+  is the convention and the measurement — not yet an interlock.
 - **Bare `grep` with `-q`/`-i`/`-F` is a bug.** The workers' shell shadows
   `grep` with ripgrep, which rejects those flags, so such a check returns
   non-zero for *every* input. `harness/lint-grep-alias.sh` fails on it in the
