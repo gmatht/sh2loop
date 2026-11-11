@@ -7748,3 +7748,37 @@ always-split fails `glued_is_one_word` (`2 == 1`). The tie from model to source
 is `parser::words::word_boundary_tests` (3 tests, green), which pins the same
 counts on the live AST — so the property is enforced by `cargo test` even if
 the bin goes missing again.
+
+**The text-ops composition slice is proved (2026-11-11).**
+`sh2perl/docs/fm/TextOps/ShIR_TextOps_Compose.thy` (429 lines, new; fourth
+theory of the `TextOps` session) closes the gap the fm README listed first:
+`wc -w`'s as-built lowering is `ArrayLen(Split(...))`, and with `Split`'s
+field list (`field_scan`/`split_ws`), `ArrayLen` as `length`, and the
+look-behind `ws_scan`, the theorem `array_len_split_is_word_count` derives
+the count from Base's `word_count` — the obligation is now a corollary, not
+a second independent model, and `lowered_wc_w_via_split` states it at the
+node. Two negative controls keep the drop-empty step honest (an unfiltered
+split of `" a"` returns 2 fields for 1 word; the filtered idiom returns 1).
+
+`cut` is a **different** split on purpose: `split_on` on a literal delimiter
+KEEPS empty fields (`a,,b` with `-d, -f2` is the empty string,
+`cut_keeps_empty_field`; `ws_split_would_lose_empty_field` makes the
+distinction explicit), and `FieldExtract` is modelled as "the N-th field, or
+nothing" (`field_or_empty_out_of_range`). Recorded as open targets, never
+`sorry`: the engines' `/\\s+/` is not POSIX space (`nbsp_is_not_posix_space`,
+`nbsp_is_not_ascii`) and is not modelled; `-fN-M` ranges, `--complement` and
+`--output-delimiter` splicing are unmodelled. `spec:` lines now point at the
+lemmas for `Split`, `ArrayLen` and `FieldExtract` (previously
+`none (unstated)`); nothing parses those lines yet.
+
+Session green under `quick_and_dirty = false`: four theories, `Compose`
+4.3 s cumulated, `Finished TextOps (0:00:06 elapsed)`, RC=0.
+
+Two proof shapes are now documented box traps (`docs/fm/README.md`): a
+CONJUNCTION over a recursive function's output (`w ≠ [] ∧ ws-free`) does not
+terminate here in 240 s under `simp_all`, `auto` or the `fun` induction rule
+alike, while the two halves as separate inductions close in ~6 s
+(`field_scan_no_empty` + `field_scan_ws_free`, recombined); and a parameter
+named `done` is an OUTER SYNTAX error inside
+`proof (induction cs arbitrary: cur done)` — `done` terminates the method
+argument, and the error points at the following `case`, which misleads.
