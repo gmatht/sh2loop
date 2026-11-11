@@ -11457,3 +11457,50 @@ alike, while the two halves as separate inductions close in ~6 s
 named `done` is an OUTER SYNTAX error inside
 `proof (induction cs arbitrary: cur done)` — `done` terminates the method
 argument, and the error points at the following `case`, which misleads.
+
+### Text-ops slice 6: the string-algebra nodes (2026-11-12)
+
+`StringTrim`, `StringAffix` and `AffixStrip` are modelled and machine-checked
+in `sh2perl/docs/fm/TextOps/ShIR_TextOps_Strings.thy` (sixth theory of the
+session), on top of one generic run drop (`lead_drop`/`trail_drop`/`trim_by`)
+carried at an arbitrary class. Proved: a trim is idempotent at all four flag
+pairs and removes a run from each end and nothing else (`string_trim_idem`,
+`lead_drop_untouched`/`trail_drop_untouched`, `string_trim_interior_kept`);
+the affix test is the existential that `startsWith`/`endsWith`/`strip_prefix`
+compute, on both sides and for the empty pattern
+(`affix_pre_is_the_existential`, `affix_suf_is_the_existential`); and
+`AffixStrip` is that test plus ONE slice, so the Rust
+`strip_prefix(..).unwrap_or(t)` and ESTree `startsWith ? slice : t` shapes
+coincide with the node and it is NOT `trim_start_matches`
+(`affix_strip_shape_pre`, `affix_strip_strips_one_occurrence`,
+`affix_strip_is_not_idempotent`).
+
+The measured half is pinned by a new `TextOps/measure-trim.sh` (every code
+point through each renderer, with version strings): JS `trim()` = `js_ws`,
+Python `strip()` = `py_ws` (`str.isspace()`, so 0x1C..0x1F and NBSP too), Rust
+= Go = Unicode White_Space — all three proved equal to the Space theory's
+independently defined tables. Two classes are new: Java's `strip()`
+(`Character.isWhitespace`: 0x1C..0x1F in, the non-breaking points out) and
+Zig's literal `" \t\n"`, three of six POSIX bytes. Consequences, as witnesses
+rather than prose: the Python renderer's comment ("a FIXED whitespace set …
+bash's default IFS") is false, since that set is `is_ws` and the measurement is
+`py_ws` (`python_trim_class_is_not_its_source_comment`); Python and Java have
+NO ASCII guard (0x1C is ASCII); Zig is unsound on plain ASCII (a CR survives);
+JS and Python differ from the node on U+00A0. Conversely Perl is sound on
+ASCII at EVERY flag pair, and JS/Go/Rust at the both-ends pair.
+
+Two contract findings for the marketplace: ESTree, Go, Rust and Zig ignore
+`leading`/`trailing` (both-ends primitives), so a one-sided `StringTrim` would
+be mis-rendered — latent, because the only emitter today
+(`src/transforms/text_ops.rs`) passes `(true, true)`
+(`flag_blind_renderers_are_wrong_for_one_sided_trims`,
+`flag_blind_renderers_are_right_at_both_ends`); and Perl's trailing
+`StringAffix` (`substr($t, -length($p)) eq $p`) is false for the empty pattern
+where `endsWith("")` is true, so it equals the node exactly on non-empty
+patterns (`perl_suffix_test_is_the_model_for_nonempty_patterns`,
+`perl_suffix_test_differs_exactly_at_the_empty_pattern`). Not decided: refuse
+vs narrow vs a byte-set node; and affix-in-a-loop (`${s#p}` under `read`)
+needs the state tier.
+
+Session green under `quick_and_dirty = false`: six theories, RC=0, no `sorry`.
+`docs/fm/README.md` carries the new obligation rows and the closed target.
