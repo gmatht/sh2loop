@@ -715,7 +715,7 @@ not cosmetic.
   free loops; `apply_array_counts` gained the `_sh_env("T")` wrapper
   rewrites + the element-count branch). Gate 588/56/7 → 590/54/7 with
   an EMPTY newly-failing set; two corpus files flipped green. §26,
-  `c_sparse_array.rs` (28 obligations, mutants m1–m3 + the
+  `c_sparse_array.rs` (45 obligations, mutants m1–m12 + the
   coverage-old pin), registered `c_sparse_array.rs:28:40`.
 - v19 (2026-10-29): §22's extractor — the FIRST MECHANICAL SYNC for
   a transcription model. `harness/declcov-extract.py` extracts the
@@ -1583,8 +1583,106 @@ extent rule), and an append whose items are expansions
   an unpinned sweep render empty input; `$(grep -c)` losing a pipeline),
   and the final sweep is validated by an in-corpus positive control — see
   §7's "Measurement discipline".
+- v12 (2026-11-04): the flattened-subscript round — §20g. ONE classifier
+  (`c_subscript.rs`, 37 obligations) now drives the declaration census and
+  the store arm, pins k1-k16 are bash's measured truth table (including the
+  assoc asymmetry: explicit `$((e))` keys by VALUE, a bare operator text by
+  its LITERAL), and the DSE half is a liveness obligation
+  (`subscript_closure` / `dead_needs_no_mention`). Fixes 59/59b-59m; battery
+  81/0/9; C gate 606/38 -> 613/31 with zero new failures; ASAN clean.
 - v1 (2026-10-22): initial assessment and plan; no code changed, no
   sanitizer run performed yet.
+
+### 20g. The flattened subscript: one text, three verdicts (2026-11-04)
+
+The core leaves an element write's subscript as TEXT inside the target
+name — `n[$((i*2))]=5` arrives as `Assign{ targets: [{ var:
+"n[$((i*2))]" }] }` with `indices` EMPTY — so the renderer, the
+declaration census and the dead-store census each had to read that text
+themselves. They disagreed, in both directions, and every disagreement was
+a red the gate could not see:
+
+| subscript          | bash (measured)     | before                                    |
+|--------------------|---------------------|-------------------------------------------|
+| `n[$((i*2))]`      | index 4 (`i=2`)     | **does not compile** (`n_k` undeclared)   |
+| `n[i*2]`           | index 4             | assoc key `i*2` — count right, keys wrong |
+| `n[$i+1]`          | index 3             | **does not compile**                      |
+| `n[i]`             | index `i`           | **does not compile** (store not "known")  |
+| `n["1"]`           | index 1             | assoc key `"1"`                           |
+| `n[(i*3)+1]`       | index 7             | assoc key `(i*3)+1`                       |
+| `a[$((i+2))]` read | `a[3]`              | read index **0** (`p` for bash `r`)       |
+| `m[$((i*2))]`      | key `"2"`           | key `"0"` (empty expansion)               |
+| `i=3; n[$((i))]=9` | index 3             | `i=3` **deleted** by DSE, `i` undeclared  |
+
+The declaration census called an operator text a STRING KEY (so an int
+array was declared indexed and the store wrote `n_k`), the store arm
+called a bare ident a string key unless it happened to be in its own
+store/type map, the read path never stripped a `$((…))` wrapper (so its
+`$`-scan stopped at the `(` and the index was 0), and the assoc key path
+handed `$((…))` to the heredoc word expander, which does not evaluate it
+inside a subscript.
+
+**The denotation** (`proofs/verus/c_subscript.rs`, 37 obligations).
+bash has exactly two rules and they are not symmetric:
+
+    INDEXED   the subscript is an ARITHMETIC EXPRESSION — a numeral, a
+              bare name (its value, 0 when unset), `$name`, `$((e))`, or
+              an operator expression. Quoting does not matter.
+    ASSOC     the subscript is a STRING after EXPANSION: `$((e))` is the
+              DECIMAL of its value, `$name` the variable's text, and a
+              BARE operator text stays LITERAL (`m[i*2]` → key `i*2`).
+
+That asymmetry is why the two predicates are separate —
+`subscript_explicit_arith` (the assoc key) versus `subscript_arith_inner`
+(the index) — and it is pinned: `k14`/`k15`/`k16` give `m[i*2]` the
+literal key `i*2` and `m[$((i*2))]` the value key `2`, so one script
+prints bash's `2 [i*2 2]`. A single-verdict reading of "arith" could not.
+
+`classify` is now the ONLY verdict: from the text alone it returns
+`Arith | Num | DynVar | Ident | ArithText | Word`, and BOTH consumers are
+defined from it — `census_assoc` (the declarations) and `store_assoc`
+(the store arm). `decl_and_store_agree` is then the invariant, with the
+one side condition the source really has (`$`-prefixed texts are dynamic
+indices, never assoc): the declaration can no longer promise storage the
+store does not write. The retired pair is proved divergent on the measured
+shapes instead of merely described: `prefix_diverges_on_ident` (`n[i]=v`:
+census indexed, store assoc — the `n_k` red) and
+`prefix_calls_arith_assoc` (`n[i*2]=v`: both assoc, so it compiled into a
+table whose keys bash never had).
+
+**Liveness.** The text is opaque to every IR analysis, which is a second,
+quieter bug: `i=3; n[$((i))]=9` kept 2 of 3 shIR statements, because the
+only mention of `i` was inside the name. `transforms/dead_store_elim.rs`
+now censuses the subscript's names (`subscript_read_names` =
+`string_read_names` for `$name`/`${name}` plus `arith_read_names` for the
+bare runs), and the model states the obligation rather than the patch:
+`subscript_closure` (a name mentioned in a subscript is in the read set)
+and its contrapositive `dead_needs_no_mention` (a DEAD store mentions the
+name nowhere), with `fix_was_necessary` pinning that the pre-fix set is
+exactly `{n}`. The census over-approximates on purpose — an assoc table's
+literal key spells a name that is not read — and that direction is stated
+(`ident_key_over_approximates`): it keeps a store alive that nothing
+reads, never drops one.
+
+**Measured.** `harness/ifs-probe.sh` **81 PASS / 0 FAIL / 9 XFAIL / 0
+XPASS**, rc 0: case 59 (the old `x`fail) retired, 59b-59m added — the six
+indexed forms, the string-array form, both read faces, the assoc key pair,
+and the store-only-in-the-text case. C corpus gate **PASS=613 FAIL=31
+SKIP=7** — seven examples fixed with zero new failures (063_09, 064_21,
+eq-string-num-var, func-after-or-assign, func-after-test-or, or-continue,
+param-expand-default-operator), which is the DSE half: those scripts had a
+store read only through an array subscript. The new shapes are ASAN+UBSAN
+clean; `transforms::dead_store_elim` gained a unit test over five subscript
+forms plus the no-mention control.
+
+**Still open, pinned not papered over.** `${i}` (the core keeps the
+braces): the store arm's `k.starts_with("${")` branch routes it to assoc
+while the census excludes every `$`-prefixed text — `assoc_dollar_brace_remains`
+proves the disagreement, which needs the core to split the subscript.
+And a narrower find: an INT array's element read next to its count in one
+printf lowers through the ARGV path (`_sh_idx_init(…, n, n_len)` with
+`char **` where `n` is `long long[]`), which SIGSEGVs — pre-existing,
+independent of the subscript work, now pinned as `60_xfail_int_argv_face`.
 
 ## 21. Capture/wrap quoting — `c_capture_wrap.rs` (16 obligations)
 
@@ -1625,7 +1723,7 @@ the injection hole: a quote in cmd terminates the word) goes red
 (13v/3e — splice shape, injection-freedom, and the `"don't"` pin all
 fail), restored to 16v/0e.
 
-## 22. The decl-coverage censuses — `c_decl_coverage.rs` (51 obligations)
+## 22. The decl-coverage censuses — `c_decl_coverage.rs` (54 obligations)
 
 v10/v10b's source-level story, made checkable. The C backend runs three
 independent censuses over shIR — the HOIST census (`hoist_vars`, via
@@ -1639,7 +1737,7 @@ verbatim over a datatype rendering of shIR (`Expr`/`Stmt`/`Ch` modes),
 with `word_scan`/`param_gate`/`printf_v_target`/`let_target` mirroring
 the emit dispatch's own shape predicates.
 
-What is proved (51 verified):
+What is proved (54 verified):
 
 - `coverage_s`/`coverage_x`/`coverage_e`/`coverage_seq` — THE
   OBLIGATION: every write a statement, expr, or sequence carries is
@@ -1661,6 +1759,25 @@ What is proved (51 verified):
   printf/let in fn scope (hoist standing alone — no other census is
   consulted at fn-local decl time), and the raw-text
   `${y:=${z:=K}}` default word.
+- `pin_assign_chain` (v20, 2026-11-04) — the expr-position `assign`
+  arm. `true && x=v || y=w` carries its write as an ARM OF A CHAIN
+  EXPRESSION: no `IrStmt::Assign` ever exists, so every statement arm
+  misses it, and the read of `x` resolved to `_sh_env("x")` (the
+  ENVIRONMENT) while the write went to the C variable — measured: the
+  echo printed an empty value for the variable it had just assigned.
+  The arm takes args[0]'s BASE before the first `[` (`base_of`), keeps
+  it when `is_ident` (so an element write `n[i]=v` hoists `n`, and a
+  non-identifier base invents no name), then walks args — extraction
+  AND recursion, the printf/let/param shape. The pin asserts the HOIST
+  answer and, fidelity-both-ways, that the INVENTORY and VETO walks
+  still do NOT see it: neither a decl site nor a `${NAME:=…}` position
+  can be an `assign` call, so acknowledging one there would be a false
+  `declared`. (`raw_hits_needs_three` is what makes that negative
+  cheap: a text shorter than 3 chars has no index with `i + 2 < len`,
+  so the raw-`${` existential is EMPTY rather than merely unmatched —
+  no search, no `compute` blow-up. `compute` on the whole frozen walk
+  chain took >10 min and produced nothing; the structural refutation
+  takes milliseconds. That is the house lesson for this one.)
 
 House lessons: the two big chain-equalities in `coverage_e`'s Call arm
 must be bridged per-arm (disjunct-picking over two independent if-chains
@@ -1686,9 +1803,18 @@ chains (exact pattern text incl. guards + the walker calls each arm
 body carries) from the live `c_backend.rs`, and the gate diffs them
 against the committed `proofs/verus/c_decl_coverage_sync.txt` — a
 dropped elsif-cond arm was caught line-exactly as the negative
-control. The pin↔corpus mapping remains the value-level tie (pins are
-UNMIRRORED in the sync's pin map by design: the probe battery +
-corpus shapes are what cargo cannot run).
+control — and it caught this round's drift the same way: the source's
+expr-position `assign` arm landed while the model still transcribed
+the pre-fix chain, so the sync went red on exactly that line until
+the model gained the arm (v20). The pin↔corpus mapping remains the
+value-level tie for the other pins (UNMIRRORED by design: the probe
+battery + corpus shapes are what cargo cannot run); `pin_assign_chain`
+is the exception with a real unit test,
+`c_backend::tests::expr_position_assign_routes_to_the_variable`, and
+the sync's `[exec]` stage RUNS it. That test is a proven TRIPWIRE, not
+a decoration: with the arm's guard disabled it fails and the diagnostic
+prints the emitted `_sh_env("x")` read — measured both ways in this
+round before the arm was restored.
 
 ## 23. The string-literal escaper — `c_str_lit.rs` (19 obligations)
 
@@ -1968,7 +2094,7 @@ proved. Gate-registered (`c_vbuf.rs:39:40`); like the other `c_*`
 models it is an emission decision, no sync baseline — its living
 tie is the pin↔probe mapping (and the source control above).
 
-## 26. The sparse-array read faces — `c_sparse_array.rs` (28 obligations)
+## 26. The sparse-array read faces — `c_sparse_array.rs` (43 obligations)
 
 The C backend stores an indexed array DENSE (`static char *arr[N]` +
 `arr_len`, a NULL slot = an unset index) while bash's indexed array is
@@ -2073,12 +2199,146 @@ HONEST EDGES (measured, NOT fixed — next increments):
 - **`${arr[@]:off:len}`** slices the space-joined string: agrees with
   bash on the probe shapes, not established generally.
 
-Gate-registered (`c_sparse_array.rs:28:40`); like the other `c_*`
+### 26b. The no-colon SET-NESS faces on an ELEMENT (+9, 2026-11-05)
+
+`${arr[i]-w}` / `${arr[i]+w}` / `${arr[i]=w}` / `${arr[i]?msg}` do not
+ask for a VALUE — they ask a PREDICATE: is this index an element? A
+set-but-EMPTY element is an element in bash, so the predicate is
+`slot.is_Some()`, and the C arms were resolving it through the value's
+EMPTINESS instead. Measured (each against bash, 2026-11-05):
+
+| program | bash | C before | C now |
+|---|---|---|---|
+| `a=(''); ${a[0]-z}` | `` | `z` | `` |
+| `a=(''); ${a[0]+z}` | `z` | `` | `z` |
+| `a=(''); ${a[0]=z}` | `` | `z` | `` |
+| `a=(''); ${a[0]?b}` | ``, rc 0 | aborted | ``, rc 0 |
+| `a=(); ${a[0]-z}` | `z` | `z` | `z` |
+| `a=(); ${a[0]?b}` | abort, rc 1 | abort, rc 1 | abort, rc 1 |
+| `n=(1 2 3); ${n[5]-z}` | `z` | `z` | `z` |
+| `n=(1 2 3); ${n[2]-z}` | `3` | `3` | `3` |
+
+The extension is `presence_override` in `param_call`: when the read is an
+element under one of the four set-ness operators, the arm's test becomes
+the store's own presence answer instead of the value's emptiness —
+
+* marker arrays: `i >= 0 && i < len && _sh_pres_arr[i]`
+* VALUE storage (`long long a[]`, no marker): `i >= 0 && i < len`,
+  which is exact because every index below `len` holds a value
+* assoc: the KEY list (below, §27)
+* otherwise (a scalar, or an unknown key): the existing heap-presence
+  pointer / emptiness test, unchanged
+
+Obligations: `is_set` (bash's predicate), `pres_test` (the shipped
+test), `pres_wf` (the marker byte IS `is_Some` for every real element —
+the invariant the writer maintains), `value_wf` (range alone suffices
+for value storage), the four denotations `f_dash`/`f_plus`/`f_assign`/
+`f_question` against their renderings `c_*_pres`/`c_dash_range`, the
+exactness theorems `setness_dash` / `setness_plus` / `setness_assign` /
+`setness_question` / `setness_dash_value_storage`, and four mutants on
+the canonical `pe()` store (`a=('')`): `m4_emptiness_is_not_setness`,
+`m5_marker_is_the_difference` (drop the byte and the same store
+answers `z` — the `a=()` row), `m6_plus_flips`, `m7_question_aborts_wrongly`.
+The `?` face keeps its exit status: bash exits **1** for an abort in a
+script file (measured; `bash -c` reports 127, which is why the model
+states the file case — the corpus gate runs files).
+
+### 26c. The `=` / `:=` faces also WRITE (+6, 2026-11-05)
+
+bash does not only return the default word — it ASSIGNS it into the
+element. The previous round yielded the word and stored nothing:
+
+| program | bash | C before | C now |
+|---|---|---|---|
+| `a=(); ${a[0]=z}` then `#a`, `${a[0]}` | `1`, `z` | `0`, `` | `1`, `z` |
+| `a=(); ${a[2]=z}` | `1`, `z` | exit 127 | `1`, `z` |
+| `a=(''); ${a[0]=z}` | `` (set: no write) | `` | `` |
+| `a=(''); ${a[0]:=z}` | `z` (colon tests EMPTINESS) | `z`, no write | `z` |
+
+So the two faces share a WRITE but not a TEST: `=` asks "is the slot
+an element" (the presence predicate above), `:=` asks "is the value
+EMPTY" and therefore overwrites a present-but-empty slot. The arm
+reads its test ONCE into an `int _pp` (re-testing after the store
+would report "set" and return the stale read), materialises the
+default only inside the guard — bash evaluates the word only when it
+stores — and writes through the same helpers normal stores use
+(`_sh_arr_set`, `_sh_assoc_set`).
+
+Two analyses had to learn the shape, because a set-ness write arrives
+as a PARAM EXPANSION, not an index store: `setness_write_arrays`
+(veto the array out of Int storage — the measured array was
+`long long a[1]`, which cannot hold `z` — and raise the fixed capacity
+to the literal index, or drop it so the array takes the demand-growth
+route; a dynamic key drops it).
+
+Obligations: `assign_state` (`=` on a non-element), `colon_assign_state`
+(`:=` on an empty value), `f_assign_colon` (its value denotation),
+`assign_writes_the_word` (the element and the count), `assign_keeps_a_set_element`,
+`colon_assign_rewrites_a_present_empty`, `assign_grows_to_the_index`
+(capacity = the index), and mutants `m11_assign_without_the_store`
+(the pre-fix count 0 vs 1) and `m12_colon_is_emptiness_not_presence`
+(the a6 row).
+
+Gate-registered (`c_sparse_array.rs:45:40`); like the other `c_*`
 models, an emission decision with no sync baseline — its living tie
 is the pin↔probe mapping (the nine-face probe) and the source
 control above.
 
-## 27. The associative-array faces — `c_assoc_array.rs` (41 obligations)
+### 26d. The store reaches every storage class (+1, 2026-11-05)
+
+The first cut of §26c stored only into FIXED-CAPACITY `char**` tables, and
+that restriction was not cosmetic: `local b=()` is a demand-grown (`vec`)
+`char**` whose table is allocated on demand and whose capacity lives in
+`b_cap`, so the fixed-cap call `_sh_arr_set(b, &b_len, 1024, 0, v)` wrote
+through a NULL pointer and **SEGFAULTED** (measured). The store now picks
+the helper from the storage class, and evaluates a non-literal key ONCE
+into a `long long _kx` so the presence test, the store and the value face
+cannot disagree (before that, `${a[i]=z}` with `i=2` stored at 0 — the
+`${!a[@]}` key face showed it):
+
+| shape | how it stores | measured |
+|---|---|---|
+| fixed `char *a[N]` | `_sh_arr_set(a, &a_len, cap, i, v)` | `a=(); ${a[0]=z}` → `n=1` |
+| demand-grown `char **b` | `emit_vec_index_write` (grower + cap) | `local b=(); ${b[0]=q}` inside a function → `n=1`, called twice |
+| literal or dynamic key | `long long _kx` hoisted once | `i=2; ${a[i]=z}` → `n=1`, `${!a[@]}` = `2` |
+| `$((i+1))` subscript | same temp | `i=1; ${a[$((i+1))]=z}` → `n=1` |
+| assoc (`m[k]`, `m[$k]`) | `_sh_assoc_set` | loops over keys insert each |
+| `long long a[]` (int) | **no store** — no text slot exists | pinned |
+
+THE OVERWRITE, and why it needed a runtime change. `${a[i]:=w}` must
+replace a present-but-EMPTY slot. The first attempt freed the slot inside
+the store and printed **freed memory** (`a=(''); echo "${a[0]}"
+"${a[0]:=z}"`): an earlier expansion of the same statement still points at
+the block that was just freed. Two designs were measured before the one
+that shipped:
+
+* *defer a named temp on `pending_frees`* — does not compile inside a loop
+  body (`_po4 undeclared`): that list is flushed at the statement boundary,
+  outside the C block where the temp was declared.
+* *copy the value before the store* — leaks, because there is no
+  statement-scope free for an arbitrary temp.
+
+Shipped: `_sh_arr_take` / `_sh_assoc_take` hand the replaced block to a
+runtime TRASH list (`_sh_defer_free`), and `_sh_flush_trash()` runs after
+every statement (the `stmt` wrapper) — a call, so it needs no declaration
+in scope. The model states the two halves as `take_old` (the replaced value
+is RETAINED for the flush) and mutant `m14_in_place_free_drops_the_read`
+(the measured use-after-free).
+
+RESIDUAL (measured, NOT fixed): a plain `${a[i]}` read is rendered INLINE,
+so when it shares one argument list with a `${a[i]:=w}` that overwrites the
+same slot, our read resolves at call time and sees the NEW value —
+bash materialises expansions left to right (`a=(''); echo "${a[0]}"
+"${a[0]:=z}"` prints `[] [z]`, we print `[z] [z]`). Fixing it means
+materialising plain element reads into temps, which touches every read
+site; the set-ness faces themselves are exact.
+
+Also pinned: `x=${a[0]=z}` and `: "${a[0]=z}"` never reach the backend —
+the generated C assigns the empty string with no `param` call
+(pre-existing lowering gap in the assignment / no-op-command paths,
+independent of these faces).
+
+## 27. The associative-array faces — `c_assoc_array.rs` (54 obligations)
 
 The C backend stores an associative array as two parallel DENSE arrays
 plus a count (`static char *m_k[N]; char *m_v[N]; size_t m_n` via
@@ -2160,12 +2420,55 @@ opted in explicitly (`group_seq_axioms`, `group_map_lemmas`,
 `group_set_lemmas` + set_lib/iset) — without them the remove axioms
 and seq-length bridges are simply absent.
 
-Gate-registered (`c_assoc_array.rs:41:40`); like the other `c_*`
+### 27b. KEY PRESENCE for the same four faces (+8, 2026-11-05)
+
+The assoc twin of §26b — and the reason it needed a new runtime helper.
+`_sh_assoc_get` answers `""` for a MISSING key (a non-NULL pointer to
+the empty string), which is byte-identical to a present-but-EMPTY
+entry, so the value pointer cannot carry set-ness at all. Measured:
+
+| program | bash | C before | C now |
+|---|---|---|---|
+| `declare -A m; m[k]=; ${m[k]-z}` | `` | `z` | `` |
+| `declare -A m; m[k]=; ${m[k]+z}` | `z` | `` | `z` |
+| `declare -A m; ${m[k]-z}` | `z` | `z` | `z` |
+| `declare -A m; m[k]=; ${m[k]?b}` | ``, rc 0 | aborted | ``, rc 0 |
+
+The store change is `_sh_assoc_has(k, n, key)` — a scan of the key list,
+emitted beside `_sh_assoc_get` — and `array_index_read` now records the
+key expression it built (`assoc_key_seen`) so the set-ness operator can
+call it without re-deriving the key text (explicit-arith subscripts
+included). `has_is_dom` proves the scan is `dom(the_map)`, the same key
+set the count and key-join faces already use. Mutants:
+`m8_value_is_not_presence` (present-empty vs absent yield the SAME `""`
+from `assoc_get`, yet the faces must differ), `m9_plus_reads_presence`,
+`m10_question_is_presence`.
+
+### 27c. The same faces INSERT the key (+4, 2026-11-05)
+
+`${m[k]=w}` puts the entry in the table (`#m` 0 → 1, `${m[k]}` `w`);
+`${m[k]:=w}` does the same but only when the VALUE is empty, so a
+present-but-empty entry is overwritten while `=` leaves it alone.
+Both go through `assoc_set` — the insert the ordinary `m[k]=w` arm
+already uses — so `{id}_n` grows exactly when bash's key count does.
+Obligations: `assign_table`, `colon_assign_table`, `assign_inserts_the_key`
+(key present, count 1, value `w`), `assign_keeps_a_present_key`,
+`colon_assign_rewrites_a_present_empty_key`, mutant `m13_assign_without_the_insert`.
+
+REMAINING HONEST EDGE (measured, not fixed): the live store's default
+word is only materialised when the guard passes, so `${a[i]=$(cmd)}`
+runs `cmd` once — correct — but an array that is also written through
+the ordinary `a[i]=v` arm keeps its situs; and a set-ness write on an
+array whose element type is `long long` from a *later* proof-gated
+analysis (numeric-observed) is demoted, i.e. the optimisation is lost
+per array, not per write.
+
+Gate-registered (`c_assoc_array.rs:54:40`); like the other `c_*`
 models, an emission decision with no sync baseline — its living tie
 is the pin↔probe mapping (the a/b/c probe battery) and the source
 control above.
 
-## 28. The IFS joins — `c_join_ifs.rs` (54 obligations)
+## 28. The IFS joins — `c_join_ifs.rs` (82 obligations)
 
 The `${a[*]}` separator read and the `${a[*]:off:len}` element slice —
 the faces behind 064_07's `sort` receiving ONE space-joined line, and
@@ -2365,6 +2668,104 @@ join is observable; `$0` differs by construction between `bash <file>`
 and the compiled binary, so the offset-0 case strips the `$0` field
 rather than blessing either value.
 
+### 28c. The CHILD-SHELL reconstruction: one array, two storage classes (2026-11-04)
+
+§28e gave dense storage a presence marker, which made every READ face
+agree with bash. The WRITE-for-a-child face was still routed by call
+site rather than by storage, and it crashed.
+
+Measured (`harness/ifs-probe.sh`, case 60):
+
+```
+declare -ia n; n[4]=5; printf "%s\n" "${n[4]}" "${#n[@]}"
+  -> cc: warning: passing argument 4 of '_sh_idx_init' from incompatible
+         pointer type (expected 'char **', got 'long long *')
+  -> rc 139 (SEGV), ASAN: read at 0x1 in _sh_idx_init
+```
+
+`_sh_idx_init(char **a, size_t n)` skips NULLs and writes `n=(7 9)`.
+Handed a `long long[]` it reads each slot as a POINTER, so it segfaults
+before it can write a wrong literal. Three call sites rebuilt arrays for
+a child shell — the stage-command rebuild (`$(…)`), `sh_array_inits`,
+and `array_inits_for_text` — and each decided the helper itself.
+
+The fix is one classifier in `sh2perl/src/c_backend.rs`, `idx_init_call`,
+which all three sites now go through: value storage takes
+`_sh_idx_init_ll(const long long *a, const unsigned char *pres,
+size_t n)` — one `[%zu]=%lld ` entry per PRESENT slot (explicit index,
+because a hole must not move its successors) and `pres = NULL` for the
+growable-vec / mpz forms, whose extent IS the element list. `char**`
+storage keeps the old helper.
+
+**The denotation** (`c_join_ifs.rs` §g). A child shell is a fresh shell
+that never saw the parent's C state, so the array it is handed is a
+SEQUENCE OF (index, value) PAIRS — the bash array it denotes:
+
+```
+shell_pairs(slots, marker)   the pairs the emitted literal installs
+pair_idx / pair_vals         the child's `${!n[@]}` / element list
+child_join(sep, pairs)       the child's `${n[*]}`
+child_count(pairs)           the child's `${#n[@]}`
+```
+
+Obligations added (section g, **+9**: 73 → 82 verified):
+
+- `g0a_present_and_idx_align` — `present` and `present_idx` are the two
+  projections of ONE pair list (equal length, by induction on the slot
+  list);
+- `g0_pairs_project` — the projections recover what the pairs were built
+  from, so the child may be read through either;
+- `g1_child_sees_exactly_the_elements` — THE ROUND TRIP: with the marker
+  the child's indices are `present_idx`, its elements are `present`, its
+  `${#n[@]}` is `dense_count`, and its `${n[*]}` is `dense_marked_join`
+  **for every separator** (which is why a child may be handed a
+  non-default IFS);
+- `g2_measured_sparse_child` — the measured array: pairs
+  `([0]=7, [2]=9)`, count 2, join `7 9` / `7:9`;
+- `g3_without_the_marker_the_child_invents_elements` — the MUTANT: drop
+  the marker and the literal becomes the extent list, so the child
+  reports count 3 and `7 0 9`. A refactor that removes the `pres`
+  parameter fails here;
+- `g4a_no_holes_is_the_extent` + `g4_dense_storage_needs_no_marker` — the
+  side condition that makes `pres == NULL` legitimate: on a hole-free
+  array the extent list IS the element list, so the two reconstructions
+  agree (`declare -ia n=(1 2); n+=(3)`, case 60c);
+- `g5_unmarked_parent_and_child_agree_with_each_other` — CONSISTENCY IS
+  NOT CORRECTNESS, and this is the sharpest obligation in the section:
+  without the marker the parent's extent join and the child's literal
+  agree (`7 0 9` on both sides), so no parent/child differential test
+  can find the defect; both simply contradict bash (`7 9`). The marker
+  is owed to BASH, not to internal agreement. It also pins that the
+  dense join's element source is the VALUE list (`zeroed`), not the
+  empty-word `densify` (`7  9`) — the two are separately dominated (e7);
+- `g6_dispatch_is_class_determined` — the dispatch is a function of the
+  STORAGE CLASS alone (`helper_for`), the two helper images are
+  disjoint, and on a sparse array the two reconstructions carry
+  different element lists, so the wrong helper can never be silently
+  right.
+
+Scope, stated plainly: ONE storage class is not covered by the dispatch
+— the `mpz_t[]` array-return storage. It is a function-local temp
+produced by a call lowering rather than a name in the store, so it does
+not reach the three sites today; if it ever does it needs its own helper
+(reading `mpz_t` slots as `long long` or as pointers are both wrong),
+which is why `idx_init_call` says so in place.
+
+The C signature mismatch is not Verus' to see —
+on the gate's compiler (GCC 13.3, MEASURED) it is only a
+`-Wincompatible-pointer-types` WARNING, so the bug COMPILED and then
+died at runtime; GCC 14+ promotes it to an error. What is proved is the
+value fact that makes the mix-up wrong rather than ill-typed (g3/g6).
+The probe battery is the instrument for the type half: cases
+`60_int_argv_face`, `60b_int_argv_sparse` (the hole must reach the
+child), `60c_int_argv_vec` (no marker), `60d_int_argv_neg`.
+
+Measured after the fix: battery `harness/ifs-probe.sh` **85 PASS / 0
+FAIL / 8 XFAIL / 0 XPASS**, rc 0 (case 60 retired from the xfail list).
+Nothing in the corpus exercises `declare -ia` in an argv position, so
+the gate cannot move on this change; the battery is the instrument.
+
+
 ## 29. The redirect reorder and the word quoter — `c_redirect.rs` (46 obligations)
 
 ```
@@ -2431,3 +2832,1089 @@ bash's contract; `exec`-style and process-substitution redirects beyond
 registered (`c_redirect.rs:46:40`); like the other `c_*` models it has
 no sync baseline — the pin↔probe mapping (`/tmp/redprobe`, 2026-11-01)
 is its living tie.
+
+## 30. Static `eval` inlining — `c_eval_inline.rs` (20 obligations)
+
+```
+    verus --triggers-mode silent --rlimit 40 c_eval_inline.rs
+    -> verification results:: 20 verified, 0 errors
+```
+
+**What is proved.** A literal `eval '<text>'` denotes the statements of
+`<text>` and nothing else — so `shir_to_c` now splices them into the IR
+*before* the analyses (`static_eval_stmts` + `expand_static_evals`)
+instead of lowering the text at render time (`try_static_eval`, which
+stays as the fallback for a dynamic argument or a text the core parser
+rejects).
+
+The model is a program FLATTENED to the in-order leaf sequence the
+analyses fold over, each leaf tagged with how many literal-eval texts
+enclose it (`0` = top level, `k` = inside `k` texts, `-1` = inside an
+opaque `eval "$x"`). Splicing is then exactly "retag to 0", which is why
+the flat view is faithful — the leaves keep their position. Every fold is
+a recursion on an int cursor into that one sequence, so each obligation
+is a definitional unfold:
+
+- `expansion_preserves_meaning` / `assigned_invariant` — the rewrite
+  moves neither an effect nor a store target (the licence);
+- `census_is_exact` (under `dyn_free`) and `fixed_census_is_complete` —
+  **the fix**: after the pre-pass the census IS the set of stores, so
+  every store target is declared. The pre-fix census differs by exactly
+  one clause (`stores_top`: a store declares only at depth 0);
+- `opaque_never_over_declares` — the pre-fix census only ever MISSES,
+  never over-declares, so its failure mode is one-sided and cannot
+  manufacture a false "declared" behind which a real bug hides;
+- `witness_063_12` — the measured program: `assigned` has `result`,
+  the pre-fix census does not, the fixed one does;
+- `route_var` / `route_env` — the SECOND symptom from the same cause.
+  The read was at top level the whole time; it was the census that could
+  not see the store, so `route` demoted `$result` to `_sh_env("result")`
+  (the environment — a different storage from the shell variable the
+  store wrote). This is why a mid-body declaration would not have been a
+  fix: the decl and the routing are the same fold;
+- `dyn_eval_not_covered` — the honest scope: an opaque text is left
+  exactly as found, and is *still* invisible to the census;
+- `expand_idempotent` — the pre-pass reaches a fixpoint, so its depth
+  bound is a safety valve against a text that evals itself, not a
+  semantic parameter.
+
+**Measured.** `harness/render-all.sh` renders every corpus source (651
+files) with a given CLI, so a renderer change can be byte-diffed against
+the previous build: **649 of 651 files identical**, and the two that
+differ are the two the change is aimed at —
+`063_12_complex_eval` (now `char* result = NULL;`, `(result ? result :
+"")`, `free(result)`; the gate verdict goes `cc` → **PASS**) and
+`063_hard_to_parse` (same statement order, verdict unchanged at
+`stub:3`). C corpus gate **PASS=614 FAIL=30 SKIP=7**.
+
+**Scope, stated plainly.** The model abstracts names to indices and
+records NO value flow: it says the census sees the right NAMES, not that
+the spliced statements compute the right values — value correctness here
+is bash's semantics of the same text, which the gate compares directly.
+An `eval` whose word is not a single literal (a variable, a substitution,
+several words) is deliberately untouched by the pre-pass: `static_eval_stmts`
+returns `None` and the render-time path keeps whatever it did before.
+
+## 31. `unset` on a scalar, the census that decides, and SET-NESS — `c_unset_scalar.rs` (27 obligations)
+
+```
+    verus --triggers-mode silent --rlimit 40 c_unset_scalar.rs
+    -> verification results: 27 verified, 0 errors
+```
+
+**What is proved.** A bash variable is not a value: it is a PARTIAL map.
+`None` (unset) is not `Some("")` (set to the empty string), and bash tells
+them apart. The C generator stores a scalar one of two ways, and only one of
+them can carry the distinction:
+
+```
+STRING storage   char *x       — carries a Str; `unset` clears it to "" / NULL
+INT storage      long long x   — carries a NUMBER. There is no spelling of
+                                 "unset" in it. `unset` emitted NOTHING.
+```
+
+Measured 2026-11-04, each program `x=5; unset x` then one line:
+
+| expansion | bash | C (before) |
+|---|---|---|
+| `echo "[${x:-gone}]"` | `[gone]` | `[5]` |
+| `echo "[$x]"` | `[]` | `[5]` |
+| `echo $((x+1))` | `1` | `6` |
+| `echo "[${x-unset}]"` | `[unset]` | `[5]` |
+
+The fix is one predicate ([c_backend.rs](sh2perl/src/c_backend.rs),
+`demote_unset_scalars` / `unset_scalar_census`, run from `shir_to_c` right
+after the stringy demotion): a scalar the program `unset`s is removed from
+the Int verdicts, so it lives in string storage, where the state exists.
+
+**The quotient.** String storage cannot represent `None` separately from
+`Some("")` — both are the same bytes. `quot` is that identification, and the
+obligations say what it preserves and what it provably cannot:
+
+- `q_plain`, `q_len`, `q_arith`, `q_colon_default`, `q_colon_plus` — agree
+  with bash for EVERY state, by construction: these faces test EMPTINESS,
+  which the quotient keeps. That is the fix's whole target, and it is why
+  the fix is a storage-kind demotion and not a presence bit.
+- `q_dash_default_unset`, `q_dash_plus_unset` — the half of the no-colon
+  faces that `unset` completes (`${x-w}` after an unset is `w`; measured).
+- `no_face_separates` — **the residual is impossible, not unfinished**: no
+  function of the quotient can give different answers for `None` and
+  `Some("")`, while bash's `${x-w}` does. `dash_gap_is_the_set_to_empty_case`
+  is the witness, and it is PRE-EXISTING and unrelated to `unset`
+  (measured: `x=""; echo "[${x-w}]"` → C `[w]`, bash `[]`, before this round
+  and after it). Any future attempt to "finish" `${x-w}` inside string
+  storage has to add state, and this theorem says so.
+- `pref_int_keeps_the_value`, `pref_int_arith` — the pre-fix divergence on
+  the measured numbers (an int store keeps the VALUE across `unset`), which
+  is what made every face wrong at once.
+- `demote_is_a_kind_change`, `demote_hits_the_right_names`,
+  `element_and_flag_are_not_scalar_unsets` — the census. The numeric-only-
+  mutation exception (`let x=…`, `printf -v x`) is proved non-decorative, and
+  an element unset (`n[k]`) / a flag (`-v`, `-f`, `-n`) is proved not to
+  demote the scalar (that is a storage-CLASS question, answered elsewhere).
+
+**The census walk (why a missing arm was a soundness hole).** §3 models the
+DECISION; the decision is only as good as its INPUT. `demote_unset_scalars`
+demotes a name that an emptiness face reads when no assignment to it is
+unconditional, and the face collector was a hand-written `match` over `IrStmt`
+whose tail was `_ => {}` — with no `Output` arm. But `printf '%s' "${x:-}"`
+lowers to `IrStmt::Output { value }`, not to `Expr(Call)`, so the face was
+invisible, `x` was never classified possibly-unset, and it stayed Int-homed.
+Measured 2026-11-05:
+
+| program | bash | C (before) |
+|---|---|---|
+| `r=$(echo hi) \|\| { x=$?; }` then `printf "%s=%s" x "${x:-}"` | `x=` | `x=0` |
+| the same with `echo "[${x:-}]"` | `[]` | `[]` — **always right** |
+
+The `echo` twin is the point: the WORD carries a face in both; only the
+carrier differed. Two corpus files were failing exactly here
+(`parse-dollar-paren-or.sh`, `parse-dollar-paren-pipe.sh`).
+
+The fix is the walk itself: `for_each_stmt_expr` lists **every** `IrStmt`
+variant, so the `_` arm is gone and a new variant is a compile error rather
+than a silent hole. §4 of the model states it:
+
+- `narrow_walk_misses_the_output_face` — the bug: the same word is seen
+  through `Expr` and missed through `Out`, so the narrow walk is not even
+  carrier-independent (proved as an inequality).
+- `full_walk_sees_it_through_every_carrier` — the fix: both carriers are
+  seen, and each agrees with `word_sees` on the word; the exhaustive walk IS
+  carrier-independent.
+- `plain_read_is_not_a_face` — why the census stays narrow: a `$x` read does
+  not test set-ness, so it must not demote (Int is the fast path, and the
+  census only spends string storage where bash can tell a difference).
+- `exhaustive_walk_is_what_makes_the_demotion_sound` — the composition with
+  §3: demoted ⇒ the read is the exact string face; not demoted ⇒ the read can
+  only be the number `"0"`, which is not bash's empty string.
+
+**Negative control.** Restoring the missing arm IN THE MODEL (`sees`'
+`St::Out` arm → `false`) turns §4 red on exactly the three positive
+obligations: **16 verified, 3 errors**; the unmodified file is 19/0. The
+source-side control is the fix itself: before it, `vc.sh`, `p1.sh` and
+`vc2.sh` all differed from bash (`x=0` / `x=[0]`), after it all three are
+byte-identical.
+
+**Blast radius, measured.** Instrumenting the pass (`SH2_DEBUG_DEMOTE=1`)
+over all 651 corpus sources, the EXHAUSTIVE walk fires on **34 files** (the
+narrow one fired on 3, and 31 of those 34 were silently mis-homed). Every one
+of them is green except the two that became green here, so the extra demotions
+cost storage kind, not verdicts:
+`t70_unset.sh` (the target — gate `exec/diff` → **PASS**),
+`064_hard_to_generate.sh` (verdict unchanged, `exec/diff` for unrelated
+reasons) and `typeset-cmdsub.sh` (unchanged, `stub:14`). Every other source
+keeps exactly the storage it had.
+
+**A second defect the model forced out.** `seq_write_str_var` — the "write a
+numeric value into a string variable" arm — aliased a STATIC `snprintf`
+scratch buffer into the variable. For a heap-owning `char*` that hands the
+exit teardown (and every later `free(old)`) a pointer it must not free, so
+`x=5; unset x; let x=x+1; echo "$x"` printed the right value and then died
+with `free(): invalid pointer`. It now stores through `_sh_sset`, the same
+helper an ordinary `x="5"` uses, so the slot is heap-owned or NULL — the
+invariant every free site assumes.
+
+**SET-NESS vs EMPTINESS — the no-colon family.** §5 is the *other* distinction
+bash makes on the same storage. The colon is the whole difference:
+
+```
+${v-w}    w unless v is SET        set-to-empty -> ""
+${v+w}    w iff v is SET           set-to-empty -> w
+${v=w}    like ${v-w}, AND assigns set-to-empty -> "" (no assign)
+${v:-w}   w unless v is NON-EMPTY  set-to-empty -> w
+${v:+w}   w iff v is NON-EMPTY     set-to-empty -> ""
+```
+
+Measured 2026-11-05:
+
+| program | bash | C |
+|---|---|---|
+| `x=""; printf "[%s]" "${x-w}"` | `[]` | `[w]` |
+| `x=""; printf "[%s]" "${x+w}"` | `[w]` | `[]` |
+| `unset x; printf "[%s]" "${x=w}"` | `[w]` then `w` | `[]`, x still unset |
+| `x=""; printf "[%s]" "${x:-w}"` | `[w]` | `[w]` — right (emptiness is what `:-` means) |
+
+The **data was not the obstacle**: a heap scalar here is `char *x = NULL` and
+`unset` is `free(x); x = NULL`, so the pointer already IS a presence bit. The
+**operator** was: the parser folded `${x-w}` into `${x:-w}` (both arrived as
+`param(":-", "x", "w")`), so the exact arm was unreachable, and `${x=w}`
+arrived as `param("", "x=w")` — a "variable" named `x=w`, rendered as a
+child-shell lookup. §5 proves both halves:
+
+- `presence_renderings_are_exact` — with presence, all three faces are exact
+  for EVERY state (so a fix exists, and the residual is reachability).
+- `emptiness_render_fails_on_set_empty` — the shipped arm is wrong on exactly
+  the measured inputs; `emptiness_is_right_on_the_unset_half` — why it looked
+  right (only the `None` half coincides, which is what §1's `quot` identifies).
+- `collapse_loses_the_colon` and `no_renderer_of_the_collapsed_ir_is_exact` —
+  the impossibility, at the IR: because `${x-w}` and `${x:-w}` reach the
+  renderer as the SAME input, any renderer exact for `:-` is necessarily wrong
+  for `-` on `Some("")`. No C-side patch could fix it; it needed a new operator
+  spelling in the AST/shIR contract, which PLAN §11 makes an **offer** across
+  backends. (`collapse(Op::Plus) == Op::Plus` is proved too: the `+` family
+  already carried its colon, which is why half of this family was
+  renderer-only.)
+
+**The spelling landed.** The theorem above is why the fix went into the AST
+rather than the arm, and it now holds as history:
+
+- `ParameterExpansionOperator` gained `DefaultValueNoColon` /
+  `AssignDefaultNoColon`; the parser stopped folding (a bare `=` branch was
+  added — `${v=w}` used to arrive as a variable named `v=w`); the shIR encoder
+  emits distinct `-` and `=` ops next to the already-distinct `+`.
+- The C renderer's `-`/`+`/`=` arms test the **raw heap pointer**, not
+  `store_ref`'s null-guarded read (which erases exactly the presence being
+  asked about) and not `[0]` (the non-emptiness test). The `:+` arm was
+  missing for store vars altogether — it fell through to a plain read
+  (`x=v; ${x:+w}` printed `v`, bash `w`) — and now tests non-emptiness.
+- Three storage vetoes make presence representable: a set-ness read keeps the
+  name off a fixed buffer (`buf_bound`), off the `const` lift (a non-NULL
+  literal initializer would claim "set"), and out of Int
+  (`demote_unset_scalars` now demotes these names unconditionally, since `0`
+  is a value, not "unset").
+- `every_spelling_is_exact` states the result per spelling, including that
+  `-` and `:-` now DIFFER on set-to-empty — the state that was unreachable.
+
+Measured after: all **fifteen** state × face combinations (unset /
+set-to-empty / set-non-empty × `-`, `+`, `=`, `:-`, `:+`) are byte-identical
+to bash, and `${v=w}` stores its default (`unset x; ${x=w}; echo "$x"` → `w`;
+it used to print nothing with `x` still unset). The corpus gate is
+**625 PASS / 19 FAIL / 7 SKIP with a byte-identical FAIL list** — the parser
+and storage-kind changes regress nothing across the 651 sources (re-measured
+after each of the four spellings).
+
+**The four members, and the `?` face.** The family is complete: `-`, `+`,
+`=`, `?` each carry their own op, so the renderer can be exact for all eight
+state × face pairs. The last one is an *error* face, not a substitution, so
+its denotation is a predicate — and the colon is again the whole difference:
+
+| program | bash | C (before) |
+|---|---|---|
+| `x=""; printf "[%s]" "${x?boom}"; echo after` | `[]after`, rc 0 | aborts, rc 1 |
+| `x=""; printf "[%s]" "${x:?boom}"` | aborts, rc 1 | aborts, rc 1 (right) |
+| `unset x; printf "[%s]" "${x?boom}"` | aborts, rc 1 | aborts, rc 1 (right) |
+
+`question_keeps_the_colon` states the pre-fix collapse and the single state
+where the merged predicates disagree; `question_spelling_is_exact` states that
+the shipped test — the heap pointer being NULL — IS bash's condition, while
+`colon_question_errors` keeps the emptiness one. The arm also gained a
+`getenv`-presence case for environment-only names, and both now match bash on
+stdout **and exit status** across all eight measured cases.
+
+**Negative control.** `collapse(Op::Dash)` → `Op::Dash` (i.e. "pretend the
+parser keeps the colon") still turns §5's impossibility red on its dependent
+obligations: **23 verified, 2 errors**; the file is 27/0 (`Op::Question` → itself reddens `question_keeps_the_colon` too).
+
+**Corpus.** C gate **625 PASS / 19 FAIL / 7 SKIP** (was 623/21/7). The FAIL
+list was diffed both ways: exactly two files left it,
+`parse-dollar-paren-or.sh` and `parse-dollar-paren-pipe.sh` (the `||` and `|`
+twins of the measured program), and **no file joined it**.
+
+**Still open, pinned.** The no-colon faces on an ARRAY ELEMENT
+(`${a[0]-z}`, `${a[1]+y}`) do not reach the operator machinery at all: the
+legacy word parser returns `param("badsub", "a[0]-z")` for them (measured
+2026-11-05, PRE-EXISTING — the colon form `${a[0]:-z}` is parsed and correct).
+The store already tracks element presence (`_sh_pres_a[i]`), so the render
+side has what it needs; the gap is the parser bank. `printf -v x %d 9` is
+wrong on BOTH storages
+(measured: with Int storage it prints the old value; the string path
+truncates a heap pointer into the integer). That is why `printf -v` targets
+are excluded from the demotion rather than converted: demoting them only
+moves the failure. It is a separate gap in the `printf -v` arm.
+
+## 32. `printf -v` writes TEXT — `c_printf_v.rs` (22 obligations)
+
+```
+    verus --triggers-mode silent --rlimit 40 c_printf_v.rs
+    -> verification results: 22 verified, 0 errors
+```
+
+**What the builtin does.** `printf -v NAME fmt args…` stores the FORMATTED
+OUTPUT: an arbitrary string. `%s` copies an argument verbatim, `%03d` pads,
+`%x` spells another radix. Three analyses in the pipeline assumed a scalar's
+value is a NUMBER, and each produced its own divergence (measured 2026-11-04/05):
+
+```text
+  program                                  bash     C (before)
+  n=1; printf -v n '%d' 7; echo "n=[$n]"   n=[7]    n=[1]     ← READ folded
+  x=5; let x=x+1; printf -v x '%d' 9       x=[9]    x=[176]   ← uint8_t got the pointer
+  printf -v s '%s' aaaa…(40)               s=aaaa   (trunc)   ← char s[2] bound
+```
+
+**The three defects, one classification.** A `-v` target is a partial-map,
+text-valued name — the same family the `unset` round (§31) demoted on ABSENCE:
+
+1. **the const census** (`shir::analyze_var_const`, consumed by the
+   copy-propagation transform) counted assignment SITES and had no `-v` arm, so
+   `n` looked single-write; every later read was replaced by the stale literal
+   and the `echo` line was *emitted as the constant* `printf("%s\n", "n=[1]")`;
+2. **the storage-kind verdict** called the target Int — a number cannot spell
+   `"abc"`, and a width-narrowed one could not even hold the `%d` result
+   (`uint8_t x` received a `char*`: `176`);
+3. **the length bound** came from the other writes, so `char n[2]` was sized by
+   `n=1` and the formatted write either truncated or overflowed.
+
+Fixes: the transform counts the `-v` write (a transform, not the single-owner
+core — offered, see the marketplace rule); the C-side demotion census treats a
+`-v` target as text-valued and removes its Int verdict; the bound is dropped
+(unknown ⇒ heap `char *`, which the arm's `_sh_xstrdup` store already is). A
+fourth, smaller one fell out: the `strcpy(name, tmp.p)` arm had **no `;`**, so
+the first time it became reachable (a buffer-bound target) cc rejected the
+program — `expected ';' before '}' token`.
+
+**The denotation.** `Str` / `atoll` (bash's arithmetic reading) / `canon` (the
+canonical decimal spelling); two storages, `SStr` (keeps the text) and `SInt`
+(keeps `atoll`); `observed(k, t)` is what a READ sees. Then:
+
+- `str_face_is_the_identity`, `arith_face_is_atoll_either_way` — string storage
+  is faithful on the text face AND inert on the arithmetic face, which is why
+  demotion cannot break `$((x+1))`;
+- `int_face_loses_padding` (`"004"` → `"4"`), `int_face_loses_text`
+  (`"abc"` → `"0"`), `int_store_faithful_iff_canonical` — **the general form**:
+  an int store is faithful exactly on canonical spellings, and `printf` writes
+  whatever the format says. So the fix is a storage-kind DEMOTION, not a wider
+  integer: no width makes `"abc"` a number.
+- `narrow_witness_is_not_the_value` — the measured `176 ≠ 9`, pinned as a
+  witness. **Not derived**: the model has no address space, so the claim "the
+  narrow store held the pointer's bits" is measurement, stated as such.
+- `printf_v_bound_is_unbounded`, `a_run_len`, `heap_keeps_any_text` — the
+  formatted write has no static bound (for every `k` a longer `%s` exists), so
+  a bound taken from the other writes is unsound; the heap copy keeps any text.
+- `census_after_the_fix` (+ `census_aux`, `sites_true_push`,
+  `sites_pre_fix_push`) — the fixed census counts exactly the extra `-v` writes:
+  `sites_pre_fix(ev) + sites_true(filter_printfv(ev)) == sites_true(ev)`;
+- `pre_fix_fold_is_unsound` — the measured divergence as a witness: one assign
+  plus one `-v` is TWO writes, the pre-fix census says one, and the two values
+  are different bytes (`"7"` vs `"1"`); `single_write_fold_is_sound` — the
+  other direction: with one write the substitution is faithful, so the census
+  fix is the whole story;
+- `demotion_composes` — the `unset` and `-v` censuses agree on the survivor set
+  and only ever remove Int verdicts, so they compose in either order.
+
+**Negative controls (two mutants, both red at the right obligation).** Restoring
+the pre-fix counter makes `pre_fix_fold_is_unsound` fail with `1 == 2` — the
+census witness itself. Making `SInt` read back its input makes
+`int_face_loses_padding` fail with `array_view(['0','0','4']) == push('4')` —
+the padding witness. Restored: 22v/0e.
+
+**Corpus, A/B on the same binary pair.** The C gate went **623 PASS / 21 FAIL /
+7 SKIP** against the pre-round **622 / 22 / 7**: `000__04h_complex_examples.sh`
+moved to PASS and **no file newly fails** (full FAIL list diffed both ways). The
+shared-transform half was re-gated for every backend that consumes it: `./fail`
+**560/3** and `fail-estree` **estree 562/1** — both unchanged from before this
+round (the 3 perl failures are the pre-existing `063_hard_to_parse`,
+`064_11_complex_test_expressions`, `064_hard_to_generate`).
+
+**Tripwire.** `copy_propagation::tests::printf_v_is_a_write_site` asserts the
+surviving `getVar` read: with the arm's guard disabled it FAILS (the read folds
+to the stale literal and no `getVar` remains in the list). Measured both ways,
+restored.
+
+## 33. `let` under a glob-marked word, the arith ERROR path, the EXPANDED word, and the multi-word LIST, and ARRAY element 0 — `c_let_scope.rs` (38 obligations)
+
+```
+    verus --triggers-mode silent --rlimit 40 c_let_scope.rs
+    -> verification results: 38 verified, 0 errors
+```
+
+**The failure, and why it is the interesting kind.** The core marks every
+unquoted word that *could* pathname-expand with a `\x01SH2GLOB\x01` prefix. So
+`let u=u*2` reaches the C renderer as `\x01SH2GLOB\x01u=u*2`, which is not
+arithmetic; both native paths declined it (`parse_arith` on the marked text,
+`let_render` after that) and the arm fell back to its last resort:
+
+```c
+static int _sh_site_0(void) {
+  _sh_ll2s(_s0, (long long)(u)); _sh_export("u", _s0);   /* push the value DOWN */
+  _sh_reset();
+  _sh_addraw("(( \001SH2GLOB\001u=u*2 ))");               /* marker leaked */
+  return !_sh_system_rc();                                /* no write-back */
+}
+```
+
+MEASURED 2026-11-05: `u=7; let u=u*2; echo "[$u]"` printed **`[7]`** where bash
+prints `[14]` — and exit status 0. **A write in a child does not exist in the
+parent**: `let` is a pure assignment form, so the child-site fallback is not a
+slow path, it is a no-op with a success status. That is the semantic fact the
+model records, and it is why the fix had to make the native path *total* for
+assignment text rather than merely preferred.
+
+**Fix.** `strip_glob` before the arithmetic parse (the marker is a flag on the
+word, never part of its value), plus a NATIVE-PARSE fallback for the assignment
+shape: when `let_render` declines, try `parse_arith` and render the AST. The
+fallback is additive by construction — it runs only where the child site used to
+run, so every shape that rendered before renders identically. Probe (ad-hoc,
+compiled and diffed against bash): `u=u*2`, `u+2`, `u*=2`, `i++`,
+`"u = u * 2"`, `"u=u*2"` and `"u = u*2"` all match; the quoted `*`-forms were
+already green, which is the control that isolates the MARKER as the cause
+(quoting removes it and only then did the older paths fire). C gate unchanged at
+623/21/7, no file newly failing.
+
+**The denotation.** A store is a finite map `Name → Str`; a program writes it in
+one of two MODES — `Native` writes the parent, `Child` writes a fork that is
+discarded when the process exits (`after`); `visible` is what the parent reads
+next, `status` the reported success. Obligations:
+
+- `child_write_is_invisible` — the parent's value is `u7()` whatever the child
+  computed: the measured `[7]`;
+- `modes_disagree` — on any assignment of a fresh value the two modes differ, so
+  a fallback between them is a correctness choice;
+- `child_site_reports_success_without_effect` — the child reports success *and*
+  leaves the store alone, which is exactly why the defect was silent;
+- `strip_recovers_the_text` (`strip(marked(t)) == t`), `marked_text_is_not_arithmetic`
+  (`marked(t)[0] == '\x01'`, so the child's bash text was garbage);
+- `every_assignment_shape_is_native` — the licence: no `let` assignment shape
+  maps to `Child` any more;
+- `fallback_is_additive` — the native parse runs iff `let_render` declined.
+
+### The ERROR path — an arith error aborts the store (fixed, 2026-11-05)
+
+`let` is not always a store: bash evaluates the arithmetic first, and a division
+by zero is an ERROR that aborts the evaluation where it stands. The assignment
+never happens and the builtin reports failure. MEASURED, all three against bash:
+
+```
+    u=7; let u=u/0    ->  [7] rc=1      (was [0] rc=1)
+    u=7; (( u=u/0 ))  ->  [7] rc=1      (was [0] rc=1)
+    u=7; let u=u/2    ->  [3] rc=0      (control)
+```
+
+The renderer's divider is deliberately TOTAL — `(r == 0 ? 0 : l / r)`, because C
+would SIGFPE — so the value `0` is a lie that only the STORE can repair. The fix
+is therefore at the store, in the one place that can see the error before
+codegen: `arith_static_zero_divisor` walks the AST for a `/`/`%` whose divisor
+folds to a constant zero (`const_arith_value` never folds `/` itself, so the
+divisor is tested on its own), and
+
+- the `let` arith-assignment arm (`ArithAst::Assign`, `op == "="`) yields `0`
+  and emits **no store** — the `let` arm turns that `0` into `_sh_rc = 1`, which
+  is bash's status;
+- the statement hook at the top of `fn stmt` (an `IrStmt::Assign` whose RHS is
+  an `Arith`) emits `_sh_rc = 1;` and no store, BEFORE the speculative-shadow
+  arm, whose store has the same defect.
+
+Both consult the SAME predicate, which is what makes them unable to disagree.
+
+**The denotation.** Arithmetic is now explicitly PARTIAL: `Outcome = Val(i) |
+Err`, `ev_div(l, r)` is `Err` at `r == 0`, `rendered_div` is total and yields
+`0` there, and `after_outcome` gives the store the `Err` case's identity:
+
+- `semantics_errors_on_zero` — the semantics has no value at a zero divisor;
+- `render_is_total_where_semantics_errors` — the divergence in one line: the
+  renderer has a value exactly where the semantics has none;
+- `detection_is_sound` — `detects(Some(0)) ==> ev_div(l, 0) == Err`;
+- `error_aborts_the_store` — `after_outcome(_, st, n, v, Err) == st`, for BOTH
+  modes (the abort is not about fork-at-all: nothing is written);
+- `error_status_is_one` — `Err` and `Val(0)` agree on status 1, which is why
+  yielding 0 for an error still reproduces bash's exit status;
+- `detection_is_incomplete` — the honest limit: a divisor that is zero only at
+  RUN time is `None` to the detector, so that store still fires with the
+  rendered `0` while bash aborts. Stated, not papered over;
+- `both_sites_share_one_predicate` — one predicate, two sites.
+
+**Still open, and pinned.** (a) the runtime-zero divisor above; (b)
+`u=$(( u/0 ))` is FATALLY fatal in bash — the shell exits and nothing after it
+runs — where the total divider continues; the store is now skipped either way,
+but the abort is not modelled.
+
+### The EXPANDED word — the family the `${#a[@]}` pin was a symptom of
+
+The pin said "`${#a[@]}` is an `Interpolate`, not a `Str`, so it reaches the
+child site". Probing the family showed the pin was one instance of something
+larger: **no** expanded `let` word reached the native paths, and the arm's
+last-resort was not even the child site in every case but the builtin's no-op
+tail — `_sh_rc = 0`, nothing stored. MEASURED against bash:
+
+```
+    a=(1 2 3); let n=${#a[@]}        bash [3]   C [0]
+    a=(1 2 3); let n=${#a[@]}+1      bash [4]   C [0]
+    x=4;       let n=$x              bash [4]   C [0]
+    x=4;       let n=$x*2            bash [8]   C [0]
+    x=4;       let n=${x}*2          bash [8]   C [0]
+    x=5;       let n=x-1             bash [4]   C [4]   (bare name: always worked)
+```
+
+The word arrives as `Interpolate([lit "n=", getVar(x), lit "*2"])`. bash expands
+it and parses the RESULT as arithmetic, so the emitter can put the same
+reference in front of the arith parser — provided the spelling is one the
+parser accepts. It is NOT `${x}`: `parse_arith` refuses `$`-prefixed operands
+on purpose (bash expands them as *text* first, which is why an unset `$j` in
+`$(( $j * 2 ))` is a syntax error rather than a 0 read), so a `$` spelling
+declines and the statement is dropped. A **bare name** is the faithful form —
+bash's arith evaluator resolves a variable, and recursively a value that is
+itself a name, exactly what the expansion-then-parse does. `${#a[@]}` stays
+textual and is rewritten to the C count read by `subst_array_counts` before the
+parse.
+
+Two guards make that reconstruction honest rather than optimistic:
+
+- **delimitation** — `let n=$x1` is ONE word (`$x1`), so a name followed by a
+  literal that starts with a name character refuses;
+- **the HOME** — the native store assigns the C *ident*, while `store_read`
+  answers `_sh_env(name)` for a var that is not registered (`store` / type
+  verdict). Those are different homes: a Str-homed `n` written natively and read
+  through `_sh_env` prints `""`. MEASURED 2026-11-05, `x=2; y=3; let n=$x+$y;
+  echo "[$n]"` → `[]` where bash prints `[5]`, once an earlier `let` in the same
+  file had reached the child site. Registering the var instead of gating was
+  tried and is WORSE — the reads flip onto an ident whose declaration is NULL
+  and the binary aborts (`atoll(NULL)`); measured. So the route is gated on
+  `store_read`'s own predicate and otherwise declines to the child site it
+  already used, which cannot make a wrong shape worse.
+
+**Five more obligations:** `name_read_agrees_with_expansion` (the expansion's
+value and the bare-name arith read agree, for a value that is not itself a
+name), `arith_read_unfolds` / `arith_read_of_empty_is_empty` (the chain is
+followed and anchored), `reconstruction_has_no_dollar`, and the home pair
+`store_is_sound_when_homes_agree` + `native_store_requires_the_ident_home` with
+`gate_is_conservative` (the decline lands on `after(Child, st, …) == st`).
+
+**Measured after the fix:** the six-shape probe matches bash exactly; the
+control `let n=x-1` (a bare name, which always worked) still matches; `let
+n=$x1` still refuses (and now prints `[]` like bash instead of the site's
+`0` —  bash's message goes to stderr, which the gate does not compare).
+
+**Corpus.** C gate **623 PASS / 21 FAIL / 7 SKIP**, FAIL list byte-identical to
+the previous run (`diff` of both lists: empty), so the widened native route
+takes no corpus program down a new path.
+
+### MULTI-WORD `let` — a LIST, and the status of its LAST word
+
+`let` takes one or more expressions, evaluates them left to right (each one's
+stores landing) and reports the truth of the **last**. The arm rendered
+`items.first()` only, so the tail vanished and the status came from the wrong
+word. MEASURED against bash:
+
+```
+    let a=1 b=2      [1][2] rc=0   C [1][2] rc=0   (core transform already
+                                                     splits pure-assignment lists)
+    let c=3 0        [3] rc=1      C [3] rc=0      ← the `0` never evaluated
+    let d=0 4        [0] rc=0      C [0] rc=1      ← first word's verdict
+    let e=5 e=e+1    [6] rc=0      C [6] rc=0
+```
+
+Only the MIXED list was wrong, because `build_assigns` (transforms/arith_forms.rs)
+refuses a whole list when any word is not an assignment — so `let c=3 0` survives
+as one `builtin let` call with two words, and that is exactly the shape the
+first-word rule mangled.
+
+**Fix.** The per-word renderer is factored into `let_word_c(expr, with_rc,
+allow_site)` — the same code the single-word arm used, now reachable per word —
+and a multi-word call is rendered as a comma list: each word's stores land in
+order, and the last one leaves its verdict in `_sh_rc`. A word that cannot be
+rendered natively falls the WHOLE call back to the single-word path, because a
+child site inside a comma list is a fork whose write never returns (that would
+be a new instance of the §33 defect).
+
+**A compile error found on the way.** The `${#a[@]}` branch returned before the
+home gate, so `a=(1 2 3); let n=${#a[@]}` with a Str-homed `n` emitted a store to
+an ident no declaration exists for:
+
+```
+    k.c:1120: error: 'n' undeclared (first use in this function)
+```
+
+The gate now covers both branches (`let_home_ok`), so that shape compiles and
+declines to the child site instead of failing the build. A wrong value is
+recoverable; a build that does not compile is not.
+
+**Six more obligations:** `status_of_words` (the list's status is the last
+word's), `status_is_not_the_first_word` (a witness where the first-word rule is
+wrong in BOTH directions, so it is not a special case of the right rule),
+`status_is_the_last_word`, `words_store` / `words_compose_left_to_right` +
+`composed_store_reads_back` (the second word reads the first word's write, which
+`let e=5 e=e+1` → 6 requires) and `empty_list_is_failure`.
+
+**Measured after the fix:** all five shapes above match bash; the earlier probes
+(the six-shape expanded-word battery, the div-by-zero battery) still match.
+
+**Corpus.** C gate **623 PASS / 21 FAIL / 7 SKIP**, FAIL list byte-identical to
+the previous run.
+
+### An ARRAY name in arithmetic is ELEMENT 0
+
+bash denotes element 0 for an array name on both sides. The generator wrote the
+C ident and read it as a decayed pointer:
+
+```
+    a=(1 2 3); let a=9      bash [9][3][3]   C  did not compile
+    a=(1 2 3); let a+=4     bash [5][3]      C  did not compile
+    a=();      let a=5      bash [5][1]      C  did not compile
+    a=(1 2 3); let b=a+1    bash b=3         C  b=1   (pointer → 0)
+```
+
+`error: assignment to expression with array type` — the worst failure class,
+for an int array and a word array alike. The write now goes to element 0 and
+leaves the other elements and the length alone (a fresh array grows to one
+element), a compound op reads element 0 first, and the read is presence-guarded
+so `atoll` never sees a NULL word slot.
+
+**The part worth proving is OWNERSHIP.** The statement path already implements
+the documented subscript-0 rule (`emit_array_assign` with key `"0"`), so when a
+`let` word is split into a statement both mechanisms would store. The first
+version did, and `a=(1 2 3); let a+=4` printed `[9]` where bash prints `[5]`:
+the second store re-evaluated `a[0] + 4` **after** the first had written 5.
+The arith arm therefore stores only under a `let_owns_store` flag (set by the
+`let` renderer) and is value-only otherwise.
+
+**Five obligations:** `name_ignores_every_other_element` (only index 0 is
+reachable through the name), `read_is_the_element_not_the_array` (the measured
+reads, including empty → 0), `store_writes_only_element_zero` (element 0 set,
+neighbours and length preserved, empty array → length 1), `double_store_compounds`
+— the `[9]` witness as arithmetic, `a0 + 2*rhs` — and `one_owner_only`.
+
+**Measured after the fix:** all six array shapes match bash, and the seven-probe
+sweep (`t`, `m`, `r`, `s1`, `n1`, `ar`, `am`) is byte-identical to bash.
+
+**Corpus.** C gate **623 PASS / 21 FAIL / 7 SKIP**, FAIL list byte-identical to
+the previous run.
+
+**The ASSOCIATIVE case.** `declare -A m=([a]=1); let m=5` sets the STRING key
+`"0"` (bash `[1][5]`). The statement path's element writer already does that; the
+arith arm had to become value-only there too, because `m = …` on a k/v/n table is
+`error: 'm' undeclared` (measured). Inside a multi-word list no statement owns
+that store, so that one shape is `mark_todo`-refused loudly instead of silently
+dropped.
+
+**Still open, pinned.** The Str-homed target above; a reconstructed word
+containing a *subscript* read or a command substitution (not on the whitelist, so
+it declines); an assoc array assigned inside a multi-word `let` (refused, marked).
+
+**Corpus.** C gate **623 PASS / 21 FAIL / 7 SKIP** — the same totals as the
+previous round, so the detector fires on no live corpus shape. The `let`-marker fix is invisible to the
+corpus because no example writes an unquoted `let` containing `*`; it is a
+real-program hazard, which is why it is pinned by the probe rather than by a
+corpus file. The error-path fix touches every arith assignment statement, so the
+gate is the check that the detector never fires on a live shape.
+
+## 34. Expansion ORDER, the `set --` split, and the two word erasures — `c_expand_order.rs` (32 obligations)
+
+### Expansion ORDER: a `${a[i]:=w}` store is visible only to the LATER words
+
+bash expands a command's words **left to right**, each against the store as it
+stands at that position, so a store is visible to every later face and to no
+earlier one. The generator rendered a plain element read as an INLINE
+expression while the store's statements were emitted as the later word was
+rendered — so the argument vector evaluated the read *after* the store:
+
+```
+    a=('');  echo "[${a[0]}] [${a[0]:=z}]"     bash [] [z]    C [z] [z]
+    a=();    echo "[${a[0]}] [${a[0]:=z}]"     bash [] [z]    C [z] [z]
+    a=('');  echo "[${a[0]}${a[0]:=z}]"        bash [z]       C [zz]
+    declare -A m; m[k]=; echo "[${m[k]}] [${m[k]:=z}]"   bash [] [z]   C [z] [z]
+    a=('');  f() { echo "[${a[0]}] [${a[0]:=z}]"; }; f    bash [] [z]   C [z] [z]
+```
+
+The fix is `snap_elem`: when a statement contains an ASSIGN-style element
+expansion (`${a[i]:=w}` / `${a[i]=w}`), every plain element read of that
+statement is materialised into a statement temp **at the point it is rendered**,
+which is before the store's statements. Statements with no such store are
+untouched (a false positive would be free — `snapshot_is_identity_without_a_store`).
+
+**Two carrier holes, both found by a red probe after the first fix.** The
+"does this statement store" scan is a hand-written walk, and `printf FMT a b`
+FOLDS to `IrStmt::Output` while a shell function's `echo` body arrives as
+`Return(Some(..))` — neither was in the walk, so the flag stayed false for
+probe 31 and probe 14. Widen
+(`Output`/`Return`/`Exit`/`SetChildError`/`Die`/`Try`/`WriteFile`/`Warn`/
+`Exec`/`Pipeline`/`Background`/`ForInit`), measured by re-running the battery.
+This is the same shape as §26d's `narrow_walk_misses_the_output_face`: a
+hand-written `match` is only as good as its arms.
+
+**`set --` was dropping the split.** An unquoted expansion is a LIST of fields
+and the core marks it `split(...)`, but `value_c` forwards only the inner value
+and the `set --` arm appended one word per source word:
+
+```
+    x='a b';  set -- $x;        echo "$# [$1] [$2]"   bash 2 [a] [b]   C 1 [a b]
+    x=' ';    set -- $x X;      echo "$# [$1]"        bash 1 [X]       C 2 []
+    x='a::b'; IFS=:; set -- $x; echo "$# [$1][$2][$3]" bash 3 [a][][b]  C 1 [a::b][][]
+    x='a b';  set -- $x $x;     echo "$#"             bash 4           C 2
+```
+
+The positional vector is now a GROWABLE one (`char **` + `_sh_wgrow`), since one
+source word can become arbitrarily many positionals — the old `char *av[n+1]`
+was sized by the source word count. Each `split` word is copied into a vbuf and
+handed to `_sh_split` (the IFS helper the `for` arm already uses), which keeps
+the whitespace/delimiter distinction: runs of blanks collapse and empty fields
+vanish, while each non-whitespace IFS char delimits exactly one field.
+
+**Obligations: `c_expand_order.rs`, 36 verified, 0 errors, 3 mutants.** The
+denotational extension is the face list (`Read` / `ColonStore` / `AssignStore`)
+folded left to right; the theorems are the six measured rows, the arity law
+(a store contributes a word, `words_len_is_faces_len`), the pre-fix protocol
+stated as a mutant (`m1_hoisted_store` prints `[z] [z]`), the carrier hole as a
+mutant (`m2_narrow_walk`), the two splitting rules with `m3_one_rule_for_both`
+proving they are not interchangeable, and the erasure that keeps the last row
+open (`arrayindex_arrives_unsplit`). Evaluation discipline: the store is a
+`Seq<Option<Str>>`, not a `Map` — `by (compute)` over a Map-returning recursion
+diverges on this toolchain (a 400 s timeout, not a failure), and a `let`-bound
+recursion result diverges too, so every concrete row takes the full call term.
+
+**Measured on the RESTORED tree** (the pre-restore run read 18 of 28, all ten
+misses being the read-after-store rows, because the recovered `:=` round was
+still missing then). Ordering battery (01-14, 21-34): **26 of 28** rows match
+bash — every read-before-store row, every read-after-store row, `printf` (31),
+the nested function (14/30), `case`, capture, `if`, the loop, the arith key and
+the three-word/same-word shapes. The two misses are:
+
+- `28_arith_key` is a **CC-FAIL** (`a=(""); i=0; … ${a[$((i+1))]}`): a
+  pre-existing declaration/homing bug for an arithmetic subscript with an
+  offset, not an ordering bug — it fails to compile, so it never reaches a
+  comparison.
+- `32_unquoted` is the quotedness erasure proved at the end of this section
+  (`set -- ${a[0]} ${a[0]:=z}` — the unquoted array element contributes one
+  empty word where bash contributes none).
+
+Splitting battery (rebuilt after the restart): **4 of 7** with the pass as it
+stood, **5 of 7** once the fix below landed. The misses are pinned erasures,
+not split-rule bugs: `06_array_elem`
+(`a=(''); set -- ${a[0]}` → C 1 / bash 0) is the missing `split` marker on an
+array element, and `07_quoted_kept` prints `[unset]` for `${1-unset}` on a
+SET-but-empty positional — the already-documented `-` / `:-` operator collapse
+of `c_unset_scalar.rs`, visible here because a positional is just another
+scalar. The rows that exercise the rule itself all pass: `x='a b'` → 2,
+`x=' '` → 0, `IFS=:; x='a::b'` → 3, `set -- $x $x` → 4, `set -- "" a` → 2,
+`set -- "$x"` with `x=''` → 1.
+
+**Residuals, pinned (both are IR erasures, not renderer bugs).**
+
+- An unquoted `${a[i]}` reaches the backend as a bare `arrayIndex`: the parser
+  emits no `split` marker, so `a=(''); set -- ${a[0]}` is C 1 word / bash 0, and
+  no renderer of that IR can split it (the word is indistinguishable from a
+  quoted one — `arrayindex_arrives_unsplit`).
+- A compile-time-constant `$x` folds to a bare `Str`, likewise unmarked.
+  **No longer true for an EMPTY value — see the fix below.**
+
+**The QUOTEDNESS erasure (model §6), proved — the same bit, one level down.** The
+first residual is not an array bug at all; it is the word node missing the
+bit that says whether the source word was quoted. The measurement is a byte
+comparison of the IR, and the two spellings are identical while bash
+ disagrees:
+
+```
+    z="";  set -- $z       bash 0 words   IR  ["--", Str ""]
+    z="";  set -- "$z"     bash 1 word    IR  ["--", Str ""]    IDENTICAL
+    x="";  set -- $x a     bash 1 word    IR  ["--", Str "", Str "a"]
+           set -- "" a     bash 2 words   IR  ["--", Str "", Str "a"] IDENTICAL
+```
+
+The model states this as a collapse (`to_ir` maps both spellings of
+`Spelling::{QuotedWord, UnquotedExpansion}` onto the same `Word::Bare`) plus
+the theorem it implies: `no_renderer_of_collapsed_words_is_exact` — given any
+`g` exact for the quoted spelling (the renderer we shipped), `g` is wrong for
+the unquoted spelling of the empty value, with the witness pinned to the
+measured pair (1 vs 0). `kept_flag_makes_it_exact` shows the contract change
+is SUFFICIENT as well as necessary (a renderer reading the flag is exact for
+both spellings and for `"a b"`), which is what makes this an OFFER under
+PLAN §11 rather than an unfinished C arm. `const_fold_is_the_same_erasure`
+records that `x=""` (the constant fold that deletes the variable) is this
+same collapse, not a third one. Evaluation discipline: the witness is written
+as the full `s_empty()` term at every use — a `let`-bound term is the shape
+that faults `assert_by_compute` on this toolchain (`exceeded maximum
+recursion depth`, once, before the rewrite).
+
+**The fix — the marker IS the quotedness bit (landed 2026-11-05).** The
+collapse had a single author, and it was not the renderer:
+`sh2perl/src/shir_passes/split_fold.rs` folded `split(w)` → `w` on
+WHITESPACE-FREEDOM alone. That is unsound exactly where this section proves it
+must be: for a no-space `w`, `split(w)` is the identity only when `w` is
+NON-EMPTY (the empty value is zero fields, the bare word one). The pass now
+requires BOTH verdicts, `expr_nospace` and a new `expr_nonempty` (a non-empty
+literal, an `Int`/arith read — canonical decimal text — a `${#x}` length, or a
+template literal with a non-empty part), so:
+
+- the marker SURVIVES on an unquoted expansion of a possibly-empty value, and
+  the renderer's existing `split` arms are then exact — no C-side change at
+  all (`marker_is_the_quotedness_bit`, `fix_is_exact_for_both_spellings`);
+- the optimization is NOT lost: every word the verdict proves non-empty still
+  folds, which is why the corpus renders do not move
+  (`fold_retained_on_nonempty_constants`);
+- §6's impossibility stays in the model as the PRE-FIX statement that
+  justifies the second verdict — a whitespace-only test is not a conservative
+  approximation, it is a measurably wrong rewrite
+  (`fold_is_sound_iff_nonempty` shows the one case it cannot see).
+
+MEASURED after the fix, on the binary built from this tree:
+
+```
+    x="";  set -- $x a      C 1   bash 1     (was 2)
+    x="";  set -- $x        C 0   bash 0     (was 1)
+    x="";  set -- "$x"      C 1   bash 1     (unchanged)
+    e="";  for w in $e      C 0   bash 0     (was 1 — one empty iteration)
+    e="";  printf '<%s>\n' $e X   C <X>        (unchanged, argv face)
+```
+
+Ten-row empty-expansion probe: **10 of 10** (for-in ×4, argv ×4, echo ×2),
+including the quoted controls (`"$e"` still one word) and `printf`'s argv face.
+Ordering battery unchanged at **26 of 28**; splitting battery **5 of 7** (the
+two misses are the array-element erasure and the `${1-unset}` collapse above).
+
+Blast radius, measured rather than argued — this is a SHARED pass (PLAN §11):
+`harness/c_gate_main.sh` **625 PASS / 19 FAIL / 7 SKIP** with a FAIL list and a
+reason histogram BYTE-IDENTICAL to the pre-fix run (10 `stub:4`, 5 `exec/diff`,
+2 `stub:3`, 1 `stub:14`, 1 `stub:1`); `./fail` **563 passed, 0 failed out of
+563**; `./fail-estree` **563 passed, 0 failed** on BOTH its Perl and ESTree
+legs. The pass's own unit suite grew to 12 (`nospace_is_not_nonempty`,
+`keeps_split_of_empty_literal`,
+`folds_split_with_a_nonempty_part`, and the funnel test now pins the measured
+`x=""; set -- $x` shape).
+
+**The IFS battery, and one xfail retired.** `harness/ifs-probe.sh` now reads
+**85 PASS / 1 FAIL / 7 XFAIL / 0 XPASS** (was 85/0/8/0). The retirement is case
+`52`, the empty-for-loop this section's fix makes correct (`e=""; for w in $e`
+is ZERO iterations) — its xfail is gone from the script and the case runs as a
+plain PASS. The one FAIL, `10_holes_slice`
+(`a=(a b c); a[5]=z; v="${a[*]:1:3}"` → bash `[b c z]`, C `[b c]`), is NOT this
+round's: the program's shIR contains ZERO `split` nodes (every expansion in it
+is quoted), so the fold cannot reach it, and it fails identically on a binary
+built BEFORE the `dead_store_elim` restore below. It is a sparse-array SLICE
+divergence (the presence-order `[*]:off:len` face, `c_join_ifs.rs`'s
+`_sh_join_arr_rng` territory) in the shared tree — recorded here as the next
+target rather than papered over, and RETIRED in §35 (the battery now reads
+86 PASS / 0 FAIL / 7 XFAIL).
+
+**A second reverted file, restored.** The same rollback that took
+`c_backend.rs` also reverted `src/transforms/dead_store_elim.rs`, losing the
+`c_subscript.rs` §20g LIVENESS half (`subscript_read_names` /
+`arith_read_names`: a FLATTENED subscript keeps its references as text, so
+`i=1; n[$((i*2))]=5` judged `i` never-read and DSE dropped its only store —
+the renderer then named an undeclared var and `cc` failed). With the file
+restored from the pre-rollback snapshot the IFS battery's nine `(cc)`
+failures (59k/59l/59m/59/59c/59g/59i/…) all clear; the file diff against the
+working tree was 150 removed vs 2 added lines, i.e. the working copy was
+strictly behind. `./fail` 563/563 and the C gate 625/19/7 above were re-measured
+AFTER this restore, so both numbers describe the final tree.
+
+**Corpus.** `harness/c_gate_main.sh` with `CORE_BIN` set to the binary built
+from the restored source: **625 PASS / 19 FAIL / 7 SKIP**, and the FAIL list is
+byte-identical to the 13:05 baseline taken BEFORE the rollback (same 19 files,
+same reasons: ten `stub:N`, nine `exec/diff`). So the whole session's C work,
+recovered and rebuilt, is corpus-equivalent to the state it was measured in.
+
+That is not the number the earlier `c-gate-repro.sh` path produces, and the
+difference is a harness fact worth recording: that script renders through a
+dedicated `c_backend` binary whose output `#include <uu_run.h>`, and its plain
+`cc "$base.c" -o "$base.bin"` has neither `-I$SUB/runtime` nor
+`-lcoreutils_ffi`, so 65 cells report `FAIL compile` that `c_gate_main.sh`
+(which passes `UU_INC`/`UU_LIBS`) compiles clean. Quote `c_gate_main.sh`.
+
+The twelve corpus files that mention `set --` or an element `:=` are
+output-identical under this round's binary and the pre-round one, which is why
+neither change moves a corpus cell.
+
+**Tree state — the rollback, and its recovery.** The checkout is SHARED and a
+concurrent worker reverted `sh2perl/src/c_backend.rs` to `1445f283b` at 17:37
+while this round was running (`git status` clean, 2,470,051 bytes = `HEAD:`), and
+the rollback also took the uncommitted MODEL extensions with it. It is
+recoverable and was recovered: `git fsck --lost-found` still held the pre-rollback
+snapshot as dangling commit `7cba3b7fc` ("On (no branch): temp2", 17:32), whose
+`src/c_backend.rs` is 2,585,965 bytes — the whole session's C work, including
+this round's ordering snapshot — plus `+324` lines of `c_join_ifs.rs`, `+413` of
+`c_sparse_array.rs`, `+267` of `c_assoc_array.rs` and `+157` of
+`c_decl_coverage.rs`. Those six files were restored from it verbatim; nothing
+else was touched, so other workers' current edits stand.
+
+Why the work is uncommitted at all is the standing instruction: `AGENTS.md`
+requires an explicit path list per commit and this tree carries everyone's
+in-flight edits, so an uncommitted file is one `git checkout` away from
+evaporating. A commit of the six files above would have made this section
+unnecessary.
+
+**The probes after the restore: 26 of 28.** The two misses are:
+
+- `set -- ${a[0]} ${a[0]:=z}` — the unquoted `${a[i]}` erasure pinned below
+  (bash 1 positional, C 2).
+- `${a[$((i+1))]}` — `long long _ak1 = i+1;` with **no C declaration of `i`**
+  (cc: `'i' undeclared`). Reproduced with the *previous* binary and with no
+  `:=` in the program at all (`a=(1 2); i=0; echo "${a[$((i+1))]}"`), so it is
+  not this family: `dyn_key_c` asks `arith_var_value`, which returns
+  `c_ident("i")` because `is_num("i")` holds, while the declaration census
+  homed `i` in the STORE — the homed/decl disagreement `c_decl_coverage.rs`
+  exists to count. Left red and recorded rather than papered over with a cast.
+
+So the accountability this session can stand behind today is: the ORDERING model
+and its two source hooks are in the tree and verify; everything §26d and the
+earlier `c_*` sections measured needs its source and its model extension
+re-landed before those numbers describe the shipped binary again.
+
+## 35. The sparse SLICE window — `[*]`/`[@]` `off:len` has bounds of two different kinds (2026-11-05)
+
+`10_holes_slice` was left red by §34 as the next target: `a=(a b c); a[5]=z;
+v="${a[*]:1:3}"` gives bash `[b c z]` and gave C `[b c]`. Its shIR contains zero
+`split` nodes and every expansion in it is quoted, so no word-level fold can
+reach it; it is the presence-order slice face (`_sh_join_arr_rng`).
+
+**The measured rule.** An (off, len) grid over four sparse shapes — 476 rows,
+both faces, offsets −7..6, lengths 0..9 and omitted — pins it, and the two
+bounds are of DIFFERENT KINDS:
+
+```
+  OFFSET   indexes SLOTS.  Negative counts slots back from last_index+1.
+           Out of range is EMPTY — never a clamp to the first/last element.
+  LENGTH   counts PRESENT ELEMENTS, scanned forward from that slot —
+           holes are skipped and do NOT spend the length.
+```
+
+So `:1:3` on `a[5]=z` is `b c z` (three elements from slot 1), `: -4:1` is `c`
+(slot 6−4 = 2), and `:6` is empty because there is no slot 6 in a 6-slot array
+even though there are four elements. The pre-fix helper bounded the window by
+`b + len` *slots*, and counted a negative offset in *elements*; both are now
+single-measurement facts rather than readings.
+
+**The fix is three lines of the emitted helper plus the model.**
+
+```c
+  long long b = off < 0 ? ((off < -(long long)n) ? -1 : (long long)n + off) : off;
+  if (b < 0 || b >= (long long)n) { empty }
+  if (len < 0) { "substring expression < 0"; exit(1); }
+  for (size_t i = (size_t)b; i < n; i++) {
+    if (!a[i]) continue;              /* a hole costs a SLOT, not the length */
+    if (taken >= len) break;          /* the length counts PRESENT elements  */
+    …
+    taken++;
+  }
+```
+
+Guard order matters and is modelled: `b` out of range is EMPTY *before* the
+negative-length error, because bash's empty result for a bad offset is not an
+expansion error even when `len < 0` (`c31_out`: `a=(a b c);
+"${a[*]:9:-1}"` → empty, rc 0 in bash and in C) while an in-range one is
+(`c30_out`: `:1:-1` → `-1: substring expression < 0`, rc 1 both sides).
+Re-measured 2026-11-05 on this binary, including the sparse `:1:-2`.
+
+**What the model had, and what it lacked.** `c_join_ifs.rs` already carried a
+`rng_slice` that stated the right rule — and the shipped helper was written
+before it, so the model never contradicted the code. Stating the rule is not
+the obligation; the obligation is the ROW. The model now keeps the retired
+window as an executable transcription (`slot_window`, the `b + len` slot
+bound) and states the measured rows as the obligations where the two disagree:
+
+| obligation | row | bash | retired |
+|---|---|---|---|
+| `mw1_holes_do_not_spend_the_length` | `a[5]=z`, `:1:3` | `b c z` | `b c` |
+| `mw2_leading_holes_are_skipped_not_counted` | `a[3]=x; a[7]=y`, `:0:2` | `x y` | EMPTY |
+| `mw3_offset_indexes_slots_not_elements` | `a[5]=z`, `: -4:1` / `: -2:1` | `c` / `z` | `a` / `c` |
+| `mw4_out_of_slot_range_is_empty` | `:6`, `: -7` | EMPTY | clamped |
+| `mw5_length_counts_elements_from_the_start_slot` | `a[3]=x; a[7]=y`, `:0:1` / `:3:1` / `:4:2` | `x` / `x` / `y` | EMPTY / EMPTY / `y` |
+| `mw6_both_faces_agree_after_the_fix` | `:1:3` under IFS=` ` / `:` | `b c z` / `b:c:z` | same rule, one helper |
+
+`c_join_ifs.rs` is **92 verified, 0 errors** (was 82). The gate row now expects
+92, and its comment records the mixed-bounds rule and the six measured rows, so
+the next reader sees that this family's denotation is two rules and not one.
+
+**Measured after the fix, on the binary built from this tree.** A 136-row
+probe — the four sparse shapes × 17 (off, len) specs × both faces, each row run
+in bash and as a compiled C binary with `rc` compared too — reads
+**136 of 136**. `10_holes_slice` is green in the battery, which is why it is no
+longer listed as an open divergence in §34.
+
+**Blast radius, measured.** `harness/c_gate_main.sh` on the same binary reads
+**625 PASS / 19 FAIL / 7 SKIP**, and both the FAIL list and the reason
+histogram are byte-identical to the §34 baseline (10 `stub:4`, 5 `exec/diff`,
+2 `stub:3`, 1 `stub:14`, 1 `stub:1`). `harness/ifs-probe.sh` moves from
+85/1/7/0 to **86 PASS / 0 FAIL / 7 XFAIL / 0 XPASS** — the one FAIL is the case
+this section retires, and no xfail changed state.
+
+**Not modelled, still.** A slice on assoc storage (`${m[*]:1:2}` keys/values),
+and `${!arr[*]:off:len}` — the key list's slice — which the CORE still drops the
+face of for assoc (case 56); both are separate faces with their own bound rules,
+not consequences of this one.
+
+## 36. The ASSOC and KEY faces — three join rules, a one-based slice, and a collapsed `!` family (2026-11-05)
+
+§35 closed the indexed slice. This round took the faces around it that the
+model had never measured: the assoc value join, the key join, the assoc slice,
+and the `!` family as a whole.
+
+**The measurement trap that hid two of these.** Every earlier reading of the
+assoc join was taken through `echo "${m[*]}"`, where a MULTI-WORD expansion is
+re-joined by `echo` itself with spaces. That makes a wrong separator and a
+one-word collapse look identical. Re-measured in a **one-word context** (an
+assignment — `v="${m[*]}"`), bash says:
+
+```
+  IFS=:  ${a[*]}   = p:q:r      ${a[@]}   = p q r      ${a[*]:0:2} = p:q   ${a[@]:0:2} = p:q
+  IFS=:  ${m[*]}   = x:x        ${m[@]}   = x x        ${m[*]:0:2} = x:x   ${m[@]:0:2} = x:x
+  IFS=   ${m[*]}   = xx         ${m[*]:0:2} = xx       ${m[@]:0:2} = x x
+  IFS=:  ${!a[*]}  = 0:1:2      ${!a[@]}  = 0:1:2      ${!k[*]} = b:a      ${!k[@]} = b:a
+  IFS=   ${!a[*]}  = 012        ${!a[@]}  = 0 1 2      ${!k[*]} = ba       ${!k[@]} = c b
+  IFS=:  ${m[*]:1:2} = x:x      `${m[*]:0:1}` = x       `:1:1` = x    `:2:1` = x (2nd element)
+  ${m[*]:9:1} = EMPTY  ${m[*]:-9:1} = the WHOLE list   ${m[*]:1:-1} = error rc 1
+```
+
+Three separate rules fall out, and the shipped code got all three wrong:
+
+| face | bash | shipped before |
+|---|---|---|
+| assoc value `[*]` | IFS[0], empty IFS concatenates | hardcoded NEWLINE |
+| assoc value `[@]` | a SPACE, even under `IFS=:` | hardcoded NEWLINE |
+| key face, both faces, both storages | IFS[0]; `[@]` falls back to a SPACE on an empty IFS | unconditional space for assoc, space for every `[@]` |
+| assoc slice | see below | joined the store and sliced the STRING → `${m[*]:1:2}` rendered EMPTY |
+
+**The assoc slice is bash's own quirk, and it is not the indexed rule.** A
+POSITIVE offset is ONE-BASED: `:0:1` and `:1:1` both take the first element,
+`:2:1` the second (measured on 2-, 3- and 5-element maps, so it is not a hash
+ordering artefact — the element COUNT is what shifts). An offset past the end
+is EMPTY; a NEGATIVE offset is `n + off` **clamped at 0** (`: -9` on three
+elements is the whole list, never empty); the length counts elements; and a
+negative length is the expansion error, but only for an IN-RANGE offset (the
+same guard order as the indexed helper). The emitted `_sh_assoc_rng` is that
+rule and nothing else, and the dispatch sends assoc slices to it instead of
+through `_sh_arr_slice`.
+
+**Why 064_07 passed while the join was wrong.** The retired assoc join was a
+hardcoded newline, introduced so a `sort` pipeline could sort individual
+values. It is the `[*]` rule for exactly ONE IFS — a newline — and 064_07 is
+the example that sets it:
+
+```sh
+IFS=$'\n' sorted=($(sort <<<"${config[*]}"))   # examples/064_07_…sh:10
+```
+
+So the example was green for the reason the code was wrong. Reading IFS[0]
+keeps that line byte-identical and fixes every other IFS; `nl_join` in the
+model keeps the retired fold as an executable transcription and `k2` proves
+both halves (`nl_join ≠ star_join` under the startup and colon IFS,
+`nl_join == star_join` under a newline IFS). The helper itself is deleted —
+nothing called it. Model: **104 verified, 0 errors** (was 92), with k1a-k1d,
+k2, k3 and a1-a6.
+
+**The `!` family is one collapsed node, and that is a PROOF, not a gap.** Five
+spellings lower to the same shIR (`--target shir --raw`, measured):
+
+```
+  ${!a[*]}  ${!a[@]}  ${!a[*]:1:2}  ${!a[@]:1:2}  ${!a[1]}   ->  param("slice","!a","@","")
+```
+
+Face, bounds and even the subscript are gone, while bash gives four different
+behaviours: the whole list (`0 1 2`), an ERROR for both slice spellings
+(`p q r: invalid variable name`, rc 1 — the slice INDIRECTS the joined VALUE
+list; it is not a key slice at all), and EMPTY for `${!a[1]}`. So no renderer
+of that node is exact — `k1c` proves it with the `[@]` reading as the only
+hypothesis available, and `k1d` pins the exactness DOMAIN that still holds: the
+shipped rule is exact for `[@]` under every IFS and for `[*]` whenever IFS is
+non-empty (they coincide there), leaving ONE row — `${!a[*]}` with an empty
+IFS — as the cost of the erasure. That is why `ifs-probe` case 56 could be
+RETIRED this round (it measures the non-empty-IFS row) even though the node is
+still collapsed. The contract fix is filed as
+`core-requests/c-20261105-keys-face-collapse.md`, with the two shapes that
+would close it.
+
+**Measured after the fixes, on the binary built from this tree.** A 28-row
+assoc/key probe — equal values where order must not matter, key rows comparing
+the separator, error rows comparing rc as well — reads **25 of 28**: the three
+misses are the two proved-erasure rows (empty-IFS `[*]` keys) and bash's
+`file: line N:` stderr prefix on the error rows (the same cosmetic delta as
+every other C-backend error). `harness/ifs-probe.sh` **87 PASS / 0 FAIL /
+6 XFAIL / 0 XPASS** (was 86/0/7/0; case 56 retired, no xfail changed state).
+`harness/c_gate_main.sh` **625 PASS / 19 FAIL / 7 SKIP**, FAIL list and reason
+histogram byte-identical to §35 — so the three join changes move no corpus cell,
+including 064_07 and 029 (which sorts `${!map[@]}`).
+
+**Still not modelled.** The `[@]` face as a LIST OF WORDS: bash expands
+`printf '<%s>' "${a[@]}"` to N arguments and `set -- "${a[@]}"` to N
+positionals, while the C renderer emits ONE joined word (measured: 3 vs 1 for
+`a=(1 2 3)`, and 2 vs 1 for an assoc). That is a renderer-wide contract
+(`at_join` is provably the space join, so it is exact only in a single-word
+position), it needs a push-per-element path at all three argv sites, and it is
+the next increment rather than a one-face patch.

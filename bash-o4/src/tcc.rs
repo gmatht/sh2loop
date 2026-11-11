@@ -153,10 +153,7 @@ pub fn find_sh2perl() -> Result<PathBuf, String> {
         if p.join("runtime").join("uu_run.c").is_file() {
             return Ok(p);
         }
-        return Err(format!(
-            "$BASH_O4_SH2PERL={} has no runtime/uu_run.c",
-            p.display()
-        ));
+        return Err(format!("$BASH_O4_SH2PERL={} has no runtime/uu_run.c", p.display()));
     }
     // exe-relative discovery: <root>/bash-o4/target/<prof>/bash-O4 →
     // <root>/sh2perl/runtime/uu_run.c.
@@ -329,6 +326,25 @@ fn compile_exe(
 ) -> Result<(), LinkSetup> {
     let needs = link_needs(c_src);
     let mut cmd = Command::new(tc.bin());
+    // BASH_O4_CFLAGS — EXTRA compile flags for the C toolchain, appended
+    // verbatim (C-specific opt-in knob: the default toolchain is
+    // millisecond tcc with NO optimization level in front of it, and the
+    // cc/gcc/clang fallback chain also runs at -O0 — measured on the
+    // MIMEcroft demo, `gcc -O2 -fno-strict-aliasing` over the whole
+    // program cuts ~13% of instructions retired and ~6% task-clock; on
+    // the deterministic fb0 device suite, tcc vs gcc -O2 is −20.7%
+    // instructions / −18% task-clock). Example: BASH_O4_CC=cc
+    // BASH_O4_CFLAGS='-O2 -fno-strict-aliasing'. Both frontends fold the
+    // value into the artifact cache key, so a run with different flags
+    // can never be served the other run's cached executable (same
+    // discipline as the SH2_NO_* render switches). Deliberately NOT
+    // defaulted: gcc -O2 on a 900 KB render costs seconds where tcc
+    // costs milliseconds, and every one-shot corpus cell pays once.
+    if let Ok(cf) = std::env::var("BASH_O4_CFLAGS") {
+        for a in cf.split_whitespace() {
+            cmd.arg(a);
+        }
+    }
     cmd.arg("-o").arg(out_exe).arg(c_file);
     // NOTE: `-lm`/`-lgmp` are appended at the END (see below), not here.
     // Link ORDER is significant for the cc/gcc/clang fallback: GNU ld
@@ -445,11 +461,7 @@ pub fn build_aot(
                     fb.bin().display()
                 );
                 compile_exe(&fb, c_file, out_exe, c_src, cache_root).map_err(|e2| {
-                    format!(
-                        "fallback {} also failed:\n{}",
-                        fb.name(),
-                        error_head(e2.msg())
-                    )
+                    format!("fallback {} also failed:\n{}", fb.name(), error_head(e2.msg()))
                 })?;
             }
             _ => return Err(error_head(e.msg()).to_string()),
@@ -506,11 +518,7 @@ pub fn run_jit(
                     fb.bin().display()
                 );
                 compile_exe(&fb, c_file, &tmp, c_src, cache_root).map_err(|e2| {
-                    format!(
-                        "fallback {} also failed:\n{}",
-                        fb.name(),
-                        error_head(e2.msg())
-                    )
+                    format!("fallback {} also failed:\n{}", fb.name(), error_head(e2.msg()))
                 })?;
             }
             _ => return Err(error_head(e.msg()).to_string()),
@@ -536,9 +544,7 @@ pub fn exec_compiled(exe: &Path, prog_path: &Path, args: &[String]) -> Result<i3
         use std::os::unix::process::CommandExt;
         cmd.arg0(prog_path);
     }
-    let st = cmd
-        .status()
-        .map_err(|e| format!("run exe {}: {e}", exe.display()))?;
+    let st = cmd.status().map_err(|e| format!("run exe {}: {e}", exe.display()))?;
     Ok(st.code().unwrap_or(1))
 }
 
@@ -621,18 +627,9 @@ mod tests {
         // work with the override unset and with no tree in reach.
         let root = std::env::temp_dir().join(format!("bo4-dev-lookup-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
-        assert!(
-            find_fbdev(&root).is_ok(),
-            "the embedded device must resolve"
-        );
-        assert!(
-            find_fbwin(&root).is_ok(),
-            "the embedded WINDOW must resolve"
-        );
-        assert!(
-            find_fbinput(&root).is_ok(),
-            "the embedded keyboard must resolve"
-        );
+        assert!(find_fbdev(&root).is_ok(), "the embedded device must resolve");
+        assert!(find_fbwin(&root).is_ok(), "the embedded WINDOW must resolve");
+        assert!(find_fbinput(&root).is_ok(), "the embedded keyboard must resolve");
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -725,7 +722,8 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755))
+                .expect("chmod");
         }
         let tc = Toolchain::Tcc(fake.clone());
 

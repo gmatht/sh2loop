@@ -116,7 +116,19 @@ pub extern "C" fn otranspilerl_version() -> *mut u8 {
 #[no_mangle]
 pub extern "C" fn otranspilerl_shir(input: *const u8, input_len: usize) -> *mut u8 {
     let input = take_input(input, input_len);
-    alloc_string(&ok_json(&crate::shell_to_shir(&input)))
+    // The A1 pane shows the CONTRACT export (`ast_to_ir`: every transform +
+    // the A2 annotations + stmt_lines) AND the renderer statics are
+    // installed on exactly that program, so a following `render` renders
+    // what this pane shows (the direct compile's one-shot pipeline).
+    match crate::shell_to_shir_export_prog(&input) {
+        Some(prog) => alloc_string(&ok_json(&debashl::shir_json::shir_to_shir_json(&prog))),
+        // (the program is cached under the JSON text by
+        // `shell_to_shir_export_prog`; `shir_opt`/`render`/`transpile`
+        // render THAT program, so the three panes agree)
+        None => alloc_string(&ok_json(&debashl::shir_json::shir_to_shir_json(
+            &debashl::shir::ast_to_ir(&[]),
+        ))),
+    }
 }
 
 /// `otranspilerl_lex(input, input_len)` — shell source → token dump (the
@@ -237,13 +249,22 @@ pub extern "C" fn otranspilerl_transpile(
             Ok(out) => alloc_string(&ok_json(&out)),
             Err(e) => alloc_string(&err_json(&e)),
         },
-        "sh" | "" => {
-            let a1 = crate::shell_to_shir(&input);
-            match crate::render_with_source(&a1, &tgt_lang, Some(&src_lang)) {
+        // The ONE-SHOT pipeline: parse → `ast_to_ir` (the transforms run
+        // there) → this target's ingress half → backend. The same program
+        // `otranspilerl_shir` hands the page, so `transpile(src, tgt)` and
+        // `render(shir(src), tgt)` agree byte-for-byte (the page renders the
+        // latter; the old spell re-exported without stmt_lines and ran the
+        // target transforms a SECOND time on top of `ast_to_ir`'s, so the
+        // two paths' js pane differed on brace lists and dead stores).
+        "sh" | "" => match crate::shell_to_shir_export_prog(&input) {
+            Some(prog) => match crate::render_exported_prog(&prog, &tgt_lang, Some(&src_lang)) {
                 Ok(out) => alloc_string(&ok_json(&out)),
                 Err(e) => alloc_string(&err_json(&e)),
-            }
-        }
+            },
+            None => alloc_string(&err_json(
+                "shell parse failed; the frontends' A1 JSON can be fed via otranspilerl_render",
+            )),
+        },
         other => alloc_string(&err_json(&format!(
             "source language {other:?} requires the frontend process spawn, \
              not available in this build; feed the frontend's A1 JSON via \
