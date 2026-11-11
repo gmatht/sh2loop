@@ -12,6 +12,89 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v155: **Section A of the improvement list, landed.** Seven items, each with a measurement.
+>   (1) **Positional BigInt taint is exact.** `walk_bigint_expr`'s `IrExpr::Arith` arm marked
+>   `$1..$9` for any huge constant anywhere; a huge argument now taints only the index it lands in
+>   (`fnValue`/`fnCall` args `[1][i]` -> `$i+1`). Pinned by
+>   `bigint_digit_taint_is_positional_only` (bare huge arith taints nothing; `f $((2**64)) 1` taints
+>   `$1` only). The corpus still renders 0 `num_bigint` (bash wraps), so the shell gate cannot see
+>   this class at all.
+>   (2) **Emitted-surface coverage is now measured.** `harness/ir-surface.py` censuses every IR `type`
+>   tag and `Call.func` op the corpus reaches (baseline 41 types / 32 ops; a disappearance fails), and
+>   `--fixtures` renders + compiles `harness/ir-fixtures/*.shir` through all four backends. Two
+>   fixtures cover what the corpus cannot: `bigint-arith` (huge value through a variable) and
+>   `positional-bigint` (huge call argument -> `$1`), the latter the only one that needs the Cargo
+>   project for `num_bigint`.
+>   (3) **Declaration-site ownership fixed** — the prerequisite the reverted precise-mut work named.
+>   `use_scopes` skipped `IrStmt::Declare` targets entirely ("bindings, not mentions"), so a
+>   declaration could never own its own `let`; the case lowerer's `__sh2_casesubj_N` was emitted from
+>   outside the declaration path. A declaration WITH an init is now a `decl` write, and
+>   `compute_local_vars` treats a first-mention declaration as its own `let` site instead of falling
+>   back to the entry path (`let mut x = String::new();` + assignment = needless mut + dead init).
+>   A BARE `local x` stays unrecorded: it emits no binding, and recording it regressed
+>   `092_for_arith_func` to E0425 on its for-init (caught by the census, fixed, re-verified).
+>   Measured: warned programs 29 -> 23, warnings 77 -> 59, `needless_mut` unchanged at 19, gate
+>   unchanged at 555/1/7.
+>   (4) **The unreachable class is fixed where the renderer invented the code.** `unreachable
+>   expression` 4 -> 0 and `unreachable statement` 3 -> 2. Causes: a loop-body rc save emitted after a
+>   body whose tail diverges (`break`, `return`); the synthesized function value tail after an
+>   if/else-if/else chain where every branch returns; the `false` tail after `break;` in a bool
+>   position (a block ending in `break;` has type `!` and coerces); and the status wrapper after a
+>   diverging `||` lhs (`break || exit 1`). New helper `stmt_diverges` decides the first two,
+>   `core_diverges` the last two. `parse-exit-brace-question` keeps its warning on purpose: bash never
+>   runs its trailing `printf` either, so the Rust is faithful to the source.
+>   (5) **Backend parity is a table, not folklore.** `harness/unsupported-census.sh` counts emitted
+>   TODO markers per backend/program/shape (baseline 34 shapes: c 3 programs/12 markers, py 81/182,
+>   rust and js 0) and `--check` fails when a NEW shape appears.
+>   (6) **The gate counts its own unsupported surface.** `fail-rs` now prints
+>   `emitted TODO(unsupported): N markers in M programs` (0/0 today), so a new unsupported class shows
+>   up in the gate's summary instead of being found by hand.
+>   (7) **The rust-frontend hang is a flake, and the scoreboard says so.** `handlers/mod.rs` (a 15-line
+>   generated file of `mod` declarations) timed out twice on 2026-11-11 — 63 s under a 60 s timeout —
+>   then ran in <1 s on twenty consecutive in-place attempts; every sibling module and `mod.rs` on its
+>   own finished normally, and prefixes copied out of the tree finish too. Root cause unknown (the
+>   frontend's mtime-keyed clean-lowering cache is shared between runs); `rust-dogfood.sh` now reruns a
+>   timeout (`TMO_RERUN`, default 2) and reports `TIMEOUT (did not reproduce)` when it passes, while
+>   still counting it as a crash. Not fixed — made visible.
+>   NOTE: a fleet worker committed the new harness files mid-session (`675adb6c`, `e7c8cef4`,
+>   "backend perl: gate pass"), which is why they are already in the tree.
+> - v154: **D4 done: BigInt scope is data flow, not the program.** Two over-approximations are gone
+>   from the rust renderer. (i) At the taint call site, `if stmts_have_huge(…) {
+>   collect_all_assign_targets(…) }` marked EVERY assignment target in main BigInt as soon as one
+>   huge literal existed anywhere — `x = 1` became BigInt because `n = 2**64+1` appeared elsewhere.
+>   (ii) Inside `collect_bigint_vars`, `has_huge_call → collect_targets(main ∪ every sub)` did the same
+>   for a single huge call argument, which is exactly the "needs param-position tracking" TODO: a huge
+>   argument taints only the positional slot it lands in (`$N`), and `walk_bigint_expr` already records
+>   those digits. Both helpers (`stmts_have_huge`, `collect_all_assign_targets`) are deleted; the rule
+>   is now the existing fixpoint (`collect_bigint_vars` + `collect_huge_literal_assigns` +
+>   `walk_bigint_stmts`), which marks a var only when a huge value can REACH it.
+>   Measured: the shell corpus never renders `num_bigint` at all — 0 programs / 0 sites before AND
+>   after (bash wraps past i64, so shell-derived IR never carries a huge value), and the gate is
+>   unchanged at FAIL-RS pass=555 fail=1 skip=7. Those over-approximations therefore only ever
+>   affected IR from other frontends (python/rust→IR), which neither `fail-rs` nor the warning
+>   census can see; that invariant is pinned at the IR level by
+>   `bigint_scope_follows_data_flow_not_the_program`: one program with a huge `n` and an ordinary `x`
+>   — `n` is tainted and `x` is not, and arithmetic on `n` still renders through `num_bigint`.
+> - v153: **Investigated and reverted: precise `mut` for read-only locals.** The corpus's largest
+>   warning class (19 × `variable does not need to be mutable`) is entirely top-of-function
+>   `let mut <v> = String::new();` for locals that are only ever READ (`$var` in `test-expr-true.sh`,
+>   `$VAR1`/`$VAR2` in `parse-bracket-chain.sh`), where bash keeps the ""/0 default forever. THREE
+>   independent causes had to change together, and each alone measured as a no-op: (a)
+>   `compute_local_vars` inserted every entry-declared local into `need_mut`; (b) the entry-declaration
+>   emitter was the one of five sites that hardcoded `let mut` instead of consulting the verdict; (c)
+>   the shared walker records a builtin's write target (`printf -v x`, `read x`, `typeset x`) as a
+>   plain READ because there is no assignment node for it. Measured progression on the corpus:
+>   (a)+(b) → needless-mut 19 → 4, but three programs stopped compiling
+>   (`parse-case-dollarparen-pattern`, `printf-format-and-v`, `typeset-cmdsub`); adding `Use::namearg`
+>   (the command-word rule: a position where a builtin can write) → 2 compile failures, warnings
+>   77 → 54; inverting to a positive `local_immutable` whitelist → needless-mut 4, but the lib suite
+>   went RED. The blocker is `__sh2_casesubj_0_`: the case lowering's synthetic subject temp is
+>   declared through a path outside the declaration block and never reaches `use_scopes`, so no
+>   decl-site verdict can classify it — a negative rule is unsound for it, and a positive whitelist
+>   does not reach the emitting path at all. Everything was reverted; the tree is back to its green
+>   state and the experiment is parked at `/tmp/exp_rust_backend.rs` and `/tmp/exp_scopes.rs`. The
+>   prerequisite for retrying is a verdict for synthetic temps (declare the temp at its write, or mark
+>   generated names), not a broader read analysis.
 > - v152: **The helper registry has declared variant pairs, not unique names.** The v151 test's
 >   count/injectivity assertion went red with `75 != 77`: two pairs of registry entries render the
 >   SAME `fn` name on purpose — `regex`/`regex_posix` (same `fn __sh_regex`, different engine crate,
@@ -11327,6 +11410,44 @@ lemmas for `Split`, `ArrayLen` and `FieldExtract` (previously
 
 Session green under `quick_and_dirty = false`: four theories, `Compose`
 4.3 s cumulated, `Finished TextOps (0:00:06 elapsed)`, RC=0.
+
+**The `\\s`-vs-POSIX-space gap is closed, not recorded (2026-11-11).**
+`sh2perl/docs/fm/TextOps/ShIR_TextOps_Space.thy` (fifth theory of the session,
+~510 lines) took the open target the previous entry listed and did the thing
+the entry said would be needed: it puts the engines' class IN the model. The
+class is MEASURED first — `docs/fm/TextOps/measure-space.sh` sweeps
+U+0000..U+10FFFF through perl (byte and Unicode string models), node, python,
+rustc and go and prints the code points each one treats as `\\s`, with the
+interpreter versions; the `*_ws_list` definitions are that output transcribed,
+defined independently so their relations are proofs.
+
+The result is narrower than the prose was. Every measured class is a
+SUPERSET of POSIX space (`posix_subset_all`), so the divergence is always an
+over-count and the extra bytes are equations over all `c`
+(`js_extra_locus`, `py_extra_locus`, `perl_extra_locus`, `go_extra_locus`,
+`perl_bytes_extra_locus`); POSIX is exactly the ASCII part of Unicode
+White_Space (`posix_is_the_ascii_part_of_unicode`). The emit is refuted by
+two evaluated witnesses — NBSP as UTF-8 (0xC2 0xA0) is ONE word to `wc -w`
+and two to `\s`-splitting JS, and 0x1C is one word to `wc -w` and two to
+Python's `str.split()` (`js_nbsp_rendering_is_not_the_model`,
+`python_separator_rendering_is_not_the_model`). The second witness is plain
+ASCII, which is why the guard `lowered_wc` already applies to `StrLen` would
+fix JS/Go/Perl and CANNOT fix Python:
+`rendering_is_sound_exactly_for_the_posix_classes` states the four cases
+together and `python_has_no_ascii_guard` refutes the guarded statement.
+
+One finding changes how the gap must be described: Perl's default (byte)
+`\\s` is a DIFFERENT set from its Unicode one (`perl_bytes_is_unicode_minus`
+loses U+00A0 and U+0085), so for that renderer the class is a property of the
+run-time string, not of the emitted code — no codegen assertion can be
+correct in general. Java, C and Sh render `wc -w` through `shWcWords` /
+`_sh_wc_words` rather than a regex split and are unaffected. What the fix
+should be (refuse `-w` on non-ASCII, narrow the renderers to `[\t\n\v\f\r ]`,
+or count bytes) is explicitly NOT decided here; each option needs the locus
+lists and none is a proof obligation.
+
+Session green under `quick_and_dirty = false`: five theories, `Space` 29.5 s
+cumulated, `Finished TextOps (0:00:24 elapsed)`, RC=0, no `sorry`.
 
 Two proof shapes are now documented box traps (`docs/fm/README.md`): a
 CONJUNCTION over a recursive function's output (`w ≠ [] ∧ ws-free`) does not

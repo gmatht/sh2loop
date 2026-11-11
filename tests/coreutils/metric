@@ -36,9 +36,9 @@ trap 'rm -rf "$tmp"' EXIT
 parses() {
     local f="$1" out
     out="$("$debashc" file "$f" 2>&1)"
-    printf '%s' "$out" | grep -q 'Parse successful!' && return 0
+    printf '%s' "$out" | command grep -q 'Parse successful!' && return 0
     out="$("$debashc" file "$f" 2>&1)"
-    printf '%s' "$out" | grep -q 'Parse successful!'
+    printf '%s' "$out" | command grep -q 'Parse successful!'
 }
 
 parse_ok=0
@@ -57,7 +57,7 @@ for f in "$corpus"/tests/*/*.sh; do
     # ESTree pass: capture stderr too, so real parse errors (which debashc
     # prints to stderr with exit 0) are counted as NA, not as 0 unsupported.
     out="$("$debashc" file --estree "$f" 2>&1)"
-    if printf '%s' "$out" | grep -q '^Parse error'; then
+    if printf '%s' "$out" | command grep -q '^Parse error'; then
         na=$((na + 1))
         printf 'NA %s\n' "$(basename "$f")" >> "$tmp/estree.txt"
     else

@@ -140,8 +140,23 @@ for rel in "${FILES[@]}"; do
     continue
   fi
   if [ $rc -eq 124 ]; then
+    # A timeout that does NOT reproduce is a different defect from one that
+    # does. The frontend keeps an mtime-keyed clean-lowering cache shared by
+    # concurrent runs, so a 120 s hang that passes on a rerun is a race, not
+    # a slow file (2026-11-11: `handlers/mod.rs` timed out twice, then ran in
+    # <1 s on 20 consecutive attempts). Report which it is instead of calling
+    # both "TIMEOUT"; the verdict still counts as a crash, never a pass.
+    flaky=""
+    if [ "${TMO_RERUN:-2}" -gt 0 ]; then
+      for _ in $(seq 1 "${TMO_RERUN:-2}"); do
+        if timeout "$TMO" "$FE" --shir "$SNAP/src/$rel" --raw >/dev/null 2>&1; then
+          flaky=" (did not reproduce)"
+          break
+        fi
+      done
+    fi
     crash=$((crash+1))
-    key="TIMEOUT (>${TMO}s)"
+    key="TIMEOUT (>${TMO}s)${flaky}"
   else
     refuse=$((refuse+1))
     # first blocker: the LAST "unsupported Rust:" line is the site that

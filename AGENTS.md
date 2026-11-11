@@ -307,3 +307,22 @@ children, so after editing `setup_backends.sh` check for orphaned
 - Never bless a regression: a failing test may only be added to a
   blessed-fail allowlist for a known runtime limitation, never to hide a
   transpiler bug.
+- **Commit before the next item.** A workspace commit that cannot land on
+  `master` is parked on a side branch, and nothing used to stop that worker
+  from starting another item — four branches were parked at once
+  (section-a, section-b, plan-v153, d4-v154). `harness/start-worker.sh` now
+  runs `harness/parked-work.sh --guard <worker>` first and exits 3 while that
+  worker's own branch is ahead of `origin/master` (`SH2_PARKED_FREEZE=0`
+  bypasses one start). `--report` is the age table; a branch older than
+  `SH2_PARKED_MAX_H` (24 h) prints as FROZEN, which is the scheduled freeze
+  window — no new items until it lands.
+- **The escalation queue is capped, not just counted.**
+  `harness/core-requests-queue.pl` prints age buckets, per-language totals,
+  repeat classes (the same ask filed N times) and the highest-priority rows;
+  `--admit` exits 4 when open > `SH2_CORE_WIP_CAP` (default 8); a filing path
+  calls it before writing. Workers write their `.md` directly today, so this
+  is the convention and the measurement — not yet an interlock.
+- **Bare `grep` with `-q`/`-i`/`-F` is a bug.** The workers' shell shadows
+  `grep` with ripgrep, which rejects those flags, so such a check returns
+  non-zero for *every* input. `harness/lint-grep-alias.sh` fails on it in the
+  gate surface (`--all` for every tracked script); the fix is `command grep`.

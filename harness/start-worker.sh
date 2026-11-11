@@ -70,6 +70,14 @@ case "$name" in
   *)               ROTATE="" ;;
 esac
 
+# COMMIT-BEFORE-NEXT-ITEM (2026-11-11): a worker whose own parked branch
+# still holds unlanded commits does not start another item — it lands or drops
+# them first, or the parked backlog outgrows a human's ability to clear it
+# (four branches were parked at once: section-a, section-b, plan-v153,
+# d4-v154). The guard is per worker: a global stop would freeze the fleet on
+# someone else's branch. SH2_PARKED_FREEZE=0 bypasses it for one start.
+"$ROOT/harness/parked-work.sh" --guard "$name" || exit 3
+
 setsid bash -c '
   cd '"$ROOT"'
   set -a; . '"$ENVF"'; set +a

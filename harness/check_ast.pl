@@ -409,6 +409,39 @@ unlink glob('/tmp/check_ast_t.*');
 
 my $total_fail = $fail + $limit;
 print "\n--- summary: $pass passed, $total_fail FAILED ($fail unexpected, $limit known AST gaps), $resolved resolved\n";
+
+# ---- gap trend -------------------------------------------------------
+# The guard is hard-fail, and the known-gap list is empty, so the failure mode
+# is not a blessed gap: it is the whole gate being muted when it goes red, or
+# cases quietly disappearing (this script once died at its own build step and
+# every ast_* case went UNRUN instead of failing). Record the case count and
+# the gap count, and say what moved since the recorded run.
+my $cases_n = scalar @cases;
+my $base_path = "$root/harness/check_ast-baseline.json";
+my ($prev_cases, $prev_known);
+if (open my $bf, '<', $base_path) {
+    local $/;
+    my $j = <$bf> // '';
+    close $bf;
+    $prev_cases = $1 if $j =~ /"cases"\s*:\s*(\d+)/;
+    $prev_known = $1 if $j =~ /"known"\s*:\s*(\d+)/;
+}
+if ($ENV{CHECK_AST_UPDATE}) {
+    open my $f, '>', $base_path or die "write $base_path: $!";
+    printf $f "{\"cases\":%d,\"known\":%d,\"unexpected\":%d}\n", $cases_n, $limit, $fail;
+    close $f;
+    print "check_ast: baseline updated (cases=$cases_n known_gaps=$limit)\n";
+} elsif (defined $prev_cases) {
+    my $dc = $cases_n - $prev_cases;
+    my $dk = $limit - ($prev_known // 0);
+    printf "check_ast: trend cases %+d (%d total), known gaps %+d (%d total)\n", $dc, $cases_n, $dk, $limit;
+    if ($dk > 0) {
+        print "check_ast: GAP GROWTH — $dk known AST gap(s) newly blessed; the list must shrink, never grow\n";
+    }
+    if ($dc < 0) {
+        print "check_ast: WARNING — $cases_n cases vs a recorded $prev_cases: cases were REMOVED, so coverage shrank\n";
+    }
+}
 if ($total_fail > 0) {
     print "check_ast: FAIL — AST-structure gate red ($total_fail failures)\n";
     exit 1;

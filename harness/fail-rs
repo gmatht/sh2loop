@@ -135,6 +135,14 @@ for f in "$EX"/*.sh; do
     { echo "=== EQUIV FAIL: $name bash_rc=$bash_rc rust_rc=$eq_rc"; diff "$ref" "$act" | head -10; } >> "$OUT/fails.txt"
   fi
 done
+# Emitted-surface honesty: a `// TODO(unsupported)` marker is a construct the
+# renderer could not lower, and it prints NOTHING where bash prints something.
+# Counting them here means a new unsupported class shows up in the gate's own
+# output instead of being found later by hand (`harness/unsupported-census.sh`
+# gives the per-backend shape table; this is the rust-path trend line).
+todo_n=$(command grep -h 'TODO(unsupported)' "$OUT"/*.rs 2>/dev/null | command grep -c 'TODO(unsupported)')
+todo_p=$(command grep -l 'TODO(unsupported)' "$OUT"/*.rs 2>/dev/null | wc -l)
+echo "FAIL-RS emitted TODO(unsupported): ${todo_n:-0} markers in ${todo_p:-0} programs"
 p=$(command grep -c ' PASS$' "$LOG"); f=$(command grep -c ' FAIL' "$LOG"); s=$(command grep -c ' SKIP' "$LOG")
 echo "FAIL-RS pass=$p fail=$f skip=$s resumed=$resumed (log: $LOG)"
 # Exit reflects the verdict: the known reds above (2 as of 2026-10-21)

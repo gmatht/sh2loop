@@ -325,7 +325,7 @@ ensure_worktree () {
   local lang="$1"
   local dir="$BT/$lang" branch="backend/$lang"
   mkdir -p "$BT"
-  if git -C "$SUB" worktree list --porcelain | grep -q "^worktree $dir$"; then
+  if git -C "$SUB" worktree list --porcelain | command grep -q "^worktree $dir$"; then
     echo "  [$lang] worktree exists: $dir ($(git -C "$dir" rev-parse --abbrev-ref HEAD))"
   else
     if git -C "$SUB" show-ref --verify --quiet "refs/heads/$branch"; then
@@ -845,9 +845,9 @@ case "${1:-}" in
                                 | awk '/^.. /{print $2}' \
                                 | awk -v d="${rw_dir#$WORKSPACE/}" '$0 ~ "^"d"/" || $0 ~ /^harness\//' || true)
                       if [ -n "$changes" ]; then
-                        if grep -lE '^(<<<<<<<|=======|>>>>>>>)' $changes 2>/dev/null | grep -q .; then
+                        if grep -lE '^(<<<<<<<|=======|>>>>>>>)' $changes 2>/dev/null | command grep -q .; then
                           echo "[$(date +%FT%T)] $rw_lang: conflict markers in staged files — NOT committing" >> "$LOG"
-                        elif echo "$changes" | grep -q '^harness/'; then
+                        elif echo "$changes" | command grep -q '^harness/'; then
                           if (cd "$WORKSPACE" && perl fail-estree --gate >/dev/null 2>&1); then
                             git -C "$WORKSPACE" add $changes 2>/dev/null || true
                             git -C "$WORKSPACE" commit -m "backend $rw_lang: gate pass" 2>/dev/null || true
@@ -935,7 +935,7 @@ case "${1:-}" in
                       # tail window). If the log rotated under us the marker
                       # overshoots and the tail is empty — correctly read as
                       # "no failure yet", i.e. gate fresh.
-                      if tail -n +"$((rw_log_mark + 1))" "$LOG" 2>/dev/null | grep -q "core build FAILED"; then
+                      if tail -n +"$((rw_log_mark + 1))" "$LOG" 2>/dev/null | command grep -q "core build FAILED"; then
                         # shared-CORE build break — the estree worker owns
                         # the core and edits it constantly. Never grind
                         # against a state that is mid-edit AND uncompilable
@@ -1539,7 +1539,7 @@ EOF
                           | "$g_bin" $g_flag - >/dev/null 2>/tmp/gate_probe_$$; then
                           : # probe rc=0 — fall through to the marker check
                         fi
-                        if grep -q "ShIR JSON ingress" /tmp/gate_probe_$$; then
+                        if command grep -q "ShIR JSON ingress" /tmp/gate_probe_$$; then
                           : # flag confirmed
                         elif [ -x "$g_wt/target/debug/${g_lang}_backend" ]; then
                           g_binmode=1
@@ -1595,7 +1595,7 @@ EOF
                         | "$g_bin" $g_flag - >/dev/null 2>/tmp/gate_probe_$$; then
                         : # probe rc=0 — fall through to the marker check
                       fi
-                      if grep -q "ShIR JSON ingress" /tmp/gate_probe_$$; then
+                      if command grep -q "ShIR JSON ingress" /tmp/gate_probe_$$; then
                         : # flag confirmed
                       elif [ -x "$g_wt/target/debug/${g_lang}_backend" ]; then
                         g_binmode=1
@@ -1695,7 +1695,7 @@ EOF
                   sh_allowlist="$BT/sh/gate-allowlist.txt"
                   sh_allowlisted() { # $1 = basename -> 0 (no) / 1 (yes, skip)
                     [ "$g_lang" = sh ] && [ -f "$sh_allowlist" ] || return 1
-                    grep -q "^$1|" "$sh_allowlist" || return 1
+                    command grep -q "^$1|" "$sh_allowlist" || return 1
                     # conditional entries: the allowlist applies only while
                     # the documented environment squatter is present
                     case "$1" in
@@ -1881,7 +1881,7 @@ EOF
                       # NATIVELY). A violation = the file FAILS the gate even
                       # though its stdout happens to match.
                       if [ "$g_lang" = perl ]; then
-                        if printf '%s' "$g_out" | grep -qE "system\('bash',\s*'[^']*'\)"; then
+                        if printf '%s' "$g_out" | command grep -qE "system\('bash',\s*'[^']*'\)"; then
                           echo "  [perl] anti-cheat: bash-wrapper fallback in $f — FAIL" >> "$WORKSPACE/loop-backend-perl.log"
                           fail=$((fail+1)); fails="$f $fails"; continue
                         fi
@@ -1935,7 +1935,7 @@ EOF
                           # (nonzero only on errors), so the gate must grep the
                           # analyzer output for a warning/error line, not trust
                           # the exit code.
-                          if clang --analyze /tmp/eq_$$.c 2>&1 | grep -qE "warning:|error:"; then
+                          if clang --analyze /tmp/eq_$$.c 2>&1 | command grep -qE "warning:|error:"; then
                             sa_fail=1
                           fi
                         fi
@@ -2434,9 +2434,9 @@ EOF
                   fi
                   if [ $rc -eq 0 ]; then
                     # never commit conflict markers
-                    if grep -lE '^(<<<<<<<|=======|>>>>>>>)' $bw_changes 2>/dev/null | grep -q .; then
+                    if grep -lE '^(<<<<<<<|=======|>>>>>>>)' $bw_changes 2>/dev/null | command grep -q .; then
                       echo "[$(date +%FT%T)] backend $bw_lang: conflict markers — NOT committing"
-                    elif echo "$bw_changes" | grep -q '^harness/'; then
+                    elif echo "$bw_changes" | command grep -q '^harness/'; then
                       # shared-infra edits must not regress the core corpus
                       if (cd "$WORKSPACE" && perl fail-estree --gate >/dev/null 2>&1); then
                         git -C "$WORKSPACE" add $bw_changes 2>/dev/null || true

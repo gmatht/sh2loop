@@ -25,6 +25,7 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 debashc="$root/sh2perl/target/debug/debashc"
+perl_renderer="$root/sh2perl/target/debug/perl_backend"
 corpus="${CORPUS_DIR:-/var/tmp/coreutils-corpus}"
 timeout_per_test=20
 
@@ -41,9 +42,18 @@ fi
 sha="$(git -C "$corpus" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 total="$(find "$corpus/tests" -name '*.sh' | wc -l)"
 
-echo "Building debashc..."
-if ! ( cd "$root/sh2perl" && cargo build --bin debashc 2>&1 | tail -1 ); then
-    echo "BUILD FAILED — sh2perl tree does not compile; aborting gate." >&2
+# The renderer this gate drives. `debashc` was removed with the dump-bins
+# layer and nothing noticed: the gate died at its own build step, the same
+# failure mode as `dump_ast` (which sat dead for months). `perl_backend` is
+# the surviving library-path renderer (parse -> ast_to_ir -> Perl) and prints
+# the whole program, with no `Generated Perl code:` section markers.
+echo "Building the Perl renderer..."
+if [ -x "$debashc" ] && ( cd "$root/sh2perl" && cargo build --bin debashc >/dev/null 2>&1 ); then
+    renderer="$debashc"; render_style=section
+elif ( cd "$root/sh2perl" && cargo build --bin perl_backend >/dev/null 2>&1 ); then
+    renderer="$perl_renderer"; render_style=raw
+else
+    echo "BUILD FAILED — no Perl renderer (neither debashc nor perl_backend builds); aborting gate." >&2
     exit 2
 fi
 echo "coreutils corpus: $corpus @ $sha  ($total scripts)"
@@ -52,6 +62,22 @@ echo
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
+
+# PRECONDITION: every framework test begins with
+# `. "${srcdir=.}/tests/init.sh"`. Resolving that at compile time needs the
+# FILE to exist, and a coreutils GIT CHECKOUT has no tests/init.sh at all
+# (gnulib generates it; release tarballs ship it). Measured 2026-11-11:
+# `ls /var/tmp/coreutils-corpus/tests/init.sh` -> missing. Reporting 645
+# "init.sh-not-sourced" verdicts against such a tree blames the transpiler
+# for a missing corpus file, so say which precondition is missing first.
+if [ ! -f "$corpus/tests/init.sh" ]; then
+    echo "WARNING: $corpus/tests/init.sh is absent (git checkout). Source"
+    echo "  inlining cannot resolve the framework, so every framework test"
+    echo "  will be reported as init.sh-not-sourced. Fix the CORPUS first:"
+    echo "  use a coreutils release tarball, or run gnulib-tool, or set"
+    echo "  SH2_SRCDIR to a tree that has tests/init.sh."
+    echo
+fi
 
 pass=0
 skip=0
@@ -63,7 +89,11 @@ report="$tmp/results.txt"
 for f in "$corpus"/tests/*/*.sh; do
     n=$((n + 1))
     name="$(basename "$f")"
-    perl="$( "$debashc" "$f" 2>/dev/null | sed -n '/Generated Perl code:/,/--- Running/p' | sed '1d;$d' )" || true
+    if [ "$render_style" = section ]; then
+        perl="$( "$renderer" "$f" 2>/dev/null | sed -n '/Generated Perl code:/,/--- Running/p' | sed '1d;$d' )" || true
+    else
+        perl="$( "$renderer" "$f" 2>/dev/null )" || true
+    fi
 
     verdict=
     # Write the generated Perl to a file and grep THAT — piping large
@@ -74,10 +104,10 @@ for f in "$corpus"/tests/*/*.sh; do
     printf '%s\n' "$perl" > "$perl_file"
     if [ -z "$perl" ]; then
         verdict="FAIL debashc-produced-no-perl"
-    elif grep -q "system('bash', '[^']*')" "$perl_file"; then
+    elif command grep -q "system('bash', '[^']*')" "$perl_file"; then
         verdict="FAIL parser-fallback-bash-wrapper"
-    elif grep -q 'tests/init\.sh' "$f" \
-        && grep -qE 'system\(.*tests/init\.sh' "$perl_file"; then
+    elif command grep -q 'tests/init\.sh' "$f" \
+        && ! command grep -qE '(sub +compare_|tests/init\.sh)' "$perl_file"; then
         verdict="FAIL init.sh-not-sourced-source-not-inlined"
     else
         # Execution verdict: transpile → run → judge by the test's own

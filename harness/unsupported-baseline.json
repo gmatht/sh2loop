@@ -1,0 +1,42 @@
+{
+ "shapes": {
+  "c": [
+   "TODO markers",
+   "TODO sh2.int\\n\");",
+   "TODO sh2.lc\\n\");",
+   "TODO sh2.uc\\n\");",
+   "implement (harness",
+   "int \u2192 sh2.int",
+   "lc \u2192 sh2.lc",
+   "stage cond Bool(true)",
+   "test flag \"${__sh2_tc0}\"",
+   "uc \u2192 sh2.uc"
+  ],
+  "py": [
+   "TODO markers",
+   "TODO sh2.subshell\", file=sys.stderr)",
+   "arith \u2192 sh2.arith",
+   "arrayItems \u2192 sh2.arrayItems",
+   "arrow \u2192 sh2.arrow",
+   "block \u2192 sh2.block",
+   "break \u2192 sh2.break",
+   "capture \u2192 sh2.capture",
+   "continue \u2192 sh2.continue",
+   "fnValue \u2192 sh2.fnValue",
+   "getVar \u2192 sh2.getVar",
+   "int \u2192 sh2.int",
+   "lc \u2192 sh2.lc",
+   "param \u2192 sh2.param",
+   "pipeline \u2192 sh2.pipeline",
+   "redirect \u2192 sh2.redirect",
+   "shopt \u2192 sh2.shopt",
+   "split \u2192 sh2.split",
+   "stmt Ext(ForEachLine { source: Str(\"",
+   "stmt Warn { expr: Str(\"syntax error near unexpected token `)'\", SingleQuoted), carp: false }",
+   "stmt Warn { expr: Str(\"syntax error near unexpected token `}'\", SingleQuoted), carp: false }",
+   "strHasSuffix \u2192 sh2.strHasSuffix",
+   "top-level return",
+   "uc \u2192 sh2.uc"
+  ]
+ }
+}
