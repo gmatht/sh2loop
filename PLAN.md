@@ -12,6 +12,23 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v154: **D4 done: BigInt scope is data flow, not the program.** Two over-approximations are gone
+>   from the rust renderer. (i) At the taint call site, `if stmts_have_huge(…) {
+>   collect_all_assign_targets(…) }` marked EVERY assignment target in main BigInt as soon as one
+>   huge literal existed anywhere — `x = 1` became BigInt because `n = 2**64+1` appeared elsewhere.
+>   (ii) Inside `collect_bigint_vars`, `has_huge_call → collect_targets(main ∪ every sub)` did the same
+>   for a single huge call argument, which is exactly the "needs param-position tracking" TODO: a huge
+>   argument taints only the positional slot it lands in (`$N`), and `walk_bigint_expr` already records
+>   those digits. Both helpers (`stmts_have_huge`, `collect_all_assign_targets`) are deleted; the rule
+>   is now the existing fixpoint (`collect_bigint_vars` + `collect_huge_literal_assigns` +
+>   `walk_bigint_stmts`), which marks a var only when a huge value can REACH it.
+>   Measured: the shell corpus never renders `num_bigint` at all — 0 programs / 0 sites before AND
+>   after (bash wraps past i64, so shell-derived IR never carries a huge value), and the gate is
+>   unchanged at FAIL-RS pass=555 fail=1 skip=7. Those over-approximations therefore only ever
+>   affected IR from other frontends (python/rust→IR), which neither `fail-rs` nor the warning
+>   census can see; that invariant is pinned at the IR level by
+>   `bigint_scope_follows_data_flow_not_the_program`: one program with a huge `n` and an ordinary `x`
+>   — `n` is tainted and `x` is not, and arithmetic on `n` still renders through `num_bigint`.
 > - v153: **Investigated and reverted: precise `mut` for read-only locals.** The corpus's largest
 >   warning class (19 × `variable does not need to be mutable`) is entirely top-of-function
 >   `let mut <v> = String::new();` for locals that are only ever READ (`$var` in `test-expr-true.sh`,
