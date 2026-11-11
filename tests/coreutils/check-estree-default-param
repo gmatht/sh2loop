@@ -36,7 +36,7 @@ if [ -z "$out" ]; then
     echo "FAIL: debashc produced no estree output (exit was not recorded)"
     exit 1
 fi
-if printf '%s' "$out" | grep -q '"name":"unsupported"'; then
+if printf '%s' "$out" | command grep -q '"name":"unsupported"'; then
     echo "FAIL (expected): \${x:=default} still lowers to sh2.unsupported"
     echo "  fix target: src/estree.rs word lowering for AssignDefault/Default"
     echo "  then flip this check to assert the marker is absent"

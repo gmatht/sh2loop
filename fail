@@ -60,6 +60,48 @@ END { WorkerPool::release() if $pool_ok; }
 # Dynamic budget, recomputed per dispatch batch: loadavg can change
 # mid-run (agents waking up, sibling gates finishing); the cgroup weight +
 # this keep the gates yielding to the box's other work.
+# ── MACHINE-STATE PREFLIGHT (2026-11-11) ────────────────────────────────
+# Two crontab entries are machine state, not repo state, and BOTH broke on
+# the /home/llm -> /mnt/wsl/projects move without anything noticing (an
+# absolute path that pointed at a directory which no longer existed). A gate
+# run is the one thing that happens on every box, so it reports them — and
+# the parked-work backlog, which is the other thing that rots silently.
+# Never fatal: a missing cron entry is drift to fix, not a code failure.
+sub machine_state_preflight {
+    return if $ENV{SH2_SKIP_PREFLIGHT};
+    my $cron = `crontab -l 2>/dev/null`;
+    $cron = '' unless defined $cron;
+    my %want = (
+        'harness/reap-orphan-examples.sh' => 1,
+        'harness/repair-workers.sh'       => 1,
+    );
+    my @stale;
+    for my $rel (sort keys %want) {
+        my $abs = "$root/$rel";
+        next unless -e $abs;
+        my ($base) = $rel =~ m{([^/]+)$};
+        my @lines = grep { index($_, $base) >= 0 } split /\n/, $cron;
+        if (!@lines) {
+            push @stale, "$rel is NOT in root's crontab";
+            next;
+        }
+        push @stale, "$rel is installed with a stale path"
+            unless grep { index($_, $abs) >= 0 } @lines;
+    }
+    if (@stale) {
+        print "\nWARNING: machine state drift (not a code failure):\n";
+        print "  - $_\n" for @stale;
+        print "  Reinstall: harness/reap-orphan-examples.sh --install-cron\n";
+        print "             harness/repair-workers.sh --install-cron\n\n";
+    }
+
+    my $parked = `'$root/harness/parked-work.sh' --report --no-fetch 2>/dev/null`;
+    if (defined $parked && $parked =~ /commit\(s\)/) {
+        print "Parked work (commit-before-next-item rule):\n$parked\n";
+    }
+    return;
+}
+
 sub current_jobs {
     return $pool_ok ? WorkerPool::max_jobs($jobs) : $jobs;
 }
@@ -294,6 +336,7 @@ if ($? != 0) {
     die "Build failed\n";
 }
 print "Build complete.\n\n";
+machine_state_preflight();
 
 # ── PIN THE BINARY (2026-11-09) ─────────────────────────────────────────
 # Same race as ./fail-estree, and this gate is the one that CREATES it: the
