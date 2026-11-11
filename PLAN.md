@@ -7807,6 +7807,44 @@ lemmas for `Split`, `ArrayLen` and `FieldExtract` (previously
 Session green under `quick_and_dirty = false`: four theories, `Compose`
 4.3 s cumulated, `Finished TextOps (0:00:06 elapsed)`, RC=0.
 
+**The `\\s`-vs-POSIX-space gap is closed, not recorded (2026-11-11).**
+`sh2perl/docs/fm/TextOps/ShIR_TextOps_Space.thy` (fifth theory of the session,
+~510 lines) took the open target the previous entry listed and did the thing
+the entry said would be needed: it puts the engines' class IN the model. The
+class is MEASURED first — `docs/fm/TextOps/measure-space.sh` sweeps
+U+0000..U+10FFFF through perl (byte and Unicode string models), node, python,
+rustc and go and prints the code points each one treats as `\\s`, with the
+interpreter versions; the `*_ws_list` definitions are that output transcribed,
+defined independently so their relations are proofs.
+
+The result is narrower than the prose was. Every measured class is a
+SUPERSET of POSIX space (`posix_subset_all`), so the divergence is always an
+over-count and the extra bytes are equations over all `c`
+(`js_extra_locus`, `py_extra_locus`, `perl_extra_locus`, `go_extra_locus`,
+`perl_bytes_extra_locus`); POSIX is exactly the ASCII part of Unicode
+White_Space (`posix_is_the_ascii_part_of_unicode`). The emit is refuted by
+two evaluated witnesses — NBSP as UTF-8 (0xC2 0xA0) is ONE word to `wc -w`
+and two to `\s`-splitting JS, and 0x1C is one word to `wc -w` and two to
+Python's `str.split()` (`js_nbsp_rendering_is_not_the_model`,
+`python_separator_rendering_is_not_the_model`). The second witness is plain
+ASCII, which is why the guard `lowered_wc` already applies to `StrLen` would
+fix JS/Go/Perl and CANNOT fix Python:
+`rendering_is_sound_exactly_for_the_posix_classes` states the four cases
+together and `python_has_no_ascii_guard` refutes the guarded statement.
+
+One finding changes how the gap must be described: Perl's default (byte)
+`\\s` is a DIFFERENT set from its Unicode one (`perl_bytes_is_unicode_minus`
+loses U+00A0 and U+0085), so for that renderer the class is a property of the
+run-time string, not of the emitted code — no codegen assertion can be
+correct in general. Java, C and Sh render `wc -w` through `shWcWords` /
+`_sh_wc_words` rather than a regex split and are unaffected. What the fix
+should be (refuse `-w` on non-ASCII, narrow the renderers to `[\t\n\v\f\r ]`,
+or count bytes) is explicitly NOT decided here; each option needs the locus
+lists and none is a proof obligation.
+
+Session green under `quick_and_dirty = false`: five theories, `Space` 29.5 s
+cumulated, `Finished TextOps (0:00:24 elapsed)`, RC=0, no `sorry`.
+
 Two proof shapes are now documented box traps (`docs/fm/README.md`): a
 CONJUNCTION over a recursive function's output (`w ≠ [] ∧ ws-free`) does not
 terminate here in 240 s under `simp_all`, `auto` or the `fun` induction rule
