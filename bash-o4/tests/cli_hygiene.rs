@@ -101,12 +101,12 @@ fn normal_invocation_is_unaffected_by_the_sigpipe_reset() {
     let d = std::env::temp_dir().join(format!("bo4norm{}", std::process::id()));
     let _ = std::fs::create_dir_all(&d);
     let p = d.join("t.sh");
-    std::fs::write(&p, "#!/bin/bash\ns=0\nfor ((i=0;i<4;i++)); do s=$((s+i)); done\necho $s\n")
-        .expect("write");
-    let out = Command::new(bin("bash-O4"))
-        .arg(&p)
-        .output()
-        .expect("run");
+    std::fs::write(
+        &p,
+        "#!/bin/bash\ns=0\nfor ((i=0;i<4;i++)); do s=$((s+i)); done\necho $s\n",
+    )
+    .expect("write");
+    let out = Command::new(bin("bash-O4")).arg(&p).output().expect("run");
     assert_eq!(out.status.code(), Some(0));
     assert_eq!(String::from_utf8_lossy(&out.stdout), "6\n");
     let _ = std::fs::remove_dir_all(&d);

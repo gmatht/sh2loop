@@ -52,7 +52,7 @@
 //! ## Transcription notes (fbdev.c → GLSL, every deviation documented)
 //!
 //! - Tables are byte-identical transcriptions: CUBE_P (`:830`),
-//! CUBE_SHADE (`:841`), CUBE_I (`:846`), CUBE_UV (`:204`).
+//!   CUBE_SHADE (`:841`), CUBE_I (`:846`), CUBE_UV (`:204`).
 //! - View math mirrors `to_view`/`draw_cube` (`:1379`): milli corner ×
 //!   world scale, recenter (eye is `C_y + 0.5`), yaw rotate
 //!   (`dx = fx·cos + fz·sin`, `dz = -fx·sin + fz·cos`), project
@@ -157,8 +157,8 @@ layout(location = 2) out vec2 vUv;
 layout(location = 3) flat out int vTex;
 layout(location = 4) flat out int vDmg;
 void main() {
-  uint cube = gl_InstanceID;
-  uint k = gl_VertexID; // 0..35, drawn non-indexed
+  uint cube = gl_InstanceIndex;
+  uint k = gl_VertexIndex; // 0..35, drawn non-indexed
   uint vi = uint(CUBE_I[k]);
   CubeRec R = rec[cube];
   vec3 centre = R.a.xyz;
@@ -166,8 +166,8 @@ void main() {
   vec3 corner = vec3(float(CUBE_P[vi * 3u]), float(CUBE_P[vi * 3u + 1u]), float(CUBE_P[vi * 3u + 2u]));
   // to_view, fbdev.c:1379 (milli corner x world scale, recenter, yaw)
   float fx = corner.x * sc.x / 1000000.0 + centre.x - cam0.x;
-  float fy = corner.y * sc.y + centre.y - (cam0.y + 0.5);
-  float fz = corner.z * sc.z + centre.z - cam0.z;
+  float fy = corner.y * sc.y / 1000000.0 + centre.y - (cam0.y + 0.5);
+  float fz = corner.z * sc.z / 1000000.0 + centre.z - cam0.z;
   float dx = fx * cam0.w + fz * cam1.x;
   float dz = -fx * cam1.x + fz * cam0.w;
   float w = max(dz, WNEAR); // bug-compatible near clamp (see docs)
@@ -255,8 +255,10 @@ void main() {
   if (b < 0) b = 0;
   // device pack parity, incl. overbright bleed: (508<<16) keeps 0xFC
   // and green overflow increments red (fbdev.c put_px packing).
+  // Alpha is OPAQUE (the device stores BGRX — no alpha channel — so
+  // the Vulkan target's alpha is 1.0, never the pack value / 255).
   uint packed = (uint(r) << 16u) | (uint(g) << 8u) | uint(b);
-  o = vec4(float((packed >> 16u) & 0xFFu), float((packed >> 8u) & 0xFFu), float(packed & 0xFFu), 1.0) / 255.0;
+  o = vec4(vec3(float((packed >> 16u) & 0xFFu), float((packed >> 8u) & 0xFFu), float(packed & 0xFFu)) / 255.0, 1.0);
 }
 "#,
     );
@@ -282,16 +284,30 @@ struct OvRec { vec4 g; vec4 c; vec4 d; };
 layout(std430, set = 0, binding = 2) readonly buffer OvRecs { OvRec rec[]; };
 layout(location = 0) out vec4 vCol;
 void main() {
-  OvRec R = rec[gl_InstanceID];
-  uint k = gl_VertexID; // 0..3, triangle strip
+  OvRec R = rec[gl_InstanceIndex];
+  // 6 verts as a triangle LIST (not a strip): lavapipe rasterizes a
+  // 4-vert strip's second triangle with a subtly wrong interpolant
+  // (measured: uniform vCol came out pixel-varying on tri1), while a
+  // list of two explicit triangles is exact. Both triangles share
+  // the TL→BR diagonal and wind the same way: k=0..2 → (TL,TR,BR),
+  // k=3..5 → (BR,BL,TL).
+  uint k = gl_VertexIndex;
+  // Two triangles sharing the TL→BR diagonal: k=0..2 → corners
+  // (TL,TR,BR), k=3..5 → (BR,BL,TL). Corner order per triangle is
+  // (diagonal-start, off-diagonal, diagonal-end) so BOTH triangles
+  // wind the same way (a list has no strip parity flip; a (TL,BR,BL)
+  // second triangle would wind backwards and misinterpolate —
+  // measured: the half-quad + diagonal-alpha fault).
+  // q: 0,1,2,2,3,0.
+  uint q = (k == 3u) ? 2u : ((k == 4u) ? 3u : ((k == 5u) ? 0u : k));
   float cxp = (R.g.x * 0.5 + 0.5) * cam1.z;
   float cyp = (0.5 - R.g.y * 0.5) * cam1.w;
   float hw = R.g.z * cam1.z * 0.5;
   float hh = R.g.w * cam1.w * 0.5;
   float rad = R.d.x * 3.14159265 / 180.0;
   float ca = cos(rad), sa = sin(rad);
-  float sx = (k == 0u || k == 3u) ? -1.0 : 1.0;
-  float sy = (k < 2u) ? -1.0 : 1.0;
+  float sx = (q == 0u || q == 3u) ? -1.0 : 1.0;
+  float sy = (q < 2u) ? -1.0 : 1.0;
   float dx = sx * hw, dy = sy * hh;
   float px = cxp + dx * ca - dy * sa;
   float py = cyp + dx * sa + dy * ca;
@@ -384,9 +400,7 @@ fn fb_call_verb(cmd: &str) -> Option<&'static str> {
 fn find_device_write_stmt(st: &IrStmt, verb: &str) -> Option<String> {
     match st {
         IrStmt::Ext(n) if n.tag() == "GpuOp" => {
-            let op = n
-                .as_any()
-                .downcast_ref::<debashl::shir_nodes::GpuOp>()?;
+            let op = n.as_any().downcast_ref::<debashl::shir_nodes::GpuOp>()?;
             if (op.device == "/dev/fb0" || op.device == "/dev/webgl") && op.verb == verb {
                 return Some(op.id.clone());
             }
@@ -408,18 +422,42 @@ fn find_device_write_stmt(st: &IrStmt, verb: &str) -> Option<String> {
         | IrStmt::ForInit { body: b, .. }
         | IrStmt::DoWhile { body: b, .. } => find_device_write(b, verb),
         IrStmt::Subshell(b) | IrStmt::Background(b) => find_device_write(b, verb),
-        IrStmt::If { then: b, elsifs, else_, .. } => {
-            find_device_write(b, verb).or_else(|| {
+        IrStmt::If {
+            then: b,
+            elsifs,
+            else_,
+            ..
+        } => find_device_write(b, verb)
+            .or_else(|| {
                 elsifs
                     .iter()
                     .find_map(|(_, eb)| find_device_write(eb, verb))
-            }).or_else(|| find_device_write(else_, verb))
-        }
-        IrStmt::Pipeline { stages, .. } => {
-            stages.iter().find_map(|stage| find_device_write(stage, verb))
-        }
+            })
+            .or_else(|| find_device_write(else_, verb)),
+        IrStmt::Pipeline { stages, .. } => stages
+            .iter()
+            .find_map(|stage| find_device_write(stage, verb)),
         _ => None,
     }
+}
+
+
+/// Phase 2: rb_frag-parity fragment shader scaffold (oracle-derived).
+///
+/// Structure follows Phase-0 semantics: tex sample/wrap -> tint/shade bridge ->
+/// optional CRT scanline+vignette -> crack/damage (atlas slot 9, rbp_fdam mix) ->
+/// optional CORRUPT noise -> clamp/pack. Deterministic integer/fixed-point
+/// transcription is REQUIRED for parity (no silent precision narrowing); this
+/// scaffold mirrors the blocks-fragment device math and MUST be validated/tuned
+/// against state-aligned j.cmd/JS/bash oracle vectors (Phase 0) before claiming
+/// correctness.
+pub fn rb_frag_fragment_scaffold() -> String {
+    let mut s = String::new();
+    s.push_str("#version 450\n");
+    s.push_str("// bash-O4 Phase 2: rb_frag parity scaffold (oracle-derived; validate vs j.cmd/JS/bash)\n");
+    s.push_str(&push_constants_glsl());
+    s.push_str(r#"layout(set = 0, binding = 1) uniform sampler2DArray atlas;\nconst int CRACK_LAYER = 9; // slot 9 crack/damage\nlayout(location = 0) in vec3 vTint;\nlayout(location = 1) in float vShade;\nlayout(location = 2) in vec2 vUv;\nlayout(location = 3) flat in int vTex;\nlayout(location = 4) flat in int vDmg;\nlayout(location = 0) out vec4 o;\n\nivec4 sample_tex(int layer, vec2 uv) {\n  // Wrap semantics must match rb_tex_sample/oracle exactly (validate).\n  vec2 w = fract(uv);\n  return ivec4(texture(atlas, vec3(w, float(layer))) * 255.0);\n}\n\nvoid main() {\n  ivec4 tx = sample_tex(vTex, vUv);\n  // Tint/shade bridge: preserve integer divide/truncation and 127/128 scaling\n  // per oracle/_sh_div* semantics (no silent float narrowing).\n  int tr = int(vTint.x * 255.0 + 0.5);\n  int tg = int(vTint.y * 255.0 + 0.5);\n  int tb = int(vTint.z * 255.0 + 0.5);\n  int sh = int(vShade * 1000.0);\n  tr = tr * sh / 1000; tg = tg * sh / 1000; tb = tb * sh / 1000;\n  if (tr < 0) tr = 0; if (tr > 255) tr = 255;\n  if (tg < 0) tg = 0; if (tg > 255) tg = 255;\n  if (tb < 0) tb = 0; if (tb > 255) tb = 255;\n  int r = tr * tx.r / 128;\n  int g = tg * tx.g / 128;\n  int b = tb * tx.b / 128;\n\n  // Device y-down vs gl_FragCoord y-up for scanline/vignette parity.\n  int px = int(gl_FragCoord.x);\n  int vh = int(cam1.w > 0.5 ? cam1.w : 1.0);\n  int py = vh - 1 - int(gl_FragCoord.y);\n\n  // CRT (scanline/vignette) — order per oracle/spec.\n  if ((cfg.x & 1) != 0) {\n    if (py % 6 == 0) { r = r * 90 / 100; g = g * 90 / 100; b = b * 90 / 100; }\n    int vx = px - int(cam1.z) / 2; if (vx < 0) vx = -vx;\n    int vy = py - vh / 2; if (vy < 0) vy = -vy;\n    int edge = vx + vy;\n    if (edge > 450) {\n      int dim = edge - 450; if (dim > 30) dim = 30;\n      r = r - r * dim / 256; g = g - g * dim / 256; b = b - b * dim / 256;\n    }\n  }\n\n  // Crack/damage blend (slot 9) — mix factor must match rbp_fdam/oracle.\n  if (vDmg > 0) {\n    ivec4 ck = sample_tex(CRACK_LAYER, vUv);\n    int mix = vDmg * ck.a / 4;\n    if (mix > 127) mix = 127;\n    r = r - (r - ck.r) * mix / 128;\n    g = g - (g - ck.g) * mix / 128;\n    b = b - (b - ck.b) * mix / 128;\n  }\n\n  // Corruption noise (deterministic hash per oracle/spec).\n  if ((cfg.x & 2) != 0) {\n    int hash = px * 7 + py * 13;\n    if (hash % 97 == 0) { r = 255; g = g / 2; b = b / 2; }\n  }\n\n  if (r < 0) r = 0; if (g < 0) g = 0; if (b < 0) b = 0;\n  uint packed = (uint(r) << 16u) | (uint(g) << 8u) | uint(b);\n  o = vec4(float((packed >> 16u) & 0xFFu), float((packed >> 8u) & 0xFFu), float(packed & 0xFFu), 1.0) / 255.0;\n}\n"#);
+    s
 }
 
 /// Compile one GLSL stage to SPIR-V (`glslangValidator -V`), returning
@@ -472,12 +510,21 @@ mod tests {
         assert!(v.contains("0, 1, 2, 0, 2, 3"), "CUBE_I head");
         assert!(v.contains("-500, 500, 500"), "CUBE_P head");
         assert!(v.contains("1000, 1000, 1000, 1000, 500"), "CUBE_SHADE head");
-        assert!(v.contains("gl_InstanceID"), "one instance per cube");
+        assert!(v.contains("gl_InstanceIndex"), "one instance per cube");
         assert!(v.contains("gl_Position"), "clip output");
         // to_view/project transcription (fbdev.c:1379/1209)
         assert!(v.contains("(cam0.y + 0.5)"), "eye half-block offset");
         assert!(v.contains("0.7"), "ndcx factor");
         assert!(v.contains("0.45"), "ndcy factor");
+        // milli-corner × world scale on ALL THREE axes (fbdev.c
+        // to_view divides each by 1e6 — a missing divisor on y/z
+        // explodes verts to ±50000 and fills the screen; caught by
+        // the fb_dispatch proof, pinned here).
+        assert_eq!(
+            v.matches("/ 1000000.0").count(),
+            3,
+            "milli divisor on x, y, z:\n{v}"
+        );
         assert!(v.contains("WNEAR"), "near clamp");
         assert!(v.contains("DEPTH_FAR"), "depth range");
         assert!(v.contains("CubeRec"), "record struct");
@@ -497,7 +544,10 @@ mod tests {
         assert!(f.contains("450"), "vignette threshold");
         assert!(f.contains("gl_FragCoord"), "pixel coords");
         assert!(f.contains("0xFFu"), "pack parity mask");
-        assert!(f.contains("layout(location = 0) out vec4 o"), "color output");
+        assert!(
+            f.contains("layout(location = 0) out vec4 o"),
+            "color output"
+        );
     }
 
     #[test]
@@ -505,7 +555,11 @@ mod tests {
         let (v, f) = (overlay_vertex(), overlay_fragment());
         assert!(v.contains("OvRec"), "record struct");
         assert!(v.contains("cos(rad)"), "rotation");
-        assert!(v.contains("gl_InstanceID"), "one instance per rect");
+        assert!(v.contains("gl_InstanceIndex"), "one instance per rect");
+        // 6-vert triangle list (not a 4-vert strip): lavapipe
+        // misinterpolates the strip's second triangle (the
+        // fb_dispatch + --fb-proof diagonal-alpha fault).
+        assert!(v.contains("(k == 3u) ? 2u"), "k-to-corner fold");
         assert!(f.contains("o = vCol"), "flat color");
     }
 
@@ -535,15 +589,18 @@ mod tests {
     #[test]
     fn emit_finds_gpu_op_and_call_spellings() {
         // GpuOp spelling (echo … > /dev/fb0/blocks, pre-calls-transform)
-        let (v, f) = emit_fb_shader(&gpu_op_prog("/dev/fb0", "blocks"), "blocks")
-            .expect("blocks must emit");
-        assert!(v.contains("gl_InstanceID") && f.contains("sampler2DArray"));
+        let (v, f) =
+            emit_fb_shader(&gpu_op_prog("/dev/fb0", "blocks"), "blocks").expect("blocks must emit");
+        assert!(v.contains("gl_InstanceIndex") && f.contains("sampler2DArray"));
         // fb_* call spelling (post-calls-transform IR)
         let mut prog = gpu_op_prog("/dev/fb0", "overlay");
         prog.stmts = vec![IrStmt::Expr(IrExpr::Call {
             func: "exec".to_string(),
             args: vec![
-                IrExpr::Str("fb_overlay".to_string(), debashl::ir::StrStyle::DoubleQuoted),
+                IrExpr::Str(
+                    "fb_overlay".to_string(),
+                    debashl::ir::StrStyle::DoubleQuoted,
+                ),
                 IrExpr::Array(vec![IrExpr::Str(
                     "x".to_string(),
                     debashl::ir::StrStyle::DoubleQuoted,
@@ -573,9 +630,7 @@ mod tests {
 
     #[test]
     fn spirv_validates_when_toolchain_present() {
-        let Some(cc) = crate::shader::find_spirv_compiler(
-            &crate::cache::cache_root(None),
-        ) else {
+        let Some(cc) = crate::shader::find_spirv_compiler(&crate::cache::cache_root(None)) else {
             eprintln!("SKIP: no SPIR-V compiler; GLSL structure asserted above");
             return;
         };
@@ -587,8 +642,7 @@ mod tests {
             (overlay_vertex(), "vert"),
             (overlay_fragment(), "frag"),
         ] {
-            let spv =
-                compile_stage(&cc, &src, &dir, ext).expect("emitted GLSL must compile");
+            let spv = compile_stage(&cc, &src, &dir, ext).expect("emitted GLSL must compile");
             assert!(spv.len() > 4, "empty SPIR-V for {ext}");
             assert_eq!(
                 &spv[..4],

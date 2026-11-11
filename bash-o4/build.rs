@@ -8,6 +8,7 @@
 //!     mere paths-list misses edits to already-dirty files),
 //!   - untracked files as (path, size, mtime) (mtime catches content
 //!     change cheaply; same basis as cargo/make themselves).
+//!
 //! Untracked misses direction: a change always alters the key (miss,
 //! never stale-hit). `BAZO4_REV_FALLBACK` ("nogit") covers gitless
 //! environments; the manual `RENDERER_REV` in cache.rs remains as a
@@ -55,7 +56,10 @@ fn untracked_record(dir: &str) -> Vec<u8> {
             continue;
         }
         // Strip the quote wrapping git applies to special paths.
-        let p = p.strip_prefix('"').and_then(|s| s.strip_suffix('"')).unwrap_or(p);
+        let p = p
+            .strip_prefix('"')
+            .and_then(|s| s.strip_suffix('"'))
+            .unwrap_or(p);
         let full = format!("{dir}/{p}");
         match std::fs::metadata(&full) {
             Ok(md) if md.is_file() => {

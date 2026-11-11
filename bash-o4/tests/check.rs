@@ -100,7 +100,12 @@ fn unknown_shader_id_errors() {
     std::fs::create_dir_all(&d).unwrap();
     let s = d.join("t.sh");
     std::fs::write(&s, "#!/bin/bash\necho hi\n").unwrap();
-    let out = Command::new(bin()).arg("--emit-shader").arg("sh_loop_main_9").arg(&s).output().unwrap();
+    let out = Command::new(bin())
+        .arg("--emit-shader")
+        .arg("sh_loop_main_9")
+        .arg(&s)
+        .output()
+        .unwrap();
     assert_eq!(out.status.code(), Some(1));
     let _ = std::fs::remove_dir_all(&d);
 }

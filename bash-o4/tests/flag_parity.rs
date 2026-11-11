@@ -105,7 +105,10 @@ fn version_is_reported_in_both_spellings() {
             "{d}: version line should name the driver, got {sout:?}"
         );
         assert!(
-            sout.trim().split(' ').nth(1).is_some_and(|v| v.contains('.')),
+            sout.trim()
+                .split(' ')
+                .nth(1)
+                .is_some_and(|v| v.contains('.')),
             "{d}: version line should carry a version, got {sout:?}"
         );
     }
@@ -211,7 +214,7 @@ fn check_report_uses_the_same_labels_in_both() {
         assert_eq!(code, 0, "{driver} --check {prog} failed: {stderr}");
         let mut seen = std::collections::BTreeSet::new();
         for line in stdout.lines() {
-            if let Some(rest) = line.split_once(' ').map(|(l, r)| (l, r)) {
+            if let Some(rest) = line.split_once(' ') {
                 if ["MAP", "RED", "SEQ"].contains(&rest.0) {
                     seen.insert(rest.0.to_string());
                     assert!(

@@ -153,7 +153,10 @@ pub fn find_sh2perl() -> Result<PathBuf, String> {
         if p.join("runtime").join("uu_run.c").is_file() {
             return Ok(p);
         }
-        return Err(format!("$BASH_O4_SH2PERL={} has no runtime/uu_run.c", p.display()));
+        return Err(format!(
+            "$BASH_O4_SH2PERL={} has no runtime/uu_run.c",
+            p.display()
+        ));
     }
     // exe-relative discovery: <root>/bash-o4/target/<prof>/bash-O4 →
     // <root>/sh2perl/runtime/uu_run.c.
@@ -442,7 +445,11 @@ pub fn build_aot(
                     fb.bin().display()
                 );
                 compile_exe(&fb, c_file, out_exe, c_src, cache_root).map_err(|e2| {
-                    format!("fallback {} also failed:\n{}", fb.name(), error_head(e2.msg()))
+                    format!(
+                        "fallback {} also failed:\n{}",
+                        fb.name(),
+                        error_head(e2.msg())
+                    )
                 })?;
             }
             _ => return Err(error_head(e.msg()).to_string()),
@@ -499,7 +506,11 @@ pub fn run_jit(
                     fb.bin().display()
                 );
                 compile_exe(&fb, c_file, &tmp, c_src, cache_root).map_err(|e2| {
-                    format!("fallback {} also failed:\n{}", fb.name(), error_head(e2.msg()))
+                    format!(
+                        "fallback {} also failed:\n{}",
+                        fb.name(),
+                        error_head(e2.msg())
+                    )
                 })?;
             }
             _ => return Err(error_head(e.msg()).to_string()),
@@ -525,7 +536,9 @@ pub fn exec_compiled(exe: &Path, prog_path: &Path, args: &[String]) -> Result<i3
         use std::os::unix::process::CommandExt;
         cmd.arg0(prog_path);
     }
-    let st = cmd.status().map_err(|e| format!("run exe {}: {e}", exe.display()))?;
+    let st = cmd
+        .status()
+        .map_err(|e| format!("run exe {}: {e}", exe.display()))?;
     Ok(st.code().unwrap_or(1))
 }
 
@@ -608,9 +621,18 @@ mod tests {
         // work with the override unset and with no tree in reach.
         let root = std::env::temp_dir().join(format!("bo4-dev-lookup-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
-        assert!(find_fbdev(&root).is_ok(), "the embedded device must resolve");
-        assert!(find_fbwin(&root).is_ok(), "the embedded WINDOW must resolve");
-        assert!(find_fbinput(&root).is_ok(), "the embedded keyboard must resolve");
+        assert!(
+            find_fbdev(&root).is_ok(),
+            "the embedded device must resolve"
+        );
+        assert!(
+            find_fbwin(&root).is_ok(),
+            "the embedded WINDOW must resolve"
+        );
+        assert!(
+            find_fbinput(&root).is_ok(),
+            "the embedded keyboard must resolve"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -703,8 +725,7 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755))
-                .expect("chmod");
+            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).expect("chmod");
         }
         let tc = Toolchain::Tcc(fake.clone());
 

@@ -195,6 +195,11 @@ bash ../harness/c_gate_main.sh  # C backend corpus gate
 Vulkan device (Lavapipe pinned when present; reported skip with no
 device, loud failure on miscompute). `tests/shader_spv.rs` proves the
 emitted GLSL compiles via `glslangValidator` (skipped if absent).
+`tests/fb_dispatch.rs` closes the fb0 fragment dispatch loop (PLAN
+v52): the `fb_frag` blocks/overlay pairs dispatch offscreen on Lavapipe
+against a Rust `frag_pixel` oracle (reported skip with no device, loud
+failure on misrender); `bash-O4 --fb-proof[=WxH]` runs the same proof
+scene through the real binary as a P6 PPM.
 
 ## Status vs docs/BASH-O4.md §4.9
 
@@ -202,6 +207,9 @@ M1 (driver+tcc+cache) and M2 (candidacy+`--check`) done; M4
 (fetch/cache/manifest) done except real shaderc pins; M3 done through
 GLSL emission + SPIR-V proof + on-device dispatch proof, with the
 generated-code host split (`_sh_gpu_*` in `c_backend`) remaining.
+The fb0 fragment leg's dispatch loop is closed alongside the compute
+proof (`bash-o4/src/fb_draw.rs` `RasterRunner` + `tests/fb_dispatch.rs`
++ `--fb-proof`, PLAN v52) — the proof scene is not a program payload.
 M5 (parallel reductions) is done on the CUDA side (`cu_candidacy` +
 `cuda_backend` + `cu_run`), including sequential lane-nests, and the
 `bash-O4` driver now dispatches it in-process (`--gpu`), with the same

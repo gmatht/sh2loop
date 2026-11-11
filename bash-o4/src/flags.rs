@@ -115,14 +115,25 @@ pub fn try_common(
             f.gpu_flag = true;
             f.gpu = GpuMode::Auto;
         }
-        "--n" => f.n = it.next().ok_or("--n needs N")?.parse().map_err(|_| "--n N")?,
+        "--n" => {
+            f.n = it
+                .next()
+                .ok_or("--n needs N")?
+                .parse()
+                .map_err(|_| "--n N")?
+        }
         "--runs" => {
-            f.runs = it.next().ok_or("--runs needs K")?.parse().map_err(|_| "--runs K")?
+            f.runs = it
+                .next()
+                .ok_or("--runs needs K")?
+                .parse()
+                .map_err(|_| "--runs K")?
         }
         "--bind" => {
             let kv = it.next().ok_or("--bind VAR=VAL")?;
             let (k, v) = kv.split_once('=').ok_or("--bind VAR=VAL")?;
-            f.binds.push((k.to_string(), v.parse().map_err(|_| "bind value")?));
+            f.binds
+                .push((k.to_string(), v.parse().map_err(|_| "bind value")?));
         }
         "--true64" => f.true64 = Some(true),
         "--no-true64" => f.true64 = Some(false),
@@ -211,7 +222,12 @@ mod tests {
     fn gpu_flag_tracks_explicit_use() {
         let (f, _) = parse(&[]).unwrap();
         assert!(!f.gpu_flag, "a bare invocation must not opt into dispatch");
-        for flags in [&["--gpu"][..], &["--gpu=auto"], &["--cpu-only"], &["--gpu=force"]] {
+        for flags in [
+            &["--gpu"][..],
+            &["--gpu=auto"],
+            &["--cpu-only"],
+            &["--gpu=force"],
+        ] {
             let (f, _) = parse(flags).unwrap();
             assert!(f.gpu_flag, "{flags:?} should set gpu_flag");
         }
@@ -245,7 +261,13 @@ mod tests {
 
     #[test]
     fn own_flags_are_not_consumed() {
-        for own in ["--emit-shader", "--fetch-libs", "--prefetch", "--audit-fetch", "-x"] {
+        for own in [
+            "--emit-shader",
+            "--fetch-libs",
+            "--prefetch",
+            "--audit-fetch",
+            "-x",
+        ] {
             let (_, rest) = parse(&[own]).unwrap();
             assert_eq!(rest, vec![own.to_string()], "{own} belongs to the driver");
         }
@@ -255,9 +277,23 @@ mod tests {
     fn usage_documents_every_shared_flag() {
         let u = common_usage();
         for flag in [
-            "-o FILE", "--emit-c", "--check", "--dump-shir", "--gpu[=auto|force|off]", "--n N",
-            "--runs K", "--bind VAR=VAL", "--cpu-only", "--no-gpu", "-O0", "--cache-dir",
-            "--offline", "--true64", "--verbose", "--help", "--version",
+            "-o FILE",
+            "--emit-c",
+            "--check",
+            "--dump-shir",
+            "--gpu[=auto|force|off]",
+            "--n N",
+            "--runs K",
+            "--bind VAR=VAL",
+            "--cpu-only",
+            "--no-gpu",
+            "-O0",
+            "--cache-dir",
+            "--offline",
+            "--true64",
+            "--verbose",
+            "--help",
+            "--version",
         ] {
             assert!(u.contains(flag), "shared usage omits {flag}");
         }

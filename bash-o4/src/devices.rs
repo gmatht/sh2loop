@@ -40,12 +40,14 @@ const FBINPUT_C: &str = include_str!("../../sh2perl/runtime/fbinput.c");
 const FBINPUT_H: &str = include_str!("../../sh2perl/runtime/fbinput.h");
 const FBSOUND_C: &str = include_str!("../../sh2perl/runtime/fbsound.c");
 const FBSOUND_H: &str = include_str!("../../sh2perl/runtime/fbsound.h");
+const FB_GPU_C: &str = include_str!("../../sh2perl/runtime/fb_gpu.c");
+const FB_GPU_H: &str = include_str!("../../sh2perl/runtime/fb_gpu.h");
 
 /// Every embedded file, as (name, text). The headers must be written
 /// too: the render does `#include <fbdev.h>` and the sources do
 /// `#include "fbdev.h"`, and both need a real header on disk for the C
 /// compiler to find.
-const ALL: [(&str, &str); 8] = [
+const ALL: [(&str, &str); 10] = [
     ("fbdev.c", FBDEV_C),
     ("fbdev.h", FBDEV_H),
     ("fbinput.c", FBINPUT_C),
@@ -54,13 +56,15 @@ const ALL: [(&str, &str); 8] = [
     ("fbwin.h", FBWIN_H),
     ("fbsound.c", FBSOUND_C),
     ("fbsound.h", FBSOUND_H),
+    ("fb_gpu.c", FB_GPU_C),
+    ("fb_gpu.h", FB_GPU_H),
 ];
 
 /// A short, stable digest of the embedded device bytes. FNV-1a: this is
 /// a cache-key component, not a security property, and it only has to
 /// change when the bytes change. (The same choice as `build.rs`'s
 /// pipeline revision, for the same reason.)
-fn digest() -> String {
+pub fn content_digest() -> String {
     let mut h: u64 = 0xcbf29ce484222325;
     for (name, text) in ALL {
         for b in name.as_bytes().iter().chain(text.as_bytes()) {
@@ -75,7 +79,7 @@ fn digest() -> String {
 /// for the CONTENT, so two builds with two sh2perl revisions write two
 /// different directories and neither clobbers the other.
 pub fn device_dir(cache_root: &Path) -> PathBuf {
-    cache_root.join("bash-o4").join("devices").join(digest())
+    cache_root.join("bash-o4").join("devices").join(content_digest())
 }
 
 /// Write the embedded device files into `cache_root` and return the
@@ -151,10 +155,19 @@ mod tests {
     fn embedded_sources_are_the_device() {
         assert!(FBDEV_C.contains("fb_open"), "fbdev.c lost its entry point");
         assert!(FBDEV_C.contains("#include \"fbdev.h\""));
-        assert!(FBINPUT_C.contains("fb_input_line"), "fbinput.c lost its reader");
+        assert!(
+            FBINPUT_C.contains("fb_input_line"),
+            "fbinput.c lost its reader"
+        );
         assert!(FBINPUT_C.contains("#include \"fbinput.h\""));
-        assert!(FBDEV_H.contains("FBDEV_H"), "fbdev.h lost its include guard");
-        assert!(FBINPUT_H.contains("FBINPUT_H"), "fbinput.h lost its include guard");
+        assert!(
+            FBDEV_H.contains("FBDEV_H"),
+            "fbdev.h lost its include guard"
+        );
+        assert!(
+            FBINPUT_H.contains("FBINPUT_H"),
+            "fbinput.h lost its include guard"
+        );
     }
 
     /// A C compiler must find BOTH spellings of the include. The render
@@ -167,7 +180,11 @@ mod tests {
         let dir = materialize(&root).expect("materialize");
         for (name, text) in ALL {
             let p = source_in(&dir, name);
-            assert!(p.is_file(), "{name} was not materialised at {}", p.display());
+            assert!(
+                p.is_file(),
+                "{name} was not materialised at {}",
+                p.display()
+            );
             assert_eq!(std::fs::read_to_string(&p).unwrap(), text);
         }
         let _ = std::fs::remove_dir_all(&root);
@@ -179,11 +196,20 @@ mod tests {
     fn materialise_is_idempotent_and_quiet() {
         let root = tmp("idem");
         let dir = materialize(&root).expect("first");
-        let mtime = std::fs::metadata(dir.join("fbdev.c")).unwrap().modified().unwrap();
+        let mtime = std::fs::metadata(dir.join("fbdev.c"))
+            .unwrap()
+            .modified()
+            .unwrap();
         std::thread::sleep(std::time::Duration::from_millis(20));
         let again = materialize(&root).expect("second");
-        assert_eq!(dir, again, "the directory name must be stable for one build");
-        let mtime2 = std::fs::metadata(dir.join("fbdev.c")).unwrap().modified().unwrap();
+        assert_eq!(
+            dir, again,
+            "the directory name must be stable for one build"
+        );
+        let mtime2 = std::fs::metadata(dir.join("fbdev.c"))
+            .unwrap()
+            .modified()
+            .unwrap();
         assert_eq!(mtime, mtime2, "an unchanged device file was rewritten");
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -230,6 +256,6 @@ mod tests {
             "a device edit must move the directory, or two builds share one"
         );
         // Stable across calls: same bytes, same name.
-        assert_eq!(digest(), digest());
+        assert_eq!(content_digest(), content_digest());
     }
 }

@@ -104,7 +104,9 @@ fn main() {
     // vec4: 1M lanes / 4 per invocation.
     let spv = shader::compile_spv(&cc, VEC4_GLSL, &root).expect("vec4 spv");
     let ms = time_it(|| {
-        let out = runner.run(&spv, None, &[1048576], 1048576 / 4 / 256).expect("vec4");
+        let out = runner
+            .run(&spv, None, &[1048576], 1048576 / 4 / 256)
+            .expect("vec4");
         assert_eq!(out[0][1048575], 1048575i64 * 1048575);
     });
     println!("vec4 1M: {ms:.3} ms");

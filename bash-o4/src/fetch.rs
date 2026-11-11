@@ -3,13 +3,14 @@
 //! Principle: reproducible, consented, cached, auditable. Layout:
 //! `<cache>/bash-o4-fetch/<name>/<version>/<file>`, lockfile-guarded,
 //! content-addressed (SHA-256 pin; mismatch ⇒ delete + refuse, exit 4,
-//! never fall forward). Policy: `--fetch-libs=` flag > `$BASH_O4_FETCH_LIBS`
-//! > default `ask`; `$BASH_O4_OFFLINE=1` forces `off`. `ask` on a non-TTY
-//! refuses with the `--fetch-libs=auto` incantation.
+//! never fall forward). Policy: `--fetch-libs=` flag >
+//! `$BASH_O4_FETCH_LIBS` > default `ask`; `$BASH_O4_OFFLINE=1` forces
+//! `off`. `ask` on a non-TTY refuses with the `--fetch-libs=auto`
+//! incantation.
 //!
 //! Transports: `file://` (copy — hermetic tests) and `https://` (via the
 //! `curl` binary, `--fail`, no `curl|sh`). Unpinned entries (`sha256`
-/// absent) are always refused: an unpinned upstream cannot be verified.
+//! absent) are always refused: an unpinned upstream cannot be verified.
 
 use std::path::{Path, PathBuf};
 
@@ -97,7 +98,9 @@ pub fn parse_manifest(text: &str) -> Result<Vec<ManifestEntry>, String> {
         let Some((k, v)) = line.split_once('=') else {
             return Err(format!("manifest line {}: bad assignment", lineno + 1));
         };
-        let e = cur.as_mut().ok_or_else(|| format!("manifest line {}: key outside [[lib]]", lineno + 1))?;
+        let e = cur
+            .as_mut()
+            .ok_or_else(|| format!("manifest line {}: key outside [[lib]]", lineno + 1))?;
         let (k, v) = (k.trim(), v.trim());
         let unquote = |v: &str| -> Result<String, String> {
             if v.len() >= 2 && v.starts_with('"') && v.ends_with('"') {
@@ -112,7 +115,10 @@ pub fn parse_manifest(text: &str) -> Result<Vec<ManifestEntry>, String> {
             "url" => e.url = unquote(v)?,
             "sha256" => e.sha256 = Some(unquote(v)?),
             "size" => {
-                e.size = Some(v.parse::<u64>().map_err(|_| format!("manifest line {}: bad size", lineno + 1))?)
+                e.size = Some(
+                    v.parse::<u64>()
+                        .map_err(|_| format!("manifest line {}: bad size", lineno + 1))?,
+                )
             }
             "kind" => e.kind = unquote(v)?,
             "license" => e.license = unquote(v)?,
@@ -124,7 +130,10 @@ pub fn parse_manifest(text: &str) -> Result<Vec<ManifestEntry>, String> {
     }
     for e in &entries {
         if e.name.is_empty() || e.version.is_empty() || e.url.is_empty() {
-            return Err(format!("manifest: entry {:?} missing name/version/url", e.name));
+            return Err(format!(
+                "manifest: entry {:?} missing name/version/url",
+                e.name
+            ));
         }
     }
     Ok(entries)
@@ -183,7 +192,11 @@ fn audit(cache_root: &Path, entry: &str, detail: &str) {
         let _ = std::fs::create_dir_all(parent);
     }
     use std::io::Write;
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(audit_path(cache_root)) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(audit_path(cache_root))
+    {
         let _ = f.write_all(line.as_bytes());
     }
 }
@@ -263,7 +276,10 @@ pub fn ensure(
                 "bash-O4 fetches {}@{} ({} bytes, {}):\n  {}\n  sha256:{}\nProceed? [y/N] ",
                 entry.name,
                 entry.version,
-                entry.size.map(|s| s.to_string()).unwrap_or_else(|| "?".into()),
+                entry
+                    .size
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "?".into()),
                 entry.license,
                 entry.url,
                 want
@@ -272,7 +288,10 @@ pub fn ensure(
             if std::io::stdin().read_line(&mut ans).is_err()
                 || !matches!(ans.trim().to_lowercase().as_str(), "y" | "yes")
             {
-                return Err(refuse(format!("fetch {}@{} declined", entry.name, entry.version)));
+                return Err(refuse(format!(
+                    "fetch {}@{} declined",
+                    entry.name, entry.version
+                )));
             }
         }
         FetchPolicy::Auto => {}
@@ -288,10 +307,9 @@ pub fn ensure(
     }
     let tmp = dir.join("artifact.tmp");
     let _ = std::fs::create_dir_all(&dir);
-    download(&entry.url, &tmp).map_err(|e| {
+    download(&entry.url, &tmp).inspect_err(|_| {
         let _ = std::fs::remove_file(&tmp);
         let _ = std::fs::remove_dir_all(&_lock);
-        e
     })?;
     if let Err(e) = verify(&tmp, &want, entry.size) {
         let _ = std::fs::remove_file(&tmp);
@@ -304,7 +322,11 @@ pub fn ensure(
         return Err(refuse(format!("fetch commit: {e}")));
     }
     let _ = std::fs::remove_dir_all(&_lock);
-    audit(cache_root, &format!("{}@{}", entry.name, entry.version), &format!("ok {}", dest.display()));
+    audit(
+        cache_root,
+        &format!("{}@{}", entry.name, entry.version),
+        &format!("ok {}", dest.display()),
+    );
     Ok(dest)
 }
 
@@ -329,8 +351,7 @@ pub fn prefetch(cache_root: &Path, policy: FetchPolicy) -> Result<usize, FetchEr
 
 fn download(url: &str, dest: &Path) -> Result<(), FetchError> {
     if let Some(path) = url.strip_prefix("file://") {
-        std::fs::copy(path, dest)
-            .map_err(|e| refuse(format!("file fetch {url}: {e}")))?;
+        std::fs::copy(path, dest).map_err(|e| refuse(format!("file fetch {url}: {e}")))?;
         return Ok(());
     }
     if url.starts_with("https://") {

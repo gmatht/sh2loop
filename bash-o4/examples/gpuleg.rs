@@ -94,26 +94,27 @@ fn main() {
         PartialsSumMod,
         PartialsSumRaw,
     }
-    let (spv, groups, out_lens, finish): (Vec<u8>, u32, Vec<usize>, Finish) = match problem.as_str() {
+    let (spv, groups, out_lens, finish): (Vec<u8>, u32, Vec<usize>, Finish) = match problem.as_str()
+    {
         "squares-map" => {
             // Fused: identical math to sumred (per-lane masked squares
             // accumulate + tree). Full readback would move 800MB for an
             // 8-byte answer — transfer-bound by construction.
             let glsl = block_template(&sumred_op(), n);
             let spv = shader::compile_spv(&cc, &glsl, &root).expect("spv");
-            let groups = ((n + 256 * BLOCK - 1) / (256 * BLOCK)) as u32;
+            let groups = n.div_ceil(256 * BLOCK) as u32;
             (spv, groups, vec![groups as usize], Finish::PartialsSumMod)
         }
         "sumred" => {
             let glsl = block_template(&sumred_op(), n);
             let spv = shader::compile_spv(&cc, &glsl, &root).expect("spv");
-            let groups = ((n + 256 * BLOCK - 1) / (256 * BLOCK)) as u32;
+            let groups = n.div_ceil(256 * BLOCK) as u32;
             (spv, groups, vec![groups as usize], Finish::PartialsSumMod)
         }
         "collatz" => {
             let glsl = collatz_glsl(n);
             let spv = shader::compile_spv(&cc, &glsl, &root).expect("spv");
-            let groups = ((n + 256 * BLOCK - 1) / (256 * BLOCK)) as u32;
+            let groups = n.div_ceil(256 * BLOCK) as u32;
             (spv, groups, vec![groups as usize], Finish::PartialsSumRaw)
         }
         _ => {
@@ -131,9 +132,7 @@ fn main() {
     let mut ts = Vec::new();
     for _ in 0..runs {
         let t = std::time::Instant::now();
-        let out = runner
-            .run(&spv, None, &out_lens, groups)
-            .expect("dispatch");
+        let out = runner.run(&spv, None, &out_lens, groups).expect("dispatch");
         let _ = finish_all(&finish, &out);
         ts.push(t.elapsed().as_secs_f64() * 1000.0);
     }

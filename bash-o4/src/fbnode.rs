@@ -121,7 +121,10 @@ pub fn path_from_env() -> PathBuf {
 /// off); `FB0_DISABLE` is the blunt one for a harness that wants no trace of
 /// device work at all.
 pub fn disabled() -> bool {
-    if std::env::var("FB0_DISABLE").map(|v| v == "1").unwrap_or(false) {
+    if std::env::var("FB0_DISABLE")
+        .map(|v| v == "1")
+        .unwrap_or(false)
+    {
         return true;
     }
     std::env::var("FB0_NODE")
@@ -148,6 +151,13 @@ impl Geom {
     /// whole frame into without knowing about strides.
     pub fn len(self) -> usize {
         self.w as usize * self.h as usize * BPP
+    }
+
+    /// A geometry is never empty (the constructor refuses zero w/h),
+    /// so `is_empty` would always return false; the lint wants the
+    /// method to exist alongside `len` anyway.
+    pub fn is_empty(self) -> bool {
+        false
     }
 
     /// Resolve the geometry: `$FB0_GEOM` (`WxH`) > [`Geom::DEFAULT`].
@@ -562,9 +572,15 @@ mod tests {
         unsafe { std::env::set_var("FB0_GEOM", "640X480") };
         assert_eq!(Geom::from_env().unwrap(), Geom { w: 640, h: 480 });
         unsafe { std::env::set_var("FB0_GEOM", "nonsense") };
-        assert!(Geom::from_env().is_err(), "a malformed geometry must be refused");
+        assert!(
+            Geom::from_env().is_err(),
+            "a malformed geometry must be refused"
+        );
         unsafe { std::env::set_var("FB0_GEOM", "640x0") };
-        assert!(Geom::from_env().is_err(), "a zero dimension must be refused");
+        assert!(
+            Geom::from_env().is_err(),
+            "a zero dimension must be refused"
+        );
         clear();
     }
 
@@ -661,7 +677,7 @@ mod tests {
         let g = Geom { w: 2, h: 1 };
         assert!(from_ppm(b"P6\n2 1\n255\n\x00\x01\x02\x03\x04\x05", g).is_ok());
         // wrong dimensions
-        let e = from_ppm(b"P6\n4 4\n255\n" , g).unwrap_err();
+        let e = from_ppm(b"P6\n4 4\n255\n", g).unwrap_err();
         assert!(e.contains("but the node is"), "got: {e}");
         // truncated body
         let e = from_ppm(b"P6\n2 1\n255\n\x00\x01\x02", g).unwrap_err();
@@ -670,8 +686,11 @@ mod tests {
         let e = from_ppm(b"\x89PNG\r\n", g).unwrap_err();
         assert!(e.contains("P6"), "got: {e}");
         // 16-bit maxval
-        let e = from_ppm(b"P6\n2 1\n65535\n\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b", g)
-            .unwrap_err();
+        let e = from_ppm(
+            b"P6\n2 1\n65535\n\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b",
+            g,
+        )
+        .unwrap_err();
         assert!(e.contains("maxval"), "got: {e}");
     }
 

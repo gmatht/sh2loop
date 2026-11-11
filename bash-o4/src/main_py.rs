@@ -176,7 +176,13 @@ fn run(args: &[String]) -> i32 {
 
     // ③ GPU leg (bench/offload vehicle).
     if o.common.gpu_flag && o.common.gpu != GpuMode::Off {
-        match cu_run::run(&prog_ir, &prog_flat, o.common.n, &o.common.binds, o.common.runs) {
+        match cu_run::run(
+            &prog_ir,
+            &prog_flat,
+            o.common.n,
+            &o.common.binds,
+            o.common.runs,
+        ) {
             Ok((ms, checksum)) => {
                 println!("{ms:.3} {checksum}");
                 return 0;
@@ -205,7 +211,10 @@ fn run(args: &[String]) -> i32 {
         Some(false) => "t64=0",
         None => "t64=env",
     };
-    let opts_key = format!("py opt={} {t64key} gpu={:?}", o.common.opt_level, o.common.gpu);
+    let opts_key = format!(
+        "py opt={} {t64key} gpu={:?}",
+        o.common.opt_level, o.common.gpu
+    );
     let key = cache::artifact_key(&a1, &opts_key, &tc_id);
     let cache_root = cache::cache_root(o.common.cache_dir.as_deref());
     let opt_level = o.common.opt_level.clone();
@@ -219,7 +228,10 @@ fn run(args: &[String]) -> i32 {
             return 1;
         }
     };
-    verbose(&o, &format!("cache {} {}", if cached.hit { "hit" } else { "miss" }, key));
+    verbose(
+        &o,
+        &format!("cache {} {}", if cached.hit { "hit" } else { "miss" }, key),
+    );
     let c_file = cached.dir.join("prog.c");
 
     if o.common.emit_c {
@@ -228,7 +240,13 @@ fn run(args: &[String]) -> i32 {
     }
 
     if let Some(out) = o.common.out_exe.clone() {
-        match tcc::build_aot(&tc, &c_file, &PathBuf::from(&out), &cached.c_src, &cache_root) {
+        match tcc::build_aot(
+            &tc,
+            &c_file,
+            &PathBuf::from(&out),
+            &cached.c_src,
+            &cache_root,
+        ) {
             Ok(()) => 0,
             Err(e) => {
                 eprintln!("python-O4: {e}");
@@ -236,7 +254,14 @@ fn run(args: &[String]) -> i32 {
             }
         }
     } else {
-        match tcc::run_jit(&tc, &c_file, &cached.c_src, &prog_path, &o.common.prog_args, &cache_root) {
+        match tcc::run_jit(
+            &tc,
+            &c_file,
+            &cached.c_src,
+            &prog_path,
+            &o.common.prog_args,
+            &cache_root,
+        ) {
             Ok(rc) => rc,
             Err(e) => {
                 eprintln!("python-O4: {e}");
