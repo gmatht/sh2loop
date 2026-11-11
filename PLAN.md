@@ -12,6 +12,52 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v155: **Section A of the improvement list, landed.** Seven items, each with a measurement.
+>   (1) **Positional BigInt taint is exact.** `walk_bigint_expr`'s `IrExpr::Arith` arm marked
+>   `$1..$9` for any huge constant anywhere; a huge argument now taints only the index it lands in
+>   (`fnValue`/`fnCall` args `[1][i]` -> `$i+1`). Pinned by
+>   `bigint_digit_taint_is_positional_only` (bare huge arith taints nothing; `f $((2**64)) 1` taints
+>   `$1` only). The corpus still renders 0 `num_bigint` (bash wraps), so the shell gate cannot see
+>   this class at all.
+>   (2) **Emitted-surface coverage is now measured.** `harness/ir-surface.py` censuses every IR `type`
+>   tag and `Call.func` op the corpus reaches (baseline 41 types / 32 ops; a disappearance fails), and
+>   `--fixtures` renders + compiles `harness/ir-fixtures/*.shir` through all four backends. Two
+>   fixtures cover what the corpus cannot: `bigint-arith` (huge value through a variable) and
+>   `positional-bigint` (huge call argument -> `$1`), the latter the only one that needs the Cargo
+>   project for `num_bigint`.
+>   (3) **Declaration-site ownership fixed** — the prerequisite the reverted precise-mut work named.
+>   `use_scopes` skipped `IrStmt::Declare` targets entirely ("bindings, not mentions"), so a
+>   declaration could never own its own `let`; the case lowerer's `__sh2_casesubj_N` was emitted from
+>   outside the declaration path. A declaration WITH an init is now a `decl` write, and
+>   `compute_local_vars` treats a first-mention declaration as its own `let` site instead of falling
+>   back to the entry path (`let mut x = String::new();` + assignment = needless mut + dead init).
+>   A BARE `local x` stays unrecorded: it emits no binding, and recording it regressed
+>   `092_for_arith_func` to E0425 on its for-init (caught by the census, fixed, re-verified).
+>   Measured: warned programs 29 -> 23, warnings 77 -> 59, `needless_mut` unchanged at 19, gate
+>   unchanged at 555/1/7.
+>   (4) **The unreachable class is fixed where the renderer invented the code.** `unreachable
+>   expression` 4 -> 0 and `unreachable statement` 3 -> 2. Causes: a loop-body rc save emitted after a
+>   body whose tail diverges (`break`, `return`); the synthesized function value tail after an
+>   if/else-if/else chain where every branch returns; the `false` tail after `break;` in a bool
+>   position (a block ending in `break;` has type `!` and coerces); and the status wrapper after a
+>   diverging `||` lhs (`break || exit 1`). New helper `stmt_diverges` decides the first two,
+>   `core_diverges` the last two. `parse-exit-brace-question` keeps its warning on purpose: bash never
+>   runs its trailing `printf` either, so the Rust is faithful to the source.
+>   (5) **Backend parity is a table, not folklore.** `harness/unsupported-census.sh` counts emitted
+>   TODO markers per backend/program/shape (baseline 34 shapes: c 3 programs/12 markers, py 81/182,
+>   rust and js 0) and `--check` fails when a NEW shape appears.
+>   (6) **The gate counts its own unsupported surface.** `fail-rs` now prints
+>   `emitted TODO(unsupported): N markers in M programs` (0/0 today), so a new unsupported class shows
+>   up in the gate's summary instead of being found by hand.
+>   (7) **The rust-frontend hang is a flake, and the scoreboard says so.** `handlers/mod.rs` (a 15-line
+>   generated file of `mod` declarations) timed out twice on 2026-11-11 — 63 s under a 60 s timeout —
+>   then ran in <1 s on twenty consecutive in-place attempts; every sibling module and `mod.rs` on its
+>   own finished normally, and prefixes copied out of the tree finish too. Root cause unknown (the
+>   frontend's mtime-keyed clean-lowering cache is shared between runs); `rust-dogfood.sh` now reruns a
+>   timeout (`TMO_RERUN`, default 2) and reports `TIMEOUT (did not reproduce)` when it passes, while
+>   still counting it as a crash. Not fixed — made visible.
+>   NOTE: a fleet worker committed the new harness files mid-session (`675adb6c`, `e7c8cef4`,
+>   "backend perl: gate pass"), which is why they are already in the tree.
 > - v154: **D4 done: BigInt scope is data flow, not the program.** Two over-approximations are gone
 >   from the rust renderer. (i) At the taint call site, `if stmts_have_huge(…) {
 >   collect_all_assign_targets(…) }` marked EVERY assignment target in main BigInt as soon as one
