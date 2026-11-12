@@ -5624,6 +5624,9 @@ captureSync(fn) {
   // byte string back to UTF-8 text, replacing invalid sequences with
   // U+FFFD (the runtime's `Buffer.toString('utf8')` does exactly that).
   textOfBytes(s) { return Buffer.from(String(s ?? ''), 'latin1').toString('utf8'); },
+  // utf8Len(s) — `char::len_utf8()` / the byte length of a text's UTF-8
+  // encoding. Returns the byte count as a decimal string.
+  utf8Len(s) { return String(Buffer.byteLength(String(s ?? ''), 'utf8')); },
 
   // jsonNew(name, "f1", v1, "f2", v2, ...) — build a JSON object string
   // from the field-name/value pairs (values stored as plain strings),
