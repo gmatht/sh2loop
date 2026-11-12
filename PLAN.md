@@ -12191,3 +12191,65 @@ Cold: `COLD_RC=0` (`Finished TextOps`), zero `***` lines, grep for
 sorry/oops/quick_and_dirty exits 1, checker 17 resolved / 28 unstated /
 2 pending / 0 errors with `cut_at.node TextOps cut_at_sound` and
 `cutset_trim.node TextOps cutset_trim_sound` both resolving.
+
+### 2026-11-13 (section C, third slice) — the field cursor: FieldStrip / FieldStripEnd / FieldGrab
+
+The three cursor nodes were `spec: none (unstated)`. New theory
+`ShIR_TextOps_Field` (tenth in the session, importing `ShIR_TextOps_Cut` so the
+position facts come from its primitives instead of new inductions) models the
+cursor as `str_chop_cursor`'s C arms render it and proves, over arbitrary byte
+strings, offsets and delimiters:
+
+- `field_grab_at_strip` — `field_hit s off d = Some k ⟹
+  drop off s = field_grab s off d @ d @ drop (field_strip s off d) s`: both
+  nodes are read at the same `off` and the advance lands where the delimiter
+  that stopped the grab ends, so the pair composes (the next field is the grab
+  at the offset the previous strip reported) rather than each moving the cursor.
+- `field_strip_no_move_on_miss` — a miss leaves the offset at `off`, and
+  `field_grab_at_end`/`field_grab_after_drain` cover "no more fields reads ''".
+- `field_strip_end_drains_on_miss` — the same miss advances to `length s`, the
+  dropped `s=""` fallback arm; `field_grab_after_drain` is what makes dropping
+  the guard sound.
+- Cursor arithmetic: `field_strip_le_length`, `field_strip_end_le_length`,
+  `field_strip_ge_off`, `field_strip_gt_off_on_hit`,
+  `field_strip_le_strip_end`, `field_strip_stuck_iff_miss`,
+  `field_strip_progress` (every hit consumes a byte — the loop measure) and
+  `field_strip_end_agrees_on_hit` / `field_strip_end_differs_on_miss` (the
+  advances agree exactly on a hit, so neither is derivable from the other).
+
+Two limits are stated rather than papered over. The arms do not clamp `off`
+(`strstr(text + off, d)`), so `off ≤ length s` is the transform's read law and
+appears as a hypothesis, not a property of the node. And an empty delimiter is
+NOT the empty-literal cut: the arms' non-empty guard means it never matches, so
+`field_grab_empty_delim_is_not_a_cut` proves `field_grab s off [] = drop off s`
+while `cut_head_first (drop off s) [] = []` — the node needs its own guard, and
+the theorem says so instead of the comment asserting it.
+
+Node wiring: `field_grab` → `field_grab_at_strip`, `field_strip` →
+`field_strip_no_move_on_miss`, `field_strip_end` → `field_strip_end_drains_on_miss`.
+Checker went 17 resolved / 28 unstated → 20 resolved / 25 unstated, still
+2 pending / 0 errors.
+
+Repair log (six builds):
+1. The header comment contained a literal `(*d)` (the arms' empty-delimiter
+   guard), which opens a NESTED comment in Isabelle and swallowed the theory
+   header — the build failed at line 1. Rewritten as a non-empty check `*d`.
+2. `field_grab_at_end` used `field_hit_occ` with the wrong bound orientation
+   (`length s ≤ off`, not `off ≤ length s`); the Some branch needs only
+   `drop off s = []`.
+3. `field_strip_gt_off_on_hit` tried `have ... and ... by arith+` on a
+   conjunction from `field_hit_someD` — replaced by an `obtain`.
+4. `Nat.sub_add` does not exist here; `drop_sub_add` proves `j - off + off = j`
+   from the bound and then uses `drop_drop`.
+5. `le_less_trans` via `using oj by (rule ...)` chained the facts in reverse
+   order (the error prints them reversed) — `by arith` with both facts is the
+   robust form.
+6. Two `simp`-only steps that needed arithmetic/index bookkeeping: the
+   `drop (off + i + length d)` conversion now uses `drop_drop ac_simps`, and
+   `field_hit_min`'s length bound needs `d ≠ []` (otherwise a drop past the end
+   is `[]` and `d` would have to be empty), plus `field_grab_is_tail_prefix`
+   gained the explicit `off ≤ length s` hypothesis.
+
+Cold: `COLD_RC=0` (`Finished TextOps`, ten theories), zero `***` lines, checker
+20 resolved / 25 unstated / 2 pending / 0 errors with all three field nodes
+resolving; `ShIR_TextOps_Splice.thy` still untracked and outside ROOT.
