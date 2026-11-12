@@ -11780,8 +11780,9 @@ node's four glob-strip identities as find()/rfind() work: `find_first` and
 `rfind_last` with occurrence / no-match / leftmost-maximal characterisations,
 the four cut forms with their no-match no-ops (`cut_at_sound`, now the node's
 `spec:`), the split identity, and `affix_strip_fold_sound` — the star branch is
-`AffixStrip` at a head literal, and `first` is load-bearing on a repeating
-literal. Not proved and said so: the glob engine. The node's "each identity
+`AffixStrip` at a head literal, `first` is load-bearing on a repeating literal,
+and `cut_first_last_agree` covers the other side: the two cuts coincide exactly
+when the two primitives do. Not proved and said so: the glob engine. The node's "each identity
 follows from glob semantics" is an assumption here, not a theorem; the
 magic-free precondition is a predicate (`is_magic_free`).
 
