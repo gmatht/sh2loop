@@ -5600,6 +5600,30 @@ captureSync(fn) {
     const n = Number(code) || 0;
     return String.fromCharCode(n);
   },
+  // bytesOf(s) — Rust `str::as_bytes()` / `&[u8]` view: the UTF-8
+  // BYTES of a text string, carried as a JS string whose CODE UNITS
+  // are the byte values (0..255, i.e. latin1). That makes len/index/
+  // slice/affix/predicate ops byte-exact (strLen/strSlice/startsWith/
+  // includes/strIndex all already operate on code units), and a byte
+  // value reads out as its numeric code via byteCode() / chr() re-encodes
+  // it — exactly Rust's `u8 as char` (U+0000..U+00FF).
+  bytesOf(s) { return Buffer.from(String(s ?? ''), 'utf8').toString('latin1'); },
+  // byteCode(s, i) — `s[i]` on a `&[u8]` (one byte as a number). The
+  // byte string stores one byte per code unit, so charCodeAt gives the
+  // value directly. Out of range -> '' (the store's absent marker; Rust
+  // panics there, and the caller's index is provably in range for the
+  // code paths that reach this).
+  byteCode(s, i) {
+    const str = String(s ?? '');
+    let idx;
+    try { idx = evalArith(String(i), this); } catch { idx = Number(i) || 0; }
+    const c = str.charCodeAt(idx);
+    return Number.isNaN(c) ? '' : String(c);
+  },
+  // textOfBytes(s) — `String::from_utf8_lossy` on a `&[u8]`: decode the
+  // byte string back to UTF-8 text, replacing invalid sequences with
+  // U+FFFD (the runtime's `Buffer.toString('utf8')` does exactly that).
+  textOfBytes(s) { return Buffer.from(String(s ?? ''), 'latin1').toString('utf8'); },
 
   // jsonNew(name, "f1", v1, "f2", v2, ...) — build a JSON object string
   // from the field-name/value pairs (values stored as plain strings),
