@@ -11896,3 +11896,43 @@ stays unstated and the checker now reports that name as `OUTSIDE THE BUILD`.
 Trap: the checker's first version accepted `definition` and scanned every `.thy`
 regardless of `ROOT`, so it could report a spec as resolved against a file the
 build never compiles; both are now negative-control cases in `--selftest`.
+
+### 2026-11-13 (referee pass) — substitute_sound and uniq_lines_sound brought up to their nodes
+
+`uniq_lines_sound` was `drop_runs ls = collapse_prev ls None`: true, and silent
+about the `-c` counts the node promises. Replaced by a six-conjunct theorem —
+streaming collapse, the reconstruction `ls = concat (map (λ(n,x). replicate n x)
+(run_count ls))`, printed lines = collapse, every count ≥ 1, counts sum to
+`length ls`, no equal neighbours — where the reconstruction is what pins each
+count to its run length (`[a,a,b]` with counts `(1,2)` reconstructs `[a,b,b]`).
+Evidence that the counts wording was not decoration: `run_count_parts` needed
+`run_count_pos` and a case split on the head count, because a zero count would
+make `replicate` unfaithful. `uniq -s N` stays open and is named in the node as
+`pending TextOps#uniq_lines_skip_sound` — the skip relation also changes WHICH
+line of a run survives (uniq keeps the first, `drop_runs` keeps the last), so it
+is not a corollary of equality-run reasoning.
+
+`substitute_sound` already stated the engine obligation (advance on a zero-length
+match, leftmost/non-overlapping step, identity on no match) and its termination
+(`subst_*_extra` plus the fuel corollaries), but its replacement language was one
+witness (`&` alone). Added `expand`: sed's replacement string parsed for real —
+`&`, `\N` against the matcher's capture report, `\&`/`\\` literals, unknown
+escapes copied through so the function is total — with `expand_amp`,
+`expand_backref`, `expand_escaped_amp`, `expand_backslash`, and the engine rules
+instantiated at it (`substitute_expand_leftmost`,
+`substitute_expand_empty_match_advances`). The line domain is now declared open
+in the node (`pending TextOps#substitute_line_domain_sound`) instead of being
+described in prose as "not proved".
+
+Traps hit and recorded: `fun` rejects nested numeric patterns (`92 # 92 # r`) in
+sequential mode — the parser must branch on the first byte and `case` the rest;
+`show ?thesis using h by blast` fails when the theorem's premise has already
+become an assumption (write the `metis` step instead); `simp_all` does not pick
+up a `case True` fact for a goal that simp itself created, so the if-condition
+must be passed with `add:`; `replicate (Suc n) x` does not rewrite to
+`x # replicate n x` in every orientation, so a "count is positive" case split is
+cheaper than arithmetic on `n - 1`.
+
+Checker after this pass: 17 resolved, 28 unstated, **2 pending**, 0 errors —
+the pending set is exactly the two obligations named above, and the checker
+errors if either name ever starts resolving without being promoted.
