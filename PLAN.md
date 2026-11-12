@@ -10643,6 +10643,226 @@ the gate's expectations predate that WIP).
   follow-up, refused today by `pipe_consumer`'s single-Expr shape.
   Gitlink not bumped (worktree carries other workstreams' edits).
 
+- **2026-11-12 — Perl emit: census-driven idiom sweep (brace ranges,
+  `int((`, `@_` parameters, element interpolation).** The 2026-11-11 pass
+  fixed the status register but left known artifacts behind and only
+  measured a few patterns by hand. This pass derives the work list from
+  the OUTPUT: render all 563 examples, then count every suspicious form
+  mechanically (`/tmp/census.py`: renders, strips the renderer's own
+  preamble helpers so the counts describe the TRANSLATED body, and uses
+  three detectors a `grep` cannot express — a balanced-paren scan for a
+  genuinely redundant `int((E))` (a raw `int((` substring also matches
+  `int((0+7) | (0+8))`, where both pairs are load-bearing), a numeric-run
+  check for an expanded brace range, and a position-accurate scope walk
+  for `my` redeclaration in the SAME block).
+
+  Before → after over the 563 rendered examples (count / files):
+
+  | pattern | before | after |
+  | --- | --- | --- |
+  | expanded numeric for-iterand (`(("1", "2", …))`) | 14 / 12 | **0** |
+  | any `for my $x ((` list-in-extra-parens | 39 / 32 | **0** |
+  | redundant `int((E))` (balanced) | 62 / 37 | **0** |
+  | `local @__sh_args = @_;` | 25 / 22 | **0** |
+  | `local @ARGV = @_;` | 27 / 23 | **0** |
+  | `my $__argc` (dead count snapshot) | 97 / 45 | **0** |
+  | `if (1)` / `elsif (0)` constant chain | 6 / 5 | **0** |
+  | `print("")` no-op | 1 / 1 | **0** |
+  | `for my $__X (…)` throwaway copy temp | 226 / 81 | 183 / 52 |
+  | ` . ($` concat around a variable | 40 / 22 | 19 / 13 |
+  | any ` . ` concat | 353 / 101 | 314 / 94 |
+  | `while (1)` | 7 / 7 | 7 / 7 |
+  | `$?` register use | 21 / 20 | 21 / 20 |
+  | `do { }` blocks | 911 / 196 | 911 / 196 |
+  | `scalar(@…` (new: `$#` reads) | 0 | 60 / 48 |
+
+  Five emitter changes and one post-pass, all in `sh2perl/src/ir.rs`
+  (`int_call` also used from `perl_backend.rs`):
+
+  1. **Brace ranges and list iterands.** `for my $__i (("1", "2", …))`
+     came from expanding `{1..5}` into a literal list. `iter_list_to_perl`
+     now recognises the arithmetic sequence and emits Perl's range —
+     `for (1 .. 5)`, `for (reverse(1 .. 5))` for a decreasing run (Perl
+     has no stepped range, so any other step keeps a literal list, now
+     without quotes: `for (1, 4, 7, 10)`) — and NEVER double-wraps a list
+     that already carries its own parentheses. The loop variable is `$_`
+     of a bare `for (LIST) { $i = $_; … }`: Perl localizes `$_` per
+     iteration, so bash's after-loop value of `$i` is preserved with no
+     invented `$__i` copy temp. A `(join(' ', @arr))` iterand becomes
+     `@arr` (the array, one word per element) while a BARE
+     `join(' ', @ARGV)` — bash's single-word `"$*"` — is left alone.
+  2. **`int((E))`.** The arithmetic renderer parenthesizes every node and
+     the coercion wrapper parenthesized again. `int_call` strips repeated
+     enclosing groups (`int(($i + 1))` → `int($i + 1)`), and because
+     `typeset -i` arithmetic is spelled by the FRONTEND, the finished text
+     also passes a quote-aware `dedupe_int_parens` (one rule instead of a
+     per-producer patch; `int((A) / (B))` and `int((0+7) | (0+8))` are
+     untouched because the inner group does not close at int's paren).
+  3. **Function positionals are `@_`.** A bash function's `$1`…`$n`, `$#`,
+     `$@`, `$*` and `shift` are exactly Perl's per-call `@_`, so the
+     renderer no longer emits `local @ARGV = @_;` + `my $__argc = @ARGV;`
+     and `fix_sub_params` no longer injects `local @__sh_args = @_;`. A new
+     scoped pass (`sub_params_to_at_underscore`, after the `$N` and slice
+     rewrites, before the file-scope binding) rewrites each function body:
+     `$ARGV[1]`/`$__sh_args[1]` → `$_[1]`, `$#ARGV`/`$__sh_args_n` →
+     `scalar(@_)`, `@ARGV`/`@__sh_args` → `@_`, `shift @__sh_args;` →
+     `shift;`, and DROPS the `$__sh_args_n = scalar(@…);` line a `set --`
+     used to maintain (with `@_` there is no separate count — rewriting it
+     produced `scalar(@_) = scalar(@_)`, a compile error). Renderer runtime
+     helpers (`sub __sh_*`) are skipped: they own their `@_` and read the
+     program's parameters by name on purpose.
+  4. **Element interpolation.** `interp_scalar` now also admits a plain
+     `${name}` (the `param` contract form, operator-free) and an
+     array/hash ELEMENT whose subscript is a literal, a `$var` or a
+     bare-word key — `"e0=$arr[0]"`, `"m=$map{'k'}"`, `"m=$map{$i}"`,
+     `"$ENV{LOG_LEVEL}"` — so those stop being
+     `"e0=" . ($arr[0]) . …`. Positional params stay OUT (`"$1"` is a
+     regex capture), and a subscript that cannot be re-parsed keeps the
+     concatenation.
+  5. **Constant `if`, empty `print`, `grep -o`.** A fully constant
+     if/elsif/else chain (a folded `case`) emits its one live body in
+     place instead of `if (1) { … } elsif (0) { … }`; `print("");` (bash's
+     no-op `:` under a redirect) is dropped; `grep -o` iterates the match
+     list as `for ((…) =~ /re/g) { print $_, "\n"; }` instead of
+     inventing `$__m`.
+
+  Left in place, each with a concrete reason no idiomatic spelling exists:
+
+  - **183 `for my $__X (…)`** — every one is inside an INLINED runtime
+    helper (`comm`/`diff` LCS, sorted-set ops, `read -p`) that runs in a
+    `do { }` block in the USER's scope. There the variable IS the loop
+    variable (`for my $__i (0..$#__a)`), not a copy temp, and the `__`
+    prefix is what keeps an internal name from shadowing a user's `$i`.
+  - **18 `join(' ', grep { defined($_) && length($_) } split(…))`** — the
+    grep expresses bash's IFS word-splitting (drop empty fields) on top of
+    Perl's `split /\s+/`. The shorter `split ' '` is equivalent only for
+    DEFINED input; on an unset variable it adds `Use of uninitialized
+    value` to stderr, which the emulation must not introduce.
+  - **41 same-scope `my` redeclarations** — all `open my $__fh, '>', …` for
+    consecutive `echo > file` statements. `open my $fh` IS the canonical
+    Perl idiom; suppressing the "masks earlier declaration" warning needs
+    one declaration hoisted per scope, and the flat statement emitter has
+    no scope to hoist into (the redirect region is not a block).
+  - **7 `while (1) { … last … }`** — the standard Perl spelling of bash's
+    `while true` / multi-command condition loop.
+  - **21 `$?`** — the child wait-status conversions (`$CHILD_ERROR = $?
+    >> 8;`) where a real process finished; the register itself is gone.
+  - **60 `scalar(@…)`** — `$#`/`$#@` become the count of `@_`/`@__sh_args`;
+    `$#_` would be the last INDEX, so this is the correct idiomatic form.
+  - **911 `do { … }`** — capture buffers, `eval`-guarded arithmetic and
+    constant-folding blocks; a block expression is how Perl scopes a value.
+
+  Verification of record (all on the final source): full `./fail`
+  **563 passed, 0 failed, rc 0** (`TESTS COMPLETED: 563 passed, 0 failed
+  out of 563`); `perl -c` clean on all 563 rendered files (**0/563
+  failures**); six hand-written spot checks byte-identical to bash on
+  stdout AND exit code — status across `false`/`true`/`||`/`&&`/`if`,
+  pipeline `$?`, negation folding (`[ ! "$x" = z ]`), scalar
+  interpolation, array/hash element interpolation, and function
+  positionals (`set --`, `$#`, `$1`, `$*`, `shift`). `cargo test --lib
+  ir::tests` **43/43**; the two pins this change moves are contract
+  changes, not weakenings: `split_word_expands_in_list_contexts` pinned
+  `for my $__w (split /\s+/, $x) {` and now asserts the new shape
+  (`for (split /\s+/, $x) {` plus `$w = $_;`), and `binding_injected_after_argv`
+  pinned the deleted `inject_param_binding` and is replaced by
+  `sub_params_become_at_underscore`, which pins the new contract
+  (`$_[0]`, `scalar(@_)`, `shift;`, no `local @…`) and that a `sub __sh_*`
+  helper keeps the program's names.
+
+  Found and NOT fixed (pre-existing, outside the idiom mission; none is
+  exercised by the corpus): `( exit 7 )` lowers to a bare `exit "7"` and
+  terminates the program instead of the subshell; an unbraced `$arr[0]`
+  inside a double-quoted string is passed through verbatim (bash reads
+  `$arr` plus the literal `[0]`, Perl reads the element — wrong output on
+  `"$arr[0]"`, and a compile error on `"$aa[one]"` when `@aa` is
+  undeclared); and `echo "n=$1" >&2` inside a function bakes the Perl
+  spelling into a `bash -c` string. Gitlink not bumped and nothing
+  committed: this worktree carries other workstreams' uncommitted edits
+  (same convention as the entries above).
+
+- **2026-11-11 — Perl emit: ONE status carrier, plus the double-negation,
+  interpolation and empty-`else` forms.** The mission was to remove the
+  non-idiomatic Perl the renderer emits. A census over all 563 corpus
+  examples (`--source-lang sh --target perl`, then `grep -o` counts) put
+  the overwhelming majority in ONE construct: the status register dance.
+  The renderer had two representations of the same variable — Perl's `$?`
+  is a WAIT status and English.pm's `$CHILD_ERROR` is its name — so every
+  status write was a round-trip and every read shifted:
+  `$? = 0 << 8; $CHILD_ERROR = $? >> 8;`, with `($? >> 8)` reads and
+  `exit $? >> 8;`. **2 671 register writes and 2 652 `<< 8` shifts** in
+  the corpus, on nearly every statement.
+
+  Four render-side fixes, all in `sh2perl/src/ir.rs` (plus the two
+  `$? = 0;` template sites in `pipeline_native/mod.rs`):
+
+  1. **Single carrier.** `rc_write`/`rc_register_in_text` now emit
+     `$CHILD_ERROR = <code>;` — the plain shell exit CODE (0-255), no
+     shift, no round-trip. `var_read("?")` and `IrExpr::Var("?")` read it
+     directly, and the epilogue is `exit $CHILD_ERROR;`. A real child's
+     wait status is still converted exactly once, where the child
+     finishes (`$CHILD_ERROR = $? >> 8;` — the `system`/`close` templates),
+     which is why the remaining `>> 8` sites are correct rather than
+     residue. **The mirror mechanism is gone**: with one representation
+     there is nothing to keep in step, so `CHILD_ERROR_CARRIER`,
+     `set_childe_error_carrier` and `perl_generator_fixed`'s
+     render-twice-and-probe loop are deleted (one render per program).
+     The EMBED renderer keeps the register spelling — a fragment must not
+     declare package state in its host, and `our $CHILD_ERROR = 0;` would
+     clobber the host's status — via a thread-local set for the
+     fragment's lifetime.
+  2. **Negation folding.** `!($x ne 'red')` (the case/value-test arm
+     tests a `!=` through a NOT) is now the direct comparison:
+     `$x eq 'red'`. The pair stays in one family (`Eq` renders numeric
+     `==` → `!=`, `Ne` renders string `ne` → `eq`), so the truth value is
+     unchanged. 83 → 8 (`!(…)` over a non-comparison keeps its form).
+  3. **String interpolation.** The Interpolate arm only accepted `Var`
+     nodes, but the shell frontend emits the CONTRACT spelling
+     `getVar("x")`, so an echo with any variable fell to concatenation.
+     A shared `interp_scalar` now admits both and emits
+     `print "ref='$original'\n";` instead of
+     `print "ref='" . ($original) . "'\n";` (a `${name}` brace is added
+     only when the next literal starts with an identifier character).
+     Positional params are explicitly NOT interpolated — `"$1"` is a
+     regex capture, so `$1` keeps its `$ARGV[0]` spelling (that guard is
+     the bug the first cut introduced and the corpus gate caught).
+  4. **No empty `else`, no doubled write.** An `if` whose status write was
+     proven unread still emitted the wrapper plus a body that `rc_write`
+     then elided — `} else {\n    }` (30 sites). The arm now skips the
+     `else` entirely when the write is dead. `dedupe_adjacent_status_writes`
+     drops a status write immediately followed by an identical one (two
+     statements each recording the same value, 184 sites → 0).
+
+  Measured over the corpus: `$?` register writes **2 671 → 0**, `<< 8`
+  **2 652 → 0**, `exit $? >> 8` **558 → 0**, `if (!(` **83 → 8**,
+  `. ($` concatenations **225 → 152** (the remainder are positional and
+  array/hash reads, which cannot interpolate safely), empty `else` **30 →
+  0**, duplicate adjacent writes **184 → 0**; total emitted lines 23 963 →
+  23 940 even though every program now declares the carrier
+  (`our $CHILD_ERROR = 0;`, +563 lines).
+
+  Verification of record: full `./fail` **563/563 rc=0** on the final
+  source (the corpus gate compares byte stdout + exit code vs bash, so the
+  status-model swap is exercised on every example); `perl -c` over all
+  563 rendered files is clean; an
+  ad-hoc status battery (`$?` after true/false/subshell/grep/capture,
+  `[ "$?" = 0 ]`, `if cmd; then`, `&&`/`||` branch statuses, `exit 3`)
+  is byte-identical to bash **including the exit code**; `cargo test --lib
+  ir::tests` **43/43** — the two pins that spelled the old register
+  (`preamble_gates_dead_boilerplate`, `embed_collapses_main_exit_writes`)
+  were re-pinned to the new contract, not weakened (the embed test now
+  asserts the fragment carries NO `$CHILD_ERROR` at all). Full `--lib` is
+  **1803 pass / 52 fail**, and the failing set is the session's opening
+  baseline **minus** `ir::tests::embed_collapses_main_exit_writes` (which
+  this change fixes): the 52 are other backends' suites (c/estree/fish/
+  go/shir/zsh) broken by uncommitted edits in this shared worktree, on
+  paths this change never reaches. `./fail-estree` not run (the estree
+  renderer is untouched; the Perl renderer is not on its path).
+  `harness/check_ast.pl` not run (its `dump_ast` bin is already missing —
+  pre-existing harness gap). Gitlink not bumped and nothing committed:
+  this worktree carries other workstreams' uncommitted edits, so the
+  commit/bump is the owning session's call (same convention as the
+  2026-10-21 entries above).
+
 ### 2026-10-21 — zig backend: equivalence failures driven to zero
 
 The zig backend gate (`setup_backends.sh --backend-gate zig`) started this
