@@ -11798,3 +11798,22 @@ in a `have` and consumed by `calc`. And `take (length n) (drop i s)` needs
 the match. Maximality is stated as `j ≤ length s ⟹ j ≤ i` rather than as a
 negated occurrence — the negated form makes the base case a vacuous arithmetic
 contradiction that `simp` will not close.
+
+### 2026-11-13 (referee pass) — the CutAt fold lemma was padding, now restated
+
+The first version of `affix_strip_fold_sound` was not a general theorem: it
+carried two `eval`'d constants as conjuncts and reached the `##` side only under
+`find_first s n = rfind_last s n`, i.e. the last branch was proved by assuming
+the two branches equal. Rewritten: the fold lemma now quantifies over arbitrary
+`s` and `n`, and for each of the four shapes says the node is the primitive's
+`take`/`drop` at that shape's own occurrence — with the no-match arm inside the
+same `case` — plus the head-literal link to `AffixStrip` on the plain branch.
+`cut_at_sound` (the node's `spec:`) was widened the same way: it now states all
+four forms with a match arm and a no-match arm each, so the spec resolves to a
+theorem covering the whole node rather than to flag equalities plus numbered
+corollaries. The repeating-literal witness survives as its own example lemma,
+where it documents that `first` is load-bearing instead of standing in for a
+general proof.
+
+Lesson: an `eval` conjunct is a test, not a theorem, and a hypothesis that
+equates the two functions under comparison proves nothing about either.
