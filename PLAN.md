@@ -11840,3 +11840,30 @@ the form that cannot bind the wrong slot. Also: proving a per-side equality by
 `unfolding` a definition and letting `simp` split the `if` reintroduced the
 abbreviation and stalled; going through the per-side `[simp]` lemma first
 (`cutset_lead_is_lead_drop`) closes it immediately.
+
+### 2026-11-13 (referee pass 2) — CutsetTrim: the divergences now compare readings
+
+The three divergence names were over-claiming: `perl_cutset_needs_quotemeta`
+stated only that the trim is a function of the member set (true of both
+readings, so invariant under dropping the quoting), and
+`go_trim_cutset_is_codepoints` / `rust_trim_matches_is_chars` were one-byte base
+cases of `cutset_trim`. Renamed to what they say
+(`cutset_trim_depends_only_on_members`, `cutset_trim_lead_is_bytewise`,
+`cutset_trim_trail_is_bytewise`) and the divergence obligations rebuilt as
+comparisons between two models:
+
+- a bracket-body syntax read without `\Q..\E` (`uq_body`/`uq_scan`/`uq_class`)
+  against the literal set, over `]`, `^`, a backslash and an `a-c` range;
+- a two-byte UTF-8 decoder with a char-wise trim (`decode2`/`encode2`/`cp_drop`)
+  against the byte model, on U+00A0 at both ends.
+
+Each is a proposition that would be false if the quoting were dropped or code
+points collapsed to bytes, and each carries its witness bytes. What is still not
+modelled: the real regex compiler, 3/4-byte UTF-8, the arms' behaviour on
+undecodable input.
+
+Traps: two `[94, 97]` literals in one statement are INDEPENDENT type variables,
+so `98 \<notin> set [94, 97]` next to `uq_class [94, 97] 98` elaborates with a
+free `'b` and `simp` ends on `(98::'b) ≠ (94::'b)`; annotate one side `:: nat`.
+And `eval` on a partially applied user predicate tripped a wellsortedness error
+(`numeral < equal`) that plain `simp` with the definitions does not.
