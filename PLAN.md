@@ -10648,8 +10648,9 @@ the gate's expectations predate that WIP).
   fixed the status register but left known artifacts behind and only
   measured a few patterns by hand. This pass derives the work list from
   the OUTPUT: render all 563 examples, then count every suspicious form
-  mechanically (`/tmp/census.py`: renders, strips the renderer's own
-  preamble helpers so the counts describe the TRANSLATED body, and uses
+  mechanically (`/tmp/census.py`: scans a rendered corpus, strips the
+  renderer's own preamble helpers so the counts describe the TRANSLATED
+  body, and uses
   three detectors a `grep` cannot express — a balanced-paren scan for a
   genuinely redundant `int((E))` (a raw `int((` substring also matches
   `int((0+7) | (0+8))`, where both pairs are load-bearing), a numeric-run
@@ -10711,6 +10712,17 @@ the gate's expectations predate that WIP).
      produced `scalar(@_) = scalar(@_)`, a compile error). Renderer runtime
      helpers (`sub __sh_*`) are skipped: they own their `@_` and read the
      program's parameters by name on purpose.
+
+     The package-array DECLARATION now has one owner: the `our @__sh_args;`
+     that `fix_sub_params` used to plant is gone, because it was planted
+     while the sub bodies still carried `$__sh_args[…]` and then outlived the
+     rewrites that turned those reads into `@_` — a function-only program
+     would keep four dead lines (`our @__sh_args;`, `our $__sh_args_n;` and
+     the `local … = @ARGV;` pair). Only `bind_toplevel_positional_params`
+     declares now. Rendering the whole corpus before/after this removal is
+     **byte-identical (0 of 563 files differ)** — no example reads a
+     positional parameter only inside a function — so this is a
+     one-declarer rule, not an output change.
   4. **Element interpolation.** `interp_scalar` now also admits a plain
      `${name}` (the `param` contract form, operator-free) and an
      array/hash ELEMENT whose subscript is a literal, a `$var` or a
@@ -10753,14 +10765,23 @@ the gate's expectations predate that WIP).
     constant-folding blocks; a block expression is how Perl scopes a value.
 
   Verification of record (all on the final source): full `./fail`
-  **563 passed, 0 failed, rc 0** (`TESTS COMPLETED: 563 passed, 0 failed
-  out of 563`); `perl -c` clean on all 563 rendered files (**0/563
+  **563 passed, 0 failed, rc 0** twice on this source (`TESTS COMPLETED:
+  563 passed, 0 failed out of 563`); the final one-line
+  `declare_param_array` removal renders **byte-identical to the corpus the
+  gate ran** (0 of 563 files differ), so the re-run adds no new text to
+  validate. `perl -c` clean on all 563 rendered files (**0/563
   failures**); six hand-written spot checks byte-identical to bash on
   stdout AND exit code — status across `false`/`true`/`||`/`&&`/`if`,
   pipeline `$?`, negation folding (`[ ! "$x" = z ]`), scalar
   interpolation, array/hash element interpolation, and function
   positionals (`set --`, `$#`, `$1`, `$*`, `shift`). `cargo test --lib
-  ir::tests` **43/43**; the two pins this change moves are contract
+  ir::tests` **43/43** and `pgf_tests` **34/34**; full `--lib` is 1798
+  pass / 57 fail, and every failing name is another backend's or a shared
+  analysis's (estree 23, c_backend 12, fish 6, std 5, shir 5, rust 5, zsh
+  2, shir_json_in 2, zig 1, go 1 — `rust_backend` is mid-edit in this
+  shared worktree: it briefly did not compile at all today, `Self::` in a
+  free function), i.e. the session's opening 52-failure class list on
+  paths this change never reaches. The two pins this change moves are contract
   changes, not weakenings: `split_word_expands_in_list_contexts` pinned
   `for my $__w (split /\s+/, $x) {` and now asserts the new shape
   (`for (split /\s+/, $x) {` plus `$w = $_;`), and `binding_injected_after_argv`
@@ -10775,8 +10796,12 @@ the gate's expectations predate that WIP).
   inside a double-quoted string is passed through verbatim (bash reads
   `$arr` plus the literal `[0]`, Perl reads the element — wrong output on
   `"$arr[0]"`, and a compile error on `"$aa[one]"` when `@aa` is
-  undeclared); and `echo "n=$1" >&2` inside a function bakes the Perl
-  spelling into a `bash -c` string. Gitlink not bumped and nothing
+  undeclared); `echo "n=$1" >&2` inside a function bakes the Perl
+  spelling into a `bash -c` string; and `for c in $(printf 'p q')` lowers
+  to `for ('')` — one empty iteration where bash runs the body twice (any
+  `printf` in an unquoted for-iterand; `$(echo …)` in the same position
+  and `x=$(printf …)` in an assignment are both correct, so it is that
+  one lowering, not the capture machinery). Gitlink not bumped and nothing
   committed: this worktree carries other workstreams' uncommitted edits
   (same convention as the entries above).
 
@@ -11747,3 +11772,28 @@ head explicitly; a META-forall in `assumes` is a context fact the induction
 never rewrites, so state such a premise as an object forall; and a `[simp]`
 lemma that rewrites the very condition a definition tests (`clipped m s = 0`)
 turns reductions into case splits.
+
+### 2026-11-13 (later) — CutAt: find/rfind and the four single-star cuts
+
+`ShIR_TextOps_Cut` (ninth theory, session still green) proves the `CutAt`
+node's four glob-strip identities as find()/rfind() work: `find_first` and
+`rfind_last` with occurrence / no-match / leftmost-maximal characterisations,
+the four cut forms with their no-match no-ops (`cut_at_sound`, now the node's
+`spec:`), the split identity, and `affix_strip_fold_sound` — the star branch is
+`AffixStrip` at a head literal, and `first` is load-bearing on a repeating
+literal. Not proved and said so: the glob engine. The node's "each identity
+follows from glob semantics" is an assumption here, not a theorem; the
+magic-free precondition is a predicate (`is_magic_free`).
+
+Traps that shaped the proofs (the documented three did not bite, new ones did):
+`induct s` WITHOUT `arbitrary: i` fixes the index variable, so the hypothesis
+cannot be instantiated at the recursive call's index and `Cons(1)[OF k]` fails
+with "no unifiers" — the fix reads like a type error and is not one. In a case
+whose statement carries meta-premises, the Cons case numbers the IH as fact (1)
+and the premises from (2). `simp add: append_take_drop_id` cannot be used in the
+orientation a `drop`/`take` goal has, so the equation has to be stated reversed
+in a `have` and consumed by `calc`. And `take (length n) (drop i s)` needs
+`drop_drop` plus `add.commute`: without the commute the index normal form breaks
+the match. Maximality is stated as `j ≤ length s ⟹ j ≤ i` rather than as a
+negated occurrence — the negated form makes the base case a vacuous arithmetic
+contradiction that `simp` will not close.
