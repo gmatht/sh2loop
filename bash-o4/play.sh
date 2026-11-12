@@ -36,6 +36,10 @@ BUILD_MODE=auto
 GAME_MEM_MIB=4096
 GEOM=""
 CPU_ONLY=0
+FBWIN_DIRECT=${FBWIN_DIRECT:-0}
+BENCH_MODE=0
+BENCH_GEOM="${BENCH_GEOM:-160x120}"
+BENCH_FRAMES="${BENCH_FRAMES:-300}"
 
 FORWARD_ARGS=""
 while [ $# -gt 0 ]; do
@@ -59,12 +63,14 @@ while [ $# -gt 0 ]; do
         *x*) GEOM=${1#--view=} ;;
       esac
       FORWARD_ARGS="$FORWARD_ARGS $1"; shift ;;
+    --fbwin-direct) FBWIN_DIRECT=1; shift ;;
+    --bench|--benchmark) BENCH_MODE=1; FBWIN_DIRECT=1; shift ;;
     --build) BUILD_MODE=force; shift ;;
     --no-build) BUILD_MODE=skip; shift ;;
     --cpu-only) CPU_ONLY=1; shift ;;
     --) shift; break ;;
     -h|--help)
-      echo "usage: $0 [--scale N] [--mem MB] [--size|--view WxH] [--cpu-only] [--build|--no-build] [-- <game args...>]"
+      echo "usage: $0 [--bench] [--fbwin-direct] [--scale N] [--mem MB] [--size|--view WxH] [--cpu-only] [--build|--no-build] [-- <game args...>]"
       exit 0 ;;
     *) break ;;
   esac
@@ -96,15 +102,17 @@ if [ "$CPU_ONLY" = "1" ]; then
   export SH2_FB_CPU_ONLY=1
 fi
 
-# python viewer deps (fail fast with a useful message, not a traceback)
-if ! python3 -c "import Xlib, PIL" 2>/dev/null; then
-  echo "play.sh: need python3 with python3-xlib + pillow:" 1>&2
-  echo "  apt install python3-xlib python3-pil   (or pip install pillow python-xlib)" 1>&2
-  exit 2
-fi
-if [ "${DISPLAY:-}" = "" ]; then
-  echo "play.sh: no X display (\$DISPLAY is empty) — the window needs one" 1>&2
-  exit 2
+# python viewer deps only for Python-viewer path
+if [ "$FBWIN_DIRECT" != "1" ] && [ "$BENCH_MODE" != "1" ]; then
+  if ! python3 -c "import Xlib, PIL" 2>/dev/null; then
+    echo "play.sh: need python3 with python3-xlib + pillow:" 1>&2
+    echo "  apt install python3-xlib python3-pil   (or pip install pillow python-xlib)" 1>&2
+    exit 2
+  fi
+  if [ "${DISPLAY:-}" = "" ]; then
+    echo "play.sh: no X display (\$DISPLAY is empty) — the window needs one" 1>&2
+    exit 2
+  fi
 fi
 
 # build the game binary unless skipped (auto = rebuild when the game
@@ -128,13 +136,13 @@ if [ "$BUILD_MODE" = "force" ] || { [ "$BUILD_MODE" = "auto" ] && [ ! -x "$GAME_
   # so one-shot cells keep paying milliseconds. PLAY_CCFAST=0 (or setting
   # BASH_O4_CC/BASH_O4_CFLAGS yourself) opts out.
   if [ "${PLAY_CCFAST:-1}" = "1" ] && [ "${BASH_O4_CC:-}" = "" ] && command -v cc >/dev/null 2>&1; then
-    BASH_O4_CC=cc BASH_O4_CFLAGS="${BASH_O4_CFLAGS:--O1 -fno-strict-aliasing}" \
-      "$DRIVER" -o "$GAME_BIN" "$GAME_SRC" || {
+    BASH_O4_CC=cc BASH_O4_CFLAGS="${BASH_O4_CFLAGS:--O3 -fno-strict-aliasing}" \
+      "$DRIVER" ${PLAY_GPU:+--gpu} -o "$GAME_BIN" "$GAME_SRC" || {
       echo "play.sh: game build failed" 1>&2
       exit 1
     }
   else
-    "$DRIVER" -o "$GAME_BIN" "$GAME_SRC" || {
+    "$DRIVER" ${PLAY_GPU:+--gpu} -o "$GAME_BIN" "$GAME_SRC" || {
       echo "play.sh: game build failed" 1>&2
       exit 1
     }
@@ -143,6 +151,20 @@ fi
 if [ ! -x "$GAME_BIN" ]; then
   echo "play.sh: no game binary — run with --build" 1>&2
   exit 1
+fi
+
+
+# --bench: viewerless, direct fb0-emulation-in-transpiled-code path.
+# Runs the compiled game demo and prints #stats (fps/frametimes) end-to-end.
+if [ "$BENCH_MODE" = "1" ]; then
+  GEOM="$BENCH_GEOM"
+  FB0_DEV="${FB0_DEV:-/dev/null}"
+  echo "play.sh: bench mode (viewerless direct path) geom=$GEOM frames=$BENCH_FRAMES dev=$FB0_DEV"
+  trap - INT TERM EXIT
+  exec env -i PATH="$PATH" HOME="${HOME:-/root}" TERM="${TERM:-dumb}" \
+    FBWIN_DIRECT=1 FBWIN=1 FB0_GEOM="$GEOM" FB0_DEV="$FB0_DEV" \
+    MIMECROFT_DEMO=1 MIMECROFT_BENCH=1 MIMECROFT_VSYNC=0 MIMECROFT_BENCH_FRAMES="$BENCH_FRAMES" \
+    "$GAME_BIN" --demo "$@"
 fi
 
 FB=$(mktemp /tmp/mimecroft-play-fb0.XXXXXX.bin)
@@ -161,33 +183,38 @@ cleanup() {
 }
 trap cleanup INT TERM EXIT
 
-echo "play.sh: viewer log: $VIEW_LOG"
-FB0_DEV="$FB" MIMECROFT_KEYS="$KEYS" \
-  python3 -u "$VIEWER" --fb "$FB" --keys "$KEYS" --scale "$SCALE" \
-  --size "${FBW}x${FBH}" >"$VIEW_LOG" 2>&1 &
-VIEW_PID=$!
+if [ "$FBWIN_DIRECT" = "1" ]; then
+  echo "play.sh: viewerless direct path (fb0 emulation/presentation in transpiled runtime); bypassing Python viewer"
+  FB0_DEV="${FB0_DEV:-/dev/null}"
+else
+  echo "play.sh: viewer log: $VIEW_LOG"
+  FB0_DEV="$FB" MIMECROFT_KEYS="$KEYS" \
+    python3 -u "$VIEWER" --fb "$FB" --keys "$KEYS" --scale "$SCALE" \
+    --size "${FBW}x${FBH}" >"$VIEW_LOG" 2>&1 &
+  VIEW_PID=$!
 
-# wait for the window to appear (fail fast if the viewer died).
-# xdotool is a nicety, not a requirement: without it, wait on the
-# viewer's "keys ->" ready line instead.
-i=0
-while [ "$i" -lt 100 ]; do
-  if ! kill -0 "$VIEW_PID" 2>/dev/null; then
-    echo "play.sh: viewer died — see $VIEW_LOG:" 1>&2
-    tail -n 10 "$VIEW_LOG" 1>&2
-    exit 1
-  fi
-  if command -v xdotool >/dev/null 2>&1; then
-    if xdotool search --name "MIMEcroft (fb0 viewer)" >/dev/null 2>&1; then
+  # wait for the window to appear (fail fast if the viewer died).
+  # xdotool is a nicety, not a requirement: without it, wait on the
+  # viewer's "keys ->" ready line instead.
+  i=0
+  while [ "$i" -lt 100 ]; do
+    if ! kill -0 "$VIEW_PID" 2>/dev/null; then
+      echo "play.sh: viewer died — see $VIEW_LOG:" 1>&2
+      tail -n 10 "$VIEW_LOG" 1>&2
+      exit 1
+    fi
+    if command -v xdotool >/dev/null 2>&1; then
+      if xdotool search --name "MIMEcroft (fb0 viewer)" >/dev/null 2>&1; then
+        break
+      fi
+    elif command grep -q "keys ->" "$VIEW_LOG" 2>/dev/null; then
       break
     fi
-  elif command grep -q "keys ->" "$VIEW_LOG" 2>/dev/null; then
-    break
-  fi
-  sleep 0.1
-  i=$((i + 1))
-done
-tail -n 2 "$VIEW_LOG"
+    sleep 0.1
+    i=$((i + 1))
+  done
+  tail -n 2 "$VIEW_LOG"
+fi
 
 # Keys only reach the game when its window has X focus — typing in the
 # terminal never forwards (the viewer only sees KeyPress events on its
@@ -204,20 +231,33 @@ fi
 
 echo "play.sh: starting the game — CLICK THE GAME WINDOW first, then keys go to the game."
 echo "play.sh: menu keys: arrows/WASD change settings · SPACE (not Enter) starts · q quits."
-if [ "$GAME_MEM_MIB" -gt 0 ]; then
-  echo "play.sh: game memory capped at ${GAME_MEM_MIB} MiB (--mem 0 disables)."
-  # ulimit -v is a per-process address-space cap, applied in a subshell
-  # so it cannot affect this script or the viewer. The cap makes any
-  # future runaway allocation fail loudly (the game's checked allocation
-  # helpers exit) instead of growing until the box wedges.
-  (
-    ulimit -v $((GAME_MEM_MIB * 1024)) 2>/dev/null || {
-      echo "play.sh: warning: ulimit -v unavailable; running uncapped" 1>&2
-    }
-    exec env FB0_DEV="$FB" MIMECROFT_KEYS="$KEYS" FB0_GEOM="$GEOM" "$GAME_BIN" "$@"
-  ) &
+if [ "$FBWIN_DIRECT" = "1" ]; then
+  if [ "$GAME_MEM_MIB" -gt 0 ]; then
+    (
+      ulimit -v $((GAME_MEM_MIB * 1024)) 2>/dev/null || {
+        echo "play.sh: warning: ulimit -v unavailable; running uncapped" 1>&2
+      }
+      exec env FBWIN_DIRECT=1 FBWIN=1 FB0_GEOM="$GEOM" "$GAME_BIN" "$@"
+    ) &
+  else
+    FBWIN_DIRECT=1 FBWIN=1 FB0_GEOM="$GEOM" "$GAME_BIN" "$@" &
+  fi
 else
-  FB0_DEV="$FB" MIMECROFT_KEYS="$KEYS" FB0_GEOM="$GEOM" "$GAME_BIN" "$@" &
+  if [ "$GAME_MEM_MIB" -gt 0 ]; then
+    echo "play.sh: game memory capped at ${GAME_MEM_MIB} MiB (--mem 0 disables)."
+    # ulimit -v is a per-process address-space cap, applied in a subshell
+    # so it cannot affect this script or the viewer. The cap makes any
+    # future runaway allocation fail loudly (the game's checked allocation
+    # helpers exit) instead of growing until the box wedges.
+    (
+      ulimit -v $((GAME_MEM_MIB * 1024)) 2>/dev/null || {
+        echo "play.sh: warning: ulimit -v unavailable; running uncapped" 1>&2
+      }
+      exec env FB0_DEV="$FB" MIMECROFT_KEYS="$KEYS" FB0_GEOM="$GEOM" "$GAME_BIN" "$@"
+    ) &
+  else
+    FB0_DEV="$FB" MIMECROFT_KEYS="$KEYS" FB0_GEOM="$GEOM" "$GAME_BIN" "$@" &
+  fi
 fi
 GAME_PID=$!
 

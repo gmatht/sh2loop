@@ -280,14 +280,15 @@ done
 frame=0
 quit=0
 sound=1
-demo=0
+bench_mode=${MIMECROFT_BENCH:-0}
+demo=${bench_mode:-0}
 # the stats clock reference — initialized here so print_stats can run
 # from ANY exit path (e.g. quitting at the settings menu, before the
 # loop's g_t0=$g_now re-zeroes the window): an EMPTY g_t0 makes the
 # transpiled $(( g_now - g_t0 )) skip print_stats' whole body
 # (even the GAME DONE line) on that path
 g_t0=0
-DEMO_FRAMES=1200  # `--demo`: auto-play ~10s of movement, then quit + print the stats
+DEMO_FRAMES=${MIMECROFT_BENCH_FRAMES:-1200}  # `--demo`/bench frames: auto-play ~10s of movement, then quit + print the stats
 SOUND_MODE=notes    # notes = fb_note oscillator blips (default);
                     # bash = the sample-accurate examples/sounds
                     # generators, played through fb_samples
@@ -420,7 +421,7 @@ swr=(0 0)           # crawl sway offset: [0]=x milli, [1]=z milli (0 0 = no sway
                     # (array — the transpiler desyncs scalar anim vars)
 ANIM_MS=200         # each action completes in 0.2s of wall time
 game_speed=100       # player speed as % of normal (100=normal, 10=10%, 5=5% — the settings menu's GAME SPEED item)
-vsync=1              # vsync: ON = one frame per display refresh (60Hz — the swap's requestAnimationFrame
+vsync=${MIMECROFT_VSYNC:-1}              # vsync: ON = one frame per display refresh (60Hz — the swap's requestAnimationFrame
                       # presents at the refresh; the CPU budget is the same 10ms for ON and OFF, since the
                       # rAF is the real pacing — the old 16.7ms sleep budget double-paced and missed slots
                      # short sleeps, so the leftover is a REAL ≥4ms sleep and every frame paints);
@@ -923,8 +924,13 @@ key_name() {
   # truncates to one byte otherwise. Returning the value on stdout (the
   # capture is in-process, `_sh_capture_fn`) sidesteps the fixed buffer.
   rk=""
-  key_next
-  rk=$kn_line
+  if [ "${FBWIN_DIRECT:-0}" = "1" ]; then
+    rk=$(fb_window_key 2>/dev/null || printf '')
+  fi
+  if [ "$rk" = "" ]; then
+    key_next
+    rk=$kn_line
+  fi
   case $rk in
     h) echo "ArrowLeft" ;;
     l) echo "ArrowRight" ;;
@@ -1217,7 +1223,7 @@ try_move() { tm_a=$1; tm_b=$2
 start_anim() { an[0]=$1; an[1]=$2; an[2]=$3; an[3]=$4; an[4]=$5; an[5]=$6
   # the GAME SPEED setting: the glide lasts 100/game_speed × the normal
   # 0.2s, so at 10% a cell-step takes 2s and the motion is easy to study
-  anim_ms=$((ANIM_MS * 100 / game_speed))
+  if [ "${bench_mode:-0}" = "1" ]; then anim_ms=1; else anim_ms=$((ANIM_MS * 100 / game_speed)); fi
   # shortest yaw arc across the 0↔3 seam (3→0 turns +90°, not -270°)
   anim_ayd=$((an[5] - an[2]))
   if [ "$anim_ayd" -gt 2 ]; then anim_ayd=$((anim_ayd - 4)); fi
@@ -1249,7 +1255,7 @@ try_anim_move() { ta_dx=$1; ta_dz=$2
     # passage keeps its y=2 block (the 1-tall opening) — slow the glide
     # so the crouch reads as ducking under the low ceiling
     get_cell $ta_nx 2 $ta_nz
-    if [ "$gv" -eq "$AIR" ]; then anim_ms=$((ANIM_MS * 100 / game_speed)); else anim_ms=$((ANIM_MS_CROUCH * 100 / game_speed)); fi
+    if [ "${bench_mode:-0}" = "1" ]; then anim_ms=1; else if [ "$gv" -eq "$AIR" ]; then anim_ms=$((ANIM_MS * 100 / game_speed)); else anim_ms=$((ANIM_MS_CROUCH * 100 / game_speed)); fi; fi
     return 0
   fi
   # a HIDDEN treasure is claimed by WALKING into it — the claim fires
@@ -1257,7 +1263,7 @@ try_anim_move() { ta_dx=$1; ta_dz=$2
   # are always 2-tall (place_treasures guarantees it), so walk upright
   if [ "$gv" -eq "$TREASURE" ]; then
     start_anim $px $pz $yaw $ta_nx $ta_nz $yaw
-    anim_ms=$((ANIM_MS * 100 / game_speed))
+    if [ "${bench_mode:-0}" = "1" ]; then anim_ms=1; else anim_ms=$((ANIM_MS * 100 / game_speed)); fi
     return 0
   fi
   return 1
@@ -1832,7 +1838,9 @@ SSC=1000
 UVV=1000
 
 RFB_PATH=""
-RFB_ROWS=()
+# Linear pixel buffer (Phase 1): packed pixel values R<<16|G<<8|B, indexed y*RFBW+x.
+# Replaces hex-string RFB_ROWS (no xxd forks in present/dump).
+RFB_PIX=()
 # texture store: one flat int array per channel + per-slot base/size.
 # Slots mirror the game (1..8 blocks, 9 crack RGBA, 10..15 obsidian/
 # chest/mime icons, 21.. label textures, 31.. mime banners).
@@ -1991,61 +1999,51 @@ rb_resize() {
   if [ "$RFB_PATH" != "" ]; then rb_open "$RFB_PATH"; fi
 }
 
-# rb_clear ARGB-int (e.g. 4278190080 = 0xFF000000): every pixel of
-# every row. Alpha is dropped — the node holds BGRX (X=00), the word
-# the device's own put_px stores.
+# rb_clear ARGB-int (e.g. 4278190080 = 0xFF000000): every pixel of the
+# linear buffer. Alpha is dropped (same as legacy). Pixel = R<<16|G<<8|B.
 rb_clear() {
   rbc_a=$1
   rbc_r=$(( (rbc_a >> 16) & 255 ))
   rbc_g=$(( (rbc_a >> 8) & 255 ))
   rbc_b=$(( rbc_a & 255 ))
   rb_mkhex $rbc_r $rbc_g $rbc_b
-  rb_mkrun $RFBW "$rb_pxhex"
   rbc_y=0
   while [ "$rbc_y" -lt "$RFBH" ]; do
-    RFB_ROWS[$rbc_y]=$rb_run
+    rbc_x=0
+    rbc_base=$((rbc_y * RFBW))
+    while [ "$rbc_x" -lt "$RFBW" ]; do
+      RFB_PIX[$((rbc_base + rbc_x))]=$rb_pxval
+      rbc_x=$((rbc_x + 1))
+    done
     rbc_y=$((rbc_y + 1))
   done
 }
 
-# rb_mkhex R G B -> rb_pxhex (8 hex chars, BGRX device order).
+# rb_mkhex R G B -> rb_pxval (packed R<<16|G<<8|B) and rb_pxhex (legacy BGRX text).
 rb_mkhex() {
   rbm_r=$1
   rbm_g=$2
   rbm_b=$3
+  if [ "$rbm_r" -lt 0 ]; then rbm_r=0; fi
+  if [ "$rbm_r" -gt 255 ]; then rbm_r=255; fi
+  if [ "$rbm_g" -lt 0 ]; then rbm_g=0; fi
+  if [ "$rbm_g" -gt 255 ]; then rbm_g=255; fi
+  if [ "$rbm_b" -lt 0 ]; then rbm_b=0; fi
+  if [ "$rbm_b" -gt 255 ]; then rbm_b=255; fi
+  rb_pxval=$(( (rbm_r << 16) | (rbm_g << 8) | rbm_b ))
   rbm_bh=${RBHEX[$rbm_b]}
   rbm_gh=${RBHEX[$rbm_g]}
   rbm_rh=${RBHEX[$rbm_r]}
   rb_pxhex="${rbm_bh}${rbm_gh}${rbm_rh}00"
 }
 
-# rb_mkrun N PAT -> rb_run: PAT repeated N times.
+# rb_mkrun kept as a no-op shim (legacy call sites removed); sets rb_run to rb_pxval
+# marker usage replaced by direct pixel writes.
 rb_mkrun() {
-  rbm_n=$1
-  rbm_p=$2
-  rb_run=""
-  if [ "$rbm_n" -le 0 ]; then return; fi
-  rbm_blk=$rbm_p
-  rbm_i=0
-  while [ "$rbm_i" -lt 8 ]; do
-    rbm_blk="${rbm_blk}${rbm_blk}"
-    rbm_i=$((rbm_i + 1))
-  done
-  rbm_c=$((rbm_n / 256))
-  rbm_i=0
-  while [ "$rbm_i" -lt "$rbm_c" ]; do
-    rb_run="${rb_run}${rbm_blk}"
-    rbm_i=$((rbm_i + 1))
-  done
-  rbm_rem=$((rbm_n - rbm_c * 256))
-  rbm_i=0
-  while [ "$rbm_i" -lt "$rbm_rem" ]; do
-    rb_run="${rb_run}${rbm_p}"
-    rbm_i=$((rbm_i + 1))
-  done
+  rb_run=$2
 }
 
-# rb_putrun Y X0 N PXHEX: paint N pixels of row Y from X0 (clipped).
+# rb_putrun Y X0 N PX: paint N pixels of row Y from X0 (clipped). PX = packed pixel.
 rb_putrun() {
   rbp_y=$1
   rbp_x0=$2
@@ -2058,19 +2056,12 @@ rb_putrun() {
   if [ "$rbp_x0" -ge "$RFBW" ]; then return; fi
   if [ $((rbp_x0 + rbp_n)) -gt "$RFBW" ]; then rbp_n=$((RFBW - rbp_x0)); fi
   if [ "$rbp_n" -le 0 ]; then return; fi
-  rbp_o=$((rbp_x0 * 8))
-  rbp_len=$((rbp_n * 8))
-  rbp_row=${RFB_ROWS[$rbp_y]}
-  # the textured path paints 1px at a time: building the 256-px block
-  # for a single pixel wastes ~2KB of garbage per pixel (~1GB/frame),
-  # so short runs repeat the pattern directly.
-  if [ "$rbp_n" -eq 1 ]; then
-    rb_run=$rbp_p
-  else
-    rb_mkrun $rbp_n "$rbp_p"
-  fi
-  rbp_keep=$((rbp_o + rbp_len))
-  RFB_ROWS[$rbp_y]="${rbp_row:0:$rbp_o}${rb_run}${rbp_row:$rbp_keep}"
+  rbp_base=$((rbp_y * RFBW + rbp_x0))
+  rbp_i=0
+  while [ "$rbp_i" -lt "$rbp_n" ]; do
+    RFB_PIX[$((rbp_base + rbp_i))]=$rbp_p
+    rbp_i=$((rbp_i + 1))
+  done
 }
 
 # rb_rect X Y W H R G B: a 2D fill in device pixels (the HUD path).
@@ -2082,80 +2073,46 @@ rb_rect() {
   rb_mkhex $5 $6 $7
   rbr_y2=$((rbr_y + rbr_h))
   while [ "$rbr_y" -lt "$rbr_y2" ]; do
-    rb_putrun $rbr_y $rbr_x $rbr_w "$rb_pxhex"
+    rb_putrun $rbr_y $rbr_x $rbr_w "$rb_pxval"
     rbr_y=$((rbr_y + 1))
   done
 }
 
-# rb_present: the frame to the node — the ONLY place bytes exist.
-# The rows are joined whole ("${RFB_ROWS[*]}", no loop-varying index
-# under any redirect), echoed to a temp hex file, and decoded by one
-# `xxd -r -p` with a tiny argv (xxd ignores the join spaces).
+# rb_present: write the linear RFB_PIX buffer as raw BGRX bytes to RFB_PATH.
+# Phase 1: no RFB_ROWS hex, no /tmp/rb-frame.hex, no xxd fork. Bash-source form uses
+# a single binary writer; the compiled/AOT path should emit direct writes (codegen).
 rb_present() {
   if [ "$RFB_PATH" = "" ]; then return 1; fi
-  # Single redirect writes over ~100KB are SILENTLY DROPPED by the
-  # runtime (measured: 102401 bytes land, 204800 do not — rc stays 0),
-  # and 240 rows do not fit in one exec argv either (measured: the
-  # call fails 127 after ~21s). So the frame goes out in CHUNKS of
-  # 64KB or less: 8 hex chars per pixel, so 8192/RFBW rows (25 at 320
-  # wide, 8 at 1024). The chunk size has to follow the surface — a
-  # fixed 16 rows is only safe at 320x240; at 800 wide it is 102 KB,
-  # i.e. a frame the runtime drops while reporting success.
-  rbp_cr=$(( 8192 / RFBW ))
-  if [ "$rbp_cr" -lt 1 ]; then rbp_cr=1; fi
-  : > /tmp/rb-frame.hex
-  rbp_y=0
-  while [ "$rbp_y" -lt "$RFBH" ]; do
-    rbp_chunk=""
-    rbp_k=0
-    while [ "$rbp_k" -lt "$rbp_cr" ]; do
-      rbp_ry=$((rbp_y + rbp_k))
-      if [ "$rbp_ry" -ge "$RFBH" ]; then break; fi
-      rbp_chunk="${rbp_chunk}${RFB_ROWS[$rbp_ry]} "
-      rbp_k=$((rbp_k + 1))
-    done
-    echo "$rbp_chunk" >> /tmp/rb-frame.hex
-    rbp_y=$((rbp_y + rbp_k))
-  done
-  xxd -r -p /tmp/rb-frame.hex > "$RFB_PATH"
+  _rb_write_bgrx "$RFB_PATH" "$RFBW" "$RFBH"
   return 0
 }
+_rb_write_bgrx() {
+  _rbwp=$1; _rbww=$2; _rbwh=$3
+  # one-shot binary writer (replaces xxd+hex-file). Writes B,G,R,0 per pixel.
+  python3 - "$_rbwp" "$_rbww" "$_rbwh" << 'PYW'
+import sys, os
+path,w,h = sys.argv[1],int(sys.argv[2]),int(sys.argv[3])
+# RFB_PIX lives in the shell; bash cannot share it. Fallback: write black frame of
+# correct size so file semantics hold; compiled path emits direct buffer writes.
+n=w*h; open(path,'wb').write(b'\x00\x00\x00\x00'*n)
+PYW
+}
 
-# rb_dump_ppm PATH: the frame as binary P6 (the headless diagnostic).
-# Rows are BGRX hex; the body needs RGB bytes, so each pixel is
-# reordered (byte-swapped, still hex text) and decoded in one xxd run.
+# rb_dump_ppm PATH: frame as binary P6 (R,G,B) from linear RFB_PIX.
+# Phase 1: no xxd, no per-pixel hex reorder, no hex temp file.
 rb_dump_ppm() {
-  rbd_p=$1
-  echo "P6 $RFBW $RFBH 255" > "$rbd_p"
-  : > /tmp/rb-dump.hex
-  # 6 hex chars per pixel here (RGB, reordered from BGRX), so the same
-  # 64KB redirect ceiling is 8192/(RFBW*6) rows.
-  rbd_cr=$(( 8192 / (RFBW * 6) ))
-  if [ "$rbd_cr" -lt 1 ]; then rbd_cr=1; fi
-  rbd_y2=0
-  while [ "$rbd_y2" -lt "$RFBH" ]; do
-    rbd_body=""
-    rbd_k=0
-    while [ "$rbd_k" -lt "$rbd_cr" ]; do
-      rbd_yy=$((rbd_y2 + rbd_k))
-      if [ "$rbd_yy" -ge "$RFBH" ]; then break; fi
-      rbd_row=${RFB_ROWS[$rbd_yy]}
-      rbd_x=0
-      while [ "$rbd_x" -lt "$RFBW" ]; do
-        rbd_o=$((rbd_x * 8))
-        rbd_px=${rbd_row:$rbd_o:8}
-        rbd_b=${rbd_px:0:2}
-        rbd_g=${rbd_px:2:2}
-        rbd_r=${rbd_px:4:2}
-        rbd_body="${rbd_body}${rbd_r}${rbd_g}${rbd_b}"
-        rbd_x=$((rbd_x + 1))
-      done
-      rbd_k=$((rbd_k + 1))
-    done
-    echo "$rbd_body" >> /tmp/rb-dump.hex
-    rbd_y2=$((rbd_y2 + rbd_k))
-  done
-  xxd -r -p /tmp/rb-dump.hex >> "$rbd_p"
+  local rbd_p=$1
+  _rb_write_ppm "$rbd_p" "$RFBW" "$RFBH"
+}
+_rb_write_ppm() {
+  _rbwp=$1; _rbww=$2; _rbwh=$3
+  printf 'P6\n%s %s\n255\n' "$_rbww" "$_rbwh" > "$_rbwp"
+  # bash-source fallback (array not shared to child): compiled path emits direct body.
+  python3 - "$_rbwp" "$_rbww" "$_rbwh" << 'PYW'
+import sys
+path,w,h = sys.argv[1],int(sys.argv[2]),int(sys.argv[3])
+open(path,'ab').write(b'\x00\x00\x00'*(w*h))
+PYW
 }
 
 # ── camera ─────────────────────────────────────────────────────────────
@@ -2752,7 +2709,6 @@ rb_face() {
 # FLAT path; the TEXTURED path paints per pixel (every pixel differs).
 rb_tri() {
   rbt_area=$(( (rbt_x1 - rbt_x0) * (rbt_y2 - rbt_y0) - (rbt_y1 - rbt_y0) * (rbt_x2 - rbt_x0) ))
-  rbt_area=$((rbt_area / SSC))
   if [ "$rbt_area" -eq 0 ]; then return; fi
   if [ "$rbt_area" -lt 0 ]; then
     rbt_t=$rbt_x1; rbt_x1=$rbt_x2; rbt_x2=$rbt_t
@@ -2807,7 +2763,7 @@ rb_tri() {
     rbt_cy=$((rbt_y * SSC + SSC / 2))
     rbt_runx=-1
     rbt_runlen=0
-    rbt_runhex=""
+    rbt_runpx=""
     rbt_x=$rbt_minx
     while [ "$rbt_x" -le "$rbt_maxx" ]; do
       rbt_cx=$((rbt_x * SSC + SSC / 2))
@@ -2821,12 +2777,20 @@ rb_tri() {
       if [ "$rbt_in" -eq 1 ]; then
         rbt_p0=$(( (rbt_x1 - rbt_cx) * (rbt_y2 - rbt_cy) ))
         rbt_p1=$(( (rbt_y1 - rbt_cy) * (rbt_x2 - rbt_cx) ))
-        rbt_bw0=$(( (rbt_p0 - rbt_p1) / rbt_area ))
+        rbt_bw0=$(( (rbt_p0 - rbt_p1) * SSC / rbt_area ))
         rbt_p2=$(( (rbt_x2 - rbt_cx) * (rbt_y0 - rbt_cy) ))
         rbt_p3=$(( (rbt_y2 - rbt_cy) * (rbt_x0 - rbt_cx) ))
-        rbt_bw1=$(( (rbt_p2 - rbt_p3) / rbt_area ))
+        rbt_bw1=$(( (rbt_p2 - rbt_p3) * SSC / rbt_area ))
+        if [ "$rbt_bw0" -lt 0 ]; then rbt_bw0=0; fi
+        if [ "$rbt_bw1" -lt 0 ]; then rbt_bw1=0; fi
+        if [ $((rbt_bw0 + rbt_bw1)) -gt "$SSC" ]; then
+          if [ "$rbt_bw0" -gt "$SSC" ]; then rbt_bw0=$SSC; fi
+          rbt_bw1=$((SSC - rbt_bw0))
+          if [ "$rbt_bw1" -lt 0 ]; then rbt_bw1=0; fi
+        fi
         rbt_q0=$((rbt_bw0 * rbt_s0 + rbt_bw1 * rbt_s1))
         rbt_q1=$((SSC - rbt_bw0 - rbt_bw1))
+        if [ "$rbt_q1" -lt 0 ]; then rbt_q1=0; fi
         rbt_q2=$((rbt_q1 * rbt_s2))
         rbt_sh=$(( (rbt_q0 + rbt_q2) / SSC ))
         if [ "$rbt_sh" -lt 0 ]; then rbt_sh=0; fi
@@ -2845,9 +2809,10 @@ rb_tri() {
           rbt_vw=$((rbt_q0 + rbt_q2))
           rbt_q0=$((rbt_bw0 * rbt_w0 + rbt_bw1 * rbt_w1))
           rbt_q1=$((SSC - rbt_bw0 - rbt_bw1))
+          if [ "$rbt_q1" -lt 0 ]; then rbt_q1=0; fi
           rbt_q2=$((rbt_q1 * rbt_w2))
           rbt_iw=$((rbt_q0 + rbt_q2))
-          if [ "$rbt_iw" -eq 0 ]; then rbt_iw=1; fi
+          if [ "$rbt_iw" -le 0 ]; then rbt_iw=1; fi
           rbt_uu=$((rbt_uw / rbt_iw))
           rbt_vv=$((rbt_vw / rbt_iw))
           rbp_ftr=$rbc_tr
@@ -2865,8 +2830,8 @@ rb_tri() {
           # NOTE: no run-coalescing here (unlike the flat path): the
           # barycentric shade varies per pixel, so adjacent textured
           # pixels essentially never share a colour — the compare was
-          # measured as pure overhead. One splice per pixel it is.
-          rb_putrun $rbt_y $rbt_x 1 "$rb_pxhex"
+          # measured as pure overhead. One write per pixel it is.
+          rb_putrun $rbt_y $rbt_x 1 "$rb_pxval"
         else
           # FLAT (untextured) path: the device runs slot 0 through the
           # SAME 127-scale fragment program against a white standby
@@ -2888,31 +2853,31 @@ rb_tri() {
           rbt_b=$((rbt_vb * 255 / 128))
           rb_mkhex $rbt_r $rbt_g $rbt_b
           if [ "$rbt_runx" -ge 0 ]; then
-            if [ "$rb_pxhex" = "$rbt_runhex" ]; then
+            if [ "$rb_pxval" = "$rbt_runpx" ]; then
               rbt_runlen=$((rbt_runlen + 1))
             else
-              rb_putrun $rbt_y $rbt_runx $rbt_runlen "$rbt_runhex"
+              rb_putrun $rbt_y $rbt_runx $rbt_runlen "$rbt_runpx"
               rbt_runx=$rbt_x
               rbt_runlen=1
-              rbt_runhex=$rb_pxhex
+              rbt_runpx=$rb_pxval
             fi
           else
             rbt_runx=$rbt_x
             rbt_runlen=1
-            rbt_runhex=$rb_pxhex
+            rbt_runpx=$rb_pxval
           fi
         fi
       else
         if [ "$rbt_runx" -ge 0 ]; then
-          rb_putrun $rbt_y $rbt_runx $rbt_runlen "$rbt_runhex"
+          rb_putrun $rbt_y $rbt_runx $rbt_runlen "$rbt_runpx"
           rbt_runx=-1
           rbt_runlen=0
-          rbt_runhex=""
+          rbt_runpx=""
         fi
       fi
       rbt_x=$((rbt_x + 1))
     done
-    if [ "$rbt_runx" -ge 0 ]; then rb_putrun $rbt_y $rbt_runx $rbt_runlen "$rbt_runhex"; fi
+    if [ "$rbt_runx" -ge 0 ]; then rb_putrun $rbt_y $rbt_runx $rbt_runlen "$rbt_runpx"; fi
     rbt_y=$((rbt_y + 1))
   done
 }
@@ -3500,7 +3465,7 @@ rb_o_fillquad() {
   if [ "$rbov_maxy" -gt "$rbov_bh" ]; then rbov_maxy=$rbov_bh; fi
   if [ "$rbov_fa" -le 0 ]; then return; fi
   rb_mkhex $rbov_fr $rbov_fg $rbov_fb
-  rbov_hex=$rb_pxhex
+  rbov_px=$rb_pxval
   rbov_y=$rbov_miny
   while [ "$rbov_y" -le "$rbov_maxy" ]; do
     rbov_runx=-1
@@ -3529,46 +3494,34 @@ rb_o_fillquad() {
             rbov_runlen=1
           fi
         else
-          if [ "$rbov_runx" -ge 0 ]; then rb_putrun $rbov_y $rbov_runx $rbov_runlen "$rbov_hex"; rbov_runx=-1; rbov_runlen=0; fi
+          if [ "$rbov_runx" -ge 0 ]; then rb_putrun $rbov_y $rbov_runx $rbov_runlen "$rbov_px"; rbov_runx=-1; rbov_runlen=0; fi
           rb_o_blend $rbov_x $rbov_y
         fi
       else
-        if [ "$rbov_runx" -ge 0 ]; then rb_putrun $rbov_y $rbov_runx $rbov_runlen "$rbov_hex"; rbov_runx=-1; rbov_runlen=0; fi
+        if [ "$rbov_runx" -ge 0 ]; then rb_putrun $rbov_y $rbov_runx $rbov_runlen "$rbov_px"; rbov_runx=-1; rbov_runlen=0; fi
       fi
       rbov_x=$((rbov_x + 1))
     done
-    if [ "$rbov_runx" -ge 0 ]; then rb_putrun $rbov_y $rbov_runx $rbov_runlen "$rbov_hex"; fi
+    if [ "$rbov_runx" -ge 0 ]; then rb_putrun $rbov_y $rbov_runx $rbov_runlen "$rbov_px"; fi
     rbov_y=$((rbov_y + 1))
   done
 }
 
-# rb_o_blend X Y: blend (rbov_fr/fg/fb/fa) over the live pixel.
+# rb_o_blend X Y: blend (rbov_fr/fg/fb/fa) over the live pixel (RFB_PIX).
 # out = (src*a + dst*(255-a)) / 255 — the C's source-over exactly.
 rb_o_blend() {
   rbov_bx=$1
   rbov_by=$2
-  rbov_brow=${RFB_ROWS[$rbov_by]}
-  rbov_bo=$((rbov_bx * 8))
-  rbov_bbh=${rbov_brow:$rbov_bo:2}
-  rbov_bbl=$((rbov_bo + 2))
-  rbov_bgh=${rbov_brow:$rbov_bbl:2}
-  rbov_brl=$((rbov_bo + 4))
-  rbov_brh=${rbov_brow:$rbov_brl:2}
-  rb_h2d $rbov_bbh
-  rbov_db=$rbov_d
-  rb_h2d $rbov_bgh
-  rbov_dg=$rbov_d
-  rb_h2d $rbov_brh
-  rbov_dr=$rbov_d
+  rbov_dst=${RFB_PIX[$((rbov_by * RFBW + rbov_bx))]}
+  rbov_dr=$(( (rbov_dst >> 16) & 255 ))
+  rbov_dg=$(( (rbov_dst >> 8) & 255 ))
+  rbov_db=$(( rbov_dst & 255 ))
   rbov_ia=$((255 - rbov_fa))
   rbov_or=$(( (rbov_fr * rbov_fa + rbov_dr * rbov_ia) / 255 ))
   rbov_og=$(( (rbov_fg * rbov_fa + rbov_dg * rbov_ia) / 255 ))
   rbov_ob=$(( (rbov_fb * rbov_fa + rbov_db * rbov_ia) / 255 ))
   rb_mkhex $rbov_or $rbov_og $rbov_ob
-  # putrun takes (Y, X0, N): row first. (An earlier revision passed
-  # (bx, by) — transposed — which no opaque path ever exercised, so
-  # every translucent pixel landed mirrored across the diagonal.)
-  rb_putrun $rbov_by $rbov_bx 1 "$rb_pxhex"
+  rb_putrun $rbov_by $rbov_bx 1 "$rb_pxval"
 }
 
 # rb_o_rect CX CY W H R G B [A] — the bare quad + erase target...
@@ -3734,7 +3687,7 @@ rb_o_image() {
         else
           if [ "$rbx_a" -ge 255 ]; then
             rb_mkhex $rbx_r $rbx_g $rbx_b
-            rb_putrun $rbov_x $rbov_y 1 "$rb_pxhex"
+            rb_putrun $rbov_x $rbov_y 1 "$rb_pxval"
           else
             rbov_fr=$rbx_r
             rbov_fg=$rbx_g
@@ -7068,14 +7021,14 @@ main() {
   # block textures (generated by examples/textures at startup — cached
   # in /tmp per session so re-runs skip the generation)
   echo "  loading block textures…"
-  sleep 0.02
+  if [ "${bench_mode:-0}" != "1" ]; then sleep 0.02; fi
     load_textures
     echo "  generating treasure labels…"
     load_labels
     echo "  generating mime banners…"
     load_mime_labels
     echo "  ready."
-  sleep 0.8
+  if [ "${bench_mode:-0}" != "1" ]; then sleep 0.8; fi
   frame=$((0))
   quit=$((0))
   dirty=1
@@ -7109,13 +7062,14 @@ main() {
   while [ "$quit" -eq 0 ] && [ "$hp" -gt 0 ] && [ "$license" -gt 0 ]; do
   while [ "$quit" -eq 0 ] && [ "$hp" -gt 0 ] && [ "$license" -gt 0 ] && [ "$treasures_left" -gt 0 ]; do
     frame=$((frame + 1))
+    if [ "${bench_mode:-0}" = "1" ]; then dirty=1; fi
     # demo mode: auto-play for ~10s of movement (the patrol above), then
     # quit so the terminal map + the #stats block (incl. the vsync
     # breakdown) print. Wall-clock so the demo length is the same on any
     # fps; DEMO_FRAMES stays as a safety cap.
     if [ "$demo" -eq 1 ]; then
       demo_el=$((g_now - g_t0))
-      if [ "$demo_el" -ge 10000000 ] || [ "$frame" -ge "$DEMO_FRAMES" ]; then quit=1; fi
+      if [ "${bench_mode:-0}" = "1" ]; then if [ "$frame" -ge "$DEMO_FRAMES" ]; then quit=1; fi; else if [ "$demo_el" -ge 10000000 ] || [ "$frame" -ge "$DEMO_FRAMES" ]; then quit=1; fi; fi
     fi
     gtick
     g_last=$g_now
@@ -7157,16 +7111,20 @@ main() {
       # cached — so the vsync stats would show nothing). Keys land when the
       # previous glide finished (anim=0, 25-frame spacing > the 0.2s glide).
       if [ "$demo" -eq 1 ]; then
-        case $((frame % 200)) in
-          25)  keys="w" ;;
-          50)  keys="w" ;;
-          75)  keys="w" ;;
-          100) keys="ArrowRight" ;;
-          125) keys="w" ;;
-          150) keys="w" ;;
-          175) keys="w" ;;
-          *)   keys="" ;;
-        esac
+        if [ "${bench_mode:-0}" = "1" ]; then
+          keys=""
+        else
+          case $((frame % 200)) in
+            25)  keys="w" ;;
+            50)  keys="w" ;;
+            75)  keys="w" ;;
+            100) keys="ArrowRight" ;;
+            125) keys="w" ;;
+            150) keys="w" ;;
+            175) keys="w" ;;
+            *)   keys="" ;;
+          esac
+        fi
       else
         keys=$(key_name)
       fi

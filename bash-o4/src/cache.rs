@@ -61,6 +61,10 @@ pub(crate) fn render_env_key() -> String {
         "SH2_NO_STABLE_SUBSTR",
         "SH2_NO_SSET",
         "SH2_NO_TAKE_SSET",
+        "SH2_NO_SPLICE",
+        "SH2_NO_CASE_BUCKET",
+        "SH2_NO_CONCAT",
+        "SH2_NO_ITOA",
         // the driver-fed absorb table (which external commands lower to
         // sh2_uu_run/sh2_uu_capture instead of bash -c): the feed and its
         // kill switch both change render output, so both key the render
