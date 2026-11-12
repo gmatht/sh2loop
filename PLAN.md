@@ -12131,3 +12131,63 @@ re-proving it:
 
 Cold: `COLD_RC=0`, `STARS=0`, grep for sorry/oops/quick_and_dirty exits 1,
 checker 17 resolved / 28 unstated / 2 pending / 0 errors (RC=0).
+
+### 2026-11-13 (section C, second slice) — CutAt: the fold's suffix branch closed
+
+Requested as a new theory; the `CutAt` theory was already in the tree and green
+(`ShIR_TextOps_Cut`, ninth theory: `find_first`/`rfind_last` with occurrence,
+no-match and leftmost/maximal, the four cut forms, `cut_at_sound` as the node's
+`spec:`, the split identity, `affix_strip_fold_sound`). Auditing it against the
+fold's own mapping table found ONE real hole and one false sentence:
+
+- The fold emits AffixStrip for TWO plain star shapes — `${v#lit*}` (strip_prefix)
+  and `${v%*lit}` (strip_suffix) — but the theory only had the head one,
+  `cut_tail_first_at_head`. The text after the theorem nevertheless said "That is
+  the fold's whole contract". New this pass: `rfind_last_self`
+  (`rfind_last s s = Some 0`), `rfind_last_append_suf_end`
+  (`rfind_last (r @ n) n = Some (length r)`), `cut_head_last_at_trail`
+  (`n ≠ [] ⟹ cut_head_last (r @ n) n = affix_strip_node (r @ n) n False`), and a
+  sixth conjunct in `affix_strip_fold_sound` for the suffix plain branch.
+  The `n ≠ []` guard is load-bearing: with an empty literal the cut is `[]`
+  while AffixStrip returns the text, which is why the fold special-cases `*`.
+- `cut_at.node` claimed "each identity follows from glob semantics … verified
+  against bash". It now cites the theory (`cut_at_sound`,
+  `affix_strip_fold_sound`, `cut_head_last_at_trail`) and states the one thing
+  still assumed — glob matching identified with first/last occurrence.
+
+Not newly proved (already there, verified only): the four single-star
+identities, `cut_at_head_first` + three mirrors with their matched/no-match
+corollaries, `cut_at_sound`, `find_first_split`/`rfind_last_split`,
+`cut_first_last_agree`, `is_magic_free`.
+
+Repair log (five builds):
+1. First attempt at `rfind_last_self` used `proof (cases s)` and then
+   `show ?thesis`; the method reported the goal as `rfind_last s s = Some 0`
+   with the case's tail fact visible, i.e. the case split did not reach the
+   goal, so both `?thesis` and an explicit `a # s'` statement missed. Abandoned
+   that shape: it is now `proof (cases "rfind_last s s")`, which substitutes
+   nothing, and the None branch contradicts `rfind_last_none` at index 0.
+2. `have "take (length s) (drop 0 s) ≠ s" … then show` left the goal
+   `(⋀i. i ≤ length s ⟹ drop i s ≠ s) ⟹ False` — the `then` chain had used the
+   general fact as a premise. Rewired to name it (`no_occ`) and instantiate with
+   `no_occ[of 0]`.
+3. `length s = min (length s) (length s - i) ⟹ i = 0` is not `simp`/`arith`
+   territory; the `min` has to be unfolded. Now: contradiction on
+   `length s - i < length s` with `simp add: min_def`.
+4. The new conjunct's `proof (intro impI)` failed because the enclosing
+   `proof (intro conjI impI)` had ALREADY introduced both premises, leaving the
+   bare equality — `proof -` plus `assume` picks them up from the context.
+5. `by (simp add: append_take_drop_id)` did not close
+   `s = take (length s - length n) s @ n`; the explicit
+   `by (rule append_take_drop_id)` under the `drop … = n` fact does.
+
+Trap noted for the campaign log: `isabelle console` is not a convenient goal
+inspector here — it opens in ML mode (`theory … begin` is not outer syntax
+there), `-l TextOps` without `-d docs/fm/TextOps` reports "Undefined
+session(s)", and `-b` writes the heap to `ISABELLE_HEAPS`, not
+`ISABELLE_HEAPS_USER` (which is only a label).
+
+Cold: `COLD_RC=0` (`Finished TextOps`), zero `***` lines, grep for
+sorry/oops/quick_and_dirty exits 1, checker 17 resolved / 28 unstated /
+2 pending / 0 errors with `cut_at.node TextOps cut_at_sound` and
+`cutset_trim.node TextOps cutset_trim_sound` both resolving.
