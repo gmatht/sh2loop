@@ -11817,3 +11817,26 @@ general proof.
 
 Lesson: an `eval` conjunct is a test, not a theorem, and a hypothesis that
 equates the two functions under comparison proves nothing about either.
+
+### 2026-11-13 (third slice) — CutsetTrim: five general obligations
+
+`ShIR_TextOps_Cutset` now states the node's obligations as theorems over
+arbitrary text and cutset rather than as prose plus evaluations:
+`cutset_trim_is_trim_by` (so idempotence and run-only removal are inherited from
+Strings), `cutset_trim_removes_only_a_run`, `cutset_side_three_valued`, and —
+the three divergence claims — `perl_cutset_needs_quotemeta` (the arm depends on
+the cutset as a SET, which is exactly what `\Q..\E` preserves),
+`go_trim_cutset_is_codepoints` and `rust_trim_matches_is_chars` (the model
+decides one byte at a time, at the head and the tail respectively). The witness
+lemmas name the bytes: `]`, `^`, `\`, `-`, and the NBSP pair where the model
+splits a character. `cutset_trim_sound` — the node's `spec:` — now carries the
+generic form and all three sides.
+
+Trap: positional instantiation binds the statement's schematic variables in
+order of APPEARANCE, not in the order the arguments are named, so
+`lead_drop_suffix[of "cutset_mem cs" s]` tried to pass a predicate where a list
+belongs ("Clash of types _ ⇒ _ and _ list"). `[where P = ... and s = ...]` is
+the form that cannot bind the wrong slot. Also: proving a per-side equality by
+`unfolding` a definition and letting `simp` split the `if` reintroduced the
+abbreviation and stalled; going through the per-side `[simp]` lemma first
+(`cutset_lead_is_lead_drop`) closes it immediately.
