@@ -5624,6 +5624,45 @@ captureSync(fn) {
   // byte string back to UTF-8 text, replacing invalid sequences with
   // U+FFFD (the runtime's `Buffer.toString('utf8')` does exactly that).
   textOfBytes(s) { return Buffer.from(String(s ?? ''), 'latin1').toString('utf8'); },
+  // inlineStrArgHelper(text, name, template) — Rust's inline_str_arg_helper:
+  // find every `name("...")` in `text` (the literal may contain escapes)
+  // and replace the whole call with `template` where `{}` becomes the
+  // literal (Rust format! escaping: `{{` -> `{`, `}}` -> `}`).
+  inlineStrArgHelper(text, name, template) {
+    const pat = String(name ?? '') + '(';
+    let out = String(text ?? '');
+    // guard against infinite loops: cap iterations
+    let guard = 0;
+    while (guard++ < 100000) {
+      const at = out.indexOf(pat);
+      if (at < 0) break;
+      const after = out.slice(at + pat.length);
+      if (!after.startsWith('"')) break;
+      let j = 1, inStr = true, esc = false;
+      while (j < after.length) {
+        const c = after.charCodeAt(j);
+        if (inStr) {
+          if (esc) { esc = false; }
+          else if (c === 92) { esc = true; }   // backslash
+          else if (c === 34) { inStr = false; } // closing quote
+        } else if (after[j] === ')') {
+          break;
+        }
+        j++;
+      }
+      if (j >= after.length) break;
+      const litStr = after.slice(0, j);
+      if (!litStr.endsWith('"')) break;
+      // expand template: {{ -> {, }} -> }, {} -> litStr
+      let repl = String(template ?? '');
+      repl = repl.replace(/\{\{/g, '\u0001').replace(/\}\}/g, '\u0002');
+      repl = repl.replace(/\{\}/g, litStr);
+      repl = repl.replace(/\u0001/g, '{').replace(/\u0002/g, '}');
+      const end = at + pat.length + j + 1; // include closing ')'
+      out = out.slice(0, at) + repl + out.slice(end);
+    }
+    return out;
+  },
   // utf8Len(s) — `char::len_utf8()` / the byte length of a text's UTF-8
   // encoding. Returns the byte count as a decimal string.
   utf8Len(s) { return String(Buffer.byteLength(String(s ?? ''), 'utf8')); },
