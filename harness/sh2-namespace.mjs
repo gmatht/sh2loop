@@ -5624,6 +5624,18 @@ captureSync(fn) {
   // byte string back to UTF-8 text, replacing invalid sequences with
   // U+FFFD (the runtime's `Buffer.toString('utf8')` does exactly that).
   textOfBytes(s) { return Buffer.from(String(s ?? ''), 'latin1').toString('utf8'); },
+  // trimMatches(s, chars) — Rust `str::trim_matches(pat)`: trim both
+  // ends of any char in `chars`. `chars` is a string of the characters
+  // to trim (Rust accepts a char, a &[char], or a closure; the frontend
+  // flattens the supported shapes to this string at transpile time).
+  trimMatches(s, chars) {
+    const str = String(s ?? '');
+    const set = new Set(String(chars ?? ''));
+    let start = 0, end = str.length;
+    while (start < end && set.has(str[start])) start++;
+    while (end > start && set.has(str[end - 1])) end--;
+    return str.slice(start, end);
+  },
   // inlineStrArgHelper(text, name, template) — Rust's inline_str_arg_helper:
   // find every `name("...")` in `text` (the literal may contain escapes)
   // and replace the whole call with `template` where `{}` becomes the
