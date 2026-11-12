@@ -11867,3 +11867,32 @@ so `98 \<notin> set [94, 97]` next to `uq_class [94, 97] 98` elaborates with a
 free `'b` and `simp` ends on `(98::'b) ≠ (94::'b)`; annotate one side `:: nat`.
 And `eval` on a partially applied user predicate tripped a wellsortedness error
 (`numeral < equal`) that plain `simp` with the definitions does not.
+
+### 2026-11-13 (spec integrity) — newline_strip_sound restated, checker hardened
+
+`newline_strip_sound` was one take/drop equation; the node-level obligation is
+now the four-conjunct statement: the kept text is `take (length s - run) s`, its
+length is that quantity, what it drops is a suffix whose every byte is `10` and
+whose length is the run, and the kept text does not end in a newline. Two
+helpers were needed and proved: `lead_nl_count_le` (the run fits in the text) and
+`lead_nl_count_take_all_nl` (taking the run really yields newlines); the old
+equation became `newline_strip_take`, and `newline_strip_suffix` states the
+suffix form. `newline_strip.node`'s `spec:` still names `newline_strip_sound`,
+so the node's promise and the theorem now agree in content as well as in name.
+
+`harness/check-node-specs.pl` gained the distinctions the audit needed:
+theorem/lemma/corollary only (a `definition` is not an obligation), session
+membership read from `ROOT`, and — the hole that mattered — a name only counts
+when its theory is listed in a `ROOT`, so an untracked WIP theory cannot satisfy
+a spec. It also accepts `spec: pending Theory#name` for open obligations (counted,
+and an error once the name resolves), and has `--map` (the node table printed in
+README) and `--selftest` (five controls: real theorem, definition, dangling name,
+wrong session, unbuilt theory).
+
+Audit result: 17 resolved, 28 unstated, 0 pending, 0 errors. Nothing that cited
+a name regressed to `none`. One finding: `str_splice_fold_sound` exists only in
+the untracked `ShIR_TextOps_Splice.thy`, which no `ROOT` lists — `str_splice.node`
+stays unstated and the checker now reports that name as `OUTSIDE THE BUILD`.
+Trap: the checker's first version accepted `definition` and scanned every `.thy`
+regardless of `ROOT`, so it could report a spec as resolved against a file the
+build never compiles; both are now negative-control cases in `--selftest`.
