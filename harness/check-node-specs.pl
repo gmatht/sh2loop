@@ -22,8 +22,11 @@
 #   spec: none (<reason>)     — deliberately no obligation recorded. Counted
 #                               and reported, never an error.
 #
-# Exit 0 when nothing is dangling, not-a-theorem or stale-pending; 1 otherwise
-# (so it can gate).
+# A node file with NO spec: line at all is an error too, not a silent pass: a
+# node that declares nothing would otherwise never appear in any count.
+#
+# Exit 0 when nothing is dangling, not-a-theorem, stale-pending or spec-less;
+# 1 otherwise (so it can gate).
 #
 #   harness/check-node-specs.pl            # the default tree
 #   harness/check-node-specs.pl --verbose  # list every resolved spec too
@@ -142,9 +145,11 @@ for my $node (sort glob("$nodes/*.node")) {
     my $file = basename($node);
     open my $fh, '<', $node or die "$node: $!\n";
     my $lineno = 0;
+    my $saw_spec = 0;
     while (my $line = <$fh>) {
         $lineno++;
         next unless $line =~ /^\s*spec:\s*(.*?)\s*$/;
+        $saw_spec = 1;
         my $spec = $1;
         if ($spec =~ /^none\b/) {
             $unstated++;
@@ -195,6 +200,14 @@ for my $node (sort glob("$nodes/*.node")) {
         }
     }
     close $fh;
+    # A node file with no spec: line at all used to vanish from every count:
+    # neither resolved, nor unstated, nor an error. The map is only total if a
+    # node must declare SOMETHING, so its silence is an error of its own.
+    unless ($saw_spec) {
+        push @errors,
+          "$file: NO spec: LINE (every node declares a proved obligation, 'pending Theory#name', or 'none (reason)')";
+        $bad++;
+    }
 }
 
 if ($map) {
