@@ -12105,3 +12105,29 @@ Checker still green: 17 resolved, 28 unstated, 2 pending, 0 errors — the pendi
 set is the substitute line domain and `uniq -s N`, neither of which is in
 section B. README's open-target list now has one entry left (FieldExtract's
 ranges and `--output-delimiter`).
+
+### 2026-11-13 (section C opened, verified) — CutsetTrim slice: already landed, refereed
+
+Section C's first slice was requested as new work; it was already in the tree from
+the earlier CutsetTrim passes (`8b7d98864`, `e22151130`, `0624e28c2`) and is
+committed, so this pass verified it cold and repaired its prose rather than
+re-proving it:
+
+- `ShIR_TextOps_Cutset` is its own theory in `TextOps/ROOT`, importing Strings.
+- `cutset_trim.node`'s `spec: TextOps#cutset_trim_sound` resolves
+  (`check-node-specs.pl --map` prints `cutset_trim.node TextOps cutset_trim_sound`).
+- The five requested obligations are general theorems, not evaluations:
+  `cutset_trim_is_trim_by` (definitional, so idempotence/run-only removal come
+  from Strings), `cutset_side_three_valued`, `perl_cutset_needs_quotemeta`
+  (compares against a modelled UNQUOTED bracket body — closing `]`, leading `^`,
+  backslash escape, `a-b` range — and both readings' trimmed text differ, on `]`,
+  `^`, `\` and `a-c`), `go_trim_cutset_is_codepoints` and
+  `rust_trim_matches_is_chars` (a two-byte UTF-8 decoder plus a char-wise trim vs
+  the byte model, on the U+00A0 pair: the byte model answers `[160, 97]`, which
+  `decode2` rejects, while the codepoint reading keeps the character).
+- Repaired: three paragraphs had been left as "(named X, which is all it says) …
+  The statement:" fragments, which made the general lemmas look like the
+  divergence theorems. Text only; no statement or proof changed.
+
+Cold: `COLD_RC=0`, `STARS=0`, grep for sorry/oops/quick_and_dirty exits 1,
+checker 17 resolved / 28 unstated / 2 pending / 0 errors (RC=0).
