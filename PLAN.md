@@ -10643,6 +10643,131 @@ the gate's expectations predate that WIP).
   follow-up, refused today by `pipe_consumer`'s single-Expr shape.
   Gitlink not bumped (worktree carries other workstreams' edits).
 
+- **2026-11-12 (second pass) — Perl emit: `__` helper temps named, the four
+  deferred mis-translations fixed, concat around reads down to its
+  irreducible shapes.** The previous entry left four mis-translations known
+  and unfixed and capped two idiom classes at "documented remainder" rather
+  than zeroing them. This pass closes both, and every claim below is a
+  measurement over the rendered corpus, not a spot check.
+
+  Before → after over the rendered examples (`/tmp/census.py`, bodies only —
+  the renderer's own preamble helpers are excluded so the counts describe the
+  translated program):
+
+  | pattern | before | after |
+  | --- | --- | --- |
+  | `for my $__X (…)` throwaway temp | 183 / 52 | **6 / 2** |
+  | ` . ($` concat around a variable | 19 / 13 | **14 / 8** |
+  | rendered files with a `perl -c` error | 0 | **0** (565 files) |
+
+  The renderer's own preamble helpers still carry their own ` . ` shapes
+  (`"/tmp/sh2_pipe_${$}_" . ($__SH_UU_SEQ++) . ".cap"`, and a `$$` in a
+  comment); they are not the translated program, the census excludes them,
+  and they are a separate cleanup (a bound `my $n = $__SH_UU_SEQ++` would
+  remove 75 of them outright).
+
+  1. **`( exit 7 )` no longer ends the program.** `exit` is process-wide in
+     Perl, so a subshell's exit has to be emulated. The Subshell arm now
+     checks the body (recursively, but never into a `IrStmt::Function` body —
+     that is a different sub) for an exit and labels the block
+     `__SH_SUBn: { … }`; both exit spellings — the `IrStmt::Exit` statement
+     and the `builtin("exit", …)` call the A1 actually produces — become
+     `$CHILD_ERROR = N; last __SH_SUBn;`, so the block's save/restore lines
+     still run, exactly like a subshell closing. Verified: `( exit 7 ); echo
+     "after=$?"` prints `after=7`, and a subshell body that prints before
+     exiting keeps its output and status.
+  2. **`C >&2` is a native dup, not a shell round-trip.** The redirect arm had
+     been rebuilding the command as shell text, which baked the PERL spelling
+     of the arguments into it: `echo "n=$1" >&2` became
+     `bash -c 'echo "n=$ARGV[0]" 1>&2'`, where bash read `$ARGV` (unset) plus
+     the literal `[0]` and printed `n=[0]`. A single-descriptor dup
+     (`[0-2]>&[0-2]`) now emits the save/dup/restore itself:
+     `open(my $__sh2_dup,'>&',\*STDOUT); open(STDOUT,'>&',\*STDERR); …;
+     open(STDOUT,'>&',$__sh2_dup)`. Guard: `fd == to_fd` is left alone —
+     bash's own no-op `>&1`, and the fd-table-resolved `exec 3>&1` slot whose
+     `>&3` normalises back to 1, must not close and re-dup a descriptor from
+     inside itself (`parse-invalid-redirect` died EBADF when it did).
+  3. **A subscript inside a double-quoted string interpolates the ELEMENT.**
+     `${arr[0]}`, `$h{$k}`, `$ENV{HOME}` and `$_[n]` have an interpolatable
+     Perl spelling (the subscript delimits the name), so `interp_spelling`
+     feeds them to the string builder instead of ending the run; a literal
+     that starts with `[`, `{` or `->` after a read still breaks the run, so
+     bash's `"$arr[0]"` (= element, then the literal `[0]`) is preserved —
+     `bare=ten idx=ten[0] brace=ten`. Two follow-on bugs surfaced and were
+     fixed: `concat_chain_to_interp` used to escape the `$` of a double-quoted
+     literal it spliced (`"${arr[0]}"` printed the reference text
+     `$arr[0]`), and `try_embed_newline_in_string_literal` assumed a value
+     that both starts and ends with `"` IS one literal.
+  4. **`for c in $(printf 'p q')` iterates `p` then `q`.** The capture's body
+     was lowered to a NATIVE `Output` (printf folds to a statement), so
+     `arrow_to_cmd` had no shell text to rebuild and the iterator fell through
+     to the scalar render — `for ('')`, one empty element. `native_output_expr`
+     now reads the value out of that body (a lone `Output`, the
+     `Block([Output, Exec(true)])` wrapper `$(echo …)` produces, or an `echo`
+     the transform left as a builtin call) and iterates `split ' ', <value>` —
+     an unquoted command substitution word-splits on IFS whitespace, which is
+     exactly Perl's `split ' '`. This also removed a Perl-in-shell-text leak:
+     `for c in $(echo $HOME)` used to emit `__sh_pipe_capture(q{'echo' } .
+     __sh_q($ENV{ENV} . '{HOME}'), …)` and now emits `split ' ',
+     join(' ', $ENV{HOME})`.
+
+  The idiom classes then:
+
+  **`__` helper temporaries get real names.** The transforms inline runtime
+  helpers whose scratch variables are spelled `$__l`, `$__p0`, `$__ok` so they
+  can never collide with a user's variable. That hygiene is worth keeping; the
+  SPELLING was the residue. `rename_helper_temps` (a post-pass in
+  `perl_generator_fixed.rs`) renames them where it is provable FOR THAT FILE:
+  the candidate must appear nowhere in the file with any sigil and in any
+  context (`$item`, `@item`, `$item[0]`, `"$item"`), no two temporaries may
+  claim the same candidate, and every occurrence must be CODE — a `$__l`
+  inside a single-quoted string, comment, `q{…}` or an escaped `\$` is data
+  and blocks the rename rather than being rewritten. (A quoted heredoc body
+  is not distinguished from an interpolating one; no corpus example carries a
+  `$__…` inside either, and a wrong answer there is caught by `perl -c` +
+  the gate rather than silently, since the declaration is renamed with its
+  uses.) Names come from a small
+  table for the loop-variable stems (`l`→`item`, `p`→`path`, `d`→`dir`,
+  `t`→`file`, `e`→`entry`, `w`→`word`, `k`→`key`, `gl`→`match`,
+  `lp`→`paths`) with a shorter fallback when the long one is taken; anything
+  already readable keeps its stem. `$#arr` is renamed with its array, and
+  `a`/`b` are refused outright (`$a`/`$b` are the sort block's package
+  variables: declaring them warns and redefining them inside a comparator is
+  a bug) — the diff helper's two line arrays become `@left`/`@right` instead.
+  183 → **6**, and what is left is exactly the `diff` helper in
+  `063_hard_to_parse.sh` and `064_hard_to_generate.sh`: its own DP loop
+  already declares `my $i`, `my $idx`, `my $j` in the same scope, so the
+  `__` prefix on `$__i`/`$__j`/`$__k` is what keeps the two apart. That is
+  the documented remainder, and it is the reason the scheme is a per-file
+  check rather than a blind rename.
+
+  **Concat around a read.** 19 → 14, and the 14 are the shapes where
+  interpolation is NOT semantically identical: 12 are positional reads
+  (`$_[0]`, `$__sh_args[2]`, `$__sh_args[3]`) — `"$1"` is a regex capture in
+  Perl, and the `$N`→`$_[N]` rewrite is a text pass that deliberately never
+  touches string contents (a user's literal `"$1"` must stay literal), so the
+  read has to stay outside the string; and 2 are `($$)` (`"/tmp/$$.txt"`,
+  `unlink("/tmp/…" . ($$))`), which are safe only when no identifier
+  character follows the pid, so the bracing rule would have to know the next
+  literal — left as a concatenation for now. Everything interpolatable that
+  remains is a genuinely non-interpolatable operand (a `do { }` block, a
+  `?:`, a `join`), which is what concatenation is for.
+
+  Regression pins: `sh2perl/examples/zz_regression_idioms.sh` exercises all
+  four fixed shapes end to end (subshell exit status, `$arr[0]`-in-a-string,
+  `>&2` from a function, `$(printf …)` iterands, plus the deliberate
+  subscript hazard) and is compared against bash by `./fail` on every run.
+
+  Verification of record: `./fail` **564 passed / 0 failed, rc 0** (563
+  examples plus the new pin); `perl -c` **0 failures over 565 rendered
+  files**; census before/after as in the table; `cargo test --lib ir::tests`
+  **43/43**, `pgf_tests` **34/34**. One pin moved, and it is a named contract
+  change: `pgf_tests::infinite_procsub_producer_forks_and_is_killed` asserted
+  the literal spelling `$__ps_status0 = $CHILD_ERROR;`, which is exactly what
+  this pass renames — it now asserts `$ps_status0 = $CHILD_ERROR;` (the save,
+  not the spelling). Nothing else was re-blessed. Gitlink not bumped; no other
+  backend's code touched.
+
 - **2026-11-12 — Perl emit: census-driven idiom sweep (brace ranges,
   `int((`, `@_` parameters, element interpolation).** The 2026-11-11 pass
   fixed the status register but left known artifacts behind and only
@@ -11936,3 +12061,47 @@ cheaper than arithmetic on `n - 1`.
 Checker after this pass: 17 resolved, 28 unstated, **2 pending**, 0 errors —
 the pending set is exactly the two obligations named above, and the checker
 errors if either name ever starts resolving without being promoted.
+
+### 2026-11-13 (section B closed) — strip, sort and collapse targets discharged
+
+Section B of the Grounded mission had three open targets. All three are proved,
+and the cons/append "trap" both the theory text and the README blamed turned out
+to be avoidable by stating the fact differently rather than by fighting the
+simplifier:
+
+- `rev_drop_last_nl_prefix` (Strip): `rev_drop_last_nl_is_a_drop` proves the
+  strip IS `drop (lead_nl_count u) u` — so the "associativity of `@` under a
+  hypothesis" step never arises — and `rev_drop_last_nl_prefix` states the
+  node-level equation in take/drop form, as the first conjunct of
+  `newline_strip_sound`.
+- `sorted_insert` / `isort_sorted` (SortUniq): strengthened to what the node
+  promises — sorted, plus occurrence counts unchanged (nothing lost/duplicated;
+  `List.perm` is HOL-Library and this session is HOL-only, and set+length is not
+  enough: `[a,a,b]` and `[a,b,b]` agree on both), plus length unchanged. New
+  `count_of` with `count_of_insert` / `count_of_isort`. The sorted-only halves
+  remain as `sorted_insert_sorted` / `isort_sorted_sorted`.
+- `drop_runs_no_adjacent_eq` (SortUniq), `sort -u = uniq . sort`: the
+  no-equal-neighbour fact in index form (`adj_free_imp_nth` bridges from
+  `adj_free`), and `sort_u_composition` (collapse is idempotent, already sorted,
+  re-sorting is identity, sorted and adjacent-free). `drop_runs_idem` unchanged.
+
+Honest deviation, recorded because the mission asked for it and it is FALSE:
+"adjacent-free" cannot be a conjunct of plain-sort soundness. Sort keeps
+duplicates, so `[a,b,a]` sorts to `[a,a,b]`, which has equal neighbours.
+Adjacent-free belongs to the `sort -u` value (`drop_runs`), where it is proved.
+Also recorded: the head-only form `¬∃x y zs. xs = x # y # zs ∧ x = y` is NOT
+equivalent to adjacent-free (it tests one pair), so the index form is used.
+
+Traps hit: nested `case (Cons b bs)` shadows the outer induction case's fact
+bundle (name the facts with `note` before descending); an induction hypothesis
+`induct xs arbitrary: i` is stated at the fixed `xs`, so it cannot be
+instantiated at `b # bs` directly — rewrite with the `xs = b # bs` equation
+first; a theorem premise `A ⟹ B` becomes an assumption, so `proof (rule impI)`
+fails on it and `rule lemmas` will not discharge `A` — use the `assumes` form
+with a named fact; `block`-style python replacements that stop at the first
+`\<close>` corrupt a theory comment containing a nested antiquotation (twice).
+
+Checker still green: 17 resolved, 28 unstated, 2 pending, 0 errors — the pending
+set is the substitute line domain and `uniq -s N`, neither of which is in
+section B. README's open-target list now has one entry left (FieldExtract's
+ranges and `--output-delimiter`).
