@@ -11724,3 +11724,26 @@ needs the state tier.
 
 Session green under `quick_and_dirty = false`: six theories, RC=0, no `sorry`.
 `docs/fm/README.md` carries the new obligation rows and the closed target.
+
+### 2026-11-13 — TextOps: every node spec resolves, plus CutsetTrim and Substitute
+
+`docs/fm/TextOps` builds eight HOL-only theories (~35 s, `quick_and_dirty =
+false`). Closed: `newline_strip_sound`, `uniq_lines_sound` and
+`substitute_sound` — the three dangling promises — and a fourth the new checker
+found, `sort_lines_sound`; with them the open targets
+`rev_drop_last_nl_prefix`, `sorted_insert`/`isort_sorted` and
+`drop_runs_idem`/`drop_runs_adj_free`. New theories: `ShIR_TextOps_Cutset` (the
+trim class as data, the three sides, idempotence per side, the Perl bracket and
+Go/Rust codepoint divergence witnesses) and `ShIR_TextOps_Substitute` (two
+fuel-bounded engines over an abstract matcher; the empty-match advance is the
+termination lemma; the regex syntax, the line split and `\N` are limitations).
+New machine check: workspace `harness/check-node-specs.pl` — every `spec:` name
+must resolve under `docs/fm` (16 resolved, 29 unstated, 0 dangling). Node
+wiring: `StringTrim`, `StringAffix`, `AffixStrip`, `CutsetTrim`.
+
+Lessons worth keeping: a `fun` whose third clause tests an `if` gives
+branch-CONDITIONAL induction hypotheses, so the collapse proofs quantify the
+head explicitly; a META-forall in `assumes` is a context fact the induction
+never rewrites, so state such a premise as an object forall; and a `[simp]`
+lemma that rewrites the very condition a definition tests (`clipped m s = 0`)
+turns reductions into case splits.
