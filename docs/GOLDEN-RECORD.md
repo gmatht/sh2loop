@@ -96,3 +96,18 @@ to agree and several worktrees still lack `shir_render`.
 - Per-file cap 1 MiB (larger renders become `oversize`, not committed) and
   `golden-render.sh` never stages: text only, one commit per backend per
   round, and the record gets its own pre-commit guard.
+
+## Publishing a round (gmatht/sh2examples)
+
+```
+harness/golden-render.sh --backend rust --jobs 8     # writes a set under the record root
+cd $SH2_GOLDEN_REPO                                  # the clone of gmatht/sh2examples
+tar czf /tmp/sets-$(date -u +%Y%m%d).tar.gz sets/ INDEX.tsv
+gh release create sets-$(date -u +%Y%m%d) /tmp/sets-$*.tar.gz \
+   --title "Render sets, $(date -u +%F)" --notes-file <notes.md>
+git add INDEX.tsv && git commit -m "sets: $(date -u +%F) round"   # INDEX only
+```
+
+`INDEX.tsv` is the committed correlation table (backend, sh2perl sha, corpus
+sha, counts); the tarball is the corpus itself. `sets/` stays gitignored, so a
+round costs one small commit plus one release asset.
