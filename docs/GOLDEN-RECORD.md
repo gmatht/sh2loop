@@ -19,11 +19,16 @@ depends on it: a gate must never need a second clone.
   `git submodule status` fail outright.
 - `sh2perl` must never reference this record (PLAN §1.1), and `examples/`
   lives inside the `sh2perl` submodule, so nesting is ruled out as well.
-- Where it lives: `$SH2_GOLDEN_REPO`, default `.golden-inbox/` in the
-  workspace (ignored, machine state). Promote to `gmatht/sh2golden` as a
-  sibling clone once the format settles; `sets/` keeps the same layout, so no
-  history is rewritten. If a comparison later needs a fixed point, pin it by
-  commit SHA in CI — the `sh2runtime` pattern (AGENTS.md:14-15, PLAN §1.2).
+- Where it lives: **`github.com/gmatht/sh2examples`** (published 2026-11-13),
+  cloned as a sibling; `$SH2_GOLDEN_REPO` points at it, defaulting to the
+  ignored `.golden-inbox/` in the workspace for ad-hoc runs.
+- **The sets themselves are release assets, not commits** (`sets-<id>.tar.gz`).
+  They are multi-MB text that churns on every render round — exactly the
+  "tracked `target/`" mistake this project already paid for
+  (`docs/CLEAN_GIT.md`). The repository carries the format (`README.md`,
+  `INDEX.tsv`), each release carries the corpus. If a comparison later needs a
+  fixed point, pin it by commit SHA in CI — the `sh2runtime` pattern
+  (AGENTS.md:14-15, PLAN §1.2).
 
 ## What a set is
 
