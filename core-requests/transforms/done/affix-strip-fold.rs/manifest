@@ -1,0 +1,16 @@
+name: affix-strip-fold
+prereqs: [none — param("#"/"##"/"%"/"%%") comes straight from the
+  parser parameter-expansion lowering]
+invariant: param(OP, NAME, PAT) folds to AffixStrip(text=param("",NAME),
+  pattern=PAT, prefix) ONLY when OP ∈ {"#","##","%","%%"}, NAME is a plain
+  identifier, PAT is a non-empty magic-free literal (* ? [ \ absent), and
+  the target has a VERIFIED AffixStrip render (rs/rust, java). For a
+  magic-free literal, bash shortest ≡ longest match, so # ≡ ## and % ≡
+  %% — each removes at most ONE leading/trailing occurrence, exactly
+  AffixStrip semantics. Glob-magic patterns, interpolated patterns,
+  non-identifier names, / and // substitute ops, and every other target
+  (estree/perl/python already inline; go emits an unrunnable sh2.AffixStrip
+  stub; c/sh/zig have no arm; unset target) are refuse-on-doubt.
+scope: offered to rs/rust, java (end-to-end verified); go joins when its
+  Ext path routes to render_ext_expr
+updates: none (first offer)

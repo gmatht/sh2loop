@@ -1,0 +1,7 @@
+### note
+Already registered — this is an UPDATE offer (§11: updates to accepted
+transforms are offers too). The entry in transforms.rs stays exactly:
+### all
+        ("test-lowering", test_lowering::transform),
+No mod-line change: test_lowering.rs is an existing `pub mod` in
+transforms.rs and the update ships inside that same file.

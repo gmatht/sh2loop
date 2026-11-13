@@ -12,7 +12,7 @@ invariant: rewrites `$((x+0))`/`$((x*1))`-style identities in place; every
 scope: shell-int domain. NOT registered — `all()` has no entry; registering
   needs the float-domain decision recorded in the module header
 updates: proofs/ArithIdentity added (2026-10-23)
-proof: proofs/ArithIdentity (checked — Isabelle2025-2,
+proof: proof/README#arith_identity_folds (checked — Isabelle2025-2,
   quick_and_dirty=false; each fold rule stated over IR-shaped data with an
   explicit divide-by-zero error model and an arbitrary store, plus three
   refutations showing each guard is load-bearing

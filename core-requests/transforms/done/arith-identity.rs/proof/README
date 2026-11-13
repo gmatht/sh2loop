@@ -66,6 +66,15 @@ listed here rather than left to be discovered.
   `num(lhs) == Some(0) && arith_no_err(rhs)`, so the model matches — but note
   the guard is on the *other* side of the `*`, which is the right side for
   `0 * x` and is why `0 * (1/0)` is refused.
+* `x + 0 → x` (and `0 + x`) is proved only for the INTEGER reading, and the
+  Rust applies it to any operand.  Verified against the real `simplify`:
+  `$1 + 0` folds to `Var("1")`, and `$(($1 + 0))` is bash's string-to-int
+  coercion (`$1=abc` is an error; `$(($1 + 0))` is what raises it).  The
+  fold therefore turns a hard error into a silently wrong value.  The two
+  corpus examples that contain a foldable identity
+  (dollar-positional-arithmetic.sh, parse-dollar-in-arithmetic.sh) are
+  exactly this idiom.  NOT covered by any lemma here, because a lemma about
+  `int` cannot talk about the coercion that produces the int.
 * Every rule is stated for the shell-int reading (`div`/`mod` on `int`).  Float
   IR is out of scope: `TransformFn` cannot see `var_types`, so no gate is
   possible at this layer (see the module header's open registration item).

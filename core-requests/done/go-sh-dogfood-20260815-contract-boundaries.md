@@ -10,6 +10,11 @@ interface_type, str_upper, filepath).
 
 ## 1. NEED — index+value range `for i, s := range arr`
 
+> CONVERTED (PLAN §11): the §1 node is filed as a contract-gen SPEC at
+> `core-requests/contracts/ForIndexed.json` (the marketplace contract
+> channel — `harness/contract-gen` emits the patch; the core applies it
+> mechanically once the open node model lands).
+
 The app's most common loop form (`for i, s := range args { a[i] = … }`,
 26 uses). The A1 `For` node binds ONE loop var to each element; Go binds
 BOTH the index and the value, and the app reads both (`a[i] = strExpr(s)`).
@@ -314,6 +319,22 @@ go-sh: `filepath.Ext needs a string literal (v2)` — the probe
   triage pass (the os.Stat if-form works only because `err == nil` maps
   to a path test, `test -e`).
 
+  NOTE (landed, FRONTEND-GAP not boundary): this bullet's core
+  justification was STALE — the A1 If cond IS a command-status shape:
+  the core's own `if b=$(cat p); then` lowering (debashc file --shir)
+  is Call{func:"assign", args:[Str(b), Str("="), Capture{native:false,
+  expr:Arrow{body:[Expr exec cat …]}}]}, and `if ! b=$(cat p); then` is
+  the Not BinOp over the same assign (both verified executing correctly
+  end-to-end through --shir-in-estree + estree-runner). The frontend
+  fix landed in go-sh.go parseIf: `if <name>, err := os.ReadFile(p);
+  err == nil {` lowers to that assign-capture cond (err != nil → the
+  Not BinOp); the old behavior was a bare parser crash (`expected "{",
+  got ","` — parseIf only special-cased `if _, err := os.Stat(...)`),
+  not a deliberate refusal. Probe templates/go/read_file_if.go GREEN
+  (oracle == translated; the app's instance is cmd/go-sh/main.go:29 —
+  `if b, err := os.ReadFile(inp); err == nil {`). Corpus 93/93 + make
+  test green.
+
 ---
 
 ## 11. NEED — array-valued positional copy (`os.Args[1:]`, 2 uses)
@@ -373,3 +394,135 @@ loudly ("range over unknown array") rather than unroll an empty
 iteration; a runtime-array For iter is a separate contract design.
 
 ## OUTCOME: rejected: contract-extension proposals (#1 index_var For form, #4 stringIndex, #6 stringSplit) have no emitting consumer — go-sh refuses loudly by design (Refuse > guess); boundaries #2/#3/#5 need no core change. A new A1 primitive is a plan-level design decision, not a corpus fix.
+
+---
+
+## 12. Re-hit (2026-08-16): struct type DECLS from the dogfood loop — `type token struct {` (go-sh.go:70)
+
+The app loop (`run_go_idiom_worker.sh app_transpile` → `fail-go --app
+frontends/go-sh/go-sh.go`) first refuses at the golib's FIRST struct
+decl — the lexer's value type. §3 already classifies the struct cluster
+(decls + composite literals + field access + receiver methods) as a
+declared boundary; this section pins the DECL-alone construct as it
+surfaces from the app run, with its ladder probe.
+
+## NEED
+
+No new core shape. The construct is `type Name struct { field-list }`
+at top level; the app's instance is
+
+```go
+type token struct {
+    kind tokKind
+    text string
+    raw  string
+    line int
+}
+```
+(go-sh.go:70; `tokKind` itself is an ERASED named-scalar decl —
+`type tokKind int`, go-sh.go:57: the type-position erasure contract
+covers compile-time SCALAR and EMPTY-`interface{}` types only, not
+composite underlying types).
+
+## WHY
+
+`token` is the lexer's value type; the app constructs `token{…}`
+composite literals, reads `t.kind`/`t.text`, and `parser`
+(go-sh.go:78, 30+ fields) has receiver methods — the whole cluster has
+no shell-flavored A1 shape (§3; DOGFOOD.md: "no shIR representation …
+a Go struct or method call cannot be expressed"). The DECL alone is
+compile-time-only (same class as the erased `type tokKind int`), but
+erasing it would only move the refusal to the first composite-literal /
+field-access USE — the boundary does not open. The frontend keeps ONE
+loud refusal at the decl so the app fails fast and diagnosably
+(Refuse > guess; the loop then advances via the `seen/go-sh.go:70`
+marker).
+
+## MINIMAL-CORE-CHANGE
+
+None — same verdict as §3 and the OUTCOME (declared boundary; no
+emitting consumer; a struct-value contract is a plan-level design
+decision, not a corpus fix). The frontend's refusal stays.
+
+## FAILING-CASE
+
+Ladder probe `templates/go/struct_type.go` (sig `type .* struct`):
+
+```go
+type pair struct {
+    a string
+    b int
+}
+fmt.Println("decl")
+```
+Oracle (`go run` of the wrapped snippet): `decl`. go-sh today:
+`type decls are outside the subset (v2) — struct/interface types have
+no A1 shape` (exit 2) — the same message as the app's refusal at
+go-sh.go:70. Probe stays red, documented (ladder baseline 41/46,
+DOGFOOD.md).
+
+---
+
+## 13. Re-hit (2026-08-17): package-qualified call in WORD position — `out, err := golib.Shir(src)` (cmd/go-sh/main.go:32)
+
+The app loop's CLI first refuses at main.go:32: `go-sh: line 32:
+unsupported call "golib.Shir" in word position (v2)` — the app's ONLY
+non-stdlib qualified call: `golib` is the import alias for the
+frontend library itself (`github.com/gmatht/sh2loop/frontends/go-sh`).
+
+## NEED
+
+The construct is a DOTTED (package-qualified) function call in WORD
+position — `pkg.Func(args)` as an expression VALUE (here the RHS of a
+multi-assign). The frontend's word-position call contract is a stdlib
+whitelist (exprToWord's call case); any callee outside it refuses.
+The qualifier is incidental: a SAME-UNIT user function in word position
+refuses identically (`out := greet("bob")` with `greet` defined in the
+same file → `unsupported call "greet" in word position (v2)`). The gap
+is the call-EXPRESSION, not the import.
+
+## WHY
+
+The A1 `Function` node is a statement-level sub (echo-based); there is
+no call-expression primitive that carries a function's RETURN VALUE
+into a word — a word-position call to a user function has no value
+carrier. The app instance is doubly unreachable: (i) the callee's body
+lives in ANOTHER compilation unit (go-sh.go — the golib), which is not
+in the transpiled input (the app is the CLI, main.go only), and (ii)
+even inlined, the golib is the §2/§3/§5 no-A1 dialect (maps, structs,
+methods, interfaces, json, goroutines — DOGFOOD.md (a)/(d)). A
+lowering that drops the qualifier (`Shir "$src"`) would emit a call to
+an UNDEFINED sub — a runtime failure where `go run` prints shIR JSON
+and exits 0 — a silent divergence, not a translation (Refuse > guess).
+The whitelist's value-returning special cases (`n, err :=
+strconv.Atoi`, `b, _ := os.ReadFile` — the `err` target skipped) are
+per-function foldings, not a call-expression contract; the app's
+`([]byte, error)` multi-value return is the §5 error-value class.
+
+## MINIMAL-CORE-CHANGE
+
+None proposed — declared boundary (same class as §2 function values /
+§5 error values). A call-expression contract (a Function return-value
+convention — e.g. capture of the sub's stdout, or a call node with an
+out-var) is a plan-level design decision, not a corpus fix; the
+frontend keeps refusing loudly.
+
+## FAILING-CASE
+
+Ladder probe `templates/go/qualified_call.go` (sig
+`golib\.[A-Z][A-Za-z0-9]*\(` — fires on main.go:32):
+
+```go
+before, after, found := strings.Cut("a=b", "=")
+fmt.Println(before, after, found)
+```
+Oracle (`go run` of the wrapped snippet): `a b true`. go-sh today:
+`unsupported call "strings.Cut" in word position (v2)` (exit 2) — the
+same refusal path and message shape as the app's
+`unsupported call "golib.Shir" in word position (v2)` (main.go:32).
+strings.Cut is the hermetic stdlib stand-in for the app's user-package
+call: same parse shape (`call{callee:"pkg.Func"}`), same position
+(multi-assign RHS), a multi-value return like the app's `([]byte,
+error)` — and `go run` of the wrapped snippet is deterministic with no
+module deps (a user-package call cannot compile in the single-file
+probe wrapper). Probe stays red, documented (verdict EMIT-FAIL).

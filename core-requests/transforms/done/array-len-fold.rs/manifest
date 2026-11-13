@@ -1,0 +1,16 @@
+name: array-len-fold
+prereqs: [none — param("slice", …, "@", …) comes straight from the
+  parser's subscript lowering, which tags `${#arr[@]}`'s length read by
+  keeping the `#` in the NAME slot]
+invariant: param("slice", "#NAME", "@", "") folds to arrayLen(NAME)
+  only when NAME is a plain identifier ([A-Za-z_][A-Za-z0-9_]*) and the
+  length slot is a literal ""/absent. `${#arr[@]}` / `${#arr[*]}` is
+  bash's element count of the list, and arrayLen is the contract's
+  element-count node — a renaming, not a semantic change. Kept
+  untouched: plain-name list reads (a whole-list, not a length), any
+  non-"@" offset (a numeric offset is a substring OF THE COUNT,
+  `${#arr:2}`), non-empty/non-literal lengths, the (k) annotation
+  arity, and any name that is not "#" + plain identifier.
+scope: offered to all (estree, c, go, java, perl, python, rust, sh,
+  fish, zig, zsh, glsl)
+updates: none (first offer)

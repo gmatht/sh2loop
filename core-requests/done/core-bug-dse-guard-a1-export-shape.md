@@ -1,0 +1,50 @@
+# core bug: DSE deletes stores observed only through `export NAME` (A1 builtin-call shape)
+
+## NEED
+`shir_passes/optimize.rs::collect_decl_guard` must recognize declaration
+builtins in the A1 builtin-Call shape, not just the legacy Exec+string
+shape. Offered from the C-backend worktree (branch backend/c, commit
+a56544bc) — the fix is already written and verified there; the core owner
+can take it verbatim or re-derive.
+
+## FAILING-CASE
+```bash
+SHELL_VAR="Hello World"
+export SHELL_VAR
+perl -e 'print "Shell variable: $ENV{SHELL_VAR}\n"'   # or any child reader
+```
+(example: sh2perl/examples/045_shell_calling_perl.sh)
+
+## EVIDENCE
+- `X="…"` lowers to IrStmt::Assign; `export X` lowers to
+  `Expr(Call{func:"builtin", args:[Str("export"), Array([Str("X")])]})`.
+- `dead_store_elim` sees zero READS of X (the only read happens inside a
+  child process via the environment) → deletes the Assign.
+- collect_decl_guard guards only `IrStmt::Exec` whose string arg starts
+  with "declare/export/readonly/typeset" — the A1 Call shape falls into
+  its `_ => {}` arm.
+- C backend gate: 045_shell_calling_perl regressed the moment the
+  optimize pass joined the --shir-in-c ingest pipeline.
+
+## FIX (verified in backend/c a56544bc)
+Extend collect_decl_guard with an `IrStmt::Expr(IrExpr::Call{func,..})
+if func == "exec" | "builtin"` arm: when cmd is export/declare/readonly/
+typeset, guard every non-flag, non-`=`-containing word operand.
+lib tests stay green; c gate returns to expected tally.
+
+## SECOND ITEM (same review): posix-sh-go A1 missing split markers
+frontends/posix-sh-go/testdata/t62_word_split.sh: `printf "<%s>\n" $x`
+arrives with `$x` as a PLAIN var read (no split marker), so backends that
+render printf natively print one argument instead of field-splitting.
+The sh/estree references split — the A1 ingress for this frontend needs
+the split marker (or backends must shell out every unquoted expansion).
+
+## OUTCOME: implemented
+
+`collect_decl_guard` (shir_passes/optimize.rs:2187) already guards name operands
+in BOTH shapes — the legacy `IrStmt::Exec` string and the A1
+`Expr(Call { func: "exec" | "builtin" })` form — so `X=…; export X` keeps its
+store. Pinned by the new `decl_guard_sees_both_shapes` unit test (flags and
+`NAME=value` operands are not guarded). The SECOND ITEM (posix-sh-go A1 split
+markers) is a frontend-ingress gap in `frontends/posix-sh-go`, not shared core
+— that half needs the posix-sh-go worker.

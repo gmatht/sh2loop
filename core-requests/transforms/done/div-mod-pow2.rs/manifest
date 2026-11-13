@@ -7,3 +7,6 @@ invariant: analysis-only; no structural mutation. A node is marked
 scope: offered to c, go, rust, zig, estree (shift-capable); the glsl
   backend MUST ignore the verdict (ES 1.00 has no bitwise ops)
 updates: none (first offer)
+proof: proof/Invariant.thy#div_mod_pow2_sound (checked — Isabelle2025-2,
+  quick_and_dirty=false; also pow2_pos, non_negative_bin_iff, shift_agrees;
+  negative control observed to fail)

@@ -1,0 +1,44 @@
+name: test-lowering (braced-operand update)
+prereqs: [none — extends the existing operand() reader; no new nodes]
+invariant: `${name}` and `$name` are the same read, so the shared
+  string-shape operand reader accepts the braced spelling exactly like
+  numeric_operand always has. The braces are stripped, then the SAME
+  plain-identifier gate applies, so `${v:0:1}`, `${#v}`, `${v:-x}` and
+  positional `$3` still refuse (pinned by the existing
+  non_affix_and_complex_operands_refuse test and two new refusal
+  assertions). Three arms consume operand() and all three benefit:
+  nonempty (-n/-z), glob-affix (lhs + pattern), string-eq (lhs; the
+  arm's own `{`/`}` metachar guard still refuses a braced operand in
+  the ==/=/!= shapes — the guard runs before operand(), so that class
+  stays on the runtime path unchanged, pinned by a new test). The
+  status-liveness guard is untouched: `[ -n "${VAR}" ] || VAR=x` keeps
+  its test call because the || chain reads the exit status (measured:
+  2 of the 10 candidate corpus sites correctly stay).
+scope: offered to all (estree, c, go, java, perl, python, rust, sh,
+  fish, zig, zsh) — the lift is target-independent shIR→shIR inside
+  the existing shared transform; every backend already renders the
+  resulting BinOp/strHasPrefix leaves natively.
+updates: test-lowering (accepted canonical set, transforms.rs
+  ("test-lowering", test_lowering::transform) — registration unchanged;
+  this offer is the delta in operand() plus the
+  braced_var_operands_lower_like_plain_ones unit test).
+metrics: sh2 callouts TOTAL 2302 → 2294 (test 166 → 158), measured
+  with plmetric over the 560-example corpus. 8 of 10 candidate sites
+  lift: the -n "${so}"/-n "${se}" pairs in id-cmdsub/readonly-cmdsub/
+  tty-cmdsub, -n "${iface}" (dqs-nested-awk-sed), -z
+  "${INTERPRETER_UNDER_TEST}" (heredoc-binary-data), and one more -n
+  site; the 2 func-after-* sites stay (status liveness — refuse >
+  guess). Corpus-wide shIR byte-diff vs the pre-offer binary: exactly
+  5 files changed (dqs-nested-awk-sed, heredoc-binary-data, id-cmdsub,
+  readonly-cmdsub, tty-cmdsub); the other 555 examples are
+  byte-identical.
+gates (2026-10-20, this workspace): sh2perl lib 1391 pass / 10 fail —
+  the 10 are the pre-existing c_backend baseline (failure set diffed
+  identical with and without the change); test_lowering module 14/14
+  green (13 existing + 1 new); check_qx green on all 7 touched
+  renders; ./fail and ./fail-estree prefix runs 7/7  green over the 5 changed files + the 2 refused ones (both verdicts);
+  full ./fail chunked corpus gate LANDED: 14/14 chunks rc=0,
+  CHUNKED-DONE, zero FAIL/TIMEOUT lines across all 560+ example runs
+  on the post-update binary (fresh grind, no stale seed — progress file
+  cleared before launch).
+

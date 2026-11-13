@@ -1,0 +1,44 @@
+div-mod-pow2 — machine-checked invariant (Tier 1)
+
+  /opt/Isabelle2025-2/bin/isabelle build -D . Invariant
+
+STATUS: checked. Isabelle2025-2, log written to
+~/.isabelle/Isabelle2025-2/heaps/*/log/Invariant.{db,gz}. Built from
+scratch (`-c`) with `quick_and_dirty = false`, so no `sorry`/`oops` can be
+hiding in it. Runtime ~30 s (HOL image already present; ~6 min on a cold
+image).
+
+What is proved in Invariant.thy:
+
+  div_mod_pow2_sound    non_negative e ==> 0 <= eval e
+      The verdict the transform publishes never has a false positive: every
+      node it marks SHIFTABLE has a genuinely non-negative dividend, so
+      rewriting `/ 2^n` to `>> n` cannot turn -3/2 = -1 into -3>>1 = -2.
+
+  pow2_pos              pow2 (Num n) ==> n > 0 & (EX k. n = 2 ^ k)
+      A marked divisor is a real power of two — the exact divisor the shift
+      rewrite needs.
+
+  non_negative_bin_iff  non_negative (Bin op l r) <-> (op = "+" | op = "*")
+                          & non_negative l & non_negative r
+      The one-step unfolding: the analysis does not miss a "+"/"*" node
+      whose operands it proved (a false negative the manifest allows does
+      not happen for this easy case).
+
+  shift_agrees          (0 <= n; d = 2 ^ k) ==> n div d = n div 2 ^ k
+      The semantic content of the consumers, not just of the verdict.
+
+Because the transform is analysis-only (it mutates nothing and returns
+false), this semantic lemma IS its whole obligation — there is no
+program-transformation step to justify.
+
+NEGATIVE CONTROL (observed, not assumed): adding
+
+  lemma "non_negative (Bin ''-'' (Num 0) (Num 5))" by simp
+
+makes the build FAIL with `goal (1 subgoal): 1. False`. A green session is
+therefore not vacuous.
+
+Scope: Tier 1 — arithmetic only, no shell semantics, pure HOL, no AFP.
+It says nothing about bash word splitting, `IFS`, or `${v:0}` on arrays.
+Those need the semantics layer this file deliberately does not attempt.

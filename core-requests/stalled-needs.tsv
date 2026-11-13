@@ -1,26 +1,20 @@
 # stalled core-requests — revisited (stalled-first) before general estree work
 # lang	filename	title
-array-flatten-positional	array-flatten-positional-20260806-b.md	> RESEND (re-filing). The 21:07/23:06 finalize moved the original to
-assoc-arrays	assoc-arrays-20260806-b.md	> RESEND (this is a re-filing). The 23:06 finalize moved the original to
-c	c-20260807-153616.md	c: TRAPPED (build fails repeatedly)
-c-dynamic-subscripts	c-dynamic-subscripts-20260806-b.md	> RESEND (re-filing). The 21:07/23:06 finalize moved the original to
-c-sh-go-float-arith	c-sh-go-float-arith-20260807.md	c-sh-go: float arithmetic in the runtime (`sh2.floatArith`)
-cpp-sh-go	cpp-sh-go-20260813-005817.md	cpp-sh-go: TRAPPED (build fails repeatedly)
-cpp-sh-go-optional-param	cpp-sh-go-optional-param-20260815-172052.md	cpp-sh-go: default (optional) parameters — A1 contract lacks a defaults representation
-estree	estree-20260813-182431-inline-pure-fns.md	estree: inline pure leaf functions — kill the per-call async fnCall dispatch
-estree	estree-20260813-182432-split-elide-typed-args.md	estree: extend the no-op field-split elision to fnCall/exec arguments
-estree	estree-20260813-182433-lastexit-test-liveness.md	estree: lastExit-write liveness for [ ]-test conditions (drop the _g/lastExit dance)
-estree	estree-20260813-182434-const-fold-arith.md	estree: constant folding over the A1 (arith + const pool) and native $(( )) elision
-estree	estree-20260813-182435-dce-dead-vars.md	estree: dead-store elimination for never-read variables (drop setVar/store syncs)
-estree	estree-20260813-182436-loop-index-srr.md	estree: loop-invariant hoisting + index strength reduction in For/While bodies
-estree	estree-20260813-182437-typed-lowering-var-types.md	estree: typed lowering — consume var_types (numeric lift + native int arrays) for the JS backend
-estree	estree-20260813-182438-a1-array-param-key-bug.md	estree: CORRECTNESS — A1-path array reads emit store-key "$gi" instead of the JS param value
-estree	estree-20260813-182439-a1-array-local-lift-key-bug.md	estree: CORRECTNESS — A1-path arrayIndex store-key also breaks FUNCTION-LOCAL lifted vars (extends …-a1-array-param-key-bug)
-estree	estree-20260813-182440-strip-dead-env-fallback.md	estree: strip the dead `?? (sh2.env.x ?? "")` fallback tail on store reads
-estree	estree-20260813-182441-loop-status-interproc.md	estree: interprocedural loop-status deadness — elide the __sh2_loop_ran/__sh2_loop_last tracking
-estree	estree-20260813-182442-case-lookup-table.md	estree: pure-int case → const lookup table (hardness/texture_of/block_color/mime_tex_of)
-estree	estree-20260813-182443-writefile-status-liveness.md	estree: fs.writeFile status-liveness — drop the .then((r) => lastExit=0, true) when $? is dead
-estree	estree-20260813-183713-a1-ssa-const-copy-prop.md	estree: shared A1-level optimizer — single-def (SSA-style) const/copy propagation + dead-store elimination
-estree	estree-20260813-184909-string-accumulator.md	estree: string-accumulator transform — `v="$v$seg"` in a loop → chunk array + join at reads
-estree	estree-20260813-201235-hoist-pure-loop-invariants.md	estree: hoist loop-invariant PURE function calls out of inner loops
-estree	estree-20260813-235901-a1-loop-scan-hang.md	estree: A1 path — the radar-base scan (hud_build_static) loops forever in the full game
+bash-o4	bash-o4-20261019-texbg-jobs-int-home.md	core-request: int-homed array stores string values via atoll (name table zeroed)
+c	c-20261031-122920.md	c: TRAPPED (build fails repeatedly)
+c	c-20261101-233004.md	c: TRAPPED (build fails repeatedly)
+c	c-20261104-flattened-subscript.md	Core: element writes keep the subscript as TEXT — and `$((…))` in an array literal produces a stray `)`
+c	c-20261104-keys-face.md	`${!arr[*]}` loses its 1-char FACE in the shIR (keys always arrive as `@`)
+c	c-20261104-unquoted-empty-word.md	The IR cannot say "this word was unquoted", so an empty unquoted expansion keeps one word
+c	c-20261105-keys-face-collapse.md	`${!a…}` collapses five spellings onto one node — the face bit and the bounds are lost in the PARSER
+c	c-20261109-114652.md	c: TRAPPED (build fails repeatedly)
+go	go-20261031-124126.md	go: TRAPPED (build fails repeatedly)
+go	go-20261101-233308.md	go: TRAPPED (build fails repeatedly)
+go	go-20261109-115008.md	go: TRAPPED (build fails repeatedly)
+perl	perl-20261031-123430.md	perl: TRAPPED (build fails repeatedly)
+perl	perl-20261101-233202.md	perl: TRAPPED (build fails repeatedly)
+perl	perl-20261109-114840.md	perl: TRAPPED (build fails repeatedly)
+python	python-20261111-case-extglob-parse.md	`case` with an extglob operator in a pattern is silently dropped
+python	python-20261111-subscript-slice.md	Parser drops `:off:len` when the expanded name has a subscript, and `#` on an element
+rust	rust-20261101-130500.md	A1→ESTree drops two sibling `setArray` statements at the head of `Program.stmts`
+rust	rust-20261104-093430.md	estree backend: a never-written, non-reserved name's read folds to `""` and drops the env fallback

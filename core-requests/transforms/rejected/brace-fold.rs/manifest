@@ -1,0 +1,45 @@
+name: brace-fold
+prereqs: [none — Call { func: "brace" } comes straight from the parser's
+  brace-expansion lowering; the four args are [prefix-Str, Json(groups),
+  Json(middles), suffix-Str]; expansion reuses ir::brace_expand (now
+  pub(crate)) so a folded program and a render-time expansion cannot
+  diverge]
+invariant: inside a LIST position — an IrExpr::Array element or a
+  DeclareArray element — a brace call whose four args are all literal
+  expands to one Str per word, spliced in place, via the canonical
+  ir::brace_expand (cross-product of groups + middles + prefix/suffix,
+  same 4096 bound the renderers use). Every other position is refused
+  untouched: bare scalar assignment (bash does NOT brace-expand
+  assignment values — `v=file_{a,b}.txt` stays literal, probed
+  2026-10-20), conditions, redirect words, Interpolate embeddings,
+  non-Str prefix/suffix, and empty expansions (`{}` is literal text).
+  Registered BEFORE const-capture-fold so `result=$(echo {1..5})`
+  cascades: splice → literal words → capture folds → const-prop kills
+  the variable (measured −brace −exec −getVar on 011_brace_expansion,
+  file TOTAL 8+ → 0).
+scope: offered to all (estree, c, go, java, perl, python, rust, sh,
+  fish, zig, zsh, glsl) — the output is plain Array-of-Str word lists,
+  the parser's own spelling of literal words; no new node types.
+updates: none (first offer)
+metrics: sh2 callouts TOTAL 2356 → 2302 (brace 52 → 0; exec 592 → 591;
+  getVar 837 → 836), measured with plmetric over the 560-example corpus.
+gates (2026-10-20, this workspace): sh2perl lib 1388 pass / 9 fail —
+  the 9 are the pre-existing c_backend baseline, zero new; brace_fold
+  unit tests 13/13 stable across 6 consecutive runs; fail-estree
+  25/25 prefix runs green over exactly the affected examples (both perl
+  and estree verdicts); full ./fail corpus gate: see offer update below.
+also lands with this offer: ir.rs expand_range direction fix — bash
+  takes the step as a MAGNITUDE and the direction from endpoint order
+  ({5..1} → 5 4 3 2 1; {1..5..-2} → 1 3 5; probed vs bash). The old
+  signed loop returned EMPTY for every descending range, so
+  `for i in {5..1}` rendered a zero-iteration loop (perl `(())` vs bash
+  `5 4 3 2 1` — measured pre-fix), and the 1024-item bound used the
+  signed distance and never tripped on descending ranges. Strictly
+  expands what the renderers emit; corpus gates unaffected (no
+  descending ranges in the corpus).
+known pre-existing divergence kept at the refused position: scalar
+  assignment keeps the render-time expansion and joins
+  (`v={x,y}` → "x y" vs bash literal "{x,y}"); 0 corpus sites, left
+  untouched rather than reconstruct raw source text from the Json spec
+  (refuse > guess). Backend lanes can fold it per-target if their
+  gates want it.

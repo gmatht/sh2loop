@@ -1,0 +1,4 @@
+### mod
+pub mod affix_strip_fold; // OFFER core-requests/transforms/offered/affix-strip-fold.rs: magic-free literal ${v#lit}/${v%lit} → the shared AffixStrip node (retires the glob/regex strip helper on rust/java)
+### all
+        ("affix-strip-fold", affix_strip_fold::transform),

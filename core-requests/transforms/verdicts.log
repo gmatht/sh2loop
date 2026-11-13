@@ -5592,3 +5592,4 @@ bundle:defer	-	SPEC-OK MANIFEST-OK	spec OK (generator emitted a well-formed patc
 bundle:defer/defer-cleanup-list	-	OFFER-OK	manifest complete, depends [Defer]	1786944588
 bundle:defer/defer-lowering	-	OFFER-OK	manifest complete, depends [Defer]	1786944588
 bundle:defer	-	SPEC-OK MANIFEST-OK	spec OK (generator emitted a well-formed patch + fixture); manifest OK	1786944588
+not-identity-flip	zig	ACCEPT	zig accepts the rust-accepted flip offer: exact complement pairs (std.mem.eql/!std.mem.eql, i64 </>) — no Perl Eq/Ne asymmetry; canonical copy landed in backends/zig with the rs|rust|zig target arm; !! double-negation residue 17 -> 0 corpus-wide	1793016879

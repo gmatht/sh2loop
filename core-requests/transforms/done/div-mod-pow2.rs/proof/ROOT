@@ -1,0 +1,3 @@
+session Invariant = HOL +
+  options [quick_and_dirty = false]
+  theories Invariant

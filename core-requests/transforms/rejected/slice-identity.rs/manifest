@@ -1,0 +1,12 @@
+name: slice-identity
+prereqs: [none — param("slice") is emitted by the parser subscript
+  lowering]
+invariant: param("slice", NAME, OFF, LEN) folds to the plain read
+  param("", NAME) only when NAME is a plain identifier, OFF is a literal
+  "0"/"" and LEN is a literal ""/absent — `${v:0:}` and `${v}` expand
+  identically in every context. All subscripts/positions/indirections
+  (arr[@], @, *, !p, #n), non-literal offsets and non-empty lengths
+  (including "0": `${v:0:0}` is empty) are untouched.
+scope: offered to all (estree, c, go, java, perl, python, rust, sh,
+  fish, zig, zsh, glsl)
+updates: none (first offer)
