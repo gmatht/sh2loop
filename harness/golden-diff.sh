@@ -92,8 +92,8 @@ fi
 if [ -z "$B" ]; then
   # single set: report its own stamp and status counts
   echo "set:      $(describe "$A")"
-  echo "renderer: $(set_field "$A" kind) $(set_field "$A" path)"
-  echo "corpus:   $(set_field "$A" sha256)"
+  echo "stamp:    $(sed -n '/"renderer"/p' "$A/render.json")"
+  echo "corpus:   $(sed -n '/"corpus"/p' "$A/render.json")"
   echo "unstable: $(set_field "$A" unstable)"
   awk -F'\t' '{c[$4]++} END {for (k in c) printf "  %-9s %d\n", k, c[k]}' "$A/MANIFEST.tsv"
   exit 0
