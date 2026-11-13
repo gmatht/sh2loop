@@ -368,6 +368,63 @@ fn ingest(a1: &str, lang: &str) -> Result<(debashl::ir::IrProgram, String), Stri
     Ok((prog, kind))
 }
 
+/// The FRONTEND TYPED INGRESS (py-sh-go first; the other imperative
+/// frontends share the same A1 dialect). A frontend spells a numeric
+/// literal as a `Str` and records the domain only in the A2 verdict, and
+/// its `if` TEST references arrive inside shell words, so the shell
+/// analyses never see what the source language meant:
+///
+/// * capture-fold — a command substitution whose body is a constant
+///   `echo` folds to the literal it prints (`v = $(echo hi)`), the fold
+///   the bash pipeline gets in `ast_to_ir`;
+/// * int-lift — an `Int`-typed single-def name whose value is a numeric
+///   literal (or literal arithmetic) becomes the shIR `Int`, so the
+///   renderers' numeric homes apply;
+/// * scoped-hoist — a main-scope name assigned once at the top level and
+///   read only from a conditional's TEST becomes a Declaration, which owns
+///   its binding at any depth (the analysis that feeds every renderer's
+///   local-vs-global verdict records a test read as `top: false`, so the
+///   name otherwise falls all the way back to global/environment storage);
+/// * copy-propagation (typed) — the const fold of the transform phase plus
+///   an `Int`-typed numeric-literal def, so `x = 1 + 2; print(x)` renders
+///   `print(3)` instead of a discarded store and a read of an unbound name;
+/// * dead-store-elim — only for the store that fold made dead.
+///
+/// Every step is refuse>guess and a no-op on a program that already
+/// carries the shell convention. `ingress_normalize` and `shir_opt` both
+/// run it, so the exported A1 is exactly what the renderers receive.
+pub fn frontend_ingress(prog: &mut debashl::ir::IrProgram) {
+    // redundant-store-elim BEFORE the dead-store census: a frontend emits
+    // an unconditional store the next unconditional store overwrites
+    // (`x = "a"; x = "b"`, py-sh-go t07), which makes the name
+    // MULTI-ASSIGNED — so the const analysis calls it `Var` and
+    // dead-store-elim must keep both stores however dead the first is.
+    // Dropping the overwritten store in the IR first leaves ONE live
+    // definition, which is what every renderer's own single-def analysis
+    // needs to bind it as a plain local. Refuse>guess lives in the pass:
+    // any read, observer or indirect access between the two stores keeps
+    // both.
+    let _ = debashl::transforms::redundant_store_elim::transform(&mut prog.stmts);
+    {
+        use debashl::shir_passes::Transform;
+        let ctx = debashl::shir_passes::PassContext::default();
+        debashl::shir_passes::frontend_capture_fold::FrontendCaptureFold.run(prog, &ctx);
+        debashl::shir_passes::frontend_int_lift::FrontendIntLift.run(prog, &ctx);
+        debashl::shir_passes::scoped_hoist::ScopedHoist.run(prog, &ctx);
+        let ints = debashl::shir_passes::frontend_types::int_names(prog);
+        // (const-folding only — NOT the dead-store/echo-return family: a
+        // frontend's `echo` stays its own command, which the renderers lower
+        // natively; the transform phase's echo-return fold rewrites it into
+        // the shell `Output` node and the frontend print changes shape.)
+        let _ = debashl::transforms::copy_propagation::transform_with_types(&mut prog.stmts, &ints);
+        // a store whose value was folded away as DEAD (a frontend's
+        // unconditional-then-overwritten pair — `x = "a"; x = "b"`, t07)
+        // is only visible as `let _ = …` to the renderer; the shared DSE
+        // removes it in the IR, where every backend agrees.
+        let _ = debashl::transforms::dead_store_elim::transform(&mut prog.stmts);
+    }
+}
+
 /// The FRONTEND A1 ingress pass set — everything `ingest` runs on a
 /// program after the JSON ingress, factored out so the one-shot
 /// `render_exported_prog` (shell source → `ast_to_ir` → HERE → backend)
@@ -439,6 +496,7 @@ fn ingress_normalize(mut prog: &mut debashl::ir::IrProgram, kind: &str) {
     if kind == "estree" {
         debashl::shir_passes::restructure_goto_if_present(&mut prog);
     } else {
+        frontend_ingress(&mut prog);
         debashl::shir_passes::restructure_goto_only(&mut prog);
         // rich nodes (C-style ForInit) → the shell-flavored A1 the renderers
         // expect; a survivor means this pipeline forgot the strip.
@@ -476,7 +534,12 @@ fn ingress_normalize(mut prog: &mut debashl::ir::IrProgram, kind: &str) {
 /// backend, serialized back to shIR JSON. The GUI shows this next to the
 /// raw frontend output so the ingress passes are inspectable.
 pub fn shir_opt(a1: &str, lang: &str) -> Result<String, String> {
-    let (prog, _) = ingest(a1, lang)?;
+    let (mut prog, kind) = ingest(a1, lang)?;
+    // the frontend-typed ingress runs BEFORE any backend consumes the
+    // program, so the exported A1 is exactly what the renderers receive.
+    if kind != "estree" {
+        frontend_ingress(&mut prog);
+    }
     Ok(debashl::shir_json::shir_to_shir_json(&prog))
 }
 
