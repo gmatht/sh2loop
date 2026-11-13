@@ -142,3 +142,4 @@ __pycache__/
 
 # golden render record (machine state; see docs/GOLDEN-RECORD.md)
 .golden-inbox/
+/.golden-nightly.lock

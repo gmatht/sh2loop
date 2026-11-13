@@ -111,3 +111,26 @@ git add INDEX.tsv && git commit -m "sets: $(date -u +%F) round"   # INDEX only
 `INDEX.tsv` is the committed correlation table (backend, sh2perl sha, corpus
 sha, counts); the tarball is the corpus itself. `sets/` stays gitignored, so a
 round costs one small commit plus one release asset.
+
+## The nightly round (cron, 03:14)
+
+`harness/golden-nightly.sh` is installed as
+
+```
+14 3 * * * /mnt/wsl/projects/sh2loop/harness/golden-nightly.sh >>/mnt/wsl/projects/sh2loop/loop-golden.log 2>&1
+```
+
+(install idempotently with `harness/golden-nightly.sh --install-cron`; the
+path is machine state, not in git — re-run it if the tree moves, the same rule
+as `reap-orphan-examples.sh`).
+
+It takes `.golden-nightly.lock` (no two rounds, and no round racing a
+hand-run `golden-render.sh`), fast-forwards its clone of `gmatht/sh2examples`
+(refusing to publish over local commits someone made by hand), renders every
+backend `--jobs 2` (this box wedges on IO when several compiles overlap),
+tars the sets, creates the release, and commits **only** `INDEX.tsv`.
+
+Trial runs: `harness/golden-nightly.sh --dry-run --backends fish --limit 3`
+(renders and builds the tarball, publishes nothing). The first real round will
+also carry full sets for every backend with a `shir_render` binary; the
+existing rust/go/c/fish sets were recorded by hand.
