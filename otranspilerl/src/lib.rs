@@ -251,6 +251,32 @@ pub fn parse_error_perl_fallback(msg: &str) -> String {
     )
 }
 
+/// The parse-error PYTHON fallback: a program that prints the diagnostic to
+/// stderr and exits 2 — bash's syntax-error verdict. The `py` target had no
+/// fallback at all, so an unparseable source rendered the EMPTY program,
+/// which exits 0 (`parse-double-semicolon`, `parse-error-doublesemicolon`,
+/// `parse-parameter-expansion-eof`, `parse-paren-after-do` and
+/// `parse-unexpected-end-of-input` all showed bash rc 2 vs python rc 0).
+/// Parity with the Perl/Rust fallbacks above: stdout stays empty on both
+/// sides, only the verdict moves.
+pub fn parse_error_python_fallback(msg: &str) -> String {
+    // The message is a Python string literal: escape the backslash FIRST,
+    // then the quote, the newline and the two characters Python itself
+    // would interpret inside a normal literal.
+    let msg = msg
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t");
+    format!(
+        "#!/usr/bin/env python3\n\
+         import sys\n\
+         sys.stderr.write(\"syntax error: {msg}\\n\")\n\
+         sys.exit(2)\n"
+    )
+}
+
 /// The parse-error RUST fallback: a program that prints the diagnostic to
 /// stderr and exits 2 — bash's syntax-error verdict. The `rs` target had no
 /// fallback at all, so an unparseable script rendered the EMPTY program,
@@ -1483,6 +1509,21 @@ pub fn cli_at(
                     stderr,
                     &output,
                     parse_error_perl_fallback(&e.to_string()).as_bytes(),
+                );
+            }
+        }
+    }
+
+    // The same parity for the Python backend: an unparseable shell source
+    // must exit 2 like bash instead of running the empty program (rc 0).
+    if tgt_lang == "py" && src_lang == "sh" {
+        if let Ok(content) = read_source(&input) {
+            if let Err(e) = debashl::Parser::new(&content).parse() {
+                return write_out(
+                    stdout,
+                    stderr,
+                    &output,
+                    parse_error_python_fallback(&e.to_string()).as_bytes(),
                 );
             }
         }
