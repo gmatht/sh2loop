@@ -12,6 +12,139 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+>
+> *Every figure inside a dated entry below is that entry's own tree state: the entries before v156
+> were measured on the submodule revision current at their date (and its CI), not on this
+> workspace's HEAD `d1416dfcd`. The corpus count and the `./fail` / `fail-rs` lines there are
+> historical records, not claims about this tree — v156 states the current-tree measurements, with
+> the commands that produced them. Do not compare a figure across entries without re-measuring.*
+> *Concretely: the pre-v156 entries' corpus figure of 563 examples is NOT reproducible from this
+> clone. The pinned revision `d1416dfcd` (== `git -C sh2perl rev-parse HEAD`) has 555
+> `examples/*.sh`; every gitlink in the last 60 workspace commits has 555; and none of the 267
+> submodule commits that touch `examples/` (out of 4,991 reachable) has 563 or 564. Treat 563 as
+> another tree state, and the v156 numbers as the ones that hold here.*
+> - v156: **Rust output: native `std` at the call site instead of the polyfill.** The renderer now
+>   lowers whole classes of emitted `__sh_*` helpers to native Rust, and the surviving helpers were
+>   golfed. Five changes, each with a pinned test:
+>   (1) **`printf` is a `format!` when its FORMAT is a literal.** A literal format whose conversions
+>   are all plain `%s`/`%d`/`%i`/`%%` (no flags/width/precision/length modifier), whose argument count
+>   equals the conversion count and whose arguments are not word lists, renders as a native `format!`
+>   — which the existing `collapse_print_format` pass folds into `print!("v={}\n", …)`. Everything
+>   else (`%q`, `%b`, `%f`, `%5s`, format RE-USE with extra args, a variable format, `\c`, `\0NNN`
+>   octal, a bare `\x`) keeps `__sh_printf`; the decoder is `unescape_ansi_c`'s table, refused
+>   wholesale on anything it cannot express. `%d` still routes through `__sh_atoi` (bash: `abc` is
+>   0, `0x10` is 16 — `str::parse` is not the same function).
+>   (2) **The `printf_b` indirection is gone** — `__sh_printf`'s `%b` arm calls `__sh_echo_esc`
+>   directly, and `helper_deps("printf")` names `echo_esc` instead. (The registry entry stays; the
+>   helper prune drops the one-line shim.)
+>   (3) **Literal `#`/`%` strips are `strip_prefix`/`strip_suffix`** — a pattern with no expansion and
+>   no glob metachar (greedy and non-greedy are the same call for such a pattern) no longer drags in
+>   the 117-line matcher.
+>   (4) **A metachar-free, escape-free case pattern is a string compare** (`case x in abc)`), and
+>   whole-string `${v^^}`/`${v,,}` are `to_uppercase`/`to_lowercase` — `__sh_case` survives only for
+>   the `^`/`,` one-character forms.
+>   (5) **The surviving helper bodies were golfed**: `__sh_cat` → `ws.concat()`, `__sh_wq` →
+>   `join(" ")`, `__sh_lines` → `map(str::to_string)`, `__sh_split_ifs` → `trim_start_matches` +
+>   `split` + `retain` (kept char-exact — `split_whitespace` would also split on NBSP, which bash's
+>   `IFS=" \t\n"` does not), `__sh_case` → the `std` case methods.
+>   (6) **A literal `grep -o` pattern is a native scan.** `__sh_grepmatches` always carried the
+>   BRE→ERE→`regex` path; when the pattern is a string literal with no newline, no BRE
+>   metacharacter (`.`/`*`/`[`/`]`/`^`/`$`/`\`) and no flags (`-E` changes the dialect, `-i`
+>   folds case), the helper's contract is exactly "every non-overlapping occurrence, one per
+>   line, rc 0 on a hit and 1 on none", which `str::matches` + `vec![lit; n].join("\n")` gives.
+>   Programs emitting it **3 → 0**; two of them (`012_process_substitution`,
+>   `039_process_substitution_here`) had no other `regex` use, so they no longer emit the crate
+>   at all (see (a)/(b)). Everything else — a metacharacter, a flag, an empty pattern, `-i`,
+>   a variable — keeps `__sh_grepmatches` and its 50-line body.
+>   **Corpus, reconciled — this is the count the harness actually runs.** `fail` (line 25),
+>   `harness/fail-rs` (line 63) and `harness/rust-warning-census.sh` (line 28) all read
+>   `sh2perl/examples`, and `FAIL_CORPUS` is unset. Workspace HEAD `f7abc50e` pins submodule
+>   `d1416dfcd`, which is also `git -C sh2perl rev-parse HEAD`, so the `M sh2perl` in `git status`
+>   is dirty CONTENT (this change), not a stale pointer. `git status --porcelain examples` is empty
+>   and the worktree's `*.sh` names equal HEAD's `ls-tree` names (555, `comm` both ways empty). So
+>   the corpus is **555 `*.sh`**: 7 fail `bash -n` (the deliberate parse-error fixtures), and
+>   **548** are rendered. The plan's Phase-0 "563-example corpus" is not this tree (see the note
+>   under the revision-history heading): no reachable revision has 563, and v155's own gitlink
+>   (`c567dd13` → `fc66d62a`) has 555. The 11 deliberate-failure fixtures are archived in
+>   `examples.bad/` (moved out at `5833e8f99`), outside the gate corpus by design. **Every figure
+>   below is 555/548, measured 2026-11-19.**
+>   **Measured over those 548 renders** (`du -cb /tmp/v/renders_{head,mine}/*.rs`; helper counts are
+>   per-file sums — `cat *.rs | grep -c '^fn __sh_'` UNDERCOUNTS, because a render that does not end
+>   in a newline merges its last line with the next file's first, and the helpers sit at the top):
+>   **1,882,258 → 1,786,162 bytes (−96,096, −5.1%)**, helper definitions **1,382 → 1,315**, and
+>   `__sh_*` call/definition sites **3,991 → 3,804** (`grep -oE '__sh_[a-z_0-9]+\('` over all
+>   renders; it counts the definition line too).
+>   Programs emitting each (`grep -l '^fn __sh_<name>(' renders/*.rs | wc -l`): `printf` 9 → 0,
+>   `printf_b` 9 → 0, `q_printf` 9 → 0, `atou` 9 → 0, `atof` 9 → 0, `atoi` 9 → 6, `echo_esc`
+>   17 → 9, `case` 6 → 1, `strippre` 5 → 4, `stripsuf` 3 → 2, `fnmatch` 31 → 30,
+>   `grepmatches` 3 → 0. Unchanged, so nothing was silently folded: `regex` 16, `read_fields` 9,
+>   `split_ifs` 36, `substr` 8, `replace` 2, `glob_like` 1, `basename`/`dirname`/`lines` 0.
+>   **Verification — HEAD and change in one script, on this tree (2026-11-19).** The working file
+>   is copied aside, `git show HEAD:src/rust_backend.rs` is written over it, that arm is built and
+>   gated, then the copy is restored and the restore hash-checked (`FINAL_SHA` == the saved
+>   `1110e763…`); both arms run the SAME 555-example corpus at gitlink `d1416dfcd`.
+>   (a) *Differential* (`/tmp/v_all.sh` → `/tmp/v/diffgate.log`) — rendered both arms (548 each),
+>   compiled and ran HEAD vs change from the same directory: **415 byte-identical stdout+rc, 0
+>   compile regressions**, 5 flagged, each inspected by hand:
+>   `046_cd.` `ls`es its parent directory and sees the harness's own capture file (the line
+>   `o_046_cd..m` is the second run's capture, not program output); `057_case` prints `$0`, and the
+>   two binaries had different names — re-run from identically named paths it is byte-identical;
+>   `012_test_const_read`, `094_until_loop`, `hoist-loop-self-update` are both-sides `timeout 15`
+>   partial outputs (rc 124/124 on both arms), so only their cut-off lengths differ.
+>   `COMPILE_FIXED` 2 (below), `COMPILE_REGRESS` 0.
+>   (b) *Compile failures: the same errors.* **126** renders fail bare `rustc` on BOTH arms;
+>   diffing the `^error` lines of the two stderr captures is identical for **125 of 126**. The one
+>   difference, `018_grep_params`, is exactly the loss of
+>   `error[E0433]: cannot find module or crate 'regex'` — the arm the grepmatches fold removed;
+>   its three real errors (`cannot find value count/lineno/found`, the capture-binding regression
+>   already at HEAD `d1416dfcd`) are present on both sides. At HEAD 15 renders fail bare `rustc`
+>   only for lack of the `regex` crate; the change folds two of them (the grepmatches-only pair),
+>   so 13 remain and the 126 is 113 real errors + 13 unlinked-regex (was 113 + 15 = 128).
+>   (c) *`harness/fail-rs`* — `RS_GATE_OUT=/tmp/v/rs_{head,mine} ./harness/fail-rs`, each arm
+>   against the CLI rebuilt from that arm's `src/rust_backend.rs`: **HEAD `pass=414 fail=134
+>   skip=7`**, **change `pass=414 fail=134 skip=7`**, **0 `TODO(unsupported)` markers both ways**,
+>   exit 1 both. The rosters are IDENTICAL: `diff` of `(name, verdict)` over the two
+>   `verdicts.log`s is empty, and so is the `diff` of the full lines including each
+>   `FAIL-equiv`'s `bash_rc=/rust_rc=`. Breakdown, same in both arms: **414 PASS + 113
+>   `FAIL-rustc` (the class in (b)) + 21 `FAIL-equiv` + 7 `SKIP-bashn`**. The 21 equivalence reds
+>   are unchanged: 7 are both-sides rc-124 timeouts (`012_test_const_read`, `051_primes`,
+>   `094_until_loop`, `bench-count`, `bench-increment`, `hoist-loop-self-update`,
+>   `hot-scalar-accumulator-loop`), the rest rc 0/0 or 0/1 output diffs (`054_fibonacci`,
+>   `055_factorize`, `089_for_in_arith`, `test-bracket-command-sub`, …), all pre-existing.
+>   (d) *`./fail`* — the same two arms: **HEAD 553 passed / 2 failed of 555**, **change 553 / 2 of
+>   555**, exit 1 both. The red set is IDENTICAL and Perl-side:
+>   `064_01_complex_nested_subshells.sh` and `064_hard_to_generate.sh`, both `[perl] stdout
+>   mismatch` — reproduced on unmodified HEAD, so neither is a rust-backend regression (the Perl
+>   target never enters `rust_backend.rs`).
+>   **Unit tests** — `cargo test --lib -- rust_backend`: HEAD **123 pass / 11 fail**, change **138
+>   pass / 11 fail**. The 11 failing names are the same set on both arms (`diff` of the roster is
+>   empty: `assigns_and_echo`, `borrowable_locals_take_str`, `const_len_array_iterates_locally`,
+>   `escaping_loop_var_keeps_its_store`, `if_arith_test`, `literal_literal_ops_are_widened`,
+>   `nested_loops_resolve_outer_binding`, `static_array_value_builds_without_cat`,
+>   `static_for_list_borrows_str_slices`, `stripped_status_store_leaves_no_blank`,
+>   `temporary_boundings_stay_owned`), so all **15** new tests pass (13 for (1)–(5), 2 for (6)).
+>   **Warning census** — `./harness/rust-warning-census.sh --quiet`: **25 with warnings / 61
+>   warnings on both arms** (HEAD: `109 not compiled, 19 skipped (cargo dep)`; change: `110, 16` —
+>   the same class, one arm's cache); the helpers this pass removes or shortens were warning-free,
+>   so the metric does not move.
+>   **Older gate figures in this file are a DIFFERENT TREE STATE — the one place the drift is
+>   stated.** The corpus count and the `./fail` / `fail-rs` / `FAIL-RS` / warning-census lines in
+>   the v14x–v155 entries (all of which say 563 examples, 556/0/7, 563/563, 29 warned/77 warnings)
+>   were measured on the submodule state that shipped those versions (and its CI), not on this
+>   workspace's HEAD `d1416dfcd`. They are not reproducible here: see the revision-history note for
+>   the revision sweep. The numbers that hold on this tree are the ones in this entry — corpus 555
+>   `*.sh` / 548 renders; `fail-rs` 414/134/7 both arms; `./fail` 553/2 both arms; unit 123→138
+>   pass with the same 11 reds; census 25/61 both arms — and nothing in an older entry should be
+>   compared with this one without re-measuring.
+>   **Deviation from the approved plan, measured:** the call-site-count inlining rule for
+>   `basename`/`dirname`/`lines` was NOT written — those helpers are emitted in **0** corpus
+>   programs (and `glob_like` in 1), so the rule had no output to act on; `case` was instead
+>   lowered where it is emitted, and `basename`/`dirname` keep their small helpers.
+>   NOTE for whoever reads the gate numbers next: `fail-rs`'s absolute line on this tree is not the
+>   v155 baseline because 113 examples already failed to compile at HEAD (`d1416dfcd`), for reasons
+>   proven independent of this change in (b). The differential gate and the identical rosters are
+>   the evidence that this work moved nothing; the absolute line was red before it and is red after
+>   it in exactly the same way.
 > - v155: **Section A of the improvement list, landed.** Seven items, each with a measurement.
 >   (1) **Positional BigInt taint is exact.** `walk_bigint_expr`'s `IrExpr::Arith` arm marked
 >   `$1..$9` for any huge constant anywhere; a huge argument now taints only the index it lands in
@@ -291,7 +424,7 @@ Covers three related work items:
 >
 >   **Tests.** `sh2perl/tests/defined_or_hoist.rs` (5: the hoist shape, canonical-pipeline registration, and the C/Java/Perl bindings — the last three matter because the shell frontend never emits `DefinedOr`, so renderer arms are reached only from the A1 ingress) plus three rule tests in each backend's `copy_propagation` module (subshell body → 2 writes, capture body → 2, plain block → 1); 18 pass in estree, 18 in Rust.
 >
->   **Gates.** `./fail` **563/563, exit 0** (314 s). `harness/fail-rs` **556 pass / 0 fail / 7 skip, exit 0**. `./fail-go` **126/126, exit 0**. `cargo test --lib -- rust_backend` **125 pass / 0 fail**. `harness/java_gate_local.sh` **572 pass / 72 fail, exit 0** — its standing cross-product backlog, and no corpus output moved (Perl is byte-identical at 563/563, and the corpus never reaches the `DefinedOr` arms). C-gate (`BIN=sh2perl/backends/c/target/debug/c_backend harness/c-gate-run.sh`) **639 pass / 7 skip parse-error / 5 fail** — the same five as the v90 baseline (3 `rc`, 2 `stdout`). `./fail-estree` **562/563 (99.8%)**: one cell, `dq-hashbang-multiline-assign.sh`, reported `otranspilerl --target estree failed`; that file renders clean standalone (`--target estree`, exit 0, valid ESTree), so it reads as a race inside the gate's own CLI build rather than a render regression, and the earlier estree cell died by SIGTERM (exit 143) mid-build.
+>   **Gates** *(a different tree state from v156 — see the note there)*. `./fail` **563/563, exit 0** (314 s). `harness/fail-rs` **556 pass / 0 fail / 7 skip, exit 0**. `./fail-go` **126/126, exit 0**. `cargo test --lib -- rust_backend` **125 pass / 0 fail**. `harness/java_gate_local.sh` **572 pass / 72 fail, exit 0** — its standing cross-product backlog, and no corpus output moved (Perl is byte-identical at 563/563, and the corpus never reaches the `DefinedOr` arms). C-gate (`BIN=sh2perl/backends/c/target/debug/c_backend harness/c-gate-run.sh`) **639 pass / 7 skip parse-error / 5 fail** — the same five as the v90 baseline (3 `rc`, 2 `stdout`). `./fail-estree` **562/563 (99.8%)**: one cell, `dq-hashbang-multiline-assign.sh`, reported `otranspilerl --target estree failed`; that file renders clean standalone (`--target estree`, exit 0, valid ESTree), so it reads as a race inside the gate's own CLI build rather than a render regression, and the earlier estree cell died by SIGTERM (exit 143) mid-build.
 >
 > - v144: **`main` returns `ExitCode`, so the exit status is a VALUE.** The epilogue called
 >   `process::exit(__SH_RC…)`, which skips destructors and — with stdout on a pipe — can drop a trailing
