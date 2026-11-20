@@ -21,12 +21,14 @@ Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28; t
 | `proofs/verus/escape_classes.rs` | **verdict analysis**: `transforms/escape_classes.rs` `class_of` over the C consumer (`c_backend.rs:9929`) | 14 verified, 0 errors | landed, gated — see P12 |
 | `proofs/verus/f32_narrow.rs` | **verdict analysis**: `transforms/f32_narrow.rs` form table + `operand_exact` | 8 verified, 0 errors | landed, gated — see P12 |
 | `proofs/verus/optimize_stmts.rs` | `src/ir.rs::optimize_stmts` Pass 1 | 8 verified, 0 errors | committed `84bb46cb7`, local-only |
+| `proofs/verus/optimize_fold.rs` | **Pass 0.5**: `fold_stmt`/`fold_arith_ast` + the `fold_bin_op`/`fold_un_op`/`pow_wrapping` tables | 23 verified, 0 errors | landed 2026-11-20, gated — refusal table + `pow_sq == pow` (mod 2^64). In-domain value half; wrap arms not modelled. Sync: `harness/fold-table-extract.sh` |
 | `proofs/verus/dead_fn_elim.rs` | `transforms/dead_fn_elim.rs` Passes 1–4 | 25 verified, 0 errors | committed `46ec35566`, local-only |
 | `proofs/verus/dead_store_elim.rs` | `transforms/dead_store_elim.rs` core | 45 verified, 0 errors | committed `dbd0a5562`, local-only |
 | `proofs/verus/redundant_store_elim.rs` | `transforms/redundant_store_elim.rs` (fixed) | 54 verified, 0 errors | landed, gated — see P1 |
 | `proofs/verus/copy_propagation.rs` | `transforms/copy_propagation.rs` (substitution core) | 27 verified, 0 errors | in-tree 2026-11-09, gated — see P3 |
 | `proofs/verus/function_purity.rs` | `transforms/function_purity.rs` (verdict) | 41 verified, 0 errors | in-tree 2026-11-09, gated — see P4 |
 | `proofs/verus/test_lowering.rs` | `transforms/test_lowering.rs` (Tier-1 leaves) | 25 verified, 0 errors | in-tree 2026-11-09, gated — see P5 |
+| `proofs/verus/test_lowering_stmt.rs` | **statement level**: the `test_lowering` run (store+status+trace) under the leaf hypothesis | 18 verified, 0 errors | landed 2026-11-20, gated — the middle rung the leaf model could not state; `$?`-reading chains refused by `refusal_keeps_the_test` |
 | `proofs/verus/string_folds.rs` | `interp_fold` + `default_empty_fold` (string folds) | 11 verified, 0 errors | in-tree 2026-11-09, gated — see P6 |
 | `proofs/verus/arith_folds.rs` | `arith_normalize` + `bc_float_clean` (arith identities) | 11 verified, 0 errors | in-tree 2026-11-09, gated — see P6 |
 | `proofs/verus/test_folds.rs` | `test_simplification` (self-comparison table) | 7 verified, 0 errors | in-tree 2026-11-09, gated — see P6 |
@@ -147,6 +149,31 @@ it moves the "committed on the branch" column of the table above from 41
 models / 1120 obligations to **42 / 1137** and the gate total from 1858 to
 **1875**; the branch-only column is unchanged. The remaining numbers in that
 table are the 2026-11-08 measurement and were not re-derived for this one row.
+
+**Update 2026-11-20: the two gaps this file called out are closed, and two
+defects the proofs found are fixed.** (a) `optimize_fold.rs` (23) models
+Pass 0.5 — `fold_stmt`/`fold_arith_ast` with the bin/un/pow tables — for the
+first time: the refusal table (zero divisor, `i64::MIN / -1`, negative
+exponent, unknown op) and the shape-preservation of a refusal are theorems,
+and `pow_wrapping`'s comment is now `pow_sq_eq_naive` plus
+`pow_wrapping_residue` (repeated squaring `==` `vstd`'s `pow`, hence equal
+mod 2^64). Two honest limits: division is modelled truncating (matching
+Rust), and the `wrapping_*` arms are only modelled in the no-overflow
+domain, because the wrapped i64 state has no Verus spec. (b)
+`test_lowering_stmt.rs` (18) is the statement-level rung for the hottest
+pass (42/563): `run_preserved` shows the rewrite leaves `(store, status,
+trace)` unchanged at every fuel bound, given the leaf equivalence as a
+store-polymorphic hypothesis over two separate oracles; the mutant that
+drops the `$?` refusal fails. (c) `BUGS_FOUND.md` #7 is fixed
+(`runs_at_least_once` in `split_loop`: a possibly-zero-trip loop is no
+longer hoisted out of) and #11a's transform side is fixed
+(`direct_calls` now drops every multiply-defined name, so the header's
+redefinition refusal is real); the C-renderer half of #11a remains open and
+is labelled so. The hoist model grew 22 → 30 obligations (trip-guard
+lemmas), `c_decl_coverage` 51 → 54, and the corpus A/B over the two fixed
+passes shows no new failures (the three perl corpus failures — 064_01,
+064_hard, unclosed-param-expansion — reproduce with HEAD's versions of
+both passes; only 064_hard is in `failing_tests.txt`).
 
 The retired i32 pair (`interval.rs` 5, `i32_bounds_exec.rs` 7 — target never
 landed, §(d) P0(iv)) is 12 obligations that count toward no Tier-1 total — the gate still verifies

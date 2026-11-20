@@ -50,6 +50,7 @@ PIN="0.2026.10.18.7d82994"
 # are counted separately and contribute to no Tier-1 total.
 MODELS=(
   "optimize_stmts.rs:8:40"
+  "optimize_fold.rs:23:40"
   "dead_fn_elim.rs:25:40"
   "dead_store_elim.rs:45:40"
   "redundant_store_elim.rs:53:80"
@@ -76,6 +77,7 @@ MODELS=(
   "copy_propagation.rs:27:40"
   "function_purity.rs:41:40"
   "test_lowering.rs:25:40"
+  "test_lowering_stmt.rs:18:40"
   "string_folds.rs:11:40"
   "arith_folds.rs:11:40"
   "test_folds.rs:7:40"
@@ -278,13 +280,14 @@ MODELS=(
   # param write, printf/let in fn scope). Three one-token mutants, each
   # killing a named obligation.
   #
-  # PINNED DOWN 2026-11-09: the working copy verifies 54, the committed model
-  # 51. The 54 belongs to an unlanded increment whose new pin
-  # (`pin_assign_chain`) maps to `expr_position_assign_routes_to_the_variable`,
-  # a source test that is also still uncommitted — so the extractor FATALs on
-  # it at HEAD. Owner: when that test lands, commit the model + the
-  # regenerated `c_decl_coverage_sync.txt` together and restore 54 here.
-  "c_decl_coverage.rs:51:40"
+  # LANDED 2026-11-20: the 54 increment verifies on HEAD. It was held back on
+  # 2026-11-10 only because its pin (`pin_assign_chain`) maps to
+  # `expr_position_assign_routes_to_the_variable`, a source test that was
+  # uncommitted then; both the test and the `func == "assign"` arm of
+  # `collect_assigned_expr` are now in the tree, so the model, the regenerated
+  # `c_decl_coverage_sync.txt` and this count land together. The count is what
+  # the pinned binary reports, not a target.
+  "c_decl_coverage.rs:54:40"
   # The C generator's STRING-LITERAL ESCAPER (sh2perl/src/c_backend.rs
   # `cstr`, the single funnel for every emitted literal incl. printf
   # format strings). Models the C lexer as a finite-state machine over
@@ -734,7 +737,7 @@ MODELS=(
   # 0-trip soundness hole — prologue runs while the original runs
   # nothing; see BUGS_FOUND.md 7, open). 8 unit-test pins. Mutant
   # (gate without invariant_reads) red 19v/3e.
-  "hoist_loop_invariants.rs:22:40"
+  "hoist_loop_invariants.rs:30:40"
   # Suites-then-proofs trio (Tier-1): capture-of-pure-function ->
   # direct call (direct_calls.rs 255 lines); statement cat ->
   # ForEachLine (cat_read.rs 171 lines); grep -o shapes ->
@@ -1008,6 +1011,12 @@ SYNCS=(
   # diffs them (harness/declcov-extract.py), closing §22's honest
   # proviso about unbridged transcriptions.
   "harness/verus-sync-coverage.sh:c_decl_coverage:sh2perl/proofs/verus/c_decl_coverage_sync.txt"
+  # optimize_fold: the fold TABLE (op literal, guard, body) extracted from
+  # ir.rs's fold_bin_op/fold_un_op and diffed against the model's claim.
+  # The tables have no unit suite to pin against, so the table itself is
+  # the fact — a new arm or a reflowed guard fails until the model is
+  # updated. Two-field entry: harness/fold-table-extract.sh takes no model.
+  "harness/fold-table-extract.sh:sh2perl/proofs/verus/optimize_fold_sync.txt"
 )
 
 if [ "${1:-}" = "--list" ]; then

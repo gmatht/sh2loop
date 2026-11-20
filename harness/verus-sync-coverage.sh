@@ -401,6 +401,13 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     hoist_loop_invariants:pin_fn_cond_write_refused) echo hoist_loop_invariants:refuses_when_a_called_fn_in_the_condition_writes_the_read_var ;;
     hoist_loop_invariants:pin_hoist_preserves_run) echo hoist_loop_invariants:hoists_invariant_from_body ;;
     hoist_loop_invariants:pin_zero_trip_diverges) echo UNMIRRORED ;;
+    # the trip guard (BUGS_FOUND #7): the two new source tests, plus the
+    # two firing shapes the old tests already cover.
+    hoist_loop_invariants:pin_zero_trip_refused) echo hoist_loop_invariants:refuses_zero_trip_while ;;
+    hoist_loop_invariants:pin_range_empty_refused) echo hoist_loop_invariants:refuses_empty_range_for ;;
+    hoist_loop_invariants:pin_const_true_hoists) echo hoist_loop_invariants:hoists_invariant_from_body ;;
+    hoist_loop_invariants:pin_range_hoists) echo hoist_loop_invariants:hoists_counter_independent_write ;;
+    hoist_loop_invariants:pin_words_nonempty_hoists) echo hoist_loop_invariants:hoists_counter_independent_write ;;
     direct_calls:pin_pure_output_collapses) echo direct_calls:pure_output_fn_capture_collapses ;;
     direct_calls:pin_impure_refuses) echo direct_calls:impure_fn_capture_refuses ;;
     direct_calls:pin_undefined_refuses) echo direct_calls:undefined_fn_capture_refuses ;;
@@ -516,14 +523,14 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     *) echo "" ;;
   esac
 }
-model_pins=$(command grep -o "proof fn \(pin_[A-Za-z0-9_]*\)" "$PRF" | awk '{print $3}' | sort) \
+model_pins=$(command grep -o "proof fn \(pin_[A-Za-z0-9_]*\)" "$PRF" | awk '{print $3}' | LC_ALL=C sort) \
   || fail "cannot list model pins"
 [ -n "$model_pins" ] || fail "no pins in model"
 src_tests() {
   local f
   for f in $SRCS; do
     command grep -oE "(^|[[:space:]])fn [A-Za-z0-9_]+" "$root/sh2perl/src/$SRCDIR/$f.rs" | awk '{print $NF}' | sed 's/^fn //'
-  done | sort -u
+  done | LC_ALL=C sort -u
 }
 
 {
@@ -550,7 +557,11 @@ while IFS= read -r pin; do
     echo "pin $pin -> UNMIRRORED (by design — see VERUS.md §(b).4)"
   else
     mapped="${entry##*:}"
-    if printf '%s\n' "$ALL_TESTS" | command grep -qx "$mapped"; then
+    # Here-string, NOT `printf | grep -q`: with `set -o pipefail` a match
+    # makes grep exit early, the writer takes SIGPIPE, and the pipeline
+    # reports 141 — so a SUCCESSFUL lookup reads as drift whenever the
+    # test list is larger than the pipe buffer (c_backend's is).
+    if command grep -qx "$mapped" <<< "$ALL_TESTS"; then
       echo "pin $pin -> test $mapped: MAPPED"
     else
       fail "pin $pin maps to $mapped, which no longer exists in source"
@@ -1109,6 +1120,11 @@ case "$MODEL" in
     sgrep -q "fn expr_pure" \
       || fail "purity gate not found in source"
     echo "guard purity gate: PRESENT"
+    # The 0-trip guard (BUGS_FOUND #7): the hoist only runs for loops the
+    # IR proves execute at least once.
+    sgrep -q "fn runs_at_least_once" \
+      || fail "trip guard not found in source"
+    echo "guard hoist trip guard: PRESENT"
     ;;
   direct_calls)
     # The capture-collapse gate: single-call arrow + defined pure fn.

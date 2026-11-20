@@ -11,7 +11,10 @@ breakage. This file is only about defects in the product.
 
 ## Confirmed product bugs (open)
 
-_None open._
+_None open._ (Both entries in the fixed list below were still marked
+UNFIXED when this header said "none"; #7 and #11a were repaired on
+2026-11-20, each with a failing-first regression test. The header is now
+consistent with the entries.)
 
 ## Confirmed product bugs (fixed)
 
@@ -86,10 +89,20 @@ done` leaves `y` unbound under bash and assigns `y = 5` after the
 transform (verified live against the transform: it reports changed
 and emits the hoisted Assign plus an empty loop). Any live-after read
 of the hoisted var diverges on a 0-trip loop.
-**Fix:** UNFIXED (open) — the transform owner decides (trip-guard the
-hoist, or restrict to do-while/known-live shapes). The model covers
-exactly the sound fragment (n >= 1, every production firing runs
-many trips); `pin_zero_trip_diverges` is the failing-first shape.
+**Fix — LANDED 2026-11-20.** `split_loop` now calls a new
+`runs_at_least_once` gate and refuses every loop whose trip count is not
+statically >= 1: a `while` with a constant truthy condition, a `for` over
+an inclusive `Range` with `start <= end`, or a `for` over a non-empty
+literal word list. Everything else keeps its old shape (no prologue). New
+tests `refuses_zero_trip_while` and `refuses_empty_range_for` fail before
+the fix and pass after it; `hoists_invariant_from_body` now uses `while 1`
+(the guard's accepted shape). The model was extended in the same effort:
+`LoopKind`/`trips`/`runs_at_least_once` mirror the gate,
+`guard_gives_a_trip` proves the guard implies `n >= 1`, and
+`hoist_sound_gated` is the theorem for the shipped rule; the old
+`pin_zero_trip_diverges` stays as the refutation of the UNGUARDED rule
+(the reason a guard, rather than a stronger claim, is the fix). 30
+obligations, gate-registered.
 
 ### 11. `string_accumulator`: `expr_read_walk`/`read_walk` miss `Arith` (and other) reads
 **Found by:** Tier-1 adjudication of the 11 parked transforms (2026-10-29) —
@@ -179,16 +192,22 @@ same shape makes the `Capture { expr: Call }` arm `direct_calls`
 produces (`_sh_call_fn(sq, …)`) name-resolved rather than
 definition-resolved, so `v=$(sq)` after a redefinition captures
 whichever definition the C name ends up bound to.
-**Fix:** UNFIXED (open). Two independent owners: the transform should
-implement the documented rule (count the `Function` statements for the
-name; > 1 ⇒ refuse — the model's `no_later_def` conjunct is exactly
-that predicate), and the C renderer needs a first-definition-wins gate
-on the statement path (or `_sh_call_fn` must dispatch to the
-definition in scope). Both are behaviour changes behind the backend
-gate, so neither is made from a modelling session. The model proves
-the rewrite sound exactly for the fragment the header describes (one
-definition, pure body); `mutant_drop_redefinition_guard` is the
-failing-first shape for the missing rule.
+**Fix — transform side LANDED 2026-11-20.** `transform()` counts the
+`Function` statements per name and drops every name defined more than
+once from the lookup table, so a capture of a redefined function keeps
+its subprocess spelling (the model's `no_later_def`/count conjunct is
+now the implementation). Tests `rewrites_capture_of_a_single_definition`
+(green before and after) and `refuses_capture_of_a_redefined_function`
+(fails before the fix) pin both directions; the model's
+`pin_redefined_kept` is now backed by an executed source test.
+
+**Still open — C renderer side.** `emit_function` still emits one
+`static void sq(void)` per `Function` statement, so a *program* that
+defines `sq` twice does not compile (`error: redefinition of 'sq'`). That
+is a renderer fix, independent of the inlining rule, and no transform can
+repair it: it needs a first-definition-wins gate on the statement path
+(or `_sh_call_fn` dispatching to the definition in scope). Recorded
+here rather than silently folded into the fixed paragraph.
 
 ## Guard-load-bearing refutations (the code was already right; the proofs
 show exactly which guard carries the soundness)
