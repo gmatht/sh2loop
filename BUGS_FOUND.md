@@ -11,7 +11,20 @@ breakage. This file is only about defects in the product.
 
 ## Confirmed product bugs (open)
 
-_None open._
+### 12. `direct_calls` entry 11a's OTHER owner: the C renderer still cannot
+emit a redefinition
+**Found by:** the same modelling session as 11a.
+**Defect:** `emit_function` (`c_backend.rs:17742`) emits one
+`static void NAME(void)` per `IrStmt::Function`, and `_sh_call_fn(NAME, …)`
+addresses the name, so a program that redefines a function does not compile
+(`cc`: `redefinition of 'sq'`) although bash runs it. The transform half of
+11a is now fixed (a redefined name is refused), which means such a capture
+keeps the subprocess `Capture` form in the C path — but a *plain* call to a
+redefined function still reaches the renderer and still fails to build.
+**Fix:** OPEN — needs either a first-definition-wins gate on the statement
+path or definition-scoped dispatch for `_sh_call_fn`. Not attempted here:
+both are behaviour changes in the C backend and want their own before/after
+frame compare.
 
 ## Confirmed product bugs (fixed)
 
@@ -86,10 +99,23 @@ done` leaves `y` unbound under bash and assigns `y = 5` after the
 transform (verified live against the transform: it reports changed
 and emits the hoisted Assign plus an empty loop). Any live-after read
 of the hoisted var diverges on a 0-trip loop.
-**Fix:** UNFIXED (open) — the transform owner decides (trip-guard the
-hoist, or restrict to do-while/known-live shapes). The model covers
-exactly the sound fragment (n >= 1, every production firing runs
-many trips); `pin_zero_trip_diverges` is the failing-first shape.
+**Fix:** FIXED (transform `hoist_loop_invariants`). The prologue is now
+emitted under the loop's own entry test — `if <cond>; then <run>; fi`
+before the loop — so it runs exactly when the body runs. Duplicating a
+condition is only faithful when it cannot do anything but read, so a
+`While` hoists only under a side-effect-free cond (`guard_cond_pure`:
+`test`/`arith`/reads/literals; a call or command refuses the hoist), and
+a `For` hoists only over a statically non-empty `Range` (`start < end`),
+refusing any other iterable (it may be empty and has no re-evaluable
+test). Model updated: `run_hoisted` is the guarded emission and the
+whole-loop theorem carries no n >= 1 proviso; `hoist_sound_all` proves
+the two runs agree at EVERY trip count; `run_hoisted_unguarded` +
+`pin_zero_trip_diverges` keep the pre-fix emission as the negative
+control, and `pin_guarded_zero_trip_agrees` is its positive twin
+(25 verified). Failing-first unit tests added:
+`zero_trip_loop_never_runs_the_prologue`,
+`refuses_to_duplicate_an_effectful_loop_condition`,
+`refuses_empty_foreach_range`.
 
 ### 11. `string_accumulator`: `expr_read_walk`/`read_walk` miss `Arith` (and other) reads
 **Found by:** Tier-1 adjudication of the 11 parked transforms (2026-10-29) —
@@ -179,16 +205,14 @@ same shape makes the `Capture { expr: Call }` arm `direct_calls`
 produces (`_sh_call_fn(sq, …)`) name-resolved rather than
 definition-resolved, so `v=$(sq)` after a redefinition captures
 whichever definition the C name ends up bound to.
-**Fix:** UNFIXED (open). Two independent owners: the transform should
-implement the documented rule (count the `Function` statements for the
-name; > 1 ⇒ refuse — the model's `no_later_def` conjunct is exactly
-that predicate), and the C renderer needs a first-definition-wins gate
-on the statement path (or `_sh_call_fn` must dispatch to the
-definition in scope). Both are behaviour changes behind the backend
-gate, so neither is made from a modelling session. The model proves
-the rewrite sound exactly for the fragment the header describes (one
-definition, pure body); `mutant_drop_redefinition_guard` is the
-failing-first shape for the missing rule.
+**Fix:** (a) FIXED (transform). `is_defined_pure_function` now counts
+every `Function` statement with the name and refuses when there is more
+than one, which is the model's `no_later_def` conjunct and an order-free
+superset of the header's "never redefined after this capture site".
+Failing-first test `refuses_a_redefined_function` (and
+`resolves_a_single_definition` for the unchanged single-definition
+lift). (b) OPEN — tracked as its own entry, 12, because it is a
+renderer defect that outlives the transform fix.
 
 ## Guard-load-bearing refutations (the code was already right; the proofs
 show exactly which guard carries the soundness)

@@ -21,6 +21,7 @@ Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28; t
 | `proofs/verus/escape_classes.rs` | **verdict analysis**: `transforms/escape_classes.rs` `class_of` over the C consumer (`c_backend.rs:9929`) | 14 verified, 0 errors | landed, gated — see P12 |
 | `proofs/verus/f32_narrow.rs` | **verdict analysis**: `transforms/f32_narrow.rs` form table + `operand_exact` | 8 verified, 0 errors | landed, gated — see P12 |
 | `proofs/verus/optimize_stmts.rs` | `src/ir.rs::optimize_stmts` Pass 1 | 8 verified, 0 errors | committed `84bb46cb7`, local-only |
+| `proofs/verus/optimize_pass05.rs` | `src/ir.rs` Pass 0.5: `pow_wrapping`, `fold_bin_op` (value + refusal arms), `fold_arith_ast` node fold | 25 verified, 0 errors | gated — pass-0.5 |
 | `proofs/verus/dead_fn_elim.rs` | `transforms/dead_fn_elim.rs` Passes 1–4 | 25 verified, 0 errors | committed `46ec35566`, local-only |
 | `proofs/verus/dead_store_elim.rs` | `transforms/dead_store_elim.rs` core | 45 verified, 0 errors | committed `dbd0a5562`, local-only |
 | `proofs/verus/redundant_store_elim.rs` | `transforms/redundant_store_elim.rs` (fixed) | 54 verified, 0 errors | landed, gated — see P1 |
@@ -88,7 +89,7 @@ Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28; t
 | `proofs/verus/numeric_observed.rs` | `shir_passes/numeric_observed.rs` (marked ==> all-uses-numeric) | 10 verified, 0 errors | landed, gated — verdict-analyses sweep |
 | `proofs/verus/str_splice_fold.rs` | `transforms/str_splice_fold.rs` (Interpolate → StrSplice denotation identity) | 11 verified, 0 errors | landed, gated — string/cursor sweep |
 | `proofs/verus/str_chop_cursor.rs` | `transforms/str_chop_cursor.rs` (grab/strip cursor dynamics + read law) | 17 verified, 0 errors | landed, gated — string/cursor sweep |
-| `proofs/verus/hoist_loop_invariants.rs` | `transforms/hoist_loop_invariants.rs` (leading invariant run → prologue, n ≥ 1) | 22 verified, 0 errors | landed, gated — loop-hoist |
+| `proofs/verus/hoist_loop_invariants.rs` | `transforms/hoist_loop_invariants.rs` (leading invariant run → guarded prologue) | 25 verified, 0 errors | landed, gated — loop-hoist; 0-trip hole FIXED (BUGS_FOUND 7) |
 | `proofs/verus/direct_calls.rs` | `transforms/direct_calls.rs` (capture-of-pure-function → direct call) | 19 verified, 0 errors | landed, gated — suites-then-proofs trio, **re-authored 2026-10-30** (the originals were lost with the sweep files; see §(b).1 note) |
 | `proofs/verus/cat_read.rs` | `transforms/cat_read.rs` (statement cat → ForEachLine) | 18 verified, 0 errors | landed, gated — suites-then-proofs trio, re-authored 2026-10-30 |
 | `proofs/verus/grep_o.rs` | `transforms/grep_o.rs` (grep -o shapes → grepMatches) | 19 verified, 0 errors | landed, gated — suites-then-proofs trio, re-authored 2026-10-30 |
@@ -641,7 +642,7 @@ the baseline everything below also has.
 | `i32_provable` | analysis (`abs_bound` + `arith_bounds`) | **I** (`abs_bound`/`is_i32`) + **V-retired** (`arith_bounds`, 2 files) | Verus pair retired P0(iv) — target never landed; Isabelle `abs_bound` stands |
 | `dead_fn_elim` | elimination | **V** (Passes 1–4) | Lit-fragment census gap flagged, not proved |
 | `dead_store_elim` | elimination | **V** (core) | droppable scalar class only; found 2 real bugs next door |
-| `optimize_stmts` (`ir.rs`) | elimination (Pass 1) | **V** | Pass 0.5 folding separate, unproved |
+| `optimize_stmts` (`ir.rs`) | elimination (Pass 1) | **V** | Pass 0.5 folding now **V** too (`optimize_pass05.rs`, 25): pow/squaring, refusal arms, node fold |
 | `bigint_range` (`shir_passes`) | analysis | **I** | pre-fix twin refuted in-file (`v0_not_sound`) |
 | `interval` (`shir_passes`) | analysis (floor walk) | **I** | imports BigIntRange; release-wrap `*` arm fixed with proof |
 | `text_ops` (wc part) | node lowering | **I** (`docs/fm/TextOps`) | `lowered_wc_sound`; pre-fix emission recorded refuted |
@@ -670,7 +671,7 @@ intent: seven are Tier 3, `planner` is a mechanism and `sub` a placeholder
 `read_walk` hides `Arith` reads — open bug 11 in `BUGS_FOUND.md`. No new
 Isabelle session: proving a walker that misfires would certify the hole,
 and the remaining obligations are Tier 3.
-| `hoist_loop_invariants` | loop-hoist (leading invariant run → prologue) | **V** (`hoist_loop_invariants`, 22) | n ≥ 1 proviso (0-trip hole found + pinned, BUGS_FOUND.md 7 open); 8 unit-test pins |
+| `hoist_loop_invariants` | loop-hoist (leading invariant run → guarded prologue) | **V** (`hoist_loop_invariants`, 25) | 0-trip hole FIXED (prologue emitted under the loop's entry test; `run_hoisted` is guarded, `pin_zero_trip_diverges` refutes the pre-fix emission); 11 unit-test pins |
 | `unreachable_after_exit` | elimination | **V** (`elim_trio`, uae) | per-node truncation proved P9; 0/563 both modes — only the BAT frontend constructs `Exit`/`Return` (shell `exit` lowers to a builtin call); starved by producer absence, not wiring |
 | `exec_call_fold` | carrier canonicalization | **V** (`exec_call_fold`, 8) + T2 (rest) | per-site payload preservation; carrier flag as parameter, cleanup oracle + shir gate as placement; 4 unit-test pins |
 | `merge_init_assignments` | elimination | **V** (`elim_trio`, mia) | adjacent-pair merge proved P9 under literal/pure/no-self-read gates; 0/563 both modes — FIRES on synthetic `declare x=0` + `x=6` input (mechanics verified live) |

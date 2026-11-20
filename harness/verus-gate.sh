@@ -50,6 +50,10 @@ PIN="0.2026.10.18.7d82994"
 # are counted separately and contribute to no Tier-1 total.
 MODELS=(
   "optimize_stmts.rs:8:40"
+  # PASS 0.5 (the fold every program goes through): pow_wrapping's
+  # repeated squaring == product mod 2^64, and fold_bin_op's refusal
+  # arms (div/mod by zero, MIN/-1, negative exponent).
+  "optimize_pass05.rs:25:60"
   "dead_fn_elim.rs:25:40"
   "dead_store_elim.rs:45:40"
   "redundant_store_elim.rs:53:80"
@@ -734,7 +738,7 @@ MODELS=(
   # 0-trip soundness hole — prologue runs while the original runs
   # nothing; see BUGS_FOUND.md 7, open). 8 unit-test pins. Mutant
   # (gate without invariant_reads) red 19v/3e.
-  "hoist_loop_invariants.rs:22:40"
+  "hoist_loop_invariants.rs:25:40"
   # Suites-then-proofs trio (Tier-1): capture-of-pure-function ->
   # direct call (direct_calls.rs 255 lines); statement cat ->
   # ForEachLine (cat_read.rs 171 lines); grep -o shapes ->
@@ -943,6 +947,12 @@ RETIRED_MODELS=(
 # the same pin<->test mapping this checker enforces. Their living tie
 # remains the pin<->test mapping audited in VERUS.md §(b).)
 SYNCS=(
+  # Pass 0.5 ANCHOR: the six ir.rs functions optimize_pass05.rs mirrors.
+  # Not a coverage checker (those map pins to source tests); this is the
+  # legacy regenerating driver: the six functions' verbatim text + hash must
+  # match the committed baseline, so an edit to the fold cannot leave the
+  # model describing old code.
+  "harness/verus-sync-pass05.sh:sh2perl/proofs/verus/optimize_pass05_sync.txt"
   "harness/verus-sync-coverage.sh:copy_propagation:sh2perl/proofs/verus/copy_propagation_sync.txt"
   "harness/verus-sync-coverage.sh:function_purity:sh2perl/proofs/verus/function_purity_sync.txt"
   "harness/verus-sync-coverage.sh:test_lowering:sh2perl/proofs/verus/test_lowering_sync.txt"
