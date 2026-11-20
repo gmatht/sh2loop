@@ -162,7 +162,7 @@ pre-fix twin, and `the_fix_is_load_bearing`; the manifest's own claim
 (`proof/Claim.thy`) re-checks the core of it from source and is gate-green
 in `harness/transform-proofs.sh` (7 checked-and-built).
 
-### 11a. `direct_calls`: the header's "refuse on redefinition" rule is absent (and the C renderer cannot emit redefinitions at all)
+### 11a. `direct_calls`: the header's "refuse on redefinition" rule was absent (and the C renderer could not emit redefinitions at all)
 **Found by:** modelling `direct_calls` in Verus (`direct_calls.rs`, 19
 obligations) — the obligation needed a "no later definition of this
 name" premise, and reading `transform()` to justify it showed the rule
@@ -201,13 +201,20 @@ now the implementation). Tests `rewrites_capture_of_a_single_definition`
 (fails before the fix) pin both directions; the model's
 `pin_redefined_kept` is now backed by an executed source test.
 
-**Still open — C renderer side.** `emit_function` still emits one
-`static void sq(void)` per `Function` statement, so a *program* that
-defines `sq` twice does not compile (`error: redefinition of 'sq'`). That
-is a renderer fix, independent of the inlining rule, and no transform can
-repair it: it needs a first-definition-wins gate on the statement path
-(or `_sh_call_fn` dispatching to the definition in scope). Recorded
-here rather than silently folded into the fixed paragraph.
+**Fix — C renderer side LANDED 2026-11-20.** `collect_fn_defs` now keeps
+ONE definition per name, carrying the LAST body: bash replaces the
+binding when a function is redefined, so `sq(){echo 3;}; sq(){echo 4;};
+v=$(sq)` prints 4, and the renderer now emits a single
+`static void sq(void)` with body 4 instead of two bodies `cc` refuses
+(`error: redefinition of 'sq'`). A call made BEFORE the redefinition
+resolves to the final body — the same limitation the perl renderer has
+(`sub sq` twice: perl installs the last one), and keeping both is not an
+option in C. Regression test
+`a_redefined_function_is_emitted_once_with_its_last_body`
+(c_backend.rs) pins one definition, the last body, and that unrelated
+functions are untouched; it failed before the fix (two definitions).
+With the transform-side refusal above, a `$(sq)` capture of a redefined
+name also stays on the runtime path, so the two halves now agree.
 
 ## Guard-load-bearing refutations (the code was already right; the proofs
 show exactly which guard carries the soundness)
@@ -228,6 +235,19 @@ the regression the module header records as FIXED.
 
 ## Non-bugs recorded for honesty
 
+- **11a(b) residual, measured: a call BEFORE a redefinition.** The C
+  renderer now emits one body per name (the last), which is what bash
+  uses for every call after the redefinition. A call made *between* the
+  two definitions still resolves to the final body, because a hoisted
+  file-scope function has no program position. Measured:
+  `sq(){ echo 1; }; sq; sq(){ echo 2; }; sq` prints `1` then `2` in
+  bash and `2` then `2` in C — the same limitation the perl renderer has
+  (`sub sq` twice installs the last body for every call). Not a new
+  defect: before the fix the program did not compile at all. Fixing it
+  needs per-definition mangling plus call-site resolution (and dynamic
+  `$f` calls defeat any static answer), so it is recorded, not guessed
+  at. No corpus example defines a function twice (checked over
+  `sh2perl/examples/*.sh`), so the corpus gate is unaffected.
 - **`for_recovery` + `counted_arith_forinit` + `counted_while_forinit`:**
   green Isabelle proof over a path unreachable for shell input (the
   parser wraps operands in `Arith`). True theorem, dead contract —

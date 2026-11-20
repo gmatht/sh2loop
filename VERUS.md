@@ -168,8 +168,12 @@ drops the `$?` refusal fails. (c) `BUGS_FOUND.md` #7 is fixed
 (`runs_at_least_once` in `split_loop`: a possibly-zero-trip loop is no
 longer hoisted out of) and #11a's transform side is fixed
 (`direct_calls` now drops every multiply-defined name, so the header's
-redefinition refusal is real); the C-renderer half of #11a remains open and
-is labelled so. The hoist model grew 22 → 30 obligations (trip-guard
+redefinition refusal is real); the C-renderer half of #11a is also fixed —
+`collect_fn_defs` now emits one body per name (the last, as bash replaces
+the binding), so a program that redefines a function compiles and prints
+bash's answer for every call after the redefinition. The remaining
+limitation (a call made *between* two definitions) is measured and recorded
+in BUGS_FOUND.md rather than guessed at. The hoist model grew 22 → 30 obligations (trip-guard
 lemmas), `c_decl_coverage` 51 → 54, and the corpus A/B over the two fixed
 passes shows no new failures (the three perl corpus failures — 064_01,
 064_hard, unclosed-param-expansion — reproduce with HEAD's versions of
