@@ -9630,12 +9630,19 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
      `90ea6ea9c`); `readline`/`echo_esc`/`atoi`/`div`/`mod`/`pow` have no node
      — they fall under the plan's second bullet ("eliminable only with new
      transforms + node specs").
-  8. structural — **naming implemented, the rest refused**: the golfed names
-     are gone corpus-wide (`bd830734d`; re-render contains zero `\b__v\b`,
-     `\b__t\b`, `__sh_i[0-9]`, `__sh_arith_v[0-9]`); the per-variable
-     `thread_local!` store, `__SH_RC` status and string-typed
-     `.parse::<i64>()` are the runtime/status model the plan's class-8 row
-     itself calls structural.
+  8. structural — **naming implemented across the full emitted surface, the
+     rest refused**: `c65910e21` renames every short `__`-local the backend
+     mints — the prelude's own `__s`/`__e`/`__r`/`__p`/`__d`/`__b`/`__n`/…
+     and the render arms' temporaries, plus `cat_read`'s `__cl{N}` loop
+     variable (`__cat_line{N}`) — to descriptive names, on top of
+     `bd830734d`'s counters, arith temporaries and `__v`/`__t`. A census of
+     a fresh 548-program render against `\b__[a-z][a-z0-9]{0,2}\b` finds
+     `__n` (10 occurrences) and nothing else. Documented allowance: `__n` is
+     the *input program's* variable in `bench-count.sh`/`bench-increment.sh`;
+     program identifiers are data (they surface in `${!name}` and `set`), so
+     the emitter must never rename them. The per-variable `thread_local!`
+     store, `__SH_RC` status and string-typed `.parse::<i64>()` are the
+     runtime/status model the plan's class-8 row itself calls structural.
 
 ---
 
