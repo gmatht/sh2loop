@@ -9643,6 +9643,12 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
      the emitter must never rename them. The per-variable `thread_local!`
      store, `__SH_RC` status and string-typed `.parse::<i64>()` are the
      runtime/status model the plan's class-8 row itself calls structural.
+     `4b3405c4c` then gave every site its own name where the token map had
+     mixed kinds (directory vs delimiter, line list vs length vs glob
+     pattern, the two comparator elements, TMPDIR vs the `Duration`
+     closure, PIPESTATUS guard, background pid, arith failure flag, `tr`'s
+     two char sets, paths), so each emitted local carries exactly one kind;
+     the corpus grew 1,797,888 -> 1,798,199 bytes for it.
 
 ---
 
