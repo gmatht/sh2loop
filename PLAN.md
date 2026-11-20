@@ -9560,6 +9560,42 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
   fixture switched from `x=$(echo hi)` (now a literal — no strdup
   site survives) to a dynamic capture, preserving the test's subject.
 
+- **2026-11-20 — Rust text-node census: the transform-eliminable classes
+  are eliminated.** Measured over the 548 renders (`555 *.sh` − 7
+  `bash -n`): **240 programs helper-free / 1056 helper definitions / 3153
+  `__sh_*` call sites / 45 distinct callees / 173 spawns**, from the census
+  baseline of 192 / — / — / 58 (and from 239 / 1059 / 3160 / 45 at the start
+  of this slice). Verified on the final tree: `harness/fail-rs` 540 pass /
+  8 fail / 7 skip with the FAIL/SKIP set byte-identical to the recorded
+  baseline, lib suite the same 62 pre-existing failures, nothing pushed.
+  What landed (each its own `sh2perl` commit, gitlink bumps separate):
+  filesystem + stat + `tr` as `std` (rm/mkdir/touch inline loops with the
+  static flags baked in, `-f/-d/-e/-r/-w/-x/-s/-L/-h` + mode bits as one
+  `std` call, `mktemp`'s atomic-create loop spelled in place, `\`-set
+  refusal only where a range endpoint is ambiguous); the Rust node
+  manifest grown from 4 to 21 tags with executed
+  `offered_text_nodes_execute_like_bash` cases (WordCount, RegCount,
+  TakeLines, StringTrim, SubStrExtract, RepeatStr, Split, ArrayLen,
+  CharTranslate, SortLines, UniqLines, PathName, StringAffix, CutsetTrim);
+  the literal-argument inliner repaired (it bailed on the helper's own
+  definition, so it had never inlined `__sh_env` — 66 programs); a pipeline
+  of any length now folds left-to-right through the nodes, with a
+  count/status stage breaking the chain; and `tr`'s POSIX single-char
+  escapes decoded before the node is built.
+  Decisions (all refuse>guess): `PathName` is built ONLY from a real
+  basename/dirname command — `${p##*/}`/`${p%/*}` are glob strips and stay
+  `param` reads, and a flagged call keeps its command, which is what let the
+  node be offered at all; `RegSub`/`RegexpFind`/`Substitute` stay un-offered
+  for Rust (no regex engine in `std`; an unrenderable Ext node falls through
+  to the generic path rather than to the original command, so offering a
+  BRE-typed node would risk a silent mis-render — `assign-in-args`,
+  `070_gnuisms_thorough`); a dynamic `cut` source stays refused because cut
+  is per-line while `FieldExtract` proves only the single-line law
+  (`bench-cut`); `head -c` stays refused (bytes vs lines) and `wc -L`
+  (longest-line mode) is not modelled. The 46 remaining
+  wc/head/sed/cut/tr/uniq spawns are each classified as capture/loop/file
+  producer, non-`echo` producer, or one of the named refusals above.
+
 ---
 
 ## 8. ShIR philosophy (why not a mirror IR)
