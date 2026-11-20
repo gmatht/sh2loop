@@ -9596,6 +9596,47 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
   wc/head/sed/cut/tr/uniq spawns are each classified as capture/loop/file
   producer, non-`echo` producer, or one of the named refusals above.
 
+- **2026-11-20 — class 8 reconciled; every class now mapped.** The census
+  class-by-class, with the commit that carries it or the refusal and why
+  (verification for all of them: `harness/fail-rs` 540/8/7 with the
+  FAIL/SKIP set identical to the recorded baseline, lib suite only the 62
+  pre-existing failures):
+  1. shell-out + status plumbing — **implemented for the text half**
+     (`234ab351c`, `45adca7c9`, `8328f5247`, `90ea6ea9c`, `1e1d17d4f`,
+     `406ce1cfa`, and the `__sh_env` inliner `21e057abc`); the surviving
+     `__sh_spawn`s are the plan's non-eliminable set (`awk`, `perl`, `xargs`,
+     capture/loop/file producers).
+  2. output sink / word printing — **refused**: `sink`/`print_words`/`puts`
+     implement the stdout + word-splitting contract (redirect targets, IFS
+     splitting), which the plan's class-8 row classes as structural; replacing
+     them would substitute a different output model, not remove emulation.
+  3. quoting + word splitting — **partly implemented**: `q`/`wq` disappear
+     wherever a spawn disappears (the node work above); `split_ifs`/
+     `read_fields` remain because `read` is a builtin tokenizer with its own
+     IFS and rc semantics, not a text node.
+  4. matchers — **refused, plan-authorised**: the plan's verdict line says
+     "Reducible, not eliminable: general glob/regex". `RegSub`/`RegexpFind`/
+     `Substitute` stay un-offered for Rust because `std` has no regex engine
+     and an unrenderable Ext node falls through to the generic path instead of
+     back to the original command.
+  5. command emulation — **implemented for the plan's enumerated set**
+     (`rm`/`mkdir`/`touch`/`sleep` in `234ab351c`, `mktemp` in `7233de80a`);
+     `cat`/`catf`/`fread` are outside that enumeration (cat's binary
+     passthrough and rc), so they are recorded, not converted.
+  6. stat/identity predicates — **implemented** (`234ab351c`).
+  7. text ops — **partly implemented**: `env` eliminated (`21e057abc`), and
+     `tr`/`substr`/trim/affix/replace/quote go through the nodes
+     (`63cdbc210`, `234ab351c`, `45adca7c9`, `8328f5247`, `3b163e5ae`,
+     `90ea6ea9c`); `readline`/`echo_esc`/`atoi`/`div`/`mod`/`pow` have no node
+     — they fall under the plan's second bullet ("eliminable only with new
+     transforms + node specs").
+  8. structural — **naming implemented, the rest refused**: the golfed names
+     are gone corpus-wide (`bd830734d`; re-render contains zero `\b__v\b`,
+     `\b__t\b`, `__sh_i[0-9]`, `__sh_arith_v[0-9]`); the per-variable
+     `thread_local!` store, `__SH_RC` status and string-typed
+     `.parse::<i64>()` are the runtime/status model the plan's class-8 row
+     itself calls structural.
+
 ---
 
 ## 8. ShIR philosophy (why not a mirror IR)
