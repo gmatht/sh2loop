@@ -9650,6 +9650,35 @@ Deliverables (primary at the sh2loop workspace root; sh2perl stays standalone):
      two char sets, paths), so each emitted local carries exactly one kind;
      the corpus grew 1,797,888 -> 1,798,199 bytes for it.
 
+  **Node-contract audit (classes 3 and 7).** The 14 tags the plan measured as
+  arm-less on `330660db3` are all placed now. Twelve render natively in Rust
+  and are offered by its manifest — Split, ArrayLen, WordCount, CharTranslate,
+  PathName, SubStrExtract, TakeLines, RegCount, StringTrim, StringAffix,
+  CutsetTrim, RepeatStr (the arms landed in `234ab351c`, `45adca7c9`,
+  `8328f5247`, `3b163e5ae`, `90ea6ea9c`, `1e1d17d4f`, `406ce1cfa`; each is
+  pinned by `offered_text_nodes_execute_like_bash`, which compiles the render
+  and diffs rc/stdout against bash) — plus SortLines/UniqLines. Two stay
+  unoffered with the reason recorded in `planner.rs`: RegSub and RegexpFind
+  (`std` has no regex engine; a hand-rolled POSIX BRE matcher would not be
+  exact, and an unrenderable Ext node falls through to the generic path rather
+  than back to the original command). `Substitute` is not offered for the same
+  reason; `AffixStrip` is not offered to `text_ops` because a text_ops pattern
+  may be a glob, where `strip_prefix` is wrong — the literal-only
+  `affix_strip_fold` keeps its own gate and does emit it.
+  Census on the current tree (548 renders): 240 helpers-free, 1056 helper
+  definitions, 3153 `__sh_*` call sites, 45 distinct callees, 173 programs
+  with a spawn call, 16 command words, 1,798,199 bytes, zero
+  `TODO(unsupported)` markers (the plan's `330660db3` figures were 192
+  helpers-free and 58 callees). Residual spawns in the plan's words are
+  pipelines whose producer stage is not a literal: `echo "abc:def" | cut -d: -f1`
+  folds to `FieldExtract`, while `s=abc:def; echo "$s" | cut -d: -f1` still
+  spawns, because the fold's `echo`-stage acceptance wants a literal operand;
+  the same literal-only gate keeps `sort -n`, `wc -l`, `head -3` and `uniq`
+  on their commands when the input is a captured buffer. The rest are
+  node-spec gaps (`cut -f2-3` ranges, `wc -L`, `head -c`, `tr` on a
+  here-string). Both classes are the plan's "new transforms + node specs"
+  bucket, not missing render arms.
+
 ---
 
 ## 8. ShIR philosophy (why not a mirror IR)
