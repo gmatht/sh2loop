@@ -178,6 +178,7 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     test_lowering_stmt:pin_forinit_lowered_agrees) echo UNMIRRORED ;;
     test_lowering_stmt:pin_chain_short_circuit_reports_the_value_status) echo UNMIRRORED ;;
     test_lowering_stmt:pin_chain_lowered_agrees) echo UNMIRRORED ;;
+    test_lowering_stmt:pin_chain_seed_status_both_faces) echo UNMIRRORED ;;
     string_folds:pin_single_literal_folds) echo interp_fold:single_literal_interpolate_folds_to_str ;;
     string_folds:pin_single_expr_refuses) echo interp_fold:single_expr_interpolate_is_refused ;;
     string_folds:pin_multi_part_stays) echo interp_fold:multi_part_interpolate_is_left_alone ;;
@@ -680,6 +681,30 @@ case "$MODEL" in
     command grep -q "fn rewrite_test_chain(" "$SRC" \
       || fail "rewrite_test_chain not found in source"
     echo "guard cond rewrite site: PRESENT"
+    # The chain-status seed theorem claims ONE rule for all three
+    # renderers: a statement-position `&&`/`||` chain reports its value's
+    # 0/1 status on both faces. Each renderer's emitter is pinned here, so
+    # any change to a seed breaks this gate instead of silently
+    # falsifying the modelled rule.
+    command grep -qF '$__sh_ok ? 0 : 1' "$root/sh2perl/src/ir.rs" \
+      || fail "perl chain status seed (__sh_ok ? 0 : 1) not found in ir.rs"
+    echo "guard chain seed perl: PRESENT"
+    command grep -qF 'if (({l})) {{ _sh_rc = 0;' "$root/sh2perl/src/c_backend.rs" \
+      || fail "C chain lead seed (_sh_rc = 0) not found in c_backend.rs"
+    command grep -qF 'else { _sh_rc = 1;' "$root/sh2perl/src/c_backend.rs" \
+      || fail "C chain short-circuit seed (_sh_rc = 1) not found in c_backend.rs"
+    echo "guard chain seed C: PRESENT"
+    command grep -q "fn native_test_statused(" "$root/sh2perl/src/shir.rs" \
+      || fail "estree status-record builder native_test_statused not found in shir.rs"
+    command grep -A24 "fn native_test_statused(" "$root/sh2perl/src/shir.rs" \
+      | command grep -q 'from(0)' \
+      || fail "estree chain seed lastExit = 0 not found in native_test_statused"
+    command grep -A24 "fn native_test_statused(" "$root/sh2perl/src/shir.rs" \
+      | command grep -q 'from(1)' \
+      || fail "estree chain seed lastExit = 1 not found in native_test_statused"
+    command grep -q "fn is_status_record_seq(" "$root/sh2perl/src/shir.rs" \
+      || fail "estree chain-link re-record guard is_status_record_seq not found in shir.rs"
+    echo "guard chain seed estree: PRESENT"
     ;;
   string_folds)
     # interp-fold's exact rule: only [Lit(s)] folds to Str.

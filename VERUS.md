@@ -29,7 +29,7 @@ Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28; t
 | `proofs/verus/copy_propagation.rs` | `transforms/copy_propagation.rs` (substitution core) | 27 verified, 0 errors | in-tree 2026-11-09, gated — see P3 |
 | `proofs/verus/function_purity.rs` | `transforms/function_purity.rs` (verdict) | 41 verified, 0 errors | in-tree 2026-11-09, gated — see P4 |
 | `proofs/verus/test_lowering.rs` | `transforms/test_lowering.rs` (Tier-1 leaves) | 25 verified, 0 errors | in-tree 2026-11-09, gated — see P5 |
-| `proofs/verus/test_lowering_stmt.rs` | `transforms/test_lowering.rs` **statement level**: EVERY rewrite site (If/elsif, While, DoWhile, ForInit, statement-position `&&`/`||` chains) preserves the run — status + trace — under the stated `$?`/branch hypotheses | 57 verified, 0 errors | committed in the `sh2perl` submodule 2026-11-21, gated — see P5 |
+| `proofs/verus/test_lowering_stmt.rs` | `transforms/test_lowering.rs` **statement level**: EVERY rewrite site (If/elsif, While, DoWhile, ForInit, statement-position `&&`/`||` chains) preserves the run — status + trace — under the stated `$?`/branch hypotheses | 58 verified, 0 errors | committed in the `sh2perl` submodule 2026-11-21, gated — see P5 |
 | `proofs/verus/string_folds.rs` | `interp_fold` + `default_empty_fold` (string folds) | 11 verified, 0 errors | in-tree 2026-11-09, gated — see P6 |
 | `proofs/verus/arith_folds.rs` | `arith_normalize` + `bc_float_clean` (arith identities) | 11 verified, 0 errors | in-tree 2026-11-09, gated — see P6 |
 | `proofs/verus/test_folds.rs` | `test_simplification` (self-comparison table) | 7 verified, 0 errors | in-tree 2026-11-09, gated — see P6 |
@@ -151,7 +151,7 @@ models / 1120 obligations to **42 / 1137** and the gate total from 1858 to
 **1875**; the branch-only column is unchanged. The remaining numbers in that
 table are the 2026-11-08 measurement and were not re-derived for this one row.
 
-**Update 2026-11-21: `test_lowering_stmt.rs` (57 verified — it began at 35 with If/While and now covers DoWhile, ForInit and statement-position chains, +22 obligations) and
+**Update 2026-11-21: `test_lowering_stmt.rs` (58 verified — 35 with If/While, +22 for DoWhile/ForInit/chains, +1 pinning the chain status seed on both faces) and
 `fold_arith_ast_pure.rs` (10 verified) join the gate, both COMMITTED in the
 `sh2perl` submodule** — the statement-level half of P5 above (`sh2.test`
 call → typed boolean preserves the run under the dead-status guard), and
@@ -387,7 +387,7 @@ dropped-`Not` mutant goes red (24/1) — the perl-numeric-`==` bug the
 `Not(Ne)` encoding exists to avoid. Status liveness, cond position,
 nocasematch, compounds, self-recursion: all out of scope there.
 
-**11b. `test_lowering` STATEMENT level (`test_lowering_stmt.rs`, 57) —
+**11b. `test_lowering` STATEMENT level (`test_lowering_stmt.rs`, 58) —
 the middle rung.** The leaf model above says each lowered test evaluates
 to the same boolean; it cannot see that the exchange also changes the
 RUN, because a runtime `test` call is silent but WRITES status while a

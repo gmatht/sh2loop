@@ -217,7 +217,7 @@ renderer defect that outlives the transform fix.
 ## Proof coverage vs testing (not a defect list — the honesty note)
 
 **Proved.** `test_lowering` at statement level (`proofs/verus/test_lowering_stmt.rs`,
-57 verified, gated): for every rewrite site the pass has — `If`/`elsif`,
+58 verified, gated): for every rewrite site the pass has — `If`/`elsif`,
 `While`, `DoWhile`, `ForInit`, and statement-position `[[ … ]] && cmd` /
 `|| cmd` chains — exchanging the runtime `test` call for the typed boolean
 preserves BOTH the exit status and the print trace, from any entry status, at
@@ -226,10 +226,16 @@ silent and writes 0/1; the lowered boolean is silent and writes nothing; an
 `if` reports the taken branch's last status (0 when none is taken); a
 `while`/`do-while`/`for` reports the last BODY status (0 when the body never
 runs); a statement chain reports its VALUE's status (1 for a short-circuited
-`&&`, 0 for a satisfied `||`) on both faces — that seeding is verified by
-reading the perl emitter (`control_chain_to_perl`), and ASSUMED for C/estree,
-where the transform's dead-status guard keeps any residual status difference
-unobservable; and a `$?` read observes the incoming status. The transform's own guards supply the premises: the
+`&&`, 0 for a satisfied `||`) on both faces — and that seed is what all three
+emitters actually generate: perl `control_chain_to_perl` writes
+`$main_exit_code = $CHILD_ERROR = $__sh_ok ? 0 : 1`; C's statement-position
+And/Or arm emits `{ if ((l)) { _sh_rc = 0; … } else { _sh_rc = 1; } }` (Or
+swaps which arm runs the rhs); estree records
+`(sh2._g = t, sh2.lastExit = sh2._g ? 0 : 1, sh2._g)` in `native_test_statused`
+and the chain links only re-record that same value (`is_status_record_seq`).
+`harness/verus-sync-coverage.sh` pins each emitter's seed text, so a renderer
+change fails the gate rather than quietly falsifying the rule; and a `$?` read
+observes the incoming status. The transform's own guards supply the premises: the
 condition's status must be provably unread (modelled as the stronger "no `$?`
 read anywhere in the arms") and no operand in a statement chain may read `$?`.
 The unguarded rewrite is REFUTED in the same file (`pin_guard_is_load_bearing`).
