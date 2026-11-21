@@ -650,6 +650,24 @@ regenerated text; they need no pin_map because the generation diff is the
 stronger tie. The models that remain transcriptions keep their existing sync
 entries unchanged — the gate says which is which by which driver runs.
 
+**Why `fold_arith_ast` is generated rather than dual-compiled (measured
+2026-11-21).** The stronger form of the tie — a `verus!`-annotated module that
+the ordinary `cargo build` also compiles and `optimize_stmts` calls — is not
+available to this crate. `sh2perl/Cargo.toml` has no Verus dependency;
+`vstd`/`builtin_macros` are not on crates.io and exist only as the release's
+rustc-version-locked proc-macro dylibs under `/home/john/verus-0.2026.10.18.7d82994`;
+and plain `rustc` rejects even a two-line `verus!`/`spec fn` file with
+`error[E0433]: cannot find module or crate vstd`. Realising literal single
+source therefore means adding the Verus toolchain (macros and verifier rustc)
+to the normal build, or building this crate with `cargo verus` — a build-
+architecture change, not a proof edit. Until that is chosen, the shipped
+`fn fold_arith_ast` in `src/ir.rs` is the single definition, the proved text
+is emitted from it by `harness/verus-sync-foldarith.sh` and byte-checked each
+gate run, and the hand half (payload types and the `fold_bin_op`/`fold_un_op`
+op-table model) stays a model: those i64 `wrapping_*` tables and
+`pow_wrapping`'s `while` loop are not transcribable to spec text, so
+`optimize_pass05.rs` proves them as hand models, not over the running code.
+
 **5. Compared with the Isabelle line, Verus is stronger per-lemma and weaker
 as a gate.** Isabelle's mirrors are also hand-duplicates ("mirrored
 VERBATIM"), but they are built by `harness/transform-proofs.sh` — 6

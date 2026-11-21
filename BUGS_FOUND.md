@@ -249,7 +249,15 @@ keeps the string-shape arms on the runtime test path is unit-tested only.
 `until` flag is an orthogonal negation applied identically to both faces. The
 map from test TEXT to boolean (the leaf table: glob affixes, `-n`/`-z`,
 numeric compares, string `==`) is the separate per-leaf model
-(`test_lowering.rs`, 25 verified), not this one. The verifier's own model of
+(`test_lowering.rs`, 25 verified), not this one. Pass 0.5 is proved over a GATE-REGENERATED TRANSCRIPTION, not over the running
+text: `fold_arith_ast` is emitted from `src/ir.rs` by
+`harness/verus-sync-foldarith.sh` and byte-checked every gate run, while
+`fold_bin_op`, `fold_un_op` and `pow_wrapping` remain hand models in
+`optimize_pass05.rs` (their `wrapping_*` i64 tables and `pow_wrapping`'s
+`while` loop are not transcribable to spec). A `verus!` module compiled by the
+normal build is unavailable here — measured: no Verus dependency in
+`Cargo.toml`, and plain `rustc` rejects `verus!`/`vstd`; see VERUS.md §(b).4.
+The verifier's own model of
 "dead status" is conservative: it assumes no `$?` read in the arms, while the
 shipped scan also admits a read after an arm's own status writer.
 
