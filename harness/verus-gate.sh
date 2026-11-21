@@ -62,7 +62,7 @@ MODELS=(
   # `fold_identity` (a tree with no literal pair is unchanged — the refusal
   # property) and `fold_value` (a literal tree keeps its value through the
   # fold), both over the full recursion, plus three fidelity pins.
-  "fold_arith_ast_pure.rs:10:60"
+  "fold_arith_ast_pure.rs:13:60"
   "dead_fn_elim.rs:25:40"
   "dead_store_elim.rs:45:40"
   "redundant_store_elim.rs:53:80"

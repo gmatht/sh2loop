@@ -56,6 +56,30 @@ def fatal(msg):
     print("  (the source outgrew the extractor — extend it, do not hand-edit)", file=sys.stderr)
     sys.exit(1)
 
+# ---- shipped refusal arms -------------------------------------------
+# The hand half models the op table, but the REFUSAL arms are the part
+# the value theorems (and the pins) claim about running code. Pin their
+# exact shipped guard text here, so mutating any of them fails generation
+# (and therefore the gate) instead of leaving the proof describing a
+# guard the table no longer has. The op ids used by the hand model are
+# documented by correspondence: 1 `+`, 2 `-`, 4 `*`, 5 `/`, 6 `%`,
+# 8 `**` (7 is unused).
+flat = " ".join(src.split())
+REQUIRED_GUARDS = [
+    ('"/" if b != 0 && !(a == i64::MIN && b == -1) => Some(a / b),',
+     "div arm (zero divisor AND MIN / -1 refusal)"),
+    ('"%" if b != 0 && !(a == i64::MIN && b == -1) => Some(a % b),',
+     "mod arm (zero divisor AND MIN % -1 refusal)"),
+    ('"**" if b >= 0 => Some(pow_wrapping(a, b)),',
+     "pow arm (negative-exponent refusal)"),
+]
+for pat, what in REQUIRED_GUARDS:
+    if pat not in flat:
+        fatal(
+            f"shipped `fold_bin_op` lost its {what}: expected `{pat}` "
+            "— the proved refusal arms no longer match the running table"
+        )
+
 def matching(text, start):
     """Index of the brace matching text[start] == '{'."""
     depth = 0
