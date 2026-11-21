@@ -21,13 +21,15 @@ Status snapshot (measured 2026-10-24; three C-generator rows added 2026-10-28; t
 | `proofs/verus/escape_classes.rs` | **verdict analysis**: `transforms/escape_classes.rs` `class_of` over the C consumer (`c_backend.rs:9929`) | 14 verified, 0 errors | landed, gated — see P12 |
 | `proofs/verus/f32_narrow.rs` | **verdict analysis**: `transforms/f32_narrow.rs` form table + `operand_exact` | 8 verified, 0 errors | landed, gated — see P12 |
 | `proofs/verus/optimize_stmts.rs` | `src/ir.rs::optimize_stmts` Pass 1 | 8 verified, 0 errors | committed `84bb46cb7`, local-only |
-| `proofs/verus/optimize_pass05.rs` | `src/ir.rs` Pass 0.5: `pow_wrapping`, `fold_bin_op` (value + refusal arms), `fold_arith_ast` node fold | 25 verified, 0 errors | gated — pass-0.5 |
+| `proofs/verus/optimize_pass05.rs` | `src/ir.rs` Pass 0.5: `pow_wrapping`, `fold_bin_op` (value + refusal arms); the `fold_arith_ast` RECURSION moved to the generated row below | 23 verified, 0 errors | gated — pass-0.5 |
+| `proofs/verus/fold_arith_ast_pure.rs` | `src/ir.rs` **GENERATED**: `enum ArithAst` + `fn fold_arith_ast` emitted verbatim by `harness/verus-sync-foldarith.sh`; theorems `fold_identity` (no literal pair ⇒ unchanged) and `fold_value` (literal tree keeps its value) over the full recursion | 10 verified, 0 errors | gated 2026-11-21 — generated, not transcribed: §(b).4 tie |
 | `proofs/verus/dead_fn_elim.rs` | `transforms/dead_fn_elim.rs` Passes 1–4 | 25 verified, 0 errors | committed `46ec35566`, local-only |
 | `proofs/verus/dead_store_elim.rs` | `transforms/dead_store_elim.rs` core | 45 verified, 0 errors | committed `dbd0a5562`, local-only |
 | `proofs/verus/redundant_store_elim.rs` | `transforms/redundant_store_elim.rs` (fixed) | 54 verified, 0 errors | landed, gated — see P1 |
 | `proofs/verus/copy_propagation.rs` | `transforms/copy_propagation.rs` (substitution core) | 27 verified, 0 errors | in-tree 2026-11-09, gated — see P3 |
 | `proofs/verus/function_purity.rs` | `transforms/function_purity.rs` (verdict) | 41 verified, 0 errors | in-tree 2026-11-09, gated — see P4 |
 | `proofs/verus/test_lowering.rs` | `transforms/test_lowering.rs` (Tier-1 leaves) | 25 verified, 0 errors | in-tree 2026-11-09, gated — see P5 |
+| `proofs/verus/test_lowering_stmt.rs` | `transforms/test_lowering.rs` **statement level**: the If/While condition exchange preserves the run (status + trace) under the dead-status guard | 35 verified, 0 errors | committed in the `sh2perl` submodule 2026-11-21, gated — see P5 |
 | `proofs/verus/string_folds.rs` | `interp_fold` + `default_empty_fold` (string folds) | 11 verified, 0 errors | in-tree 2026-11-09, gated — see P6 |
 | `proofs/verus/arith_folds.rs` | `arith_normalize` + `bc_float_clean` (arith identities) | 11 verified, 0 errors | in-tree 2026-11-09, gated — see P6 |
 | `proofs/verus/test_folds.rs` | `test_simplification` (self-comparison table) | 7 verified, 0 errors | in-tree 2026-11-09, gated — see P6 |
@@ -149,13 +151,27 @@ models / 1120 obligations to **42 / 1137** and the gate total from 1858 to
 **1875**; the branch-only column is unchanged. The remaining numbers in that
 table are the 2026-11-08 measurement and were not re-derived for this one row.
 
+**Update 2026-11-21: `test_lowering_stmt.rs` (35 verified) and
+`fold_arith_ast_pure.rs` (10 verified) join the gate, both COMMITTED in the
+`sh2perl` submodule** — the statement-level half of P5 above (`sh2.test`
+call → typed boolean preserves the run under the dead-status guard), and
+the first model whose implementation text is GENERATED from `src/ir.rs`
+rather than transcribed (`fold_arith_ast_pure.rs` is emitted by
+`harness/verus-sync-foldarith.sh`; see §(b).4). Both are tracked on the
+branch, so the committed column moves 43 / 1151 → **45 / 1196** and the
+branch-only column 40 / 773 → **39 / 738**; the gate total is **82 / 1932**
+(the same 1924, +35 for the statement model, +10 for the generated module,
+−2 because the hand one-node `fold_arith_ast` model it replaces was
+deleted from `optimize_pass05.rs`, 25 → 23). Two mutants measured red on
+copies of the statement model (34v/1e each, the convention of §(b).3).
+
 The retired i32 pair (`interval.rs` 5, `i32_bounds_exec.rs` 7 — target never
 landed, §(d) P0(iv)) is 12 obligations that count toward no Tier-1 total — the gate still verifies
 them (as `RETIRED_MODELS`), so they cannot rot silently, but a green count there
 is evidence about a design that never shipped; the
 postcondition on the retired exec form lives on its executable function
-instead. Every active model has checked failing mutants (see §(b).3 — 38
-mutants over 36 models).
+instead. Every active model has checked failing mutants (see §(b).3 — 40
+mutants over 37 models).
 
 The totals this section carried before 2026-11-08 (492 active, 504 with the
 retired pair, 976 transform-side, 1841 gated) did not reproduce against either
@@ -369,7 +385,35 @@ needs statement semantics; these leaves are the Tier-1 carve-out.
 Eight fidelity pins mirror the transform's own tests. The
 dropped-`Not` mutant goes red (24/1) — the perl-numeric-`==` bug the
 `Not(Ne)` encoding exists to avoid. Status liveness, cond position,
-nocasematch, compounds, self-recursion: all out of scope (Tier-3).
+nocasematch, compounds, self-recursion: all out of scope there.
+
+**11b. `test_lowering` STATEMENT level (`test_lowering_stmt.rs`, 35) —
+the middle rung.** The leaf model above says each lowered test evaluates
+to the same boolean; it cannot see that the exchange also changes the
+RUN, because a runtime `test` call is silent but WRITES status while a
+typed boolean writes none. This model proves the whole condition
+exchange sound: for any program whose `Test` conditions sit in a
+dead-status position, `exec_list(rewrite_list p)` equals `exec_list p`
+from any start status at every fuel — status and print trace together.
+Bash's rules are the execution semantics: a taken branch reports its
+body's last status, no branch taken reports 0 (not the condition's
+status), a loop that never ran reports 0, and a `$?` read observes the
+incoming status. The pass's `cond_status_observable` guard is the
+premise, modelled as the strictly stronger "no `$?` read anywhere in the
+arms" (the real scan also admits a read after an arm writer), plus the
+grammar fact that no arm/loop body is empty; `clean_list_blind` is what
+the guard buys (every command but the excluded read writes status).
+Twelve fidelity pins mirror the transform's table and its
+`live_status_*_keeps_the_test` tests, including
+`pin_guard_is_load_bearing`: a body that prints `$?` sees status 0 on
+the source face and the entry status on the lowered face, so the
+unguarded rewrite is refuted, not merely refused. Two mutants measured
+on copies: drop the guard from the If arm (34v/1e) and make the runtime
+test call stop writing status (34v/1e). NOT modelled: statement-position
+`[[ … ]] && cmd` chains (a second rewrite site, whose chain value is its
+status), `DoWhile`/`ForInit` (the same exchange with a tail test /
+init-and-step wrapper), and the `nocasematch`/self-recursion guards,
+which only shrink the firing set.
 
 **12. P9 ELIM trio (`elim_trio.rs`, 22).** Three per-pass soundness
 obligations over store + observable-trace semantics, proved 2026-10-26 and
@@ -588,6 +632,24 @@ honest after the modelling session ends:
 | `not_folds` | 8 pins (double/single/consistency/flips/runtime) | **yes, all-but-one** — 7 pins mirror named `not_identity.rs` tests (folds_double_not, single_not_is_untouched, unbalanced_inner_not_is_refused, flips_negated_comparison, flips_ordering_comparisons); outer-inconsistency is model-internal | 7/7 mapped PASS in committed sync baseline |
 | `const_cmp_folds` | 9 pins (equal/ne/int/glob/style/mixed/dynamic/wrapped/globmatch) | **yes, all** — each pin mirrors a named `const_str_cmp_fold.rs` test (folds_equal_literals, folds_int_literals, refuses_glob_rhs, refuses_dynamic_and_mixed_operands, refuses_command_style, folds_globmatch_with_literal_pattern, folds_wrapped_exact_cond) | 9/9 mapped PASS in committed sync baseline |
 
+**The first model with no transcript to drift: `fold_arith_ast_pure.rs`.**
+Every model above is a hand transcription, and its sync entry can only detect
+drift after the fact. This one removes the class: `harness/verus-sync-foldarith.sh`
+emits the shipped `enum ArithAst` and `fn fold_arith_ast` from `sh2perl/src/ir.rs`
+(the complete mechanical rewrite list is in the file header: value parameter,
+`Str`/`Ty` for the opaque payloads, `int` for `i64`, `*box` reads, no `.clone()`,
+early `return` → arm tail) and writes `proofs/verus/fold_arith_ast_pure.rs`, which
+is BOTH the verified model (MODELS) and the compared baseline (SYNCS). The hand
+half lives in `fold_arith_ast_pure.in` and contains no copy of the driver — only
+the op-table model and the theorems — so editing the recursion regenerates the
+proved text on the next gate run, and an untranscribable source shape is a FATAL
+in the extractor rather than a silent mistranslation. Its three pins
+(`pin_three_plus_four`, `pin_div_zero_refuses`,
+`pin_nested_literal_folds_and_shape_survives`) are shape checks on the
+regenerated text; they need no pin_map because the generation diff is the
+stronger tie. The models that remain transcriptions keep their existing sync
+entries unchanged — the gate says which is which by which driver runs.
+
 **5. Compared with the Isabelle line, Verus is stronger per-lemma and weaker
 as a gate.** Isabelle's mirrors are also hand-duplicates ("mirrored
 VERBATIM"), but they are built by `harness/transform-proofs.sh` — 6
@@ -642,7 +704,7 @@ the baseline everything below also has.
 | `i32_provable` | analysis (`abs_bound` + `arith_bounds`) | **I** (`abs_bound`/`is_i32`) + **V-retired** (`arith_bounds`, 2 files) | Verus pair retired P0(iv) — target never landed; Isabelle `abs_bound` stands |
 | `dead_fn_elim` | elimination | **V** (Passes 1–4) | Lit-fragment census gap flagged, not proved |
 | `dead_store_elim` | elimination | **V** (core) | droppable scalar class only; found 2 real bugs next door |
-| `optimize_stmts` (`ir.rs`) | elimination (Pass 1) | **V** | Pass 0.5 folding now **V** too (`optimize_pass05.rs`, 25): pow/squaring, refusal arms, node fold |
+| `optimize_stmts` (`ir.rs`) | elimination (Pass 1) | **V** | Pass 0.5 folding now **V** too (`optimize_pass05.rs`, 23): pow/squaring and the refusal arms, plus the recursion over the GENERATED `fold_arith_ast_pure.rs` (10) |
 | `bigint_range` (`shir_passes`) | analysis | **I** | pre-fix twin refuted in-file (`v0_not_sound`) |
 | `interval` (`shir_passes`) | analysis (floor walk) | **I** | imports BigIntRange; release-wrap `*` arm fixed with proof |
 | `text_ops` (wc part) | node lowering | **I** (`docs/fm/TextOps`) | `lowered_wc_sound`; pre-fix emission recorded refuted |

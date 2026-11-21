@@ -29,6 +29,12 @@
 # Exit: 0 manifest emitted; 1 a fact cannot be extracted (source outgrew
 # the checker — extend the patterns, do not hand-edit the baseline).
 set -uo pipefail
+# The manifest is sorted, and `sort` under a UTF-8 locale collates `_` and
+# letters differently from C (en_NZ put `globmatch` before `glob_rhs`, C
+# puts `glob_rhs` first). The committed baselines were blessed under C, so
+# pin the collation: otherwise the gate's verdict depends on the caller's
+# LANG rather than on the tree (measured 2026-11-21 on const_cmp_folds).
+export LC_ALL=C
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MODEL="${1:-}"
@@ -43,6 +49,8 @@ fail() { echo "verus-sync-coverage($MODEL): FATAL: $*" >&2; exit 1; }
 model_srcs() {
   case "$1" in
     copy_propagation|function_purity|test_lowering) echo "$1" ;;
+    # the statement-level companion models the same transform
+    test_lowering_stmt) echo "test_lowering" ;;
     string_folds) echo "interp_fold default_empty_fold" ;;
     arith_folds) echo "arith_normalize bc_float_clean" ;;
     test_folds) echo "test_simplification" ;;
@@ -143,6 +151,22 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     test_lowering:pin_numeric_ge) echo test_lowering:numeric_compare_tests_lower_to_binop ;;
     test_lowering:pin_affix_shapes) echo test_lowering:glob_affix_tests_lower_to_primitives ;;
     test_lowering:pin_affix_neg) echo test_lowering:negated_affix_not_carries_primitive_on_both_sides ;;
+    # Statement-level companion (the middle rung). The guard's two source
+    # ties are the live-status refusal test and the leaf lowering it
+    # guards; the bash branch/status rules and the blindness premise are
+    # model-internal by design.
+    test_lowering_stmt:pin_dead_status_lowers_the_test) echo test_lowering:nonempty_tests_lower_to_string_ne ;;
+    test_lowering_stmt:pin_live_status_keeps_the_test) echo test_lowering:live_status_keeps_the_test ;;
+    test_lowering_stmt:pin_test_cond_rewrites_to_the_same_value) echo test_lowering:numeric_compare_tests_lower_to_binop ;;
+    test_lowering_stmt:pin_other_cond_untouched) echo UNMIRRORED ;;
+    test_lowering_stmt:pin_branch_status_is_the_body_status) echo UNMIRRORED ;;
+    test_lowering_stmt:pin_no_branch_taken_reports_zero) echo UNMIRRORED ;;
+    test_lowering_stmt:pin_while_never_runs_reports_zero) echo UNMIRRORED ;;
+    test_lowering_stmt:pin_while_lowered_agrees) echo UNMIRRORED ;;
+    test_lowering_stmt:pin_guard_is_load_bearing) echo test_lowering:live_status_keeps_the_test ;;
+    test_lowering_stmt:pin_clean_run_list_is_blind) echo UNMIRRORED ;;
+    test_lowering_stmt:pin_else_arm_is_unconditional) echo UNMIRRORED ;;
+    test_lowering_stmt:pin_elif_chain_agrees) echo UNMIRRORED ;;
     string_folds:pin_single_literal_folds) echo interp_fold:single_literal_interpolate_folds_to_str ;;
     string_folds:pin_single_expr_refuses) echo interp_fold:single_expr_interpolate_is_refused ;;
     string_folds:pin_multi_part_stays) echo interp_fold:multi_part_interpolate_is_left_alone ;;
@@ -401,6 +425,7 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     hoist_loop_invariants:pin_fn_cond_write_refused) echo hoist_loop_invariants:refuses_when_a_called_fn_in_the_condition_writes_the_read_var ;;
     hoist_loop_invariants:pin_hoist_preserves_run) echo hoist_loop_invariants:hoists_invariant_from_body ;;
     hoist_loop_invariants:pin_zero_trip_diverges) echo UNMIRRORED ;;
+    hoist_loop_invariants:pin_guarded_zero_trip_agrees) echo hoist_loop_invariants:zero_trip_loop_never_runs_the_prologue ;;
     direct_calls:pin_pure_output_collapses) echo direct_calls:pure_output_fn_capture_collapses ;;
     direct_calls:pin_impure_refuses) echo direct_calls:impure_fn_capture_refuses ;;
     direct_calls:pin_undefined_refuses) echo direct_calls:undefined_fn_capture_refuses ;;
@@ -626,6 +651,24 @@ case "$MODEL" in
     command grep -q '"-n ' "$SRC" && command grep -q '"-z ' "$SRC" \
       || fail "nonempty flags -n/-z not found in source"
     echo "guard nonempty -n/-z: PRESENT"
+    ;;
+  test_lowering_stmt)
+    # The statement-level model's premise is this guard: the cond's
+    # status write must be provably unread, and the cond must be a pure
+    # test chain. A rename or removal of either is the exact "model no
+    # longer describes the code" event.
+    command grep -q "fn cond_status_observable(" "$SRC" \
+      || fail "cond_status_observable guard not found in source"
+    echo "guard dead-status cond_status_observable: PRESENT"
+    command grep -qF "if observable || !crate::shir::is_pure_test_chain(cond)" "$SRC" \
+      || fail "the observable/pure-chain refusal not found in source"
+    echo "guard dead-status refusal: PRESENT"
+    command grep -q "lastexit_scan_top_read" "$SRC" \
+      || fail "status liveness scan not found in source"
+    echo "guard status liveness scan: PRESENT"
+    command grep -q "fn rewrite_test_chain(" "$SRC" \
+      || fail "rewrite_test_chain not found in source"
+    echo "guard cond rewrite site: PRESENT"
     ;;
   string_folds)
     # interp-fold's exact rule: only [Lit(s)] folds to Str.

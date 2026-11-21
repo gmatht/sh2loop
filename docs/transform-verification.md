@@ -425,6 +425,30 @@ output, the temp path is unlinked, other temps are untouched — with a negative
 control showing the fd/mode inversion the pass's own tests pin yields an empty
 consumer input.
 
+`proofs/verus/test_lowering_stmt.rs` (35 obligations) carries the recipe to the
+pass that fires on 42/563 examples. Its per-leaf companion answers "same
+boolean?"; this one answers "same run?" for the condition exchange, with R1/R2
+above plus a third rule — a `$?` read observes the status the previous command
+left — and the pass's dead-status guard as the hypothesis
+(`cond_status_observable`, modelled as the stronger "no `$?` read anywhere in
+the arms"). It also **refutes the unguarded rewrite**: with a body that prints
+`$?`, the source condition (the runtime `test` call, which writes 0/1) and its
+lowered typed boolean (which writes no status) produce different traces, so the
+guard is load-bearing, not decoration. The same shape covers `elif` (a nested
+`If` in the else position); statement-position `[[ … ]] && cmd` chains and
+`DoWhile`/`ForInit` are named as out of scope in the model.
+
+`proofs/verus/fold_arith_ast_pure.rs` (10 obligations) is the Pass 0.5 recursion,
+and it is the first model whose implementation is not a transcription at all:
+`harness/verus-sync-foldarith.sh` emits the shipped `enum ArithAst` and
+`fn fold_arith_ast` out of `src/ir.rs` into the file Verus verifies, so the text
+that runs and the text that is proved are one artifact and the copy-drift class
+is gone rather than detected afterwards. The op table it calls stays proved in
+`optimize_pass05.rs`; the hand template holds only the model of that table and
+the two theorems — `fold_value` (a literal tree keeps its value through the fold)
+and `fold_identity` (a tree with no literal pair is unchanged, i.e. the refusal
+arm invents nothing) — both over the full recursion instead of one node.
+
 Which passes have such a model is a question for `VERUS.md` and the gate's
 list, not for memory: several models are untracked work-in-progress at any
 given time. Still out of reach for this recipe: signals, PATH resolution, and

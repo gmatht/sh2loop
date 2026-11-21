@@ -53,7 +53,16 @@ MODELS=(
   # PASS 0.5 (the fold every program goes through): pow_wrapping's
   # repeated squaring == product mod 2^64, and fold_bin_op's refusal
   # arms (div/mod by zero, MIN/-1, negative exponent).
-  "optimize_pass05.rs:25:60"
+  "optimize_pass05.rs:23:60"
+  # THE RECURSION, proved over the RUNNING text: the `Ast` datatype and
+  # `fold_arith_ast` below are emitted from src/ir.rs by
+  # harness/verus-sync-foldarith.sh (which the SYNC list also runs), so
+  # there is no hand transcription of the driver to drift. The hand half
+  # (`fold_arith_ast_pure.in`) is the op-table model plus the theorems:
+  # `fold_identity` (a tree with no literal pair is unchanged — the refusal
+  # property) and `fold_value` (a literal tree keeps its value through the
+  # fold), both over the full recursion, plus three fidelity pins.
+  "fold_arith_ast_pure.rs:10:60"
   "dead_fn_elim.rs:25:40"
   "dead_store_elim.rs:45:40"
   "redundant_store_elim.rs:53:80"
@@ -80,6 +89,15 @@ MODELS=(
   "copy_propagation.rs:27:40"
   "function_purity.rs:41:40"
   "test_lowering.rs:25:40"
+  # The STATEMENT-level companion: the condition exchange (a runtime
+  # `sh2.test(…)` call → the typed boolean the leaf model proves equal)
+  # preserves the RUN — (final status, trace) — for every If/While whose
+  # arms are status-blind, at every fuel. States bash's branch/$? rules as
+  # the execution semantics and takes the pass's dead-status guard as its
+  # premise, which `pin_guard_is_load_bearing` proves load-bearing. Two
+  # mutants measured red on copies (34v/1e each): drop the guard from the
+  # If arm, and make the runtime test call stop writing status.
+  "test_lowering_stmt.rs:35:60"
   "string_folds.rs:11:40"
   "arith_folds.rs:11:40"
   "test_folds.rs:7:40"
@@ -953,9 +971,21 @@ SYNCS=(
   # match the committed baseline, so an edit to the fold cannot leave the
   # model describing old code.
   "harness/verus-sync-pass05.sh:sh2perl/proofs/verus/optimize_pass05_sync.txt"
+  # The GENERATED model: unlike the anchor above (which only hashes the
+  # source), this extractor emits the enum + driver and the file it emits
+  # is the one MODELS verifies. The baseline is the model itself, so the
+  # gate checks `regenerate -> byte-identical` AND (via the model entry)
+  # `the regenerated text verifies`. An edit to fold_arith_ast regenerates
+  # a different file: the model re-verifies under the gate, and the diff
+  # fails until it is re-blessed.
+  "harness/verus-sync-foldarith.sh:sh2perl/proofs/verus/fold_arith_ast_pure.rs"
   "harness/verus-sync-coverage.sh:copy_propagation:sh2perl/proofs/verus/copy_propagation_sync.txt"
   "harness/verus-sync-coverage.sh:function_purity:sh2perl/proofs/verus/function_purity_sync.txt"
   "harness/verus-sync-coverage.sh:test_lowering:sh2perl/proofs/verus/test_lowering_sync.txt"
+  # The statement-level companion: its pins map to the same live suite
+  # (live_status_keeps_the_test is the guard's source tie) and its guards
+  # pin the dead-status verdict + pure-chain refusal it assumes.
+  "harness/verus-sync-coverage.sh:test_lowering_stmt:sh2perl/proofs/verus/test_lowering_stmt_sync.txt"
   "harness/verus-sync-coverage.sh:string_folds:sh2perl/proofs/verus/string_folds_sync.txt"
   "harness/verus-sync-coverage.sh:arith_folds:sh2perl/proofs/verus/arith_folds_sync.txt"
   "harness/verus-sync-coverage.sh:test_folds:sh2perl/proofs/verus/test_folds_sync.txt"
@@ -1129,7 +1159,11 @@ check_sync() { # $1=extractor $2=baseline(rel to root)
     pass=$((pass+1))
   else
     echo "FAIL  $name — baseline drifted from the live source:" >&2
-    diff <(command grep -v "$filt" "$base") <(command grep -v "$filt" "$tmp") 2>&1 | head -20 >&2
+    # `|| true`: with `set -e` + `pipefail` a failing diff here used to
+    # ABORT the whole gate before `fail` was incremented, truncating the
+    # report at the first drifted entry and hiding every entry after it
+    # (measured 2026-11-21: a stale hoist baseline never ran).
+    diff <(command grep -v "$filt" "$base") <(command grep -v "$filt" "$tmp") 2>&1 | head -20 >&2 || true
     fail=$((fail+1))
   fi
   rm -f "$tmp" "$tmp.err"
@@ -1172,7 +1206,9 @@ check_sync_cov() { # $1=script $2=model $3=baseline(rel to root)
     pass=$((pass+1))
   else
     echo "FAIL  $name — correspondence drifted from the live source:" >&2
-    diff <(command grep -v "^# source sha:" "$base") <(command grep -v "^# source sha:" "$tmp") 2>&1 | head -20 >&2
+    # same `|| true` as check_sync: a drift must be counted, not abort
+    # the run at the first failing entry.
+    diff <(command grep -v "^# source sha:" "$base") <(command grep -v "^# source sha:" "$tmp") 2>&1 | head -20 >&2 || true
     fail=$((fail+1))
   fi
   rm -f "$tmp" "$tmp.err"
