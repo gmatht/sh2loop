@@ -9,7 +9,7 @@
 //! `+ - *` arithmetic lower to an emittable `VkLoopSpec`. Scalar
 //! accumulates need a parallel reduction (M5) → veto `scalar-carry`.
 
-use debashl::ir::{ArithAst, IrExpr, IrProgram, IrStmt, IrType};
+use debashl::ir::{ArithAst, BinOpKind, IrExpr, IrProgram, IrStmt, IrType};
 use debashl::vulkan_backend::{VkArith, VkLoopSpec, VkStore};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -423,20 +423,7 @@ fn analyze_for_init(
             if targets.len() != 1 || t.var.contains('[') {
                 return veto(scope, path, &t.var, "non-counted-init");
             }
-            let n = match expr {
-                IrExpr::Arith(a) => match a.as_ref() {
-                    ArithAst::Num(n) => Some(*n),
-                    ArithAst::Assign { var: v, op, rhs } if v == &t.var && op == "=" => {
-                        match rhs.as_ref() {
-                            ArithAst::Num(n) => Some(*n),
-                            _ => None,
-                        }
-                    }
-                    _ => None,
-                },
-                _ => None,
-            };
-            let Some(n) = n else {
+            let Some(n) = init_num(expr, &t.var) else {
                 return veto(scope, path, &t.var, "non-counted-init");
             };
             (t.var.clone(), n)
@@ -446,33 +433,17 @@ fn analyze_for_init(
     if scope.types.get(&var).is_some_and(|t| !is_signed_int(t)) {
         return veto(scope, path, &var, "unproven-width");
     }
-    // cond: `loopvar </<= NUM` text inside a builtin/test call.
-    let (hi, inclusive) = match cond_text(cond, &var) {
-        Some(v) => v,
-        None => return veto(scope, path, &var, "non-counted-cond"),
+    // cond: `loopvar </<= NUM` text inside a builtin/test call, or the
+    // typed `BinOp` a shell test lowers to.
+    let (hi, inclusive) = match cond_bounds(cond, &var) {
+        Ok(v) => v,
+        Err(r) => return veto(scope, path, &var, r),
     };
     // step: `loopvar++` / `loopvar += N`.
     let st = match step {
         [IrStmt::Assign { targets, expr, .. }] => {
             let is_var = targets.len() == 1 && targets[0].var == var;
-            let d = match expr {
-                IrExpr::Arith(a) => match a.as_ref() {
-                    ArithAst::IncDec { var: v, delta, .. } if v == &var => Some(*delta),
-                    ArithAst::Assign { var: v, op, rhs } if v == &var => match op.as_str() {
-                        "+=" => match rhs.as_ref() {
-                            ArithAst::Num(n) => Some(*n),
-                            _ => None,
-                        },
-                        "-=" => match rhs.as_ref() {
-                            ArithAst::Num(n) => Some(-n),
-                            _ => None,
-                        },
-                        _ => None,
-                    },
-                    _ => None,
-                },
-                _ => None,
-            };
+            let d = step_delta(expr, &var);
             if !is_var {
                 return veto(scope, path, &var, "non-counted-step");
             }
@@ -517,6 +488,85 @@ fn parse_cmp(text: &str, var: &str) -> Option<(i64, bool)> {
         }
     }
     None
+}
+
+/// The numeric init of a counter: `for ((i=0;…))` carries `Arith(Num)`
+/// or `Arith(Assign{…})`, while the canonical counter-while
+/// (`i=0; while [ "$i" -lt N ]`) reaches the Vk path as a plain shell
+/// assignment — `Str("0")` in shIR. Both spellings denote the same loop
+/// (sh2perl's `counted_while_forinit` already merged it into one
+/// `ForInit`), so read them the same way.
+fn init_num(expr: &IrExpr, var: &str) -> Option<i64> {
+    match expr {
+        IrExpr::Arith(a) => match a.as_ref() {
+            ArithAst::Num(n) => Some(*n),
+            ArithAst::Assign { var: v, op, rhs } if v == var && op == "=" => match rhs.as_ref() {
+                ArithAst::Num(n) => Some(*n),
+                _ => None,
+            },
+            _ => None,
+        },
+        IrExpr::Int(n) => Some(*n),
+        IrExpr::Str(s, _) => s.trim().parse::<i64>().ok(),
+        _ => None,
+    }
+}
+
+/// The induction step of a counter update: `i++`, `i += K`, or the
+/// shell-arithmetic spelling `i=$((i + K))` that `counted_while_forinit`
+/// keeps as the loop's step statement (`Arith(Bin{+, Var(i), Num(K)})`).
+fn step_delta(expr: &IrExpr, var: &str) -> Option<i64> {
+    let IrExpr::Arith(a) = expr else {
+        return None;
+    };
+    match a.as_ref() {
+        ArithAst::IncDec { var: v, delta, .. } if v == var => Some(*delta),
+        ArithAst::Assign { var: v, op, rhs } if v == var => match (op.as_str(), rhs.as_ref()) {
+            ("+=", ArithAst::Num(n)) => Some(*n),
+            ("-=", ArithAst::Num(n)) => Some(-n),
+            _ => None,
+        },
+        ArithAst::Bin { op, lhs, rhs } => match (lhs.as_ref(), rhs.as_ref()) {
+            (ArithAst::Var(v), ArithAst::Num(n)) if v == var && op == "+" => Some(*n),
+            (ArithAst::Var(v), ArithAst::Num(n)) if v == var && op == "-" => Some(-n),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// `loopvar </<= bound` for a loop condition: the textual form of a
+/// `for ((…))` test, or the typed `BinOp` that a shell `[ "$i" -lt N ]`
+/// test lowers to. A runtime bound is a counted loop the Vk path cannot
+/// size (trips ride in `VkLoopSpec`), so it is its own verdict rather
+/// than "uncounted".
+fn cond_bounds(cond: &IrExpr, var: &str) -> Result<(i64, bool), &'static str> {
+    if let Some(v) = cond_text(cond, var) {
+        return Ok(v);
+    }
+    let IrExpr::BinOp { lhs, op, rhs } = cond else {
+        return Err("non-counted-cond");
+    };
+    let inclusive = match op {
+        BinOpKind::Lt => false,
+        BinOpKind::Le => true,
+        _ => return Err("non-counted-cond"),
+    };
+    let is_counter = matches!(
+        lhs.as_ref(),
+        IrExpr::Arith(a) if matches!(a.as_ref(), ArithAst::Var(v) | ArithAst::Ident(v) if v == var)
+    );
+    if !is_counter {
+        return Err("non-counted-cond");
+    }
+    match rhs.as_ref() {
+        IrExpr::Arith(a) => match a.as_ref() {
+            ArithAst::Num(n) => Ok((*n, inclusive)),
+            ArithAst::Var(_) | ArithAst::Ident(_) => Err("dynamic-bound"),
+            _ => Err("non-counted-cond"),
+        },
+        _ => Err("non-counted-cond"),
+    }
 }
 
 /// Shared body analysis + spec construction.
@@ -743,6 +793,42 @@ mod tests {
         // while loop → skipped silently (not counted)
         let p = prog_of("#!/bin/bash\nwhile read l; do echo $l; done < f\n");
         assert!(analyze(&p).is_empty());
+    }
+
+    #[test]
+    fn counted_while_literal_bound_is_candidate() {
+        // The canonical counter-while the shell frontend merges into
+        // `ForInit`: init is the assignment `i=0` (Str in shIR) and the
+        // step is `i=$((i+1))` (Arith(Bin)). Both spellings must give the
+        // same verdict as `for ((i=0;i<8;i++))`.
+        let p = prog_of(
+            "#!/bin/bash\ni=0\nwhile [ \"$i\" -lt 8 ]; do a[$i]=$((i*2)); i=$((i+1)); done\n",
+        );
+        let v = analyze(&p);
+        assert_eq!(v.len(), 1, "{v:?}");
+        assert!(v[0].is_candidate(), "{}", v[0]);
+        assert_eq!((v[0].lo, v[0].hi, v[0].step, v[0].trips), (0, 8, 1, 8));
+    }
+
+    #[test]
+    fn counted_while_runtime_bound_vetoes_dynamic_bound() {
+        // A bound the Vk path cannot size is counted, but not statically
+        // countable: name it instead of reporting `non-counted-init`.
+        let p = prog_of(
+            "#!/bin/bash\nn=$1\ni=0\nwhile [ \"$i\" -lt \"$n\" ]; do a[$i]=$i; i=$((i+1)); done\n",
+        );
+        let v = analyze(&p);
+        assert_eq!(v.len(), 1, "{v:?}");
+        assert!(
+            matches!(
+                v[0].verdict,
+                Verdict::Veto {
+                    reason: "dynamic-bound"
+                }
+            ),
+            "{}",
+            v[0]
+        );
     }
 
     #[test]

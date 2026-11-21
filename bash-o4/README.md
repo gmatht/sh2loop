@@ -104,9 +104,12 @@ still shows the separate `MAP` and `RED` loops (both offload).
 
 The CPU map candidacy accepts counted loops (`for i in {a..b}`,
 `for ((...))`, ranges) whose bodies are independent affine
-`arr[a*i+b] = arith(+,-,*)` stores over i64-proven values. Vetoes name
-the first failing rule (`scalar-carry`, `body-host-io`,
-`non-counted-cond`, …).
+`arr[a*i+b] = arith(+,-,*)` stores over i64-proven values. The canonical
+counter-while (`i=0; while [ "$i" -lt N ]`) becomes the same `ForInit`
+as `for ((i=0;i<N;i++))` and gets the same verdicts; a bound that is a
+runtime value vetoes `dynamic-bound`, since the spec carries static
+trips. Vetoes name the first failing rule (`scalar-carry`,
+`body-host-io`, `non-counted-cond`, `dynamic-bound`, …).
 
 `cutranspile` additionally runs the **CUDA** candidacies
 (`cu_candidacy::analyze` / `analyze_reduce` / `analyze_seq`), which

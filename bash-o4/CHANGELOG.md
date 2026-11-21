@@ -5,6 +5,33 @@ ends over one pipeline (`ShIR` → C via tcc, or → PTX via the CUDA candidacy)
 sharing one flag surface (`bash-o4/src/flags.rs`) and one dispatch vehicle
 (`bash_o4::cu_run`).
 
+## Unreleased — `--check` sees the canonical counter-while (MIMEcroft: 0 → 2 GLSL candidates)
+
+`counted_while_forinit` merges the shell's canonical counter loop
+(`i=0; while [ "$i" -lt N ]; do …; i=$((i+1)); done`) into one `ForInit`,
+but the Vk candidacy only understood the `for ((…))` spelling of that same
+node: `i=0` arrives as a `Str` (a shell assignment) rather than
+`Arith(Num)`, the step as `Arith(Bin{+, Var(i), Num(1)})` rather than
+`IncDec`/`+=`, and a `[ "$i" -lt 4 ]` test as a typed `BinOp` rather than
+text. Every canonical while was vetoed `non-counted-init` — on
+`MIMEcroft_fb.sh`, most of its 61 loops — no matter what its body did.
+
+`candidacy::init_num` / `step_delta` / `cond_bounds` accept both spellings,
+and a bound that is a runtime value now gets its own verdict
+(`dynamic-bound`) instead of a shape complaint: a `VkLoopSpec` carries
+static trips, so the bound is the blocker, not the loop's spelling.
+Measured on `bash-o4/MIMEcroft_fb.sh` (7,595 lines, 157 functions), same
+build, before → after:
+
+- GLSL candidates **0 → 2** — `draw_hud_canvas/body[6]` (`dm_i` 0..12,
+trips 12) and `start_level/body[8]` (`fl_i` 0..10, trips 10);
+- the 59 remaining vetoes now name the real blocker: `dynamic-bound` 27,
+`scalar-carry` 10, `non-counted-init` 6, `non-counted-cond` 4,
+`unproven-width` 3, `body-nested-loop` 3, `body-call` 3, `body-branch` 3.
+
+No `.sh` edit was needed: the game's loops were already in the shape the
+frontend normalizes, and the checker was the part that could not read it.
+
 ## Unreleased — the fb0 HUD re-draws its static base every frame (parts of the HUD stopped disappearing after frame 1)
 
 The simple framebuffer has no retained HUD layer: `render_frame` opens with
