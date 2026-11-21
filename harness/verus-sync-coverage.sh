@@ -167,6 +167,17 @@ pin_map() { # $1=model $2=pin -> file:test, UNMIRRORED, or empty
     test_lowering_stmt:pin_clean_run_list_is_blind) echo UNMIRRORED ;;
     test_lowering_stmt:pin_else_arm_is_unconditional) echo UNMIRRORED ;;
     test_lowering_stmt:pin_elif_chain_agrees) echo UNMIRRORED ;;
+    # The three remaining rewrite sites (DoWhile / ForInit / statement
+    # chains). The bash status rules and the chain's value-status write
+    # are model-internal (they describe the renderers, not a source test),
+    # so these are UNMIRRORED by design; the site itself is tied by the
+    # guard extraction below.
+    test_lowering_stmt:pin_dowhile_runs_the_body_before_the_test) echo UNMIRRORED ;;
+    test_lowering_stmt:pin_dowhile_lowered_agrees) echo UNMIRRORED ;;
+    test_lowering_stmt:pin_forinit_no_iteration_reports_zero) echo UNMIRRORED ;;
+    test_lowering_stmt:pin_forinit_lowered_agrees) echo UNMIRRORED ;;
+    test_lowering_stmt:pin_chain_short_circuit_reports_the_value_status) echo UNMIRRORED ;;
+    test_lowering_stmt:pin_chain_lowered_agrees) echo UNMIRRORED ;;
     string_folds:pin_single_literal_folds) echo interp_fold:single_literal_interpolate_folds_to_str ;;
     string_folds:pin_single_expr_refuses) echo interp_fold:single_expr_interpolate_is_refused ;;
     string_folds:pin_multi_part_stays) echo interp_fold:multi_part_interpolate_is_left_alone ;;

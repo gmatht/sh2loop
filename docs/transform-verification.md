@@ -425,9 +425,11 @@ output, the temp path is unlinked, other temps are untouched — with a negative
 control showing the fd/mode inversion the pass's own tests pin yields an empty
 consumer input.
 
-`proofs/verus/test_lowering_stmt.rs` (35 obligations) carries the recipe to the
+`proofs/verus/test_lowering_stmt.rs` (57 obligations) carries the recipe to the
 pass that fires on 42/563 examples. Its per-leaf companion answers "same
-boolean?"; this one answers "same run?" for the condition exchange, with R1/R2
+boolean?"; this one answers "same run?" for every condition exchange the pass
+performs (If/elsif, While, DoWhile, ForInit, and statement-position `&&`/`||`
+chains), with R1/R2
 above plus a third rule — a `$?` read observes the status the previous command
 left — and the pass's dead-status guard as the hypothesis
 (`cond_status_observable`, modelled as the stronger "no `$?` read anywhere in

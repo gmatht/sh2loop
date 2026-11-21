@@ -97,7 +97,7 @@ MODELS=(
   # premise, which `pin_guard_is_load_bearing` proves load-bearing. Two
   # mutants measured red on copies (34v/1e each): drop the guard from the
   # If arm, and make the runtime test call stop writing status.
-  "test_lowering_stmt.rs:35:60"
+  "test_lowering_stmt.rs:57:60"
   "string_folds.rs:11:40"
   "arith_folds.rs:11:40"
   "test_folds.rs:7:40"

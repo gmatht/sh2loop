@@ -214,6 +214,39 @@ Failing-first test `refuses_a_redefined_function` (and
 lift). (b) OPEN — tracked as its own entry, 12, because it is a
 renderer defect that outlives the transform fix.
 
+## Proof coverage vs testing (not a defect list — the honesty note)
+
+**Proved.** `test_lowering` at statement level (`proofs/verus/test_lowering_stmt.rs`,
+57 verified, gated): for every rewrite site the pass has — `If`/`elsif`,
+`While`, `DoWhile`, `ForInit`, and statement-position `[[ … ]] && cmd` /
+`|| cmd` chains — exchanging the runtime `test` call for the typed boolean
+preserves BOTH the exit status and the print trace, from any entry status, at
+every fuel bound, under these stated `$?`/branch hypotheses: a `test` call is
+silent and writes 0/1; the lowered boolean is silent and writes nothing; an
+`if` reports the taken branch's last status (0 when none is taken); a
+`while`/`do-while`/`for` reports the last BODY status (0 when the body never
+runs); a statement chain reports its VALUE's status (1 for a short-circuited
+`&&`, 0 for a satisfied `||`) on both faces — that seeding is verified by
+reading the perl emitter (`control_chain_to_perl`), and ASSUMED for C/estree,
+where the transform's dead-status guard keeps any residual status difference
+unobservable; and a `$?` read observes the incoming status. The transform's own guards supply the premises: the
+condition's status must be provably unread (modelled as the stronger "no `$?`
+read anywhere in the arms") and no operand in a statement chain may read `$?`.
+The unguarded rewrite is REFUTED in the same file (`pin_guard_is_load_bearing`).
+
+**Still only tested, not proved.** Guard 2 (self-recursion): the pass refuses
+when the enclosing function is the target primitive; that refusal is exercised
+by the unit suite and is conservative (refusing only shrinks the firing set),
+but no theorem states it. Guard 3 (`nocasematch`): the whole-program probe that
+keeps the string-shape arms on the runtime test path is unit-tested only.
+`For`/`ForIn` carry no test condition, so there is nothing to exchange; the
+`until` flag is an orthogonal negation applied identically to both faces. The
+map from test TEXT to boolean (the leaf table: glob affixes, `-n`/`-z`,
+numeric compares, string `==`) is the separate per-leaf model
+(`test_lowering.rs`, 25 verified), not this one. The verifier's own model of
+"dead status" is conservative: it assumes no `$?` read in the arms, while the
+shipped scan also admits a read after an arm's own status writer.
+
 ## Guard-load-bearing refutations (the code was already right; the proofs
 show exactly which guard carries the soundness)
 
