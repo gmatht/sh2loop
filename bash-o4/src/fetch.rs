@@ -330,6 +330,74 @@ pub fn ensure(
     Ok(dest)
 }
 
+/// Unpack a pinned `toolchain` artifact so the stable path the rest of the
+/// compiler probes (`<cache>/bash-o4-fetch/<name>/bin/glslangValidator`)
+/// exists. Only the pinned bytes are ever unpacked: `ensure` has already
+/// re-verified them on this call. Idempotent — a present binary wins.
+pub fn unpack_toolchain(
+    cache_root: &Path,
+    e: &ManifestEntry,
+    artifact: &Path,
+) -> Result<PathBuf, FetchError> {
+    let root = fetch_root(cache_root).join(&e.name);
+    let bin = root.join("bin").join("glslangValidator");
+    if bin.is_file() {
+        return Ok(bin);
+    }
+    if !e.url.ends_with(".tar.gz") {
+        return Err(refuse(format!(
+            "fetch {}@{}: toolchain artifact is not a .tar.gz — refusing to guess",
+            e.name, e.version
+        )));
+    }
+    std::fs::create_dir_all(&root)
+        .map_err(|e| refuse(format!("toolchain mkdir {}: {e}", root.display())))?;
+    let out = std::process::Command::new("tar")
+        .arg("-xzf")
+        .arg(artifact)
+        .arg("-C")
+        .arg(&root)
+        .output()
+        .map_err(|e| refuse(format!("tar missing/unrunnable: {e}")))?;
+    if !out.status.success() {
+        return Err(refuse(format!(
+            "unpack {}@{}: {}",
+            e.name,
+            e.version,
+            String::from_utf8_lossy(&out.stderr).trim()
+        )));
+    }
+    if !bin.is_file() {
+        return Err(refuse(format!(
+            "unpack {}@{}: no bin/glslangValidator in the archive",
+            e.name, e.version
+        )));
+    }
+    audit(
+        cache_root,
+        &format!("{}@{}#unpack", e.name, e.version),
+        &format!("ok {}", bin.display()),
+    );
+    Ok(bin)
+}
+
+/// Ensure one pinned entry by name and unpack it when it is a toolchain.
+/// Used by the SPIR-V regeneration gate; refuses an unknown name rather
+/// than inventing an upstream.
+pub fn ensure_toolchain(
+    cache_root: &Path,
+    name: &str,
+    policy: FetchPolicy,
+) -> Result<PathBuf, FetchError> {
+    let manifest = load_manifest().map_err(|e| refuse(format!("manifest: {e}")))?;
+    let e = manifest
+        .iter()
+        .find(|e| e.name == name)
+        .ok_or_else(|| refuse(format!("fetch: no manifest entry named {name}")))?;
+    let artifact = ensure(cache_root, e, policy)?;
+    unpack_toolchain(cache_root, e, &artifact)
+}
+
 /// Warm every PINNED manifest entry (image builders / CI). Unpinned
 /// entries are skipped with a stderr note (they would refuse anyway).
 pub fn prefetch(cache_root: &Path, policy: FetchPolicy) -> Result<usize, FetchError> {
@@ -343,7 +411,10 @@ pub fn prefetch(cache_root: &Path, policy: FetchPolicy) -> Result<usize, FetchEr
             );
             continue;
         }
-        ensure(cache_root, e, policy)?;
+        let artifact = ensure(cache_root, e, policy)?;
+        if e.kind == "toolchain" {
+            unpack_toolchain(cache_root, e, &artifact)?;
+        }
         n += 1;
     }
     Ok(n)

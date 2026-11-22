@@ -2194,6 +2194,18 @@ rb_frag_view() {
   RBF_VH=$2
 }
 
+# ── generator root ──────────────────────────────────────────────────
+# The texture generators are the MIMEcroft upstream's bash scripts
+# (pseudorandom value-noise, deterministic per seed). They are vendored
+# in this repo at examples/textures and play.sh points
+# $MIMECROFT_EXAMPLES at them; the historical /examples stays the
+# default so a system-wide install works unchanged. NOTE: the
+# environment read uses its own name — a variable that is ever ASSIGNED
+# anywhere in the script never sees its environment value (see the
+# MIMECROFT_KEYS note above), and gen_root is assigned here.
+gen_root=/examples
+if [ "${MIMECROFT_EXAMPLES:-}" != "" ]; then gen_root=$MIMECROFT_EXAMPLES; fi
+
 # ── textures ───────────────────────────────────────────────────────────
 # rb_tex_load IDX RPLANE GPLANE BPLANE N SIZE RGBA — the fb_texture
 # signature verbatim: three space-separated int planes walked in
@@ -4012,7 +4024,7 @@ load_tex() { lt_name=$1; lt_idx=$2
     fi
     return 0
   fi
-  lt_s=$(bash /examples/textures/texture-$lt_name.sh --tsv --size $lt_ts --seed $tex_seed)
+  lt_s=$(bash "$gen_root/textures/texture-$lt_name.sh" --tsv --size $lt_ts --seed $tex_seed)
   lt_chan=3
   load_tex_payload $lt_name $lt_idx
 }
@@ -4034,7 +4046,7 @@ load_tex4() { lt_name=$1; lt_idx=$2
     fi
     return 0
   fi
-  lt_s=$(bash /examples/textures/texture-$lt_name.sh --tsv --size $tex_size --seed $tex_seed)
+  lt_s=$(bash "$gen_root/textures/texture-$lt_name.sh" --tsv --size $tex_size --seed $tex_seed)
   lt_chan=4
   load_tex_payload $lt_name $lt_idx
 }
@@ -4058,7 +4070,7 @@ tex_bg_submit() { tbn_name=$1
   # (fresh runtime, no parent state copied), so the menu never blocks.
   # The TSV lands in /tmp; the menu polls for it.
   lt_size_of $tbn_name
-  bash /examples/textures/texture-$tbn_name.sh --tsv --size $lt_eff --seed $tex_seed > /tmp/mimecroft-bg-$tbn_name.tsv &
+  bash "$gen_root/textures/texture-$tbn_name.sh" --tsv --size $lt_eff --seed $tex_seed > /tmp/mimecroft-bg-$tbn_name.tsv &
   tex_bg_jobs[$tex_bg_n]=$tbn_name
   tex_bg_n=$((tex_bg_n + 1))
 }

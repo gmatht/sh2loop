@@ -312,6 +312,33 @@ struct VkFramebufferCreateInfo {
 } // 64
 
 #[repr(C)]
+struct VkVertexBindingDesc {
+    binding: u32,
+    stride: u32,
+    input_rate: u32,
+} // 12
+
+#[repr(C)]
+struct VkVertexAttrDesc {
+    location: u32,
+    binding: u32,
+    format: u32,
+    offset: u32,
+} // 16
+
+/// Device vertex-stream layout for generated bridge stages: one
+/// interleaved buffer, `aPosition`(vec3) @0, `aShade`(vec3) @12,
+/// `aUv`(vec2) @24 — the same attributes the blocks pipeline's
+/// shader consumes from its records.
+const STAGE_STRIDE: u32 = 32;
+const FMT_VEC3: u32 = 106; // VK_FORMAT_R32G32B32_SFLOAT
+const FMT_VEC2: u32 = 103; // VK_FORMAT_R32G32_SFLOAT
+
+// WITHOUT this `repr(C)` Rust reorders the struct by field size
+// (sType@24, pBindings@8, size 40); the driver then reads a count and a
+// pointer from the wrong offsets and faults inside
+// vkCreateGraphicsPipelines. Found by the layout test below.
+#[repr(C)]
 struct VkVertexInputCreateInfo {
     s_type: u32,
     p_next: *const c_void,
@@ -672,6 +699,8 @@ struct GfxFns {
         unsafe extern "C" fn(VkCommandBuffer, *const VkRenderPassBeginInfo, u32) -> (),
     cmd_end_render_pass: unsafe extern "C" fn(VkCommandBuffer) -> (),
     cmd_bind_pipeline: unsafe extern "C" fn(VkCommandBuffer, u32, VkPipeline) -> (),
+    cmd_bind_vertex_buffers:
+        unsafe extern "C" fn(VkCommandBuffer, u32, u32, *const VkBuffer, *const u64) -> (),
     cmd_bind_descriptor_sets: unsafe extern "C" fn(
         VkCommandBuffer,
         u32,
@@ -773,11 +802,21 @@ pub struct RasterRunner {
     cmd: VkCommandBuffer,
     blocks_pipe: Option<CompiledPipe>,
     overlay_pipe: Option<CompiledPipe>,
+    /// Pipeline compiled from a generated C2/C3 stage pair (vertex
+    /// input assembly enabled), cached per SPIR-V hash.
+    stage_pipe: Option<CompiledPipe>,
     /// Cached LOAD render pass + framebuffer for the overlay path
     /// (created on first overlay, destroyed in Drop — per-pass
     /// create/destroy segfaults lavapipe; see record_overlay_pass).
     load_rp: Option<VkRenderPass>,
     load_fb: Option<VkFramebuffer>,
+    /// Has this runner's target been drawn into since the frame began?
+    /// `draw_stages_over` LOADS the existing frame (a stage split is a
+    /// draw in the frame, not the start of a new one), but a stage pair
+    /// that is the frame's FIRST draw has nothing to load, so it clears
+    /// exactly as before. A blocks pass always clears, so it re-arms
+    /// this flag for the next frame.
+    frame_live: bool,
     /// Atlas images uploaded via `upload_atlas` (image + memory +
     /// view), freed in Drop. v1: the runner owns every atlas it
     /// uploads — no cross-runner sharing.
@@ -852,6 +891,7 @@ impl RasterRunner {
                 cmd_begin_render_pass: d!("vkCmdBeginRenderPass"),
                 cmd_end_render_pass: d!("vkCmdEndRenderPass"),
                 cmd_bind_pipeline: d!("vkCmdBindPipeline"),
+                cmd_bind_vertex_buffers: d!("vkCmdBindVertexBuffers"),
                 cmd_bind_descriptor_sets: d!("vkCmdBindDescriptorSets"),
                 cmd_push_constants: d!("vkCmdPushConstants"),
                 cmd_draw: d!("vkCmdDraw"),
@@ -885,8 +925,10 @@ impl RasterRunner {
             cmd: ptr::null_mut(),
             blocks_pipe: None,
             overlay_pipe: None,
+            stage_pipe: None,
             load_rp: None,
             load_fb: None,
+            frame_live: false,
             atlases: Vec::new(),
         };
         r.build_target()?;
@@ -1163,6 +1205,10 @@ impl RasterRunner {
     // ---- host-visible buffers -------------------------------------
 
     fn make_ssbo(&self, bytes: u64) -> Result<(VkBuffer, VkDeviceMemory), String> {
+        self.make_buffer(bytes, BUFFER_USAGE_STORAGE)
+    }
+
+    fn make_buffer(&self, bytes: u64, usage: u32) -> Result<(VkBuffer, VkDeviceMemory), String> {
         let f = &self.gf;
         let dev = self.dev();
         let bci = vkffi::VkBufferCreateInfo {
@@ -1170,7 +1216,7 @@ impl RasterRunner {
             p_next: ptr::null(),
             flags: 0,
             size: bytes.max(16),
-            usage: BUFFER_USAGE_STORAGE,
+            usage,
             sharing_mode: SHARING_EXCLUSIVE,
             queue_family_index_count: 0,
             p_queue_family_indices: ptr::null(),
@@ -1559,6 +1605,7 @@ impl RasterRunner {
         vert_spv: &[u8],
         frag_spv: &[u8],
         kind: u32,
+        with_attrs: bool,
     ) -> Result<CompiledPipe, String> {
         let f = &self.gf;
         let dev = self.dev();
@@ -1651,14 +1698,51 @@ impl RasterRunner {
                 p_specialization_info: ptr::null(),
             },
         ];
+        // Generated-stage pipelines read an interleaved vertex stream;
+        // the blocks/overlay stages synthesise their vertices in-shader
+        // from an SSBO, so they keep vertex input disabled.
+        static BINDINGS: [VkVertexBindingDesc; 1] = [VkVertexBindingDesc {
+            binding: 0,
+            stride: STAGE_STRIDE,
+            input_rate: 0, // VK_VERTEX_INPUT_RATE_VERTEX
+        }];
+        let bindings = &BINDINGS;
+        let attrs = [
+            VkVertexAttrDesc {
+                location: 0,
+                binding: 0,
+                format: FMT_VEC3,
+                offset: 0,
+            },
+            VkVertexAttrDesc {
+                location: 1,
+                binding: 0,
+                format: FMT_VEC3,
+                offset: 12,
+            },
+            VkVertexAttrDesc {
+                location: 2,
+                binding: 0,
+                format: FMT_VEC2,
+                offset: 24,
+            },
+        ];
         let vi = VkVertexInputCreateInfo {
             s_type: STYPE_VERTEX_INPUT_CREATE_INFO,
             p_next: ptr::null(),
             flags: 0,
-            binding_count: 0,
-            p_bindings: ptr::null(),
-            attribute_count: 0,
-            p_attributes: ptr::null(),
+            binding_count: if with_attrs { 1 } else { 0 },
+            p_bindings: if with_attrs {
+                bindings.as_ptr() as *const c_void
+            } else {
+                ptr::null()
+            },
+            attribute_count: if with_attrs { attrs.len() as u32 } else { 0 },
+            p_attributes: if with_attrs {
+                attrs.as_ptr() as *const c_void
+            } else {
+                ptr::null()
+            },
         };
         // Both pipelines are triangle lists (the overlay stage
         // emits 6 verts = 2 explicit triangles; see above).
@@ -1745,7 +1829,11 @@ impl RasterRunner {
         };
         // Blocks: opaque (blending off, full write mask). Overlay:
         // src-alpha blending (the layer composite at present).
-        let blend_att = if kind == 0 {
+        // Blocks and generated-stage pipelines write opaque pixels; only
+        // the overlay pipeline blends (kind 1). The bridge's `putb` has no
+        // alpha channel, so a stage fragment's alpha byte is 0 and
+        // alpha-blending would make a correct frame invisible.
+        let blend_att = if kind != 1 {
             VkBlendAttachment {
                 blend_enable: 0,
                 src_color_blend_factor: BLEND_ONE,
@@ -1947,7 +2035,7 @@ impl RasterRunner {
             None => true,
         };
         if replace {
-            let pipe = self.compile_pipe(vert_spv, frag_spv, 0)?;
+            let pipe = self.compile_pipe(vert_spv, frag_spv, 0, false)?;
             if let Some(old) = self.blocks_pipe.take() {
                 self.destroy_pipe(old);
             }
@@ -1961,8 +2049,114 @@ impl RasterRunner {
         let pipe = self.blocks_pipe.as_ref().ok_or("blocks pipe missing")?;
         self.bind_pipe_descriptors(pipe.set, 0, ssbo, bytes as u64, atlas_view)?;
         self.record_blocks_pass(pipe, push, n)?;
+        self.frame_live = true;
         let f = &self.gf;
         unsafe { (f.destroy_buffer)(self.dev(), ssbo, ptr::null()) };
+        unsafe { (f.free_memory)(self.dev(), mem, ptr::null()) };
+        Ok(())
+    }
+
+    /// Compile (and cache) the generated-stage pipeline without drawing —
+    /// the isolation harness uses this to separate create-time faults
+    /// from draw-time ones.
+    pub fn precompile_stages(&mut self, vert_spv: &[u8], frag_spv: &[u8]) -> Result<(), String> {
+        if self.stage_pipe.is_none() {
+            let pipe = self.compile_pipe(vert_spv, frag_spv, 2, true)?;
+            self.stage_pipe = Some(pipe);
+        }
+        Ok(())
+    }
+
+    /// Draw a **generated stage pair** (C2/C3 lifted from a bash program)
+    /// into the same colour target the blocks path uses.
+    ///
+    /// `verts` is an interleaved device vertex stream:
+    /// `aPosition`(vec3), `aShade`(vec3), `aUv`(vec2) — stride 32 — the
+    /// layout `compile_pipe(.., with_attrs = true)` declares. The stages
+    /// are the compiler's emitted 450 text compiled to SPIR-V; nothing
+    /// here is hand-written per program. Clears colour+depth first.
+    pub fn draw_stages(
+        &mut self,
+        vert_spv: &[u8],
+        frag_spv: &[u8],
+        verts: &[f32],
+        push: &PushConstants,
+        atlas_view: VkImageView,
+    ) -> Result<(), String> {
+        self.draw_stages_inner(vert_spv, frag_spv, verts, push, atlas_view, true)
+    }
+
+    /// The same generated stage pair, drawn INTO the frame that is already
+    /// there: colour is loaded (not cleared), depth is neither tested nor
+    /// written (the stage pipeline is kind 2), so the quad composites over
+    /// whatever the frame's earlier draws produced. This is what the
+    /// host split uses: a stage split is one more draw in the frame, and
+    /// the CPU firewall for that frame draws the same shape with the same
+    /// colour. With nothing drawn yet there is no frame to load, so the
+    /// first stage draw clears.
+    pub fn draw_stages_over(
+        &mut self,
+        vert_spv: &[u8],
+        frag_spv: &[u8],
+        verts: &[f32],
+        push: &PushConstants,
+        atlas_view: VkImageView,
+    ) -> Result<(), String> {
+        let clear = !self.frame_live;
+        self.draw_stages_inner(vert_spv, frag_spv, verts, push, atlas_view, clear)
+    }
+
+    fn draw_stages_inner(
+        &mut self,
+        vert_spv: &[u8],
+        frag_spv: &[u8],
+        verts: &[f32],
+        push: &PushConstants,
+        atlas_view: VkImageView,
+        clear: bool,
+    ) -> Result<(), String> {
+        if verts.is_empty() || verts.len() % 8 != 0 {
+            return Err(format!(
+                "stage vertices {} are not whole aPosition/aShade/aUv tuples (8 f32)",
+                verts.len()
+            ));
+        }
+        let n = verts.len() / 8;
+        if n > 65536 {
+            return Err(format!("stage vertex count {n} too large"));
+        }
+        let hash = Self::spv_hash(vert_spv)
+            .wrapping_mul(31)
+            .wrapping_add(Self::spv_hash(frag_spv));
+        let replace = match &self.stage_pipe {
+            Some(p) => p.hash != hash,
+            None => true,
+        };
+        if replace {
+            let pipe = self.compile_pipe(vert_spv, frag_spv, 2, true)?;
+            if let Some(old) = self.stage_pipe.take() {
+                self.destroy_pipe(old);
+            }
+            self.stage_pipe = Some(pipe);
+        }
+        let bytes = verts.len() * 4;
+        // STORAGE keeps the shared descriptor-set write valid; VERTEX is
+        // what `vkCmdBindVertexBuffers` requires (binding a storage-only
+        // buffer as vertex input faults lavapipe).
+        let (vbo, mem) = self.make_buffer(bytes as u64, BUFFER_USAGE_STORAGE | 0x40)?;
+        self.write_bytes(mem, unsafe {
+            std::slice::from_raw_parts(verts.as_ptr() as *const u8, bytes)
+        })?;
+        let pipe = self.stage_pipe.as_ref().ok_or("stage pipe missing")?;
+        let (pipeline, pipe_layout, set) = (pipe.pipeline, pipe.pipe_layout, pipe.set);
+        // Binding 0 carries the vertex buffer (declared as a storage
+        // buffer by the shared set layout; the stage never reads it),
+        // binding 1 the atlas the fragment stage samples.
+        self.bind_pipe_descriptors(set, 0, vbo, bytes as u64, atlas_view)?;
+        self.record_stages_pass(pipeline, pipe_layout, set, push, vbo, n as u32, clear)?;
+        self.frame_live = true;
+        let f = &self.gf;
+        unsafe { (f.destroy_buffer)(self.dev(), vbo, ptr::null()) };
         unsafe { (f.free_memory)(self.dev(), mem, ptr::null()) };
         Ok(())
     }
@@ -1996,7 +2190,7 @@ impl RasterRunner {
             None => true,
         };
         if replace {
-            let pipe = self.compile_pipe(vert_spv, frag_spv, 1)?;
+            let pipe = self.compile_pipe(vert_spv, frag_spv, 1, false)?;
             if let Some(old) = self.overlay_pipe.take() {
                 self.destroy_pipe(old);
             }
@@ -2030,7 +2224,182 @@ impl RasterRunner {
         Ok(())
     }
 
-    /// Record + submit the blocks pass (CLEAR color+depth, triangle list).
+    /// The LOAD render pass + framebuffer sharing the runner's
+    /// attachments: colour keeps the pixels already in the target, depth
+    /// is loaded and never written. Created once per runner and cached —
+    /// a per-pass create/destroy cycle segfaults lavapipe on the second
+    /// runner teardown in the process (same lazy-free class as the
+    /// descriptor-pool fault: render-pass objects carry attachment
+    /// references the driver frees late).
+    fn ensure_load_pass(&mut self) -> Result<(VkRenderPass, VkFramebuffer), String> {
+        let cached: Option<(VkRenderPass, VkFramebuffer)> = unsafe {
+            let rp = *std::ptr::addr_of!(self.load_rp);
+            let fb = *std::ptr::addr_of!(self.load_fb);
+            rp.zip(fb)
+        };
+        if let Some(pair) = cached {
+            return Ok(pair);
+        }
+        let color_att = VkAttachmentDesc {
+            flags: 0,
+            format: FORMAT_RGBA8,
+            samples: 1,
+            load_op: 0, // LOAD = 0
+            store_op: STORE_STORE,
+            stencil_load_op: LOAD_DONT_CARE,
+            stencil_store_op: STORE_DONT_CARE,
+            initial_layout: LAYOUT_COLOR_OPTIMAL,
+            final_layout: LAYOUT_COLOR_OPTIMAL,
+        };
+        let depth_att = VkAttachmentDesc {
+            flags: 0,
+            format: FORMAT_D32,
+            samples: 1,
+            load_op: 0, // LOAD
+            store_op: STORE_DONT_CARE,
+            stencil_load_op: LOAD_DONT_CARE,
+            stencil_store_op: STORE_DONT_CARE,
+            initial_layout: LAYOUT_DEPTH_OPTIMAL,
+            final_layout: LAYOUT_DEPTH_OPTIMAL,
+        };
+        let atts = [color_att, depth_att];
+        let color_ref = VkAttachmentRef {
+            attachment: 0,
+            layout: LAYOUT_COLOR_OPTIMAL,
+        };
+        let depth_ref = VkAttachmentRef {
+            attachment: 1,
+            layout: LAYOUT_DEPTH_OPTIMAL,
+        };
+        let subpass = VkSubpassDesc {
+            flags: 0,
+            pipeline_bind_point: BIND_GRAPHICS,
+            input_attachment_count: 0,
+            p_input_attachments: ptr::null(),
+            color_attachment_count: 1,
+            p_color_attachments: &color_ref,
+            p_resolve_attachments: ptr::null(),
+            p_depth_stencil_attachment: &depth_ref,
+            preserve_attachment_count: 0,
+            p_preserve_attachments: ptr::null(),
+        };
+        let rpci = VkRenderPassCreateInfo {
+            s_type: STYPE_RENDER_PASS_CREATE_INFO,
+            p_next: ptr::null(),
+            flags: 0,
+            attachment_count: 2,
+            p_attachments: atts.as_ptr(),
+            subpass_count: 1,
+            p_subpasses: &subpass,
+            dependency_count: 0,
+            p_dependencies: ptr::null(),
+        };
+        let (nrp, nfb) = Self::make_load_pass(
+            self.gf,
+            self.dev(),
+            &rpci,
+            self.color_view,
+            self.depth_view,
+            self.width,
+            self.height,
+        )?;
+        self.load_rp = Some(nrp);
+        self.load_fb = Some(nfb);
+        Ok((nrp, nfb))
+    }
+
+    /// Record + submit the generated-stage pass: the same colour/depth
+    /// target as `record_blocks_pass` plus the vertex buffer bind.
+    ///
+    /// `clear` picks the frame start (the CLEAR pass) or a draw INTO the
+    /// frame that is already there (the LOAD pass the overlay also uses).
+    fn record_stages_pass(
+        &mut self,
+        pipe: VkPipeline,
+        pipe_layout: VkPipelineLayout,
+        pipe_set: VkDescriptorSet,
+        push: &PushConstants,
+        vbo: VkBuffer,
+        n_verts: u32,
+        clear: bool,
+    ) -> Result<(), String> {
+        // GfxFns is Copy: a copy keeps `self` free for the LOAD-pass cache.
+        let f = self.gf;
+        let (render_pass, framebuffer) = if clear {
+            (self.render_pass, self.framebuffer)
+        } else {
+            self.ensure_load_pass()?
+        };
+        vk_ok("reset-cmd", unsafe {
+            (f.reset_command_buffer)(self.cmd, 0)
+        })?;
+        let bi = vkffi::VkCmdBeginInfo {
+            s_type: 42,
+            p_next: ptr::null(),
+            flags: CMD_ONE_TIME,
+            p_inheritance_info: ptr::null(),
+        };
+        vk_ok("begin-cmd", unsafe {
+            (f.begin_command_buffer)(self.cmd, &bi)
+        })?;
+        let clears = [
+            VkClearValue {
+                color: [0.0, 0.0, 0.0, 1.0],
+            },
+            VkClearValue {
+                color: [1.0, 0.0, 0.0, 0.0],
+            },
+        ];
+        let rpbi = VkRenderPassBeginInfo {
+            s_type: STYPE_RENDER_PASS_BEGIN_INFO,
+            p_next: ptr::null(),
+            render_pass,
+            framebuffer,
+            render_area: VkRect2D {
+                offset: VkOffset2D { x: 0, y: 0 },
+                extent: VkExtent2D {
+                    width: self.width,
+                    height: self.height,
+                },
+            },
+            clear_value_count: if clear { 2 } else { 0 },
+            p_clear_values: if clear { clears.as_ptr() } else { ptr::null() },
+        };
+        unsafe { (f.cmd_begin_render_pass)(self.cmd, &rpbi, CONTENTS_INLINE) };
+        unsafe { (f.cmd_bind_pipeline)(self.cmd, BIND_GRAPHICS, pipe) };
+        unsafe {
+            (f.cmd_bind_descriptor_sets)(
+                self.cmd,
+                BIND_GRAPHICS,
+                pipe_layout,
+                0,
+                1,
+                &pipe_set,
+                0,
+                ptr::null(),
+            );
+        }
+        let offset = 0u64;
+        unsafe {
+            (f.cmd_bind_vertex_buffers)(self.cmd, 0, 1, &vbo as *const VkBuffer, &offset)
+        };
+        unsafe {
+            (f.cmd_push_constants)(
+                self.cmd,
+                pipe_layout,
+                STAGE_VERTEX | STAGE_FRAGMENT,
+                0,
+                48,
+                push as *const PushConstants as *const c_void,
+            );
+        }
+        unsafe { (f.cmd_draw)(self.cmd, n_verts, 1, 0, 0) };
+        unsafe { (f.cmd_end_render_pass)(self.cmd) };
+        vk_ok("end-cmd", unsafe { (f.end_command_buffer)(self.cmd) })?;
+        self.submit_cmd()?;
+        Ok(())
+    }
+
     fn record_blocks_pass(
         &self,
         pipe: &CompiledPipe,
@@ -2153,62 +2522,7 @@ impl RasterRunner {
         // A LOAD render pass sharing the same attachments: color
         // keeps the blocks pixels, depth keeps testing off (the
         // overlay pipeline has depth test disabled anyway).
-        // (`gf` is the whole function table by value — GfxFns is
-        // Copy — so the cache stores below alias nothing.)
-        let color_att = VkAttachmentDesc {
-            flags: 0,
-            format: FORMAT_RGBA8,
-            samples: 1,
-            load_op: 0, // LOAD = 0
-            store_op: STORE_STORE,
-            stencil_load_op: LOAD_DONT_CARE,
-            stencil_store_op: STORE_DONT_CARE,
-            initial_layout: LAYOUT_COLOR_OPTIMAL,
-            final_layout: LAYOUT_COLOR_OPTIMAL,
-        };
-        let depth_att = VkAttachmentDesc {
-            flags: 0,
-            format: FORMAT_D32,
-            samples: 1,
-            load_op: 0, // LOAD
-            store_op: STORE_DONT_CARE,
-            stencil_load_op: LOAD_DONT_CARE,
-            stencil_store_op: STORE_DONT_CARE,
-            initial_layout: LAYOUT_DEPTH_OPTIMAL,
-            final_layout: LAYOUT_DEPTH_OPTIMAL,
-        };
-        let atts = [color_att, depth_att];
-        let color_ref = VkAttachmentRef {
-            attachment: 0,
-            layout: LAYOUT_COLOR_OPTIMAL,
-        };
-        let depth_ref = VkAttachmentRef {
-            attachment: 1,
-            layout: LAYOUT_DEPTH_OPTIMAL,
-        };
-        let subpass = VkSubpassDesc {
-            flags: 0,
-            pipeline_bind_point: BIND_GRAPHICS,
-            input_attachment_count: 0,
-            p_input_attachments: ptr::null(),
-            color_attachment_count: 1,
-            p_color_attachments: &color_ref,
-            p_resolve_attachments: ptr::null(),
-            p_depth_stencil_attachment: &depth_ref,
-            preserve_attachment_count: 0,
-            p_preserve_attachments: ptr::null(),
-        };
-        let rpci = VkRenderPassCreateInfo {
-            s_type: STYPE_RENDER_PASS_CREATE_INFO,
-            p_next: ptr::null(),
-            flags: 0,
-            attachment_count: 2,
-            p_attachments: atts.as_ptr(),
-            subpass_count: 1,
-            p_subpasses: &subpass,
-            dependency_count: 0,
-            p_dependencies: ptr::null(),
-        };
+        let (load_rp, load_fb) = self.ensure_load_pass()?;
         // Hoist every self-read ABOVE the &mut cache stores
         // below (NLL keeps the shared borrows alive otherwise):
         // device + queue family values, command buffer, geometry,
@@ -2218,33 +2532,6 @@ impl RasterRunner {
         let cmd = self.cmd;
         let (w, h) = (self.width, self.height);
         let queue = self.od.queue;
-        let (cv, dv) = (self.color_view, self.depth_view);
-        // The LOAD pass is created once per runner and cached: a
-        // per-overlay create/destroy cycle segfaults lavapipe on the
-        // second runner teardown in the process (same lazy-free class
-        // as the descriptor-pool fault — render-pass objects carry
-        // attachment references the driver frees late).
-        // Cache fill via a self-free helper: `rpci` borrows the
-        // local atts/subpass (not self), so only hoisted copies
-        // (gf/dev/cv/dv/w/h) cross into it — then two plain stores.
-        // The cache check + fill MUST NOT hold a shared self
-        // borrow across the stores (NLL keeps `zip`'s borrow alive
-        // through the match). Raw-pointer reads: the fields are
-        // Option<u64> (Copy), and this is the only writer.
-        let cached: Option<(VkRenderPass, VkFramebuffer)> = unsafe {
-            let rp = *std::ptr::addr_of!(self.load_rp);
-            let fb = *std::ptr::addr_of!(self.load_fb);
-            rp.zip(fb)
-        };
-        let (load_rp, load_fb) = match cached {
-            Some(pair) => pair,
-            None => {
-                let (nrp, nfb) = Self::make_load_pass(gf, dev, &rpci, cv, dv, w, h)?;
-                self.load_rp = Some(nrp);
-                self.load_fb = Some(nfb);
-                (nrp, nfb)
-            }
-        };
         vk_ok("reset-cmd", unsafe { (gf.reset_command_buffer)(cmd, 0) })?;
         let bi = vkffi::VkCmdBeginInfo {
             s_type: 42,
@@ -2525,6 +2812,9 @@ impl Drop for RasterRunner {
         if let Some(p) = self.overlay_pipe.take() {
             self.destroy_pipe(p);
         }
+        if let Some(p) = self.stage_pipe.take() {
+            self.destroy_pipe(p);
+        }
         if self.cmd_pool != 0 {
             unsafe { (f.destroy_command_pool)(dev, self.cmd_pool, ptr::null()) };
         }
@@ -2633,5 +2923,49 @@ mod tests {
         let rgba = [1u8, 2, 3, 4, 10, 20, 30, 40];
         let bgrx = RasterRunner::rgba8_to_bgrx(&rgba);
         assert_eq!(&bgrx, &[3, 2, 1, 255, 30, 20, 10, 255]);
+    }
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+
+    /// Vulkan ABI evidence for the vertex-input path (sizes/offsets).
+    /// Any mismatch here is our marshalling bug; all-clean shifts the
+    /// question to the driver.
+    #[test]
+    fn vertex_input_struct_abi() {
+        eprintln!(
+            "binding: size={} binding@{} stride@{} rate@{}",
+            std::mem::size_of::<VkVertexBindingDesc>(),
+            std::mem::offset_of!(VkVertexBindingDesc, binding),
+            std::mem::offset_of!(VkVertexBindingDesc, stride),
+            std::mem::offset_of!(VkVertexBindingDesc, input_rate),
+        );
+        eprintln!(
+            "attr: size={} loc@{} binding@{} format@{} offset@{}",
+            std::mem::size_of::<VkVertexAttrDesc>(),
+            std::mem::offset_of!(VkVertexAttrDesc, location),
+            std::mem::offset_of!(VkVertexAttrDesc, binding),
+            std::mem::offset_of!(VkVertexAttrDesc, format),
+            std::mem::offset_of!(VkVertexAttrDesc, offset),
+        );
+        eprintln!(
+            "vi: size={} sType@{} count@{} pBindings@{} attrCount@{} pAttrs@{}",
+            std::mem::size_of::<VkVertexInputCreateInfo>(),
+            std::mem::offset_of!(VkVertexInputCreateInfo, s_type),
+            std::mem::offset_of!(VkVertexInputCreateInfo, binding_count),
+            std::mem::offset_of!(VkVertexInputCreateInfo, p_bindings),
+            std::mem::offset_of!(VkVertexInputCreateInfo, attribute_count),
+            std::mem::offset_of!(VkVertexInputCreateInfo, p_attributes),
+        );
+        assert_eq!(std::mem::size_of::<VkVertexBindingDesc>(), 12);
+        assert_eq!(std::mem::size_of::<VkVertexAttrDesc>(), 16);
+        assert_eq!(std::mem::size_of::<VkVertexInputCreateInfo>(), 48);
+        assert_eq!(std::mem::offset_of!(VkVertexInputCreateInfo, flags), 16);
+        assert_eq!(std::mem::offset_of!(VkVertexInputCreateInfo, binding_count), 20);
+        assert_eq!(std::mem::offset_of!(VkVertexInputCreateInfo, p_bindings), 24);
+        assert_eq!(std::mem::offset_of!(VkVertexInputCreateInfo, attribute_count), 32);
+        assert_eq!(std::mem::offset_of!(VkVertexInputCreateInfo, p_attributes), 40);
     }
 }

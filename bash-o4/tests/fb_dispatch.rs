@@ -96,6 +96,30 @@ fn compile_pair(
     (v, f)
 }
 
+/// Resolve a SPIR-V compiler the same way the compiler itself does:
+/// `$BASH_O4_GLSLANG`, a system binary, the pinned cache, or (only when
+/// `SH2_FB_SPV_FETCH=1` opts in) the sha256-pinned glslang fetch. The
+/// test's own temp dir is passed as a cache root first so an explicitly
+/// provisioned cache still wins.
+pub(crate) fn spirv_compiler(root: &std::path::Path) -> std::path::PathBuf {
+    if let Some(c) = shader::find_spirv_compiler(root) {
+        return c;
+    }
+    let cache = bash_o4::cache::cache_root(None);
+    if let Some(c) = shader::find_spirv_compiler(&cache) {
+        return c;
+    }
+    let policy = if std::env::var("SH2_FB_SPV_FETCH").as_deref() == Ok("1") {
+        bash_o4::fetch::FetchPolicy::Auto
+    } else {
+        bash_o4::fetch::FetchPolicy::Ask
+    };
+    match bash_o4::fetch::ensure_toolchain(&cache, "glslang", policy) {
+        Ok(c) => c,
+        Err(e) => panic!("dispatch needs glslangValidator: {e}"),
+    }
+}
+
 #[test]
 fn blocks_dispatch_matches_oracle() {
     pin_lavapipe();
@@ -110,7 +134,7 @@ fn blocks_dispatch_matches_oracle() {
     let root = std::env::temp_dir().join(format!("bo4fb{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
-    let cc = shader::find_spirv_compiler(&root).expect("dispatch needs glslangValidator");
+    let cc = spirv_compiler(&root);
 
     let (v_spv, f_spv) = compile_pair(
         &cc,
@@ -175,7 +199,7 @@ fn overlay_dispatch_blends_over_blocks() {
     let root = std::env::temp_dir().join(format!("bo4fbo{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
-    let cc = shader::find_spirv_compiler(&root).expect("dispatch needs glslangValidator");
+    let cc = spirv_compiler(&root);
 
     let (bv, bf) = compile_pair(
         &cc,

@@ -26,7 +26,7 @@
 
 set -u
 
-HERE=$(dirname "$0")
+HERE=$(cd "$(dirname "$0")" && pwd)
 GAME_SRC="$HERE/MIMEcroft_fb.sh"
 GAME_BIN="$HERE/target/mimecroft-fb-play"
 DRIVER="$HERE/target/debug/bash-O4"
@@ -214,10 +214,10 @@ if [ "$GAME_MEM_MIB" -gt 0 ]; then
     ulimit -v $((GAME_MEM_MIB * 1024)) 2>/dev/null || {
       echo "play.sh: warning: ulimit -v unavailable; running uncapped" 1>&2
     }
-    exec env FB0_DEV="$FB" MIMECROFT_KEYS="$KEYS" FB0_GEOM="$GEOM" "$GAME_BIN" "$@"
+    exec env FB0_DEV="$FB" MIMECROFT_KEYS="$KEYS" FB0_GEOM="$GEOM" MIMECROFT_EXAMPLES="$HERE/examples" "$GAME_BIN" "$@"
   ) &
 else
-  FB0_DEV="$FB" MIMECROFT_KEYS="$KEYS" FB0_GEOM="$GEOM" "$GAME_BIN" "$@" &
+  FB0_DEV="$FB" MIMECROFT_KEYS="$KEYS" FB0_GEOM="$GEOM" MIMECROFT_EXAMPLES="$HERE/examples" "$GAME_BIN" "$@" &
 fi
 GAME_PID=$!
 

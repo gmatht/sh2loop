@@ -776,6 +776,46 @@ fn cmd_check(o: &Options, a1: &str) -> i32 {
     }
     println!("GLSL_CANDIDATES={g_cand} GLSL_LOOPS={}", gpu.len());
     println!("CUDA_CANDIDATES={cuda}");
+    // The general-purpose GPU lift (docs/GENERAL-GPU-LIFT.md): the four
+    // graphics contracts (draw submission, vertex stage, fragment stage,
+    // present) keyed on the device verbs and the shader bridge sets. Same
+    // one-line-per-site shape as the loop verdicts above; `GPU_SITES`
+    // counts the accepted ones, so "silence is failure" is visible.
+    let lift = debashl::shir_passes::gpu_lift::analyze(&prog);
+    for v in &lift {
+        println!("GPU {v}");
+    }
+    println!("GPU_SITES={}", lift.iter().filter(|v| v.is_site()).count());
+    // What CODEGEN actually splits, counted from the emitted C ITSELF: one
+    // `_sh_gpu_blocks(...)` per accepted `blocks` draw submission and one
+    // `_sh_gpu_stages(...)` per emitted stage split. That is the only
+    // definition that cannot drift from codegen: `overlay`/`overlay_flash`
+    // are accepted C1 sites emitted as plain `fb_overlay(...)` (no split),
+    // Present (C4) is an observation point, and a stage pair is counted only
+    // when the SPIR-V compiled AND a CPU reference was derived — an
+    // uncovered pair emits neither call, so it is never counted as a split
+    // it does not have. Rendering here is the same cached render a build
+    // does, so this is a lookup on a warm cache, not a second compile.
+    let splits = match crate::pipeline::render_c(a1) {
+        Ok(c) => c.matches("_sh_gpu_blocks(").count() + c.matches("_sh_gpu_stages(").count(),
+        Err(e) => {
+            // Never inflate on failure: report only what was analysed.
+            eprintln!("bash-O4: check: render for the split count failed: {e}");
+            lift.iter()
+                .filter(|v| {
+                    matches!(
+                        v,
+                        debashl::shir_passes::gpu_lift::GpuLiftVerdict::Site {
+                            kind: debashl::shir_passes::gpu_lift::LiftKind::Draw,
+                            site,
+                            ..
+                        } if site.ends_with("/fb:fb_blocks")
+                    )
+                })
+                .count()
+        }
+    };
+    println!("GPU_SPLITS={splits}");
     if o.common.verbose {
         println!(
             "device: {}",

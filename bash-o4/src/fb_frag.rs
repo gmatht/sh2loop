@@ -170,12 +170,24 @@ void main() {
   float fz = corner.z * sc.z / 1000000.0 + centre.z - cam0.z;
   float dx = fx * cam0.w + fz * cam1.x;
   float dz = -fx * cam1.x + fz * cam0.w;
+  // SCENE CONVENTION: this stage is +z-forward (`w = rel.z`), which is the
+  // convention of `tests/fb_dispatch.rs` and `--fb-proof`. fbdev's payload
+  // is the opposite (`to_view` keeps `w = -rel.z`), so the HOST converts
+  // it (fb_gpu_ffi: a point reflection of camera + records, undone in the
+  // readback). Do NOT flip this sign here alone: the embedded SPIR-V in
+  // src/fb_spv/ is byte-pinned and there is no SPIR-V compiler on the
+  // build box, so a source-only change would make the GLSL disagree with
+  // the bytes that actually run.
   float w = max(dz, WNEAR); // bug-compatible near clamp (see docs)
   float ndx = dx * 0.7 + cam1.y * w;
   float ndy = fy * 0.45;
   // Vulkan [0,1] depth over [WNEAR, DEPTH_FAR]
   float A = DEPTH_FAR / (DEPTH_FAR - WNEAR);
   float B = -DEPTH_FAR * WNEAR / (DEPTH_FAR - WNEAR);
+  // Vulkan NDC y is DOWN-positive and this stage writes the up-positive
+  // ndy, so the target is stored vertically mirrored; the host's
+  // readback un-mirrors both axes for fbdev's top-down surface (see the
+  // SCENE CONVENTION note above).
   gl_Position = vec4(ndx, ndy, A * w + B, w);
   vTint = vec3(R.b.z, R.b.w, R.c.x);
   vShade = float(CUBE_SHADE[vi]) / 1000.0;
@@ -465,6 +477,128 @@ pub fn rb_frag_fragment_scaffold() -> String {
 /// (which hardcodes the `.comp` compute shape): `ext` is `vert` or
 /// `frag`. Same conventions otherwise — errors propagate (a broken
 /// emitter must fail loudly here, never silently serve CPU fallback).
+/// Which stage a bridge-contract shader body belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage {
+    Vertex,
+    Fragment,
+}
+
+/// Vertex attributes, in the device's own vertex-stream order (the
+/// `blocks` pipeline's `aPosition/aShade/aUv` bindings).
+const STAGE_ATTRS: &[(&str, u32)] = &[("aPosition", 0), ("aShade", 1), ("aUv", 2)];
+
+/// Bridge varyings, shared by both stages.
+const STAGE_VARYINGS: &[(&str, u32)] = &[("vColor", 0), ("vUv", 1)];
+
+/// Lower the sh→GLSL front end's ES 1.00/3.00 stage text to Vulkan GLSL 450
+/// so the *generated* stage — not a hand-written one — is what glslang
+/// compiles and the pipeline runs.
+///
+/// The transform is deliberately total-or-refuse: an attribute, varying or
+/// uniform shape it does not recognise is an error (the caller vetoes the
+/// stage with that reason) rather than being silently dropped. Mapping:
+/// `attribute` → `layout(location=N) in` (device vertex-stream order),
+/// `varying` → `layout(location=N) out|in`, plain `uniform` data → one
+/// `push_constant` block, `sampler2D` → `set=0,binding=0`, `texture2D` →
+/// `texture`, `gl_FragColor` → `layout(location=0) out vec4`.
+pub fn stage_vulkan_glsl(es: &str, stage: Stage) -> Result<String, String> {
+    let mut lines: Vec<String> = vec!["#version 450".to_string()];
+    let mut pc_members: Vec<String> = Vec::new();
+    let mut samplers: Vec<String> = Vec::new();
+    let mut user_out: Option<String> = None;
+    for raw in es.lines() {
+        let t = raw.trim();
+        if t.is_empty() || t.starts_with("//") || t.starts_with("precision ") {
+            continue;
+        }
+        if let Some(rest) = t.strip_prefix("attribute ") {
+            let name = rest
+                .trim_end_matches(';')
+                .split_whitespace()
+                .last()
+                .unwrap_or("");
+            let loc = STAGE_ATTRS
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, l)| *l)
+                .ok_or_else(|| format!("stage-pair-unmappable: unmapped vertex attribute '{name}'"))?;
+            if stage != Stage::Vertex {
+                return Err(format!("stage-pair-unmappable: attribute '{name}' outside a vertex stage"));
+            }
+            lines.push(format!("layout(location={loc}) in {rest}"));
+            continue;
+        }
+        if let Some(rest) = t.strip_prefix("varying ") {
+            let name = rest
+                .trim_end_matches(';')
+                .split_whitespace()
+                .last()
+                .unwrap_or("");
+            let loc = STAGE_VARYINGS
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, l)| *l)
+                .ok_or_else(|| format!("stage-pair-unmappable: unmapped varying '{name}'"))?;
+            let dir = if stage == Stage::Vertex { "out" } else { "in" };
+            lines.push(format!("layout(location={loc}) {dir} {rest}"));
+            continue;
+        }
+        if let Some(rest) = t.strip_prefix("uniform ") {
+            let decl = rest.trim_end_matches(';').to_string();
+            if decl.starts_with("sampler2D ") {
+                // Binding 1: the runner's shared set layout binds the
+                // atlas sampler at 1 (0 = blocks SSBO, 2 = overlay SSBO).
+                samplers.push(format!("layout(set = 0, binding = 1) uniform {decl};"));
+            } else {
+                pc_members.push(format!("{decl};"));
+            }
+            continue;
+        }
+        if t.contains("gl_FragColor") {
+            if stage != Stage::Fragment {
+                return Err("stage-pair-unmappable: gl_FragColor outside a fragment stage".to_string());
+            }
+            user_out = Some("layout(location = 0) out vec4 sh_frag_color;".to_string());
+        }
+        lines.push(raw.replace("texture2D(", "texture(").replace("gl_FragColor", "sh_frag_color"));
+    }
+    let mut header = Vec::new();
+    if let Some(o) = user_out {
+        header.push(o);
+    }
+    for s in samplers {
+        header.push(s);
+    }
+    if !pc_members.is_empty() {
+        let mut blk = vec!["layout(push_constant) uniform PC {".to_string()];
+        blk.extend(pc_members.into_iter().map(|m| format!("    {m}")));
+        blk.push("};" .to_string());
+        header.extend(blk);
+    }
+    if !header.is_empty() {
+        lines.splice(1..1, header);
+    }
+    let mut text = lines.join("\n") + "\n";
+    if stage == Stage::Vertex {
+        // The runner reads the target back with a 180° index permutation
+        // (`readback_bgrx`), because the blocks pipeline reflects its scene
+        // through the origin to match fbdev's handedness. A user stage
+        // cannot be reflected at its INPUT (a stage need not be odd in x:
+        // `vp_x = px*11/20 + 175` would move, not mirror), so the same
+        // convention is applied to its OUTPUT: the stage's NDC x is the
+        // frame's x, and the Vulkan target's x axis is the mirrored one.
+        // Without this a quad drawn at x=+0.175 lands left of centre while
+        // its CPU reference (`stage_ref`, frame coordinates) is right of
+        // centre — a two-pixel-perfect wrong picture.
+        text = text.replace("void main()", "void sh_stage_main()");
+        text.push_str(
+            "\nvoid main() {\n    sh_stage_main();\n    gl_Position.x = -gl_Position.x;\n}\n",
+        );
+    }
+    Ok(text)
+}
+
 pub fn compile_stage(
     compiler: &std::path::Path,
     glsl: &str,

@@ -169,7 +169,132 @@ pub fn render_c_with(a1: &str, opt_level: &str, true64: Option<bool>) -> Result<
         None
     };
     let a1_ref = hoisted.as_deref().unwrap_or(a1);
-    otranspilerl::render(a1_ref, "c")
+    let c = otranspilerl::render(a1_ref, "c")?;
+    Ok(inject_stage_split(c, a1_ref))
+}
+
+/// Compile the lift's bound C2/C3 stages to SPIR-V **at build time**.
+///
+/// The pair is lowered from the compiler's own ES text
+/// (`fb_frag::stage_vulkan_glsl`) and compiled with the pinned glslang, so
+/// nothing here is a hand-written shader. `Err` is the stable
+/// `stage-pair-unmappable:` refusal: no SPIR-V is embedded and the caller
+/// leaves the split (and `GPU_SPLITS`) untouched.
+fn compile_bound_stage_spirv(a1: &str) -> Result<(Vec<u8>, Vec<u8>, String, String), String> {
+    let prog = debashl::shir_json_in::shir_json_to_ir(a1)
+        .map_err(|e| format!("stage-pair-unmappable: shIR ingress: {e}"))?;
+    let verdicts = debashl::shir_passes::gpu_lift::analyze(&prog);
+    let (mut vert, mut frag) = (None, None);
+    for v in &verdicts {
+        if let debashl::shir_passes::gpu_lift::GpuLiftVerdict::Site {
+            kind,
+            site,
+            shader: Some(sh),
+        } = v
+        {
+            // The site names the bound function (`fn:quad_fragment`); the
+            // reference derivation evaluates that very function.
+            let name = site.strip_prefix("fn:").unwrap_or(site).to_string();
+            match kind {
+                debashl::shir_passes::gpu_lift::LiftKind::Vertex => {
+                    vert = Some((sh.glsl.clone(), name))
+                }
+                debashl::shir_passes::gpu_lift::LiftKind::Fragment => {
+                    frag = Some((sh.glsl.clone(), name))
+                }
+                _ => {}
+            }
+        }
+    }
+    let ((vert, vert_name), (frag, frag_name)) = match (vert, frag) {
+        (Some(v), Some(f)) => (v, f),
+        _ => return Err("stage-pair-unmappable: no bound vertex+fragment pair".to_string()),
+    };
+    let cache = crate::cache::cache_root(None);
+    let Some(cc) = crate::shader::find_spirv_compiler(&cache) else {
+        return Err(
+            "stage-pair-unmappable: no SPIR-V compiler reachable at build time".to_string(),
+        );
+    };
+    let vglsl = crate::fb_frag::stage_vulkan_glsl(&vert, crate::fb_frag::Stage::Vertex)?;
+    let fglsl = crate::fb_frag::stage_vulkan_glsl(&frag, crate::fb_frag::Stage::Fragment)?;
+    let work = std::env::temp_dir().join(format!("sh_stage.{}.{}", std::process::id(), line!()));
+    std::fs::create_dir_all(&work).map_err(|e| format!("stage-pair-unmappable: workdir: {e}"))?;
+    let vspv = crate::fb_frag::compile_stage(&cc, &vglsl, &work, "vert");
+    let fspv = crate::fb_frag::compile_stage(&cc, &fglsl, &work, "frag");
+    let _ = std::fs::remove_dir_all(&work);
+    Ok((vspv?, fspv?, vert_name, frag_name))
+}
+
+/// The stage split's CPU reference: what the bound pair draws on the CPU
+/// for the host's fixed quad. Derived from the stage functions themselves
+/// (`crate::stage_ref`), so no fixture supplies numbers for it. `Err` is a
+/// stated refusal and the caller emits no split at all.
+fn stage_reference(a1: &str, vert: &str, frag: &str) -> Result<crate::stage_ref::StageRef, String> {
+    let mut prog = debashl::shir_json_in::shir_json_to_ir(a1)
+        .map_err(|e| format!("stage-reference-uncovered: shIR ingress: {e}"))?;
+    prog.var_types = debashl::shir::analyze_var_types(&prog);
+    crate::stage_ref::derive(&prog, vert, frag)
+}
+
+fn c_byte_array(name: &str, bytes: &[u8]) -> String {
+    let mut s = format!("static const unsigned char {name}[{}] = {{", bytes.len());
+    for (i, b) in bytes.iter().enumerate() {
+        if i % 20 == 0 {
+            s.push_str("\n    ");
+        }
+        s.push_str(&format!("{b},"));
+    }
+    s.push_str("\n};\n");
+    s
+}
+
+/// Embed the pair and emit `_sh_gpu_stages(...)` beside the draw split.
+///
+/// Only a program that already has a draw split (the C text contains the
+/// emitted `_sh_gpu_flush()`) can host a stage split, and only when the
+/// pair really compiled. Every other case returns the C unchanged, which
+/// is what keeps `GPU_SPLITS` honest.
+fn inject_stage_split(c: String, a1: &str) -> String {
+    if !c.contains("_sh_gpu_flush()") {
+        return c;
+    }
+    let (vspv, fspv, vname, fname) = match compile_bound_stage_spirv(a1) {
+        Ok(x) => x,
+        Err(e) => {
+            eprintln!("bash-O4: {e}");
+            return c;
+        }
+    };
+    // A dispatched pair needs a CPU frame to be verified against. The
+    // reference comes from the SAME bound functions the shaders were
+    // compiled from; when the pair is not covered, the split is not
+    // emitted at all (a veto, not a dispatch that can only refuse).
+    let reference = match stage_reference(a1, &vname, &fname) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("bash-O4: {e}");
+            return c;
+        }
+    };
+    let anchor = "#include <fb_gpu.h>";
+    if !c.contains(anchor) {
+        return c;
+    }
+    let mut decl = format!("{}\n", anchor);
+    decl.push_str(&c_byte_array("_sh_stage_vspv", &vspv));
+    decl.push_str(&c_byte_array("_sh_stage_fspv", &fspv));
+    let c = c.replacen(anchor, &decl, 1);
+    let call = format!(
+        "_sh_gpu_stages(_sh_stage_vspv, sizeof _sh_stage_vspv, \
+         _sh_stage_fspv, sizeof _sh_stage_fspv), _sh_gpu_flush()"
+    );
+    let c = c.replacen("_sh_gpu_flush()", &call, 1);
+    // The reference is emitted immediately before the dispatch, in the
+    // same comma expression: the CPU frame carries the quad whether or not
+    // the device answers, and the flush compares against the same rect.
+    let ref_call = format!("{}, _sh_gpu_stages(", crate::stage_ref::c_call(&reference));
+    c.replacen("_sh_gpu_stages(", &ref_call, 1)
 }
 
 /// Full M1 codegen: file → C source. Returns (a1_json, c_source).

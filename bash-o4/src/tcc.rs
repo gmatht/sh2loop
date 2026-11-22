@@ -198,6 +198,13 @@ pub struct LinkNeeds {
     /// `-lm`, and dlopens rather than linking libasound so a box with
     /// no sound at all still BUILDS.
     pub fbs: bool,
+    /// The GPU host split (`runtime/fb_gpu.c`). Pulled in by the render
+    /// naming <fb_gpu.h>, which the C backend does ONLY when it emits a
+    /// `_sh_gpu_*` split — so a program with no accepted GPU site links
+    /// exactly what it linked before. It needs `-ldl`: the generated
+    /// executable is a separate process and reaches the Rust host
+    /// (`bash_o4_fb_gpu_*`) by dlopen, not by a link-time symbol.
+    pub gpu: bool,
 }
 
 /// Why a link could not even be ATTEMPTED.
@@ -246,6 +253,7 @@ pub fn link_needs(c_src: &str) -> LinkNeeds {
         fb: c_src.contains("fbdev.h"),
         fbi: c_src.contains("fbinput.h"),
         fbs: c_src.contains("fbsound.h"),
+        gpu: c_src.contains("fb_gpu.h"),
     }
 }
 
@@ -373,6 +381,17 @@ fn compile_exe(
         cmd.arg(&fb);
         let fbwin = find_fbwin(cache_root)?;
         cmd.arg(&fbwin);
+        cmd.arg("-ldl");
+        cmd.arg(format!("-I{}", dir.display()));
+    }
+    if needs.gpu {
+        // The GPU host split. `fb_gpu.c` is the emitted `_sh_gpu_*`
+        // call site; `fbdev.c` (needs.fb) is its fallback. -ldl for the
+        // dlopen of the Rust host library and of libvulkan in the
+        // scaffold probe; -I for <fb_gpu.h>, in the same runtime/ dir.
+        let g = find_fbdev_src(cache_root, "fb_gpu.c")?;
+        let dir = g.parent().unwrap_or(Path::new(".")).to_path_buf();
+        cmd.arg(&g);
         cmd.arg("-ldl");
         cmd.arg(format!("-I{}", dir.display()));
     }

@@ -12,6 +12,57 @@ Covers three related work items:
    per-language IRs (Perl IR, ESTree/JS IR).
 
 > **Revision history**
+> - v153: **BUGS_FOUND 14 is FIXED, and the GPU lift is committed green.** The producer now names its
+>   own value tails: `echo_return` records the functions whose body it rewrote (that `Return(Some(v))`
+>   IS the original `echo V`, so a `$(f)` capture must read it on stdout) and `shir_to_c` consumes
+>   that record once per program; every other `return N` renders `_sh_rc = (int)(N);` with no stdout
+>   (the record is `Option`, so a pre-transformed JSON ingress keeps its historical reading rather
+>   than guessing). Measured: `cargo test --test c_fn_multi_call` **17 passed, 0 failed** (the two
+>   defect cases kept, unrenamed), `tests/c_fn_redefinition.rs` **4/4**, `harness/c-gate-run.sh`
+>   **483 PASS / 555** with unchanged buckets (57 compile, 7 skip, 4 stdout, 3 stub, 1 rc),
+>   `harness/verus-gate.sh` **135 passed / 0 failed**, `stage_vulkan` **8 passed** and `fb_dispatch`
+>   **2 passed** under lavapipe, a plain `echo hi` program still emits **0** `_sh_gpu_` calls, and
+>   both witnesses (`two-quads.sh`, `hud-bar.sh`) report `GPU_SITES=4 GPU_SPLITS=2`,
+>   `dispatched=1 mismatch=0`, `0 differing px, max_abs=0` and byte-identical PPMs (`9229/9229`)
+>   under `SH2_FB_GPU=0` vs `=1`. Still open, recorded not closed: entry 12's
+>   definition-scoped-dispatch residual, and `bash-O4 --check bash-o4/MIMEcroft_fb.sh` →
+>   `GPU_SITES=0` (docs/GENERAL-GPU-LIFT.md §5).
+> - v152: **The C differential suite links again, and the defect that hid behind the link error is recorded.**
+>   `tests/c_fn_multi_call.rs` linked with `-lm` only, so four of its cases failed at LINK
+>   (`undefined reference to __gmpz_init_set_str`) and never compared output; the line is now
+>   `-lgmp -lm` (matching c_bigint_gmp / c_div_magic / c_isqrt / c_sorted_join), and
+>   `tests/c_fn_redefinition.rs` got the same line. Measured: **15 passed, 2 failed** — the two are
+>   `BUGS_FOUND.md` 14, a REAL renderer defect now visible (`return 0` in a function is rendered as a
+>   trailing value echo, so an uncaptured call prints `0`; bash prints nothing). Recorded open, not
+>   papered over. GPU side re-measured this session: `bash-o4` `stage_vulkan` **8 passed** and
+>   `fb_dispatch` **2 passed** under lavapipe (`lvp_icd.json`), a plain `echo hi` program emits
+>   **0** `_sh_gpu_` calls (unchanged CPU-only C), and `bash-O4 --check bash-o4/MIMEcroft_fb.sh`
+>   still reports **GPU_SITES=0 / GPU_SPLITS=0** — MIMEcroft draws through the software rasterizer
+>   (`rb_*` → `/dev/fb0` rows), not the C1 device protocol, so it contributes no contract site and
+>   no MIMEcroft-vs-GPU frame compare exists to run (docs/GENERAL-GPU-LIFT.md §5 records the same
+>   measurement). `harness/verus-gate.sh` **135 passed, 0 failed**; `harness/c-gate-run.sh`
+>   **483 PASS / 555** with 0 remaining `redefinition` compile errors.
+> - v151: **The C renderer can build a redefined function, and the proved div-overflow refusal is back.**
+>   (1) `BUGS_FOUND.md` 12 is FIXED: `shir_to_c` emitted one `static void NAME(void)` per
+>   `IrStmt::Function`, so `sq() { echo 3; }; sq() { echo 4; }; v=$(sq)` — which bash runs and
+>   prints `v=4` — was `error: redefinition of 'sq'`. The LAST definition (bash's live one) now
+>   keeps the plain name and superseded bodies are `#if 0`-inert, so their codegen effects
+>   (site/capture helpers, runtime flags) are unchanged and a one-definition program's C is
+>   untouched (the new branch fires only for `count > 1`). New differential test
+>   `tests/c_fn_redefinition.rs` (4 cases, oracle bash). Residual, stated in the entry: a call
+>   BETWEEN two definitions still reaches the final body where bash reaches the earlier one.
+>   (2) An UNCOMMITTED edit had dropped `i64::MIN / -1` from `fold_bin_op`'s `/` arm while the
+>   `%` arm kept it — `fold_expr` would then PANIC ("attempt to divide with overflow") instead of
+>   refusing, and the proof pipeline caught it: `verus-sync-foldarith.sh --check` refused to
+>   regenerate ("shipped `fold_bin_op` lost its div arm … the proved refusal arms no longer match
+>   the running table") and the pinned unit test `literal_binop_error_shapes_are_not_folded`
+>   panics. The proved shape is restored and both checks are clean (442-line baseline, 213-line
+>   Pass 0.5 baseline, `verus-sync-*.sh --check` rc 0).
+>   (3) Measured this session: `harness/verus-gate.sh` with `RUSTUP_HOME`/`CARGO_HOME` pointed at
+>   the user's toolchain verifies `optimize_pass05.rs` 23/0, `fold_arith_ast_pure.rs` 13/0,
+>   `optimize_stmts.rs` 8/0, `test_lowering_stmt.rs` 58/0, `test_lowering.rs` 25/0;
+>   `harness/c-gate-run.sh` (C backend, 8 jobs) is **483 PASS / 555** with **0** remaining
+>   `redefinition` compile errors, and `cargo test --test c_fn_redefinition` is 4/4.
 > - v150: **D: one derivation for helper pruning, and warnings made measurable.** (1) The emitter's
 >   text passes stay, but `prune_unused_helpers` no longer owns its copy of the "rendered name" rule:
 >   `helper_rendered_names()` reads the registry (`HELPER_ORDER` x `helper_source`) once, and a new
@@ -10527,6 +10578,351 @@ the gate's expectations predate that WIP).
   follow-up, refused today by `pipe_consumer`'s single-Expr shape.
   Gitlink not bumped (worktree carries other workstreams' edits).
 
+### 11.15 The general-purpose GPU lift, first mission (verdicts + shader binding)
+
+Recorded 2026-11-21. The plan is `docs/GENERAL-GPU-LIFT.md`; this entry
+records what landed and what deliberately did not.
+
+**The generalisation.** The lift is defined against contracts that
+already exist — C1 draw submission (`/dev/fb0/{blocks,overlay,
+overlay_flash}`), C2 vertex stage (`ap_*`…`uov` → `vp_*/vc_*/vu_*`), C3
+fragment stage (`frag_x`…`cr_*` → `putb`), C4 present (`call`/`swap`) —
+never against a program. Every name in that list is a device verb or a
+`glsl_backend` bridge, i.e. an interface. Recognition is structural: a
+function's read set, write set and effect set.
+
+**P0.** `docs/GENERAL-GPU-LIFT.md` (contract freeze + refusal
+catalogue); a *second* witness
+`sh2perl/tests/fixtures/gpu_lift/two-quads.sh` (two shaded textured
+quads, written only against C2/C3, sharing no identifier with the first
+witness); `harness/gpu-rename.sh` and `harness/gpu-static-guard.sh`.
+The static guard is the naming rule as a gate: no `rb_`, `MIME`, `RFB_`,
+`RBTEX_`, `SCOS`, `SSIN` in `sh2perl/src/**` outside comments and
+`#[cfg(test)]` modules.
+
+**P1.** `sh2perl/src/shir_passes/gpu_lift/` — analysis-only verdicts
+(`compute | vertex | fragment | draw | present`, plus a stable veto
+reason per refusal). `bash-O4 --check` prints one `GPU` line per site
+and `GPU_SITES=<accepted>`; compute verdicts reuse the same vocabulary
+through `GpuLiftVerdict::compute_site/compute_veto`, so all five kinds
+report in one shape. Nothing is rewritten into the program and no
+renderer changed, which is why the corpus gate is unaffected by
+construction.
+
+**P2.** An accepted stage is rendered by the existing front end
+(`glsl_backend`, ES 1.00, `color_out`/`vert_out`, `tex_size: 16`,
+`max_view: 800`), with a closure rule (reads must be bridges, the
+stage's own outputs, or its locals) and a callee rule (pure and closed,
+or refuse). `uniform-inputs` is a *refusal with its own reason*: a
+program global assigned outside every stage is liftable at P3 with
+slots, and today's front end would emit an undeclared identifier.
+
+**Measured correction to the plan's own sketch.** The first witness
+scores **`GPU_SITES=0`** on this snapshot, and that is right:
+`bash-o4/MIMEcroft_fb.sh` draws with the software rasterizer (`rb_*`
+pixels), its `fb_blocks` occurrences are comments, and `putb`/`frag_x`
+appear **zero** times — its fragment stage is program code
+(`rb_frag`), not bridge-contract code (the C fragment is
+`fbdev.c:frag_pixel`). So it contributes no C1–C4 site until the
+MIMEcroft plan's phase 1 (device payload) or route B lands. Generality
+for this mission therefore rests on the second witness, which is why it
+was made a gate.
+
+**The naming rule was already violated, and the gate now ratchets it.**
+`c_backend.rs` carries fast paths written against one program:
+`rb_clear`/`rb_putrun`/`rb_present` special cases, `RFB_PIX`/`RFB_ROWS`
+array hooks, an `RBTEX` prefix test. Measured debt (11 `rb_`, 16 `RFB_`,
+1 `RBTEX`, 1 `MIME` line) is budgeted in
+`harness/gpu-static-guard.allow`; the gate passes at budget with the
+debt printed and fails on any new coupling. Deleting those fast paths
+is follow-up work, recorded rather than hidden.
+
+**Gates.** The witness lifts; the rename test rewrites every identifier
+the witness owns to `zz_` and requires identical verdicts and identical
+shader text modulo the prefix; negative controls pin `impure-body`, a
+neutral-name lift, `unclosed-reads`, `mixed-stages`, `float-precision`
+(the `double`-UV blocker of §11.14 as a refusal) and non-`swap`
+`call` → `present-not-swap`.
+
+**P3/P4 landed (2026-11-22).** The lift now EXECUTES, and the path is
+measured rather than asserted:
+
+- **The split is emitted, not modelled.** `c_backend.rs` wraps an
+  accepted draw site as `((_sh_gpu_blocks(P)) ? (void)0 :
+  (void)(fb_blocks(P)))` and emits `_sh_gpu_flush()` (a comma
+  expression, so the primitive's status is unchanged) before
+  `fb_present`/`fb_dump_ppm`. The CPU call is in the generated C for
+  every accepted site; `bash-O4` links `fb_gpu.c` only when the render
+  names `<fb_gpu.h>`, i.e. only when a split was emitted.
+- **The runtime has real call sites.** `sh2perl/runtime/fb_gpu.c`
+  dlopens the Rust host (`SH2_FB_GPU_LIB`, default `libbash_o4.so`;
+  a generated program is a separate executable, so a link-time symbol
+  cannot exist), draws through `bash_o4_fb_gpu_draw_blocks_text`,
+  reads back through `bash_o4_fb_gpu_readback_bgrx`, and refuses with a
+  stable reason on host/symbol/device/open/draw failure. A frame is
+  all-or-nothing: after one refusal every later site in it is CPU.
+- **The parity gate is the default.** The GPU rasterizer is a second
+  implementation of fbdev's rules and is not byte-identical yet, so a
+  GPU-enabled run compares its read-back frame against the CPU frame
+  for the same payloads and keeps the CPU frame on a mismatch
+  (`SH2_FB_GPU_PROVE=raw` opts into the GPU-authoritative frame).
+- **Measured.** `--check two-quads.sh` → `GPU_SITES=4 GPU_SPLITS=1`;
+  `--emit-c` contains one `_sh_gpu_blocks(` per accepted draw; the
+  GPU-disabled and GPU-enabled runs both write 9229-byte PPMs and
+  `cmp` reports them identical; the GPU log records `draws=1`, a
+  successful readback, and `GPU frame differs from the CPU frame
+  (8 px, max_abs=77) [step:verify] -> CPU frame kept`.
+
+**P3/P4 follow-up: the GPU frame, diagnosed (2026-11-22).** The first
+run of the host split rendered a *blank* GPU frame. Two real bugs were
+found and fixed by running the pipeline against the device:
+
+- **Payload units.** `fb_blocks`' scale is in world units and
+  `fbdev.c` converts to milli once (`v[3] * 1000.0`);
+  `fb_gpu_ffi::parse_blocks_payload` passed it through unscaled, so
+  every witness cube was 1000× too small (zero lit pixels on the GPU).
+- **Handedness / y orientation.** fbdev is −z-forward (`w = -rel.z`),
+  the vertex stage is +z-forward. The FFI now reflects camera and
+  records exactly (x/z and shift) and the readback un-mirrors both
+  axes — an index permutation, not a tolerance. The shader source and
+  the pinned SPIR-V are untouched (no SPIR-V compiler on this box).
+
+After that the frame is geometrically exact: 19 lit pixels on both
+sides, **8 still differ**, all in row 27. Instrumenting the device via
+`BASH_O4_FBDEV_DIR` shows the CPU paints `quad 1` (bottom face, shade
+500 → `0x80`) at (30..33,27) and (59..62,27) while the GPU has
+`quad 3` (side face, shade 800 → `0xcc`). fbdev's `tri_covers` accepts a
+pixel when every half-plane is `>= 0`, so at the shared bottom-front
+edge both faces cover it and painter order leaves the bottom face;
+Vulkan's top-left rule gives that edge to exactly one triangle (the
+side face). Coverage is not a pipeline state, so closing this needs a
+software/compute rasteriser replicating the `>= 0` rule, or a change to
+fbdev's fill rule (which would move the CPU device's own pixels and its
+bash parity). The gate stays strict and refusing; nothing is masked,
+widened or skipped.
+
+**P4a: pinned toolchain and a drift gate (2026-11-22).** Shader bytes
+are embedded and were unverifiable against their source. `glslang
+16.6.0` is now pinned in `bash-o4-manifest.toml` (Linux x86_64 release
+tarball, `sha256 2c34071f…`, size 7923164); `fetch` re-verifies it on
+use, `toolchain` entries unpack to `<cache>/bash-o4-fetch/glslang/bin/`
+(the path `find_spirv_compiler` already probes), and
+`--prefetch --fetch-libs=auto` warms it. `tests/fb_spv_regen.rs`
+recompiles all four shaders from `fb_frag.rs` and byte-compares them
+with `src/fb_spv/*.spv`; flipping one byte fails with both sha256s, and
+`SH2_FB_SPV_UPDATE=1` regenerates files + `manifest.json`. 16.6.0
+reproduces the committed bytes exactly (proving the pin does not change
+runtime behaviour), and with a compiler now reachable the lavapipe
+`fb_dispatch` suite runs for real: 2/2 pass, including the overlay
+blend over blocks.
+
+**P4b: stage dispatch is blocked on the GLSL contract, not on wiring
+(2026-11-22).** The bound C2/C3 stages are GLSL ES 1.00 (`attribute`,
+`varying`, `gl_FragColor`); `glslangValidator -V` refuses them —
+`ES shaders for SPIR-V require version 310 or higher` and
+`'attribute'/'varying': Reserved word`. Real stage dispatch therefore
+needs (1) a Vulkan emission mode in the sh→GLSL front end (450,
+`layout(location=)`, uniform blocks/push constants, `texture()`,
+`layout(location=0) out`), (2) a host vertex-input model expanding cube
+records into the device's 24-vertex stream, and (3) a CPU oracle for
+arbitrary stages: the CPU fallback is `fb_blocks` (the device's own
+`frag_pixel`), so "GPU equals CPU" is undefined for user stages until
+the oracle question is decided. `--check` continues to report four
+candidates and one split (the draw), which is the true state.
+
+**P4c: the stage shader half is now real (2026-11-22).** Two fixes:
+(1) `glsl_backend` records read variables and drops a non-numeric store
+whose target is never read, so stage bodies no longer carry the
+`cat(itos(x), ivec2(0,0))` dead conversion that referenced an unemitted
+string runtime (self-contained and still rename-invariant; the rename
+gate is green). (2) `fb_frag::stage_vulkan_glsl` lowers the generated ES
+stages to Vulkan GLSL 450 with the bridge binding: attributes at
+locations 0/1/2 in the device stream order, varyings 0/1, uniforms as a
+push-constant block, sampler at set 0 binding 0, `texture2D`→`texture`,
+`gl_FragColor`→`layout(location=0) out`. It refuses unmapped names.
+`tests/stage_vulkan.rs` compiles the compiler's own witness pair through
+it with the pinned glslang (5208/2700 bytes then; 5392/2700 after P4g's
+x-mirror wrapper) and asserts the refusal.
+Still missing: the `_sh_gpu_stages` host split and a runner pipeline
+built from the pair, plus an acceptance fixture whose maths the CPU
+path also computes. `--check` still reports four candidates / one split
+and is therefore still telling the truth.
+
+**P4d: runner stage-pipeline plumbing; lavapipe crash (2026-11-22).**
+`fb_draw` gained vertex-input assembly (stride 32, `aPosition`/`aShade`/
+`aUv` at 0/12/24), `vkCmdBindVertexBuffers` in `GfxFns`, a lazily
+compiled `stage_pipe`, and `draw_stages` (colour+depth clear, same
+target/readback as `draw_blocks`, sampler at binding 1 as the generated
+450 text now declares). It is blocked by the driver: supplying
+vertex-input state makes lavapipe SIGSEGV inside
+`vkCreateGraphicsPipelines`; the identical pipeline with
+`binding_count: 0` builds, dispatches and reads back (0 lit pixels, as
+expected without attributes). The draw test is `#[ignore]`d with that
+reason; `_sh_gpu_stages`, the acceptance fixture and the parity/veto
+demonstrations remain unimplemented, and `GPU_SPLITS` is still 1.
+
+**P4e: vertex-input fault fixed; a generated-stage quad draws
+(2026-11-22).** The SIGSEGV was ours: `VkVertexInputCreateInfo` lacked
+`#[repr(C)]` (Rust laid it out 40 bytes, sType@24, pBindings@8), so the
+driver read garbage. A layout test now pins the Vulkan ABI. Second bug:
+the stage pipeline used the overlay's alpha blend while the bridge's
+`putb` has no alpha (0), blending a correct frame to black; blocks and
+stage pipelines are opaque now, overlay still blends. Result on
+lavapipe: the generated witness pair, lowered to 450 and compiled with
+the pinned glslang, builds a real pipeline with attributes/varyings/
+sampler/push-constants and **draws 968 lit pixels**; stage_vulkan is
+4/4 with no ignores. Milli→clip is settled by the homogeneous divide
+(w=1000), confirmed by the quad landing at the expected NDC and
+recorded in the docs — no conversion is emitted. Still missing:
+`_sh_gpu_stages` emission and stage-split counting, the acceptance
+fixture with byte-identical CPU parity, and the veto demonstration.
+
+**P4f: the stage split executes and passes the parity gate
+(2026-11-22).** `_sh_gpu_stages` is emitted with the pair's SPIR-V
+embedded at build time (`pipeline::compile_bound_stage_spirv`,
+`inject_stage_split`), the FFI draws it through
+`RasterRunner::draw_stages`, and `GPU_SPLITS` counts it only when both
+C2/C3 sites exist **and** a SPIR-V compiler was reachable. Fixing the
+frame exposed two real defects, both found by running it:
+
+- **The stage pass reset the frame.** It used the CLEAR render pass, so
+  its quad replaced the blocks draw instead of joining it (979 differing
+  pixels, max_abs 218). A stage split is one more draw in a frame; the
+  pass now uses the same LOAD render pass as the overlay
+  (`ensure_load_pass`, colour loaded, depth neither tested nor written
+  for the kind-2 pipeline), and clears only when it is the frame's first
+  draw.
+- **The fixture had no CPU counterpart for the stage draw.** The CPU
+  firewall for a frame is the replayed world; the stage pair draws the
+  program's HUD shape, which the CPU path must also draw or the frames
+  are two different pictures. The witness now emits the HUD record
+  (`fb_overlay`) on exactly the stage quad's footprint — centre
+  (-0.03, 0.03) -> px (31,23), extents 1.34375 x 0.875 of the canvas ->
+  half extents 21.5 x 10.5 px — and in the colour the fragment contract
+  emits (14/255, measured uniform). The two pixel sets are equal, not
+  merely close: 968 px each, x 10..53, y 13..34.
+
+`_sh_gpu_flush` therefore compares against the replayed world **plus the
+overlay layer** when a stage pair drew (`fb_overlay_px`, a read-only
+per-pixel source-over — no double composite), and presents the readback
+itself when the comparison is exact, so the frame is GPU-produced rather
+than a CPU replay that happens to match. Measured on lavapipe:
+`stage-dispatch: generated stage pair dispatched (vert=5208 frag=2700
+bytes; drawn into the frame)`; `step: step=verify detail=GPU frame
+matches the CPU firewall (0 differing px, max_abs=0) -> GPU frame
+presented`; `dispatch: frame 64x48 draws=1 dispatched=1 mismatch=0`;
+SH2_FB_GPU=0 and =1 PPMs `cmp`-identical (9229 bytes). `--check`:
+`GPU_SITES=5 GPU_SPLITS=2`; `--emit-c` grep-counts
+`_sh_gpu_blocks(`=1 and `_sh_gpu_stages(`=1. SITES moved 4 -> 5 because
+the fixture now has the HUD draw as a fifth accepted C1 site; SPLITS
+stayed 2 because the counter was narrowed to the draw verbs codegen
+really splits (`blocks`), so an `overlay` site no longer inflates it.
+
+**P4g: the CPU reference is derived by the compiler, and a second
+witness proves it (2026-11-22).** P4f's reference was a fixture's
+hand-placed overlay whose numbers matched the stage quad. That is a
+per-fixture answer, not a capability, so it is gone: neither witness now
+contains a CPU drawing of its stage quad, and `_sh_gpu_flush` no longer
+consults the overlay layer (`fb_overlay_px` deleted).
+
+- **`bash-o4/src/stage_ref.rs`** evaluates the SAME bound stage
+  functions the SPIR-V was compiled from — the shIR bodies the lift
+  bound, with the bridge values the stage host supplies (aPosition ±1,
+  aShade 1, aUv 0/1, uObjPos 0, uScale 1, uBlockColor 1, the front end's
+  `vcolor_* = int(vColor.*×127)` seed, texels from the build-time atlas)
+  — and reports the NDC rectangle and colour the pair draws. It models
+  integer arithmetic (i64, truncating division, 2^64 wrapping `**`),
+  if/else, string copies and `putb`; it prunes writes the stage never
+  reads (so `fx=$frag_x` is not a refusal, while `r=frag_x` is). It
+  REFUSES, with `stage-reference-uncovered: ...`, a non-axis-aligned
+  quad, a varying `vColor`, a per-pixel bridge (`frag_x/frag_y`, `uv_*`),
+  `cr_*`/`damage`, or a non-uniform atlas layer.
+- **The emission is one call:** `fb_stage_ref(cx, cy, hw, hh, r, g, b)`
+  beside `_sh_gpu_stages(...)`. The runtime paints that rectangle (pixel
+  centres in milli-NDC) as the split's CPU implementation, replays the
+  world and repaints it before the compare, and presents the readback
+  only when the compare is exact. A pair with no reference emits NO
+  split — the docs' rule: a pair without a CPU reference vetoes.
+- **`GPU_SPLITS` is now counted from the emitted C** (`_sh_gpu_blocks(` +
+  `_sh_gpu_stages(`), so the uncovered witness reads `GPU_SPLITS=1`
+  while still reporting its four sites — the counter cannot claim a
+  dispatch the C does not contain.
+- **The second witness found a real bug.** `hud-bar.sh` (a different
+  program: off-centre bar, per-axis scales, non-grey colour) refused at
+  first with `308 px, max_abs=68`: the runner reads the target back
+  through a 180° permutation, and the blocks pipeline pre-reflects its
+  scene to compensate, but a stage quad cannot be reflected at its input
+  (a stage need not be odd in x). `stage_vulkan_glsl` now applies the
+  frame's x convention to the stage's OUTPUT (`sh_stage_main()` +
+  `gl_Position.x = -gl_Position.x`). Two-quads is symmetric in x and
+  could never have found this.
+- **Measured** (fresh runs, both witnesses, verbatim):
+
+```text
+$ bash-O4 --check .../two-quads.sh
+GPU candidate draw fn:draw_two_quads/fb:fb_blocks
+GPU candidate present fn:draw_two_quads/fb:fb_present
+GPU candidate vertex fn:quad_vertex (glsl 2254 bytes)
+GPU candidate fragment fn:quad_fragment (glsl 1132 bytes)
+GPU_SITES=4
+GPU_SPLITS=2
+
+$ bash-O4 --check .../hud-bar.sh
+GPU candidate draw fn:draw_bar/fb:fb_blocks
+GPU candidate present fn:draw_bar/fb:fb_present
+GPU candidate vertex fn:bar_vertex (glsl 2024 bytes)
+GPU candidate fragment fn:bar_fragment (glsl 921 bytes)
+GPU_SITES=4
+GPU_SPLITS=2
+
+$ bash-O4 --check .../refuse-fragx.sh
+GPU candidate draw fn:draw_edge/fb:fb_blocks
+GPU candidate present fn:draw_edge/fb:fb_present
+GPU candidate vertex fn:edge_vertex (glsl 1371 bytes)
+GPU candidate fragment fn:edge_fragment (glsl 767 bytes)
+GPU_SITES=4
+GPU_SPLITS=1
+
+# --emit-c, the stage-split call site, verbatim (one line each)
+    _sh_rc = (fb_stage_ref(0, 0, 700, 450, 14, 14, 14), _sh_gpu_stages(_sh_stage_vspv, sizeof _sh_stage_vspv, _sh_stage_fspv, sizeof _sh_stage_fspv), _sh_gpu_flush(), ((fb_present()) - 1));
+    _sh_rc = (fb_stage_ref(175, -125, 550, 300, 9, 19, 40), _sh_gpu_stages(_sh_stage_vspv, sizeof _sh_stage_vspv, _sh_stage_fspv, sizeof _sh_stage_fspv), _sh_gpu_flush(), ((fb_present()) - 1));
+# occurrences, _sh_gpu_blocks( / _sh_gpu_stages( / fb_stage_ref(:
+#   two-quads 1/1/1   hud-bar 1/1/1   refuse-fragx 1/0/0
+
+# two-quads.sh — /tmp/gpu-gpu.log, then the PPM comparison
+stage-dispatch: generated stage pair dispatched (vert=5392 frag=2700 bytes; drawn into the frame)
+step: step=verify detail=GPU frame matches the CPU firewall (0 differing px, max_abs=0) -> GPU frame presented
+dispatch: frame 64x48 draws=1 dispatched=1 mismatch=0 refusals=0 fallback=0 reason=(none)
+cmp: identical 9229/9229 bytes
+
+# hud-bar.sh — /tmp/gpu-gpu.log, then the PPM comparison
+stage-dispatch: generated stage pair dispatched (vert=4916 frag=2272 bytes; drawn into the frame)
+step: step=verify detail=GPU frame matches the CPU firewall (0 differing px, max_abs=0) -> GPU frame presented
+dispatch: frame 64x48 draws=1 dispatched=1 mismatch=0 refusals=0 fallback=0 reason=(none)
+cmp: identical 9229/9229 bytes
+
+# refuse-fragx.sh
+bash-O4: stage-reference-uncovered: the stage reads 'frag_x', which the stage host does not supply
+refused: frame 64x48 draws=1 dispatched=0 mismatch=1 refusals=0 fallback=0 reason=GPU frame differs from the CPU frame (4 px, max_abs=77) [step:verify] -> CPU frame kept
+cmp: identical 9229/9229 bytes   # the CPU frame is kept; nothing is presented from the GPU
+```
+
+  The refusal witness' CPU and GPU PPMs are also identical (9229 bytes)
+  because the refusing run keeps the CPU frame — a mismatch is never
+  reported as a match, and the lone cube exposes the §6.5 fill-rule gap
+  live (4 px, max_abs 77).
+
+**Not done (unchanged, and stated as such).** `fb_overlay` DISPATCH
+(the overlay is the CPU side of the comparison, not dispatched),
+uniform slots (`uniform-inputs`), P5 oracle matrix, P6 perf. Shader
+parity is still the fill-rule gap above: it did not block either
+witness but it is open (`refuse-fragx` measures it), and a payload that
+hits it refuses. The reference covers rectangle-of-one-colour stage
+pairs; per-pixel stages (scanlines, vignettes) still refuse, and a
+runtime-uploaded atlas would too (the reference samples the build-time
+one). **No speedup is demonstrated or claimed**: the parity gate still
+computes the CPU frame, so a GPU-enabled run does strictly more work.
+
 ### 2026-10-21 — zig backend: equivalence failures driven to zero
 
 The zig backend gate (`setup_backends.sh --backend-gate zig`) started this
@@ -11269,3 +11665,4 @@ always-split fails `glued_is_one_word` (`2 == 1`). The tie from model to source
 is `parser::words::word_boundary_tests` (3 tests, green), which pins the same
 counts on the live AST — so the property is enforced by `cargo test` even if
 the bin goes missing again.
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      

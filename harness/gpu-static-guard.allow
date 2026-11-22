@@ -1,0 +1,20 @@
+# Inherited name-coupling in sh2perl/src — a RATCHET, not an exemption.
+#
+# docs/GENERAL-GPU-LIFT.md §6 forbids program identifiers in the compiler.
+# The tree did not satisfy that rule when the gate landed: c_backend.rs
+# carries rasterizer fast paths written against one program (`rb_clear`,
+# `rb_putrun`, `rb_present`, `RFB_PIX`, `RFB_ROWS`, an `RBTEX` prefix test,
+# one `MIMEcroft` comment that is not a comment line). Those are real debt,
+# not interface names — they name the program under compilation.
+#
+# Format: <file under sh2perl/src> <root> <max lines>
+#
+# The gate fails when a count EXCEEDS its budget (a new coupling) or when a
+# file appears that is not listed here. Counts are per line, classified by
+# the first matching root in the order rb_, RBTEX, RFB_, MIME, SCOS, SSIN.
+# Removing coupling is always allowed: lower the number in the same commit
+# so the ratchet only moves down.
+c_backend.rs rb_ 11
+c_backend.rs RBTEX 1
+c_backend.rs RFB_ 16
+c_backend.rs MIME 1

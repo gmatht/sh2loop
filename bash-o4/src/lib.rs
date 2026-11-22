@@ -43,6 +43,7 @@ pub mod int_cycles;
 pub mod pipeline;
 pub mod py;
 pub mod shader;
+pub mod stage_ref;
 pub mod tcc;
 pub mod vkffi;
 

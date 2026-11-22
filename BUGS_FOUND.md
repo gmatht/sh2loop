@@ -11,22 +11,132 @@ breakage. This file is only about defects in the product.
 
 ## Confirmed product bugs (open)
 
-### 12. `direct_calls` entry 11a's OTHER owner: the C renderer still cannot
-emit a redefinition
-**Found by:** the same modelling session as 11a.
-**Defect:** `emit_function` (`c_backend.rs:17742`) emits one
-`static void NAME(void)` per `IrStmt::Function`, and `_sh_call_fn(NAME, …)`
-addresses the name, so a program that redefines a function does not compile
-(`cc`: `redefinition of 'sq'`) although bash runs it. The transform half of
-11a is now fixed (a redefined name is refused), which means such a capture
-keeps the subprocess `Capture` form in the C path — but a *plain* call to a
-redefined function still reaches the renderer and still fails to build.
-**Fix:** OPEN — needs either a first-definition-wins gate on the statement
-path or definition-scoped dispatch for `_sh_call_fn`. Not attempted here:
-both are behaviour changes in the C backend and want their own before/after
-frame compare.
+None open.
+
+Two residuals are recorded here rather than closed:
+
+- **Entry 12's definition-scoped dispatch** — a call placed BETWEEN two
+  definitions of the same name still dispatches to the last definition. It
+  is a precision loss on a shape the corpus does not contain, and the
+  transform already refuses the capture form; the fix and its scope are in
+  the entry below.
+- **The MIMEcroft GPU site** — `bash-O4 --check bash-o4/MIMEcroft_fb.sh`
+  reports `GPU_SITES=0` (evidence in `docs/GENERAL-GPU-LIFT.md` §5). The
+  general lift is delivered on the contract witnesses; MIMEcroft's own
+  draw path is the route still to take, not a done item.
 
 ## Confirmed product bugs (fixed)
+
+### 14. `return N` printed the status as text when the call is not captured
+**Found by:** unblocking `tests/c_fn_multi_call.rs`. Its link line was
+`-lm` only, so four cases died at LINK time (`undefined reference to
+__gmpz_init_set_str`) and never compared stdout. With `-lgmp` added, two
+of them compare — and fail:
+
+```text
+script: setg() { G=42; return 0; }
+        use() { echo "[$G]"; }
+        f() { setg; use; setg; use; }
+        f
+bash: "[42]\n[42]\n"
+C:    "0\n[42]\n0\n[42]\n"
+```
+
+**Defect:** the C renderer emits the function's `return 0` as a trailing
+value ECHO, so a discarded call writes the status to stdout:
+
+```c
+static inline void setg(void) {
+    G = 42;
+    char *_rv0 = ("0");
+    { _sh_rc = (int)atoll(_rv0); if (!_sh_noecho) printf("%s\n", (char*)(_rv0)); }
+    return;
+}
+```
+
+bash's `return 0` sets `$?` and prints NOTHING; the value-echo convention
+is only legitimate for a captured value. The IR did not distinguish the
+two: `transforms/echo_return.rs` turns a trailing `echo V` into
+`Return(Some(V))` (estree has the same shape via `shir.rs:40889`), while a
+status-only `return N` arrives as the same node, so the renderer could not
+tell them apart.
+
+**Fix (2026-11-22) — the producer names its own value tails.**
+`echo_return::transform` records every function whose body it rewrote
+(`VALUE_TAIL_FNS`: that `Return(Some(v))` IS the original `echo V`, so a
+`$(f)` capture must be able to read it on stdout) and the C renderer
+consumes the record once per program (`c_backend.rs` `value_tail_fns`,
+taken in `shir_to_c`). `IrStmt::Return(Some(v))` in a function now renders:
+
+- **recorded value tail** — unchanged: `char *_rvN = (v);` then
+  `_sh_rc = (int)atoll(_rvN); if (!_sh_noecho) printf("%s\n", ...);`
+  (a capture reads the value; a statement/condition caller stays silent);
+- **any other `return N`** (bash's status return) —
+  `_sh_rc = (int)(N);` and **no stdout**.
+
+The record is an `Option`: `None` means this program never ran the
+transform (a pre-transformed JSON ingress), where the historical reading is
+kept rather than guessed. Measured after the fix:
+
+```text
+setg() { G=42; return 0; }; use() { echo "[$G]"; }; f() { setg; use; setg; use; }
+bash: "[42]\n[42]\n"   C: "[42]\n[42]\n"        (was C: "0\n[42]\n0\n[42]\n")
+f() { echo 42; }; echo "[$(f)]"; f
+bash: "[42]\n42"       C: "[42]\n42"           (value tail still echoes)
+```
+
+**Status:** FIXED. `tests/c_fn_multi_call.rs` 17 passed / 0 failed (the two
+cases that encoded the defect stay, unrenamed), `tests/c_fn_redefinition.rs`
+4/4, `harness/c-gate-run.sh` 483 PASS / 555 with unchanged buckets
+(57 compile, 7 skip, 4 stdout, 3 stub, 1 rc).
+
+### 13. `fold_bin_op`: the `/` arm lost its `i64::MIN / -1` refusal
+**Found by:** the proof pipeline's own tie to the source —
+`harness/verus-sync-foldarith.sh --check` refused to regenerate the model
+("shipped `fold_bin_op` lost its div arm (zero divisor AND MIN / -1
+refusal): expected `/" if b != 0 && !(a == i64::MIN && b == -1)` … the
+proved refusal arms no longer match the running table"), and the pinned
+unit test `ir::tests::literal_binop_error_shapes_are_not_folded` panicked
+at `a / b` ("attempt to divide with overflow") rather than refusing.
+**Defect:** an uncommitted edit in the working tree had simplified the
+`/` arm to `if b != 0` while the `%` arm kept
+`!(a == i64::MIN && b == -1)`. `i64::MIN / -1` overflows, so a literal
+match would PANIC the transpiler where the proved behaviour is to keep
+the shape and let the runtime report bash's error — the exact
+`REFUSE > GUESS` contract the model states.
+**Fix:** FIXED (restored to the proved shape, 2026-11-22). Both guards
+are back and both checks are green: `verus-sync-foldarith.sh --check`
+`clean (442 lines)`, `verus-sync-pass05.sh --check` `clean (213 lines)`,
+and the unit test above passes. No model or test was weakened to reach
+this: the extractor's expected line is the proof's claim, and the test
+predates the drift.
+
+### 12. `direct_calls` entry 11a's OTHER owner: the C renderer emitted one
+function per definition
+**Found by:** the same modelling session as 11a.
+**Defect:** `emit_function` (`c_backend.rs:19828`) emitted one
+`static void NAME(void)` per `IrStmt::Function`, and `_sh_call_fn(NAME, …)`
+addresses the name, so a program that redefines a function did not compile
+(`gcc`: `redefinition of 'sq'`) although bash runs it. The transform half of
+11a is now fixed (a redefined capture is refused), which means such a capture
+keeps the subprocess `Capture` form in the C path — but a *plain* call to a
+redefined function still reached the renderer and still failed to build.
+**Fix:** FIXED (C renderer, 2026-11-22). bash's live definition is the most
+recent one, so `shir_to_c` now emits the LAST definition under the plain
+name and marks the superseded bodies `#if 0`-inert. The entry's own probe
+(`sq() { echo 3; }; sq() { echo 4; }; v=$(sq); echo "v=$v"`) now builds and
+prints `v=4`, byte-identical to bash, instead of the recorded
+`redefinition of 'sq'` build failure. INERT rather than skipped is the point:
+the superseded bodies still run their codegen (site/capture helpers, runtime
+flags), and the new branch only fires for `count > 1`, so the emitted C of
+any one-definition program is unchanged — which is also why no before/after
+frame compare is owed here. Regression test `tests/c_fn_redefinition.rs`
+(4 cases, differential against bash: capture, plain call, three definitions
+with a parameter, and a single-definition control).
+**Residual, stated:** a call BETWEEN two definitions still reaches the final
+body where bash reaches the earlier one; definition-scoped dispatch (unique
+symbols plus a per-statement binding) is the remaining work and would want
+its own before/after frame compare.
 
 ### 1. `redundant_store_elim`: `expr_pure` claims `Arith(_) => true`
 **Found by:** modelling `dead_store_elim` in Verus (`dead_store_elim.rs`,

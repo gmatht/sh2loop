@@ -24,12 +24,19 @@ kind = "lib"
 license = "MIT"
 
 # SPIR-V compiler (system glslangValidator preferred; fetched only when
-# absent). No release asset is pinned yet (google/shaderc publishes to
-# storage.googleapis.com, not versioned GitHub assets) — pinning it is
-# open work; until then this entry is refused, never half-fetched.
+# absent). PINNED: KhronosGroup/glslang 16.6.0, the Linux x86_64 release
+# tarball from that tag's GitHub release. The sha256 is of those exact
+# bytes; `fetch` re-verifies it on every use and `toolchain` entries are
+# unpacked so `<cache>/bash-o4-fetch/glslang/bin/glslangValidator` is the
+# path `shader::find_spirv_compiler` looks for. 16.6.0 is newer than the
+# compiler that produced the committed .spv files (15.1.0), which is why
+# those bytes are regenerated and byte-compared by
+# `tests/fb_spv_regen.rs` rather than assumed to match.
 [[lib]]
-name = "shaderc"
-version = "unpinned"
-url = "https://storage.googleapis.com/shaderc/artifacts/prod/README"
+name = "glslang"
+version = "16.6.0"
+url = "https://github.com/KhronosGroup/glslang/releases/download/16.6.0/glslang-16.6.0-linux-x86_64-release.tar.gz"
+sha256 = "2c34071f56ecf39d16233294d3739cf43f981fd39080f2fd9dccb782101191ce"
+size = 7923164
 kind = "toolchain"
 license = "Apache-2.0"
