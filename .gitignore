@@ -38,9 +38,15 @@ junk/backends/
 # ── root-level shell-accident outputs: redirection / expansion / probe scratch ──
 # (were tracked by accident; removed with `git rm --cached`, working-tree files kept)
 # `2c` and `2js` are real scripts (tracked, unaffected); `/2j`/`/2p` below are typo duplicates.
+# `/`-anchored patterns do NOT ignore subdirectories (bash-o4/bench/results-
+# 2026-11-27.tsv is tracked normally). They DO bite the shellbench capture
+# reports written as `<YYYYMMDD>_shellbench*.md` (a named report, not
+# scratch), so those are re-included AFTER the rule that matches them —
+# an earlier exclusion here is overridden by the later `/[0-9]*`.
 /&*
 /-
 /[0-9]*
+!/[0-9]*_shellbench*
 /"*
 /,rhs:*
 /5}]*

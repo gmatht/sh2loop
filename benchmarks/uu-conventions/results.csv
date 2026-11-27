@@ -1,0 +1,7 @@
+script,leg,N,sec,us_per_call,stdout_vs_bash
+sort,uu,1000,0.293092,293.09,same
+sort,fork,1000,2.252470,2252.47,same
+wc,uu,1000,0.022105,22.10,same
+wc,fork,1000,2.821340,2821.34,same
+sort-capture,uu,1000,0.335842,335.84,same
+sort-capture,fork,1000,6.314600,6314.60,same

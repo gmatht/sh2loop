@@ -252,6 +252,13 @@ penalty" was a measurement artifact).
 
 ## 10. Reproduce
 
+Prerequisites: `node` (any modern version; the numbers below are node 24,
+re-checked on node 22.23.5 with the same ordering — docs/BASH_BENCH.md §8).
+`i64bench.mjs` also needs `ops.wasm`, built with `make` in this directory
+(a clang with the wasm32 target) — it is copied to `/tmp/i64bench/ops.wasm`,
+the absolute path the script reads. `h2h.mjs` needs `h2h_tcc.wasm`, which no
+rule builds.
+
 ```
 node bench_int_vs_float.mjs   # int + float, single harness (this document's numbers)
 node bench_bigint_final.mjs   # int-only, larger case set incl. boundary isolation

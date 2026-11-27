@@ -149,10 +149,22 @@ for p in $PROBLEMS; do
     gskip="no handwritten GPU kernel"
     echo "  $p: gpu/cuda skipped ($gskip)" >&2
   fi
+  # The Vulkan leg needs glslangValidator + a ICD; a box without them is a
+  # MISSING DEVICE, not a benchmark failure. Measured on the dev box with
+  # the toolchain absent: gpuleg panics ("need glslangValidator") and the
+  # whole suite aborts on problem #1, so the cuda-tx and CPU rows — the
+  # ones that would have run fine — were never reached. SKIP instead.
   if [ -z "$gskip" ]; then
-    gpu_line=$(timeout "$TIMEOUT" "$GPULEG" "$gprob" "$n" --runs 1 2>"$TMP/$p-gpu.err") || { cat "$TMP/$p-gpu.err" >&2; fail "gpu $p"; }
-    gpu_ms=$(echo "$gpu_line" | awk '{print $1}'); gpu_sum=$(echo "$gpu_line" | awk '{print $2}')
-    echo "$gpu_sum" > "$TMP/ref-gpu.out"; r_gpu=0
+    gpu_line=$(timeout "$TIMEOUT" "$GPULEG" "$gprob" "$n" --runs 1 2>"$TMP/$p-gpu.err")
+    gpu_rc=$?
+    if [ "$gpu_rc" -ne 0 ]; then
+      gskip="$(head -n 1 "$TMP/$p-gpu.err" 2>/dev/null)"
+      [ -n "$gskip" ] || gskip="gpuleg exit $gpu_rc"
+      echo "  $p: gpu skipped ($gskip)" >&2
+    else
+      gpu_ms=$(echo "$gpu_line" | awk '{print $1}'); gpu_sum=$(echo "$gpu_line" | awk '{print $2}')
+      echo "$gpu_sum" > "$TMP/ref-gpu.out"; r_gpu=0
+    fi
   fi
   # ---- cuda leg (SKIP when no CUDA device: exit 2 + SKIP message) ----
   cuda_skip="$gskip"

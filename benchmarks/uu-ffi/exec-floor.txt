@@ -1,0 +1,15 @@
+# session 1 (load ~9.7-10.9)
+load 10.93 | exec /bin/true 2000 1.070682
+load 10.93 | exec /usr/lib/cargo/bin/coreutils/wc 2000 4.451704
+load 10.29 | exec /bin/true 2000 1.156564
+load 10.29 | exec /usr/lib/cargo/bin/coreutils/wc 2000 4.433659
+load 9.71 | exec /bin/true 2000 1.023732
+load 9.71 | exec /usr/lib/cargo/bin/coreutils/wc 2000 3.782339
+# session 2 (load ~16-18)
+load 17.97 | exec /bin/true 2000 2.379732
+load 17.73 | exec /usr/lib/cargo/bin/coreutils/wc 2000 --version 10.658837
+load 16.93 | exec /bin/true 2000 2.161966
+load 16.93 | exec /usr/lib/cargo/bin/coreutils/wc 2000 --version 9.130350
+load 16.10 | exec /bin/true 2000 2.558939
+load 16.89 | exec /usr/lib/cargo/bin/coreutils/wc 2000 --version 9.033680
+exec /bin/true 2000 0.900883

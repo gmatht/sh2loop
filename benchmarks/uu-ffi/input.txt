@@ -1,0 +1,200 @@
+
+line 198 bar
+line 197 bar
+line 196 foo
+line 195 bar
+line 194 bar
+line 193 foo
+
+line 191 bar
+line 190 foo
+line 189 bar
+line 188 bar
+line 187 foo
+line 186 bar
+
+line 184 foo
+line 183 bar
+line 182 bar
+line 181 foo
+line 180 bar
+line 179 bar
+
+line 177 bar
+line 176 bar
+line 175 foo
+line 174 bar
+line 173 bar
+line 172 foo
+
+line 170 bar
+line 169 foo
+line 168 bar
+line 167 bar
+line 166 foo
+line 165 bar
+
+line 163 foo
+line 162 bar
+line 161 bar
+line 160 foo
+line 159 bar
+line 158 bar
+
+line 156 bar
+line 155 bar
+line 154 foo
+line 153 bar
+line 152 bar
+line 151 foo
+
+line 149 bar
+line 148 foo
+line 147 bar
+line 146 bar
+line 145 foo
+line 144 bar
+
+line 142 foo
+line 141 bar
+line 140 bar
+line 139 foo
+line 138 bar
+line 137 bar
+
+line 135 bar
+line 134 bar
+line 133 foo
+line 132 bar
+line 131 bar
+line 130 foo
+
+line 128 bar
+line 127 foo
+line 126 bar
+line 125 bar
+line 124 foo
+line 123 bar
+
+line 121 foo
+line 120 bar
+line 119 bar
+line 118 foo
+line 117 bar
+line 116 bar
+
+line 114 bar
+line 113 bar
+line 112 foo
+line 111 bar
+line 110 bar
+line 109 foo
+
+line 107 bar
+line 106 foo
+line 105 bar
+line 104 bar
+line 103 foo
+line 102 bar
+
+line 100 foo
+line 099 bar
+line 098 bar
+line 097 foo
+line 096 bar
+line 095 bar
+
+line 093 bar
+line 092 bar
+line 091 foo
+line 090 bar
+line 089 bar
+line 088 foo
+
+line 086 bar
+line 085 foo
+line 084 bar
+line 083 bar
+line 082 foo
+line 081 bar
+
+line 079 foo
+line 078 bar
+line 077 bar
+line 076 foo
+line 075 bar
+line 074 bar
+
+line 072 bar
+line 071 bar
+line 070 foo
+line 069 bar
+line 068 bar
+line 067 foo
+
+line 065 bar
+line 064 foo
+line 063 bar
+line 062 bar
+line 061 foo
+line 060 bar
+
+line 058 foo
+line 057 bar
+line 056 bar
+line 055 foo
+line 054 bar
+line 053 bar
+
+line 051 bar
+line 050 bar
+line 049 foo
+line 048 bar
+line 047 bar
+line 046 foo
+
+line 044 bar
+line 043 foo
+line 042 bar
+line 041 bar
+line 040 foo
+line 039 bar
+
+line 037 foo
+line 036 bar
+line 035 bar
+line 034 foo
+line 033 bar
+line 032 bar
+
+line 030 bar
+line 029 bar
+line 028 foo
+line 027 bar
+line 026 bar
+line 025 foo
+
+line 023 bar
+line 022 foo
+line 021 bar
+line 020 bar
+line 019 foo
+line 018 bar
+
+line 016 foo
+line 015 bar
+line 014 bar
+line 013 foo
+line 012 bar
+line 011 bar
+
+line 009 bar
+line 008 bar
+line 007 foo
+line 006 bar
+line 005 bar
+line 004 foo
+
+line 002 bar
+line 001 foo
+line 000 bar

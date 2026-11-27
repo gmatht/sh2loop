@@ -196,6 +196,22 @@ children, so after editing `setup_backends.sh` check for orphaned
 
 
 
+## Benchmarks
+
+`docs/BASH_BENCH.md` is the inventory of **every** benchmark for
+transpiled bash — where the harness is, what it measures, the published
+numbers with provenance, and the exact reproduction command: the CPU and
+optimised suites (`bash-o4/bench/`), autoshaderisation/GPU, the `sqrt1337`
+and Collatz showcases, the **uutils calling conventions** (fork/exec,
+in-process run, capture, threaded, multicall — `benchmarks/uu-ffi/`,
+`benchmarks/uu-conventions/`), shellbench, and the measurements that are
+*not* speed (gates, call-site tallies). Read §11 before writing a new one:
+agreement gate first, ratios not absolutes, a skip must say why.
+`harness/install-bench-toolchain.sh [--check]` provisions the pieces a bare
+box lacks (node into `~/.local`, libgmp check for the C column, the
+shellbench corpus, the `frontends` submodule) — idempotent, each step ends
+in PASS/SKIP/FAIL, and it never calls sudo.
+
 ## Common commands
 
 - `cd otranspilerl && cargo build --bin otranspilerl-cli` (the CLI; the

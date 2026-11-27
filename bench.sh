@@ -4,7 +4,7 @@
 #     is extracted, wrapped in an N-iteration loop (N auto-calibrated so bash
 #     takes ~CAL_MS), and timed under bash, dash, the transpiled JS, and the
 #     transpiled C at one or more compiler levels.
-#   * ~/sqrt1337.sh (the 10k-iteration echo|grep search) timed under all.
+#   * sqrt1337.sh (the 10k-iteration echo|grep search) timed under all.
 #
 # Usage: bench.sh [sample.sh ...]    (default: all shellbench samples)
 # Env:   SHELLBENCH_DIR  where shellbench was cloned (default /tmp/shellbench)
@@ -17,7 +17,32 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-DEBASHC="$ROOT/sh2perl/otranspilerl/target/debug/otranspilerl-cli"
+DEBASHC="${DEBASHC:-$ROOT/otranspilerl/target/debug/otranspilerl-cli}"  # the CLI is in the workspace crate now, not the submodule
+# C renderer. Order:
+#   1. $C_RENDER when set (an explicit worktree binary, read as
+#      "<bin> --target=c -" on stdin, with a bare "<bin>" fallback);
+#   2. the CLI's own in-process C backend (`--target c`) — the same
+#      renderer harness/c_gate_main.sh exercises, so the column exists
+#      without a separate worktree. It is what the 2026-11-27 capture used:
+#      every sample rendered, and every benchmark that compiled printed the
+#      same final line as bash. NOTE: `--target shir | <external
+#      shir_render>` does NOT work here — the renderer that consumes the A1
+#      needs its own ingress passes and loses type verdicts, which showed up
+#      as `var = _s1` storing a pointer into a `long long` (a C compile
+#      error) on the `string length` bench.
+render_c() { # script.sh -> C on stdout (rc!=0 when nothing rendered)
+  local out
+  if [ -n "${C_RENDER:-}" ] && [ -x "$C_RENDER" ]; then
+    out=$("$DEBASHC" --target shir "$1" 2>/dev/null | "$C_RENDER" --target=c - 2>/dev/null)
+    if [ -z "$out" ]; then
+      out=$("$DEBASHC" --target shir "$1" 2>/dev/null | "$C_RENDER" 2>/dev/null)
+    fi
+  else
+    out=$("$DEBASHC" --target c "$1" 2>/dev/null)
+  fi
+  [ -n "$out" ] || return 1
+  printf '%s\n' "$out"
+}
 RUNNER="node $ROOT/harness/estree-runner.mjs"
 SB="${SHELLBENCH_DIR:-/tmp/shellbench}"
 CAL_MS="${CAL_MS:-300}"
@@ -33,7 +58,7 @@ extract_benches() { # sample outdir -> writes outdir/N/<name>.{pre,body,setup,cl
     in_setup { setup = setup $0 "\n"; if ($0 ~ /}$/) in_setup=0; next }
     /^cleanup\(\)/ { in_cleanup=1; cleanup=$0 "\n"; if ($0 ~ /}$/) in_cleanup=0; next }
     in_cleanup { cleanup = cleanup $0 "\n"; if ($0 ~ /}$/) in_cleanup=0; next }
-    /^#bench[[:space:]]*"/ {
+    /^[[:space:]]*#bench[[:space:]]*"/ {
       if (name != "" && body != "") {
         print name > out "/" idx ".name"
         printf "%s", pre  > out "/" idx ".pre"
@@ -43,7 +68,10 @@ extract_benches() { # sample outdir -> writes outdir/N/<name>.{pre,body,setup,cl
         printf "%s", post > out "/" idx ".post"
         idx++
       }
-      name=$0; sub(/^#bench[[:space:]]*"/, "", name); sub(/".*/, "", name)
+      # the marker is INDENTED inside the section function wrapper
+      # ("  #bench \"assign variable\""); anchoring on ^#bench matched
+      # nothing and every sample silently yielded zero benches.
+      name=$0; sub(/^[[:space:]]*#bench[[:space:]]*"/, "", name); sub(/".*/, "", name)
       pre=""; body=""; post=""; in_pre=1; in_body=0; in_post=0
       next
     }
@@ -122,11 +150,26 @@ time_shell() { # shell script → seconds (or "ERR")
   [[ "$t" =~ ^[0-9.]+$ ]] && echo "$t" || echo ERR
 }
 
+# ESTree JSON (for the sh2.* call-site tally) and runnable JS (for timing)
+# from ONE shIR render. The old `file --estree` spelling is gone from the
+# CLI — it now reads `--estree` as a filename and exits 1, so the JS column
+# was silently ERR everywhere.
+estree_json() { # script.sh -> ESTree JSON on stdout
+  "$DEBASHC" --target shir "$1" 2>/dev/null | "$DEBASHC" - --target estree 2>/dev/null
+}
+
+js_program() { # script.sh -> runnable ESM with the sh2 namespace prepended
+  printf 'import { sh2 } from "%s";\n' "$ROOT/harness/sh2-namespace.mjs"
+  "$DEBASHC" --target js "$1" 2>/dev/null
+}
+
 time_js() { # script → seconds (or "ERR")
   local f=$1
-  "$DEBASHC" file --estree "$f" 2>/dev/null > /tmp/bench_runner.json || { echo ERR; return; }
+  command -v node >/dev/null 2>&1 || { echo ERR; return; }
+  js_program "$f" > /tmp/bench_runner.mjs
+  [ -s /tmp/bench_runner.mjs ] || { echo ERR; return; }
   local t
-  t=$(timed 60 node "$ROOT/harness/estree-runner.mjs" /tmp/bench_runner.json --source "$f")
+  t=$(timed 60 node /tmp/bench_runner.mjs)
   [[ "$t" =~ ^[0-9.]+$ ]] && echo "$t" || echo ERR
 }
 
@@ -156,8 +199,14 @@ out_shell() { # shell script → stdout (for the C-column correctness gate)
 run_c() { # CCSPEC script → "TIME\tOUT" (ERR on render/compile/run failure);
   # the same binary is run twice — once for stdout (the gate), once timed.
   local cc=$1 f=$2
-  "$ROOT/sh2perl/backends/c/target/debug/c_backend" "$f" 2>/dev/null > /tmp/bench_runner.c || { echo ERR; return; }
-  $cc -o /tmp/bench_runner_c /tmp/bench_runner.c 2>/dev/null || { echo ERR; return; }
+  render_c "$f" > /tmp/bench_runner.c || { echo ERR; return; }
+  # `-lgmp -lm`: the C backend emits mpz_* for constant folding and libm for
+  # the numeric helpers (harness/c_gate_main.sh links both, probing first).
+  # Without -lgmp every bench that folds a constant failed to LINK, which
+  # the driver reported as a bare ERR.
+  $cc -o /tmp/bench_runner_c /tmp/bench_runner.c -lgmp -lm 2>/dev/null \
+     || $cc -o /tmp/bench_runner_c /tmp/bench_runner.c -lm 2>/dev/null \
+     || { echo ERR; return; }
   local t out
   out=$(timeout 60 /tmp/bench_runner_c 2>/dev/null)
   t=$(timed 60 /tmp/bench_runner_c)
@@ -206,40 +255,44 @@ for sample in ${@:-$SB/sample/*.sh}; do
         printf " %12s" "WRONG"
       fi
     done
-    st=$(perl "$ROOT/harness/sh2stat.pl" /tmp/bench_runner.json 2>/dev/null || echo "-\t-\t-")
+    estree_json /tmp/bench_runner.sh > /tmp/bench_runner.json
+    st=$(perl "$ROOT/harness/sh2stat.pl" /tmp/bench_runner.json 2>/dev/null) || st='-\t-\t-'
+    [ -n "$st" ] || st='-\t-\t-'   # a blank tally looks like a measurement
     printf "   sh2[%s]\n" "$st"
   done
 done
 
 echo
-echo "=== ~/sqrt1337.sh (10k iterations, echo \$((i*i)) | grep 1337) ==="
-S=~/sqrt1337.sh
+echo "=== sqrt1337.sh (10k iterations, echo \$((i*i)) | grep 1337) ==="
+# the repo's own copy (it lived in $HOME when the suite was first written;
+# $HOME/sqrt1337.sh may not exist, which made every leg exit 127 at 1.5 ms
+# and report a bogus 0.0 s "speed run"). SRC= overrides.
+S="${SRC:-$ROOT/sh2perl/sqrt1337.sh}"
+[ -f "$S" ] || { echo "no $S (set SRC=)"; S=""; }
+if [ -n "$S" ]; then
 printf "%-12s %12s %12s\n" "shell" "time(s)" "ratio"
 for sh in bash dash; do
   t=$(timed 300 "$sh" "$S")
   [[ "$t" =~ ^[0-9.]+$ ]] && printf "%-12s %12s %12s\n" "$sh" "$t" "1.0x" \
     || printf "%-12s %12s %12s\n" "$sh" "ERR(>300s)" "1.0x"
 done
-if "$DEBASHC" file --estree "$S" 2>/dev/null > /tmp/sqrt1337.json; then
-  tj=$(timed 60 node "$ROOT/harness/estree-runner.mjs" /tmp/sqrt1337.json --source "$S")
+if js_program "$S" > /tmp/sqrt1337.mjs && [ -s /tmp/sqrt1337.mjs ]; then
+  tj=$(timed 60 node /tmp/sqrt1337.mjs)
   printf "%-12s %12s\n" "js" "$tj"
 else
   printf "%-12s %12s\n" "js" "ERR"
 fi
-# the C column: the c_backend renders sqrt1337 -> tcc -O2 -> run. The
-# renderer only lowers the lowable subset (echo/arith); a grep pipeline is
-# NOT lowable — verify the output matches bash before timing (a fast but
-# WRONG run is worse than an honest 'unlowerable').
-# the C column: the c_backend renders sqrt1337 -> compile -> run. The
+# the C column: the c renderer (shir_render) renders sqrt1337 -> compile ->
+# run. The
 # renderer only lowers the lowable subset (echo/arith); a grep pipeline is
 # NOT lowable — verify the output matches bash before timing (a fast but
 # WRONG run is worse than an honest 'unlowerable'). Correctness is checked
 # once (level-independent), then each CC_LEVELS compiler is timed.
 cc0="${LEVELS[0]}"
-if "$ROOT/sh2perl/backends/c/target/debug/c_backend" "$S" 2>/dev/null > /tmp/sqrt1337.c && $cc0 -o /tmp/sqrt1337_c /tmp/sqrt1337.c 2>/dev/null; then
+if render_c "$S" > /tmp/sqrt1337.c && $cc0 -o /tmp/sqrt1337_c /tmp/sqrt1337.c -lgmp -lm 2>/dev/null; then
   if [ "$(/tmp/sqrt1337_c 2>/dev/null)" = "$(seq 1 10000 | awk '{s=$1*$1; if (s ~ /1337/) print $1}')" ]; then
     for cc in "${LEVELS[@]}"; do
-      $cc -o /tmp/sqrt1337_c /tmp/sqrt1337.c 2>/dev/null
+      $cc -o /tmp/sqrt1337_c /tmp/sqrt1337.c -lgmp -lm 2>/dev/null
       tc=$(timed 60 /tmp/sqrt1337_c)
       printf "%-12s %12s\n" "c($(cc_label "$cc"))" "$tc"
     done
@@ -248,4 +301,5 @@ if "$ROOT/sh2perl/backends/c/target/debug/c_backend" "$S" 2>/dev/null > /tmp/sqr
   fi
 else
   printf "%-12s %12s\n" "c($(cc_label "$cc0"))" "render-err"
+fi
 fi

@@ -8,7 +8,7 @@
 #   bash    the original script (baseline)
 #   perl    production backend            otranspilerl-cli --target pl
 #   c       shir_to_c (backends/c) + gcc  otranspilerl-cli --target shir | shir_to_c
-#   js      --estree -> estree-runner.mjs otranspilerl-cli --target estree | node runner
+#   js      --target js (+ the sh2 namespace) otranspilerl-cli --target js | node
 #   go      backends/go --shir-in-go      (ShIR JSON in -> Go source)
 #   rust    backends/rust file --shir-in-rust
 #   zig     backends/zig --shir-in-zig    (needs the zig toolchain)
@@ -25,7 +25,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-DEBASHC="$ROOT/sh2perl/otranspilerl/target/debug/otranspilerl-cli"
+DEBASHC="${DEBASHC:-$ROOT/otranspilerl/target/debug/otranspilerl-cli}"  # the CLI lives in the workspace crate, not the submodule
 WT="$ROOT/sh2perl/backends"
 SRC="${1:-$ROOT/sh2perl/sqrt1337.sh}"
 OUT=/tmp/sqrt_langs
@@ -72,7 +72,7 @@ echo
 # the CLI wraps the code in a "Converting to Perl:" banner + a trailing
 # ==== separator line (perl parses bare ===== as a VCS conflict marker)
 if command -v perl >/dev/null; then
-  if "$DEBASHC" file --perl "$SRC" 2>/dev/null \
+  if "$DEBASHC" --target pl "$SRC" 2>/dev/null \
      | sed -n '/^#!/,$p' | sed '/^====*$/d' > "$OUT/sqrt1337.pl"; then
     show_code "$OUT/sqrt1337.pl"
     out="$(perl "$OUT/sqrt1337.pl" 2>&1)"
@@ -85,23 +85,31 @@ else
 fi
 
 # ---------- c: shir_to_c + gcc ----------
-if [ -x "$WT/c/target/debug/shir_to_c" ] && command -v gcc >/dev/null; then
-  if "$DEBASHC" file --shir "$SRC" 2>/dev/null | "$WT/c/target/debug/shir_to_c" > "$OUT/sqrt1337.c" \
-     && gcc "$OUT/sqrt1337.c" -lm -o "$OUT/sqrt1337_c" 2>"$OUT/c.err"; then
+if [ -x "$WT/c/target/debug/shir_render" ] && command -v cc >/dev/null; then
+  # the c worktree's renderer binary is shir_render (shir_to_c is the older
+  # spelling; both take a .shir on stdin and write C to stdout)
+  C_RENDER="$WT/c/target/debug/shir_render"; [ -x "$C_RENDER" ] || C_RENDER="$WT/c/target/debug/shir_to_c"
+  if "$DEBASHC" --target shir "$SRC" 2>/dev/null | "$C_RENDER" --target=c - > "$OUT/sqrt1337.c" \
+     && cc "$OUT/sqrt1337.c" -lm -o "$OUT/sqrt1337_c" 2>"$OUT/c.err"; then
     show_code "$OUT/sqrt1337.c"
     check c "$("$OUT/sqrt1337_c")" ""
   else
-    echo "c      skipped (shir_to_c not built / no gcc)"; echo
+    echo "c      skipped (shir_render not built / no cc)"; echo
   fi
 else
-  echo "c      skipped (shir_to_c not built / no gcc)"; echo
+  echo "c      skipped (shir_render not built / no cc)"; echo
 fi
 
 # ---------- js: --estree -> estree-runner.mjs ----------
 if command -v node >/dev/null && [ -f "$ROOT/harness/estree-runner.mjs" ]; then
-  if "$DEBASHC" file --estree "$SRC" 2>/dev/null > "$OUT/sqrt1337.json"; then
-    show_code "$OUT/sqrt1337.json"
-    check js "$(timeout 300 node "$ROOT/harness/estree-runner.mjs" "$OUT/sqrt1337.json" --source "$SRC" 2>&1)" ""
+  # `--target js` emits runnable JS; the `sh2` runtime (the same namespace
+  # estree-runner imports) is prepended by absolute path. The old `--estree`
+  # flag spelling is gone from the CLI (it now reads `--estree` as a file).
+  { printf 'import { sh2 } from "%s";\n' "$ROOT/harness/sh2-namespace.mjs"
+    "$DEBASHC" --target js "$SRC" 2>/dev/null; } > "$OUT/sqrt1337.mjs"
+  if [ -s "$OUT/sqrt1337.mjs" ]; then
+    show_code "$OUT/sqrt1337.mjs"
+    check js "$(timeout 300 node "$OUT/sqrt1337.mjs" 2>&1)" ""
   else
     echo "js     generate FAILED"; echo
   fi
@@ -111,7 +119,7 @@ fi
 
 # ---------- go: --shir-in-go ----------
 if [ -x "$WT/go/otranspilerl/target/debug/otranspilerl-cli" ] && command -v go >/dev/null; then
-  if "$DEBASHC" file --shir "$SRC" 2>/dev/null | "$WT/go/otranspilerl/target/debug/otranspilerl-cli" --shir-in-go - > "$OUT/sqrt1337.go" 2>/dev/null; then
+  if "$DEBASHC" --target shir "$SRC" 2>/dev/null | "$WT/go/otranspilerl/target/debug/otranspilerl-cli" --shir-in-go - > "$OUT/sqrt1337.go" 2>/dev/null; then
     if go build -o "$OUT/sqrt1337_go" "$OUT/sqrt1337.go" 2>"$OUT/go.err"; then
       show_code "$OUT/sqrt1337.go"
       check go "$("$OUT/sqrt1337_go" 2>&1)" ""
@@ -127,7 +135,7 @@ fi
 
 # ---------- rust: file --shir-in-rust ----------
 if [ -x "$WT/rust/otranspilerl/target/debug/otranspilerl-cli" ] && command -v rustc >/dev/null; then
-  if "$DEBASHC" file --shir "$SRC" 2>/dev/null > "$OUT/sqrt1337.shir.json" \
+  if "$DEBASHC" --target shir "$SRC" 2>/dev/null > "$OUT/sqrt1337.shir.json" \
      && "$WT/rust/otranspilerl/target/debug/otranspilerl-cli" file --shir-in-rust "$OUT/sqrt1337.shir.json" > "$OUT/sqrt1337.rs" 2>/dev/null \
      && rustc "$OUT/sqrt1337.rs" -o "$OUT/sqrt1337_rust" 2>"$OUT/rust.err"; then
     show_code "$OUT/sqrt1337.rs"
@@ -145,7 +153,7 @@ fi
 
 # ---------- zig: --shir-in-zig ----------
 if [ -x "$WT/zig/otranspilerl/target/debug/otranspilerl-cli" ] && command -v zig >/dev/null; then
-  if "$DEBASHC" file --shir "$SRC" 2>/dev/null | "$WT/zig/otranspilerl/target/debug/otranspilerl-cli" --shir-in-zig - > "$OUT/sqrt1337.zig" 2>/dev/null \
+  if "$DEBASHC" --target shir "$SRC" 2>/dev/null | "$WT/zig/otranspilerl/target/debug/otranspilerl-cli" --shir-in-zig - > "$OUT/sqrt1337.zig" 2>/dev/null \
      && zig build-exe "$OUT/sqrt1337.zig" -O ReleaseSafe -femit-bin="$OUT/sqrt1337_zig" 2>"$OUT/zig.err"; then
     show_code "$OUT/sqrt1337.zig"
     check zig "$("$OUT/sqrt1337_zig" 2>&1)" ""
