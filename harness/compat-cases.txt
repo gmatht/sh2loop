@@ -1,0 +1,66 @@
+# compat-probe cases: name<TAB>program
+# Each program is a bash snippet that prints its result; the probe
+# compares stdout AND exit status of bash, bash-O4 -o, and dash.
+# Cases deliberately sit on the bash/POSIX fault lines.
+arith-octal-leading-zero	echo $((010)) $((010+1))
+arith-power	echo $((2**62))
+arith-wrap-i64	echo $((-9223372036854775807 - 2))
+arith-comma	echo $((1+1, 2+2))
+arith-ternary	echo $((3 > 2 ? 10 : 20))
+arith-dollarexpr	x=5; echo $((x * x))
+arith-let	i=0; let i+=3; echo $i
+arith-preinc	i=5; echo $((++i)) $i
+arith-postinc-assign	i=5; i=$((i++)); echo $i
+param-substring	s=abcdef; echo ${s:1:3} ${s: -2}
+param-case-mod	s=aBcD; echo ${s^^} ${s,,}
+param-replace-all	s=a-b-c; echo ${s//-/+}
+param-indirect-scalar	v=name; name=value; echo ${!v}
+param-indirect-arrkeys	a=(x y); echo ${!a[@]}
+param-length-utf8	s=héllo; echo ${#s}
+array-index	a=(x y z); echo ${a[1]} ${#a[@]}
+array-assoc	declare -A m; m[k]=v; echo ${m[k]}
+array-slice	a=(a b c d); echo ${a[@]:1:2}
+brace-comma	echo x{a,b}y
+brace-seq	echo p{1..3}
+brace-nested	echo {a,b}{1,2}
+brace-two-words	echo x{a,b}y p{1..3}
+cstyle-for	for ((i=0;i<3;i++)); do printf %s $i; done; echo
+extglob	shopt -s extglob; case abc in a@(b|c)c) echo yes;; *) echo no;; esac
+extglob-neg	shopt -s extglob; case abc in !(x*)) echo yes;; esac
+regex-bashmatch	[[ abc123 =~ ([a-z]+)([0-9]+) ]] && echo ${BASH_REMATCH[2]}
+test-dbracket-glob	s=abc; [[ $s == a* ]] && echo yes
+test-bracket-eqeq	s=abc; [ "$s" == abc ] && echo yes
+test-lt-string	[[ a < b ]] && echo yes
+herestring	cat <<< hello
+heredoc-indent	printf "%s\n" $(printf 'cat <<-EOF\n\tbody\n\tEOF\n' | bash)
+	body
+	EOF
+procsub	cat <(echo from-procsub)
+pipestatus	false | true; echo ${PIPESTATUS[0]}${PIPESTATUS[1]}
+pipefail	set -o pipefail; false | true; echo $?
+lastpipe	shopt -s lastpipe; n=0; echo x | read n; echo $n
+shopt-nullglob	shopt -s nullglob; a=(/nope/*); echo ${#a[@]}
+declare-typeset-i	declare -i n; n=3+4; echo $n
+local-rc	f() { local x=$(false); echo $?; }; f
+export-function	f() { echo from-f; }; export -f f; bash -c f
+return-in-function	f() { return 3; }; f; echo $?
+trap-err	trap 'echo E' ERR; false; echo after
+trap-signal-rc	trap 'echo caught' USR1; kill -USR1 $$; echo $?
+printf-v	printf -v x '%05d' 42; echo $x
+printf-q	printf '%q\n' 'a b'
+echo-e	echo -e 'a\tb'
+read-n	printf ab | { read -n1 c; echo "[$c]"; }
+read-a-array	read -a a <<< 'x y z'; echo ${a[1]}
+mapfile	mapfile -t a <<< $'1\n2'; echo ${#a[@]}
+case-fallthrough	case b in a) echo A;& b) echo B;;& *) echo S;; esac
+case-paren-pattern	case abc in (a*) echo yes;; esac
+case-semicolon-semi	case b in a) echo A;;& b) echo B;; *) echo S;; esac
+subshell-rc	(exit 7); echo $?
+subshell-assign	n=1; (n=2); echo $n
+bg-wait	(exit 4) & wait $!; echo $?
+tilde-in-assign	d=~/zz; echo "${d:0:1}"
+tilde-word	echo ~/zz
+ifs-split-for	IFS=:; for x in a:b; do printf %s "$x-"; done; echo
+pathname-not-in-assign	touch q1 q2; x=*; echo "$x"
+arith-utf8-index	s=abc; echo $(( ${#s} + 1 ))
+time-keyword-timemfmt	TIMEFORMAT='%R'; time true 2>/dev/null; echo done

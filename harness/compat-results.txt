@@ -1,0 +1,72 @@
+# compat-results.txt — raw output of harness/compat-probe.sh
+# (2026-11-28, bash 5.3.9, dash 0.5.12, bash-O4 0.1.1). Regenerate with:
+#   harness/compat-probe.sh > harness/compat-results.txt
+# See docs/BASH_BENCH.md §5a.
+case                           bash-O4  dash     what bash does here
+-------------------------------------------------------------------------
+arith-octal-leading-zero       DIFF     SAME     echo $((010)) $((010+1))
+arith-power                    SAME     DIFF     echo $((2**62))
+arith-wrap-i64                 SAME     SAME     echo $((-9223372036854775807 - 2))
+arith-comma                    SAME     DIFF     echo $((1+1, 2+2))
+arith-ternary                  SAME     SAME     echo $((3 > 2 ? 10 : 20))
+arith-dollarexpr               SAME     SAME     x=5; echo $((x * x))
+arith-let                      SAME     DIFF     i=0; let i+=3; echo $i
+arith-preinc                   DIFF     DIFF     i=5; echo $((++i)) $i
+arith-postinc-assign           DIFF     DIFF     i=5; i=$((i++)); echo $i
+param-substring                SAME     DIFF     s=abcdef; echo ${s:1:3} ${s: -2}
+param-case-mod                 SAME     DIFF     s=aBcD; echo ${s^^} ${s,,}
+param-replace-all              SAME     DIFF     s=a-b-c; echo ${s//-/+}
+param-indirect-scalar          DIFF     DIFF     v=name; name=value; echo ${!v}
+param-indirect-arrkeys         DIFF     DIFF     a=(x y); echo ${!a[@]}
+param-length-utf8              DIFF     DIFF     s=héllo; echo ${#s}
+array-index                    SAME     DIFF     a=(x y z); echo ${a[1]} ${#a[@]}
+array-assoc                    SAME     DIFF     declare -A m; m[k]=v; echo ${m[k]}
+array-slice                    SAME     DIFF     a=(a b c d); echo ${a[@]:1:2}
+brace-comma                    SAME     DIFF     echo x{a,b}y
+brace-seq                      SAME     DIFF     echo p{1..3}
+brace-nested                   SAME     DIFF     echo {a,b}{1,2}
+brace-two-words                DIFF     DIFF     echo x{a,b}y p{1..3}
+cstyle-for                     SAME     DIFF     for ((i=0;i<3;i++)); do printf %s $i; done; echo
+extglob                        DIFF     SAME     shopt -s extglob; case abc in a@(b|c)c) echo yes;; *
+extglob-neg                    DIFF     SAME     shopt -s extglob; case abc in !(x*)) echo yes;; esac
+regex-bashmatch                DIFF     DIFF     [[ abc123 =~ ([a-z]+)([0-9]+) ]] && echo ${BASH_REMA
+test-dbracket-glob             SAME     DIFF     s=abc; [[ $s == a* ]] && echo yes
+test-bracket-eqeq              SAME     DIFF     s=abc; [ "$s" == abc ] && echo yes
+test-lt-string                 SAME     DIFF     [[ a < b ]] && echo yes
+herestring                     SAME     DIFF     cat <<< hello
+heredoc-indent                 SAME     SAME     printf "%s\n" $(printf 'cat <<-EOF\n\tbody\n\tEOF\n'
+body                           SAME     SAME     
+EOF                            SAME     SAME     
+procsub                        SAME     DIFF     cat <(echo from-procsub)
+pipestatus                     DIFF     DIFF     false | true; echo ${PIPESTATUS[0]}${PIPESTATUS[1]}
+pipefail                       DIFF     SAME     set -o pipefail; false | true; echo $?
+lastpipe                       DIFF     DIFF     shopt -s lastpipe; n=0; echo x | read n; echo $n
+shopt-nullglob                 DIFF     DIFF     shopt -s nullglob; a=(/nope/*); echo ${#a[@]}
+declare-typeset-i              DIFF     DIFF     declare -i n; n=3+4; echo $n
+local-rc                       SAME     SAME     f() { local x=$(false); echo $?; }; f
+export-function                DIFF     DIFF     f() { echo from-f; }; export -f f; bash -c f
+return-in-function             SAME     SAME     f() { return 3; }; f; echo $?
+trap-err                       DIFF     DIFF     trap 'echo E' ERR; false; echo after
+trap-signal-rc                 DIFF     SAME     trap 'echo caught' USR1; kill -USR1 $$; echo $?
+printf-v                       SAME     DIFF     printf -v x '%05d' 42; echo $x
+printf-q                       SAME     DIFF     printf '%q\n' 'a b'
+echo-e                         SAME     DIFF     echo -e 'a\tb'
+read-n                         SAME     DIFF     printf ab | { read -n1 c; echo "[$c]"; }
+read-a-array                   DIFF     DIFF     read -a a <<< 'x y z'; echo ${a[1]}
+mapfile                        DIFF     DIFF     mapfile -t a <<< $'1\n2'; echo ${#a[@]}
+case-fallthrough               DIFF     DIFF     case b in a) echo A;& b) echo B;;& *) echo S;; esac
+case-paren-pattern             SAME     SAME     case abc in (a*) echo yes;; esac
+case-semicolon-semi            DIFF     DIFF     case b in a) echo A;;& b) echo B;; *) echo S;; esac
+subshell-rc                    DIFF     SAME     (exit 7); echo $?
+subshell-assign                RENDER   SAME     n=1; (n=2); echo $n
+bg-wait                        DIFF     SAME     (exit 4) & wait $!; echo $?
+tilde-in-assign                DIFF     DIFF     d=~/zz; echo "${d:0:1}"
+tilde-word                     SAME     SAME     echo ~/zz
+ifs-split-for                  SAME     SAME     IFS=:; for x in a:b; do printf %s "$x-"; done; echo
+pathname-not-in-assign         SAME     SAME     touch q1 q2; x=*; echo "$x"
+arith-utf8-index               DIFF     SAME     s=abc; echo $(( ${#s} + 1 ))
+time-keyword-timemfmt          SAME     SAME     TIMEFORMAT='%R'; time true 2>/dev/null; echo done
+-------------------------------------------------------------------------
+== summary (of 62 cases, 61 compared, 1 bash-O4 render failures) ==
+  bash-O4 vs bash : 35 SAME  27 DIFF   (57% same)
+  dash    vs bash : 22 SAME  40 DIFF   (35% same)
