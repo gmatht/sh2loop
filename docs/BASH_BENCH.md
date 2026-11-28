@@ -315,10 +315,72 @@ candidacy (`non-single-accumulate`); the variant is the same
   device, and below ~1e4 trips the GPU always loses. `sumred` at 1e8 is
   0.35 ms of GPU against 0.06 s of CPU — still a win, but the ratio is
   already shrinking with size.
-- **Transfer-bound maps on an iGPU/software device lose outright**
-  (`docs/BASH_VULKAN.md` §8: `squares-map` 6× slower on Lavapipe). This
-  box has a real RTX 2070 Super; a box without one does not get these
-  numbers, and the Vulkan legs `SKIP` (§14).
+- **Where the GPU loses depends entirely on the device.** This box has an
+  Intel UHD (Gen9, `i915`), an RTX 2070 Super, and Lavapipe — a *software*
+  Vulkan implementation (an llvmpipe CPU rasteriser presented as a GPU).
+  The old wording here said "iGPU/software device" as if they were one
+  thing; they are not, and the per-device table at the end of this section
+  shows the iGPU **beating** `gcc -O3` on two of three shapes while the
+  software device only wins once the CPU reference is memory-bound.
+- **The transfer-bound shape is transfer-bound for the *reference*, not
+  for the transpiler.** `squares-map` writes 8·N bytes and reads them back
+  (16 MB at 1e6, 1.6 GB at 1e8). Handwritten C materialises that array;
+  bash-O4's `fuse-fill-consume` deletes it, so the transpiled **CPU** leg
+  is 3.5× faster at 1e6 (1.3 vs 4.6 ms) and 5.7× at 1e8 (70 vs 398 ms)
+  *before* any GPU is involved. The GPU still wins at 1e8 — 20× over
+  `gcc -O3` and 3.5× over the fused CPU (20.0 vs 70 ms on the iGPU) — but
+  the honest framing is "the array was never needed", not "the GPU hides
+  its cost".
+- **Measuring the iGPU required fixing the harness.** `gpuleg` set
+  `VK_ICD_FILENAMES` *after* the first Vulkan call, so the loader had
+  already chosen a device: every `VK_ICD_FILENAMES=…/intel_icd.json` run
+  in this session silently reported **Lavapipe** numbers until that was
+  found (the tell was an "Intel" row identical to the Lavapipe row within
+  noise). Fixed: the selection happens before device creation, and the
+  chosen ICD is logged (`# gpuleg ICD: …`) so a table can never again
+  claim a device it did not use. Anyone re-running these numbers should
+  check that line first. The pinned SPIR-V compiler is fetched from the
+  project manifest (`bash-o4-manifest.toml`, glslang 16.6.0,
+  sha256-verified); `--prefetch` currently fails on an unrelated entry
+  (`volk.h` size drift), so the tarball has to be unpacked by hand and
+  pointed at with `BASH_O4_GLSLANG=`.
+
+### Device matters more than shape
+
+The table above is the RTX 2070 Super. The same `gpuleg` binaries on the
+same box, selected per-device with `VK_ICD_FILENAMES` (ms, `--runs 5`,
+checksums identical on all three):
+
+| device | `squares-map` 1e8 | `sumred` 1e8 | `collatz` 1.8e7 |
+|---|---:|---:|---:|
+| Lavapipe (software Vulkan) | 31.3 | 33.8 | 532 |
+| Intel UHD Gen9 (iGPU) | 20.0 | 19.5 | 443 |
+| RTX 2070 Super (dGPU) | **1.2** | **1.3** | **13.6** |
+| `gcc -O3` (handwritten C) | 398 | 65 | 659 |
+
+(every row in `bash-o4/bench/results-gpu-devices-2026-11-28.csv`, which
+carries the checksums: identical across all three devices, so they are the
+same computation.)
+
+Three things fall out:
+
+- **Even the iGPU wins on two of three shapes**: 20× on the map
+  (20.0 vs 398 ms) and 1.5× on `collatz` (443 vs 659 ms), and loses only on
+  `sumred` (19.5 vs 65 ms), where the CPU kernel is a pure register
+  accumulate while the GPU must still round-trip its accumulator. An iGPU
+  is not a "loses outright" device; a *software* Vulkan device is — and
+  even Lavapipe wins the map at 1e8 (31.3 vs 398 ms) because the CPU
+  reference is memory-bound there.
+- **The discrete GPU is 16–26× the iGPU on these shapes** (and 33× on
+  `collatz`), which is the spread any single "GPU is N× faster" claim has to
+  carry with it.
+- **`sumred` is the one shape the iGPU loses**, because everything it does
+  per lane is a load-add-store of an accumulator: the CPU keeps that in a
+  register and the GPU round-trips memory. At N=1e9 the same shape is
+  207.7 ms on the iGPU and 4.7 ms on the 2070S — bandwidth, not
+  arithmetic, decides it, which is also why the iGPU wins the *map* and
+  loses the *reduction*.
+
 
 ### Which bash loops are even eligible
 

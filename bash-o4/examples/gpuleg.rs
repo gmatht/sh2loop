@@ -75,13 +75,25 @@ fn main() {
         }
         i += 1;
     }
-    if !vkffi::has_compute_device() {
-        eprintln!("SKIP gpuleg: no Vulkan compute device");
-        std::process::exit(2);
-    }
+    // ICD selection MUST happen before the first Vulkan call: the loader
+    // reads VK_ICD_FILENAMES when it initialises, so a setenv after
+    // has_compute_device() is a no-op. That is exactly what happened here —
+    // `VK_ICD_FILENAMES=.../intel_icd.json gpuleg ...` silently ran on
+    // whatever the loader had already picked (measured 2026-11-28: the
+    // "intel" and "nvidia" rows were both Lavapipe). Now: an explicit
+    // value is honoured, otherwise Lavapipe (the software floor) is
+    // selected for determinism, and the chosen ICD is logged to stderr
+    // so a table can never again claim a device it did not use.
     const LVP: &str = "/usr/share/vulkan/icd.d/lvp_icd.json";
     if std::env::var("VK_ICD_FILENAMES").is_err() && std::path::Path::new(LVP).is_file() {
         std::env::set_var("VK_ICD_FILENAMES", LVP);
+    }
+    if let Ok(icd) = std::env::var("VK_ICD_FILENAMES") {
+        eprintln!("# gpuleg ICD: {icd}");
+    }
+    if !vkffi::has_compute_device() {
+        eprintln!("SKIP gpuleg: no Vulkan compute device");
+        std::process::exit(2);
     }
     let root = std::env::temp_dir().join(format!("bo4gpuleg{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);

@@ -1,0 +1,18 @@
+# gpuleg per-ICD capture, 2026-11-28 (bash 5.3.9 box; RTX 2070S + Intel UHD Gen9 + Lavapipe)
+# regenerate: for icd in lvp intel nvidia; do VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/${icd}_icd.json \
+#   BASH_O4_GLSLANG=<glslang> bash-o4/target/debug/examples/gpuleg <problem> <N> --runs 5; done
+device,problem,N,median_ms,checksum
+lvp,squares-map,100000000,31.306,2842895744
+intel,squares-map,100000000,20.043,2842895744
+nvidia,squares-map,100000000,1.237,2842895744
+lvp,sumred,100000000,33.800,2842895744
+intel,sumred,100000000,19.504,2842895744
+nvidia,sumred,100000000,1.284,2842895744
+lvp,collatz,18000000,532.005,798167162
+intel,collatz,18000000,443.359,798167162
+nvidia,collatz,18000000,13.584,798167162
+lvp,squares-map,1000000,0.736,584144992
+intel,squares-map,1000000,1.214,584144992
+nvidia,squares-map,1000000,0.979,584144992
+intel,sumred,1000000000,207.730,2207414016
+nvidia,sumred,1000000000,4.715,2207414016
