@@ -1,0 +1,11 @@
+# §3a re-run 2026-11-28 (bench-opt.sh at its own N; the §3a table's large-N rows are in docs/BASH_BENCH.md)
+problem	N	leg	s	ns_item	speedup_vs_gcc	vec_loops
+sumred	1000000000	gcc-O3	0.657	0.66	1.0	0
+sumred	1000000000	bo4-gcc	0.659	0.66	1.0	0
+sumred	1000000000	cuda-tx	0.003	0.00	228.6	-
+squares-map	100000000	gcc-O3	0.395	3.95	1.0	0
+squares-map	100000000	bo4-gcc	0.076	0.76	5.2	0
+squares-map	100000000	cuda-tx	0.000	0.00	0.0	-
+collatz	18000000	gcc-O3	0.641	35.62	1.0	0
+collatz	18000000	bo4-gcc	0.704	39.13	0.9	0
+collatz	18000000	cuda-tx	0.012	0.69	51.9	-

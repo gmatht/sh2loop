@@ -27,6 +27,7 @@ Captures written by this work live at the root or next to their harness.
 | 1 | CPU: bash vs transpiled C vs handwritten C | `bash-o4/bench/bench.sh` | bash, gcc -O3 | bash-O4 (tcc, gcc -O3) | fresh (no `tcc` here → `bo4-tcc` via `cc`) |
 | 2 | Optimised scale: C/GPU/CUDA at ~1 s | `bash-o4/bench/bench-opt.sh` | gcc -O3 | bash-O4, transpiled CUDA | fresh (GPU/Vulkan SKIPs) |
 | 3 | Autoshaderisation (bash → GPU) | `gpuleg` / `cudabench` / `cutranspile` (via §2) | gcc -O3, hand PTX | bash → PTX (`cuda-tx`) | fresh |
+| 3a | **Where autoshaderised bash beats `gcc -O3`** (no bash leg, large N) | `cutranspile` + `bench/c/*.c` | gcc -O3 | bash → PTX | fresh |
 | 4 | `sqrt1337` + Collatz (the showcase kernels) | §1, §2, `bench_sqrt.sh` | bash/dash | C, JS, PTX | fresh |
 | 5 | **uutils calling conventions** | `benchmarks/uu-ffi/*`, `benchmarks/uu-conventions/` | fork+exec | in-proc / capture / threaded | fresh |
 | 6 | Shellbench micro-suite (fork/exec-bound) | `bench.sh` | bash, dash | transpiled JS/C | fresh (bash/dash/js complete; C partial) |
@@ -218,6 +219,9 @@ target/debug/examples/gpuleg   sumred 1000000000 --runs 3                 # Vulk
 `cutranspile`/`cudabench` exit **2** with a reason when there is no device
 (`SKIP`), `gpuleg` needs `glslangValidator` (§2).
 
+**The payoff table is §3a** — where this actually beats `gcc -O3`, by how
+much, and where it loses.
+
 **What the numbers say:** the transpiled CUDA leg is within ~10% of
 hand-written PTX on the three shapes that have both (1.0–1.1×, checked at
 scale in `docs/BASH_VULKAN.md` §8/§10a/§11), because the transforms —
@@ -227,6 +231,156 @@ bash loop into a lane-parallel kernel at all (before them, candidacy vetoed
 `collatz` for `no candidate loop`).
 
 ---
+
+## 3a. Where autoshaderised bash beats `gcc -O3` — and by how much
+
+§3 says how a loop becomes a candidate; this section is the payoff table.
+**No bash or dash leg anywhere below** — every number is CPU vs GPU at a
+size chosen so the comparison is about throughput, not about an
+interpreter. The CPU reference is handwritten C at `gcc -O3` (the ceiling
+§1 measures the transpiler against), plus the transpiled C column where it
+is the fairer reference.
+
+N is pushed to where the GPU's advantage is bandwidth, not dispatch: the
+smallest row here (1e9) is ~1000× the ~1e5–1e6-trip breakeven modelled in
+`docs/BASH-O4.md` §4.7, and the largest goes another 100× (`sumred` at
+1e11); `collatz` stays at 1.8e8 seeds because each seed is a dependent
+chain (measured: 44.7 inner steps per seed on average), so its *work* is
+~8e9 steps.
+
+Captured 2026-11-27 with `cutranspile` (`--runs 5`; the driver prints the
+**median of 5 kernel reps**, and each row's best of 3 driver invocations is
+quoted, because the box is shared and a single invocation varies up to 2×):
+
+| problem (bash source) | N | `gcc -O3` (handwritten) | best `bo4-gcc` | **transpiled CUDA** | GPU vs `gcc -O3` | checksum |
+|---|---:|---:|---:|---:|---:|---|
+| `squares-map` | 1e9 | 3.93 s | 0.67 s (transpiled *C* wins too) | **2.02 ms** | **~1950×** | agrees |
+| `sumred` | 1e9 | 0.70 s | 0.63 s | **2.75–4.3 ms** | **~200×** | agrees |
+| `sumred` | 1e10 | 6.9 s | 17.6 s | **~30 ms** | **~230×** | **differs by design** (see below) |
+| `collatz` | 1.8e8 | 5.8–6.4 s | 6.4 s | **62–70 ms** | **~95×** | agrees |
+| `hashred` (`s = (s + i*i*7) & 0xFFFFFFFF`) | 1e9 | 0.84 s | 0.66 s | **2.8–4.4 ms** | **~250×** | agrees |
+| `hashred` | 1e10 | 8.1 s | — | **~29 ms** | **~280×** | agrees |
+
+Ranges are the spread across repeated driver invocations, not error bars:
+the driver reports the median of 5 kernel reps, and the *spread* is the
+first-call overhead (a cold first dispatch adds ~0.7 ms — 26% of the
+`sumred`-1e9 row), which is exactly the launch cost at §4.7 that the
+1e10 rows make irrelevant.
+
+`hashred` is a one-line variant of `bench/sh/hash.sh` (written for this
+section, kept at `bash-o4/bench/sh/hashred.sh`) because the exact
+`hash.sh` mix — two `%256` chains feeding a third — is **vetoed** by
+candidacy (`non-single-accumulate`); the variant is the same
+"accumulate into a masked register" shape that a GPU wants.
+
+### What actually produces the win
+
+1. **It is not codegen, it is the transform ladder.** `squares-map` at 1e9
+   is faster in transpiled *C* (0.67 s) than in handwritten C (3.93 s) —
+   `fuse-fill-consume` deletes the 8 GB intermediate array the reference
+   materialises, so the reference is memory-bound and the transpiled
+   program is not. The same transform is what makes the loop a GPU
+   candidate at all: without it, candidacy vetoes `squares-map`
+   (`scalar-carry`).
+2. **Bandwidth, not instructions, is the ceiling.** On this device the
+   GPU leg scales linearly with N — `sumred` 1e9 → 3.3 ms, 1e10 → 30 ms,
+   1e11 → 4.9 s — so the jump from 1e9 to 1e10 costs 10× the time, not
+   1000× the launch overhead. That scaling is the evidence that the
+   small-N rows are not launch latency.
+3. **Branchy irregular work is the biggest qualitative gap.** `collatz` is
+   unvectorisable — the CPU does one dependent chain at a time and `gcc
+   -O3` is already at its floor (5.8 s at 1.8e8); the GPU runs each seed's
+   chain in its own lane (62–70 ms vs 5.8 s ≈ 95×).
+
+### Where the GPU *loses* — the honest half
+
+- **`sumred` at 1e10 is a case where the GPU hides bad CPU codegen.**
+  The transpiled C leg is *slower* than the handwritten one (17.6 s vs
+  6.9 s): the transpiled accumulator is `u64` with a mask
+  per element (masked arithmetic, exact), where the handwritten reference
+  lets `gcc` narrow and vectorise; the GPU leg (30 ms) does not care.
+  Read the column as "for a GPU-bound loop the CPU code quality stops
+  mattering", not as a codegen win — and as a reminder that the GPU table
+  is not a claim about the CPU backend.
+- **CPU agreement past N = 3,037,000,500 is impossible for `sumred`**:
+  `i*i` wraps negative in signed 64-bit, so the signed-CPU and masked-GPU
+  paths *provably* diverge. At 1e10 the legs print different checksums
+  and both are right for their own arithmetic; the scaling claim stands on
+  linearity, not on agreement. `collatz` and `squares-map` have no such
+  horizon (O(1) memory, never wrap) and agree at every N quoted.
+- **Small N belongs to the CPU.** Candidacy only accepts a loop whose
+  modelled `trips × body_cost > dispatch + 2 × transfer` pays
+  (`docs/BASH-O4.md` §4.3/§4.7): breakeven is ~1e5–1e6 trips on this
+  device, and below ~1e4 trips the GPU always loses. `sumred` at 1e8 is
+  0.35 ms of GPU against 0.06 s of CPU — still a win, but the ratio is
+  already shrinking with size.
+- **Transfer-bound maps on an iGPU/software device lose outright**
+  (`docs/BASH_VULKAN.md` §8: `squares-map` 6× slower on Lavapipe). This
+  box has a real RTX 2070 Super; a box without one does not get these
+  numbers, and the Vulkan legs `SKIP` (§14).
+
+### Which bash loops are even eligible
+
+The `squares-map`/`sumred`/`collatz`/`hashred` shapes are the ones that
+survive the five-step candidacy rule (§3): counted loop with a bounded
+trip count, integer-only body with affine array indexing, no
+exec/pipeline/capture/function call, i64-proven width, bounded output.
+Everything else stays on the CPU by construction — that is why this
+section can be short and large-N: `exec`, pipes, `eval`, string work and
+fork/exec-bound scripts are not GPU-eligible at any size, and their
+comparison is §5/§6, not here.
+
+### Reproduce
+
+```sh
+cd bash-o4 && cargo build --examples
+
+# the transpiled GPU leg: prints "<median ms> <checksum>"
+target/debug/examples/cutranspile bench/sh/sumred.sh     1000000000  --runs 5
+target/debug/examples/cutranspile bench/sh/squares-map.sh 1000000000 --runs 5
+target/debug/examples/cutranspile bench/sh/collatz.sh    180000000   --runs 5
+target/debug/examples/cutranspile bench/sh/hashred.sh    1000000000  --runs 5
+
+# the CPU reference (same source, gcc -O3) and the transpiled C leg
+gcc -O3 bench/c/sumred.c -o /tmp/sumred_hand
+target/debug/bash-O4 --emit-c bench/sh/sumred.sh > /tmp/sumred.c
+gcc -O3 /tmp/sumred.c -lm -o /tmp/sumred_bo4
+/usr/bin/time -f %e /tmp/sumred_hand 1000000000
+
+# whole-table version (CPU + CUDA legs, checksums gated, ~1 s scale)
+bash bench/bench-opt.sh --problem sumred
+bash bench/bench-opt.sh --problem squares-map
+
+# candidacy verdict for any of them (no device needed):
+target/debug/bash-O4 --check bench/sh/hashred.sh
+target/debug/bash-O4 --check bench/sh/hash.sh      # vetoed: non-single-accumulate
+```
+
+`cutranspile` exits **2** with a reason when the shape is vetoed or there
+is no CUDA device, so a table that silently loses a row cannot happen. The
+checksum on each row is what makes it a benchmark rather than a
+microbenchmark: a fast-but-wrong kernel prints a different number and the
+gate in `bench-opt.sh` fails the row.
+
+**Two harness caveats this section had to work around**, both worth knowing
+before reading a `cuda-tx` cell:
+
+- `bench-opt.sh` times the `cuda-tx` leg twice: once with `--runs 1` for
+  the checksum gate (line 217) and once with `--runs "$RUNS"` for the
+  table (line 248) — so at `RUNS=3` the cell is the median of 3 kernel reps
+  and includes the cold first dispatch. The table above quotes `--runs 5`
+  and takes the best of 3 invocations, which is the *warm* median and runs
+  2–3× lower on the small rows (`sumred` 1e9: 4.1 ms cold vs 2.8 ms
+  warm). Both are real; they answer different questions (first-dispatch
+  latency vs steady-state throughput).
+- The same suite's own 2026-11-28 re-run at its default N is committed as
+  `bash-o4/bench/results-opt-2026-11-28-s3a.tsv`: `sumred` 1e9
+  `gcc-O3` 0.657 s / `bo4-gcc` 0.659 s / `cuda-tx` 0.003 s (229×),
+  `squares-map` 1e8 0.395 / 0.076 / ~0, `collatz` 1.8e7 0.641 / 0.704 /
+  0.012 (52×). Those are the *1 s-scale* rows; §3a's table pushes N to
+  1e9–1e11 precisely so the comparison is not launch-bound. Its `gpu`
+  (Vulkan) legs SKIP on this box (no `glslangValidator`), so only the CUDA
+  leg is measured here.
 
 ## 4. The two showcase kernels: `sqrt1337` and Collatz
 
@@ -748,6 +902,13 @@ sh2perl/runtime/build_uu_ffi.sh            # only when libcoreutils_ffi.so is mi
 
 # 3   autoshaderisation candidacy (no device needed to inspect)
 (cd bash-o4 && target/debug/bash-O4 --check bench/sh/collatz.sh)
+
+# 3a  autoshaderised bash vs gcc -O3 at large N (GPU; needs a CUDA device)
+(cd bash-o4 && cargo build --examples && \
+ for p in sumred squares-map collatz hashred; do \
+   target/debug/examples/cutranspile bench/sh/$p.sh \
+     $(case $p in sumred) echo 1000000000;; squares-map) echo 1000000000;; \
+        collatz) echo 180000000;; hashred) echo 1000000000;; esac) --runs 5; done)
 
 # 4.1 sqrt1337 showcase (node optional: the JS rows are skipped without it)
 SRC=$PWD/bash-o4/bench/sh/sqrt1337.sh bash bench_sqrt.sh
