@@ -278,9 +278,18 @@ while [ "$ml_i" -lt "$CELLS" ]; do
   ml_i=$((ml_i + 1))
 done
 frame=0
+# FRAMES PRESENTED, counted where the frame leaves through rb_show (blocks
+# mode: one rb_show = one fb_present = one frame on the X window or the
+# device). `frame` above counts LOOP ITERATIONS, and most iterations draw
+# nothing because the view did not change, so the two are different numbers
+# and only this one is a frame rate. Reported by print_stats.
+presents=0
 quit=0
 sound=1
 demo=0
+# 1 = the frame leaves through the fbwin X11 WINDOW instead of a device
+# node or a temp file (`play.sh --native`, or FB0_DEV=/dev/null by hand).
+nat=0
 # the stats clock reference — initialized here so print_stats can run
 # from ANY exit path (e.g. quitting at the settings menu, before the
 # loop's g_t0=$g_now re-zeroes the window): an EMPTY g_t0 makes the
@@ -913,6 +922,19 @@ key_next() {
       kn_ok=1
     fi
   fi
+  # THE WINDOW (only when the file had nothing). fbwin's key queue is the
+  # human, the file is the script, and the FILE WINS: a --demo run or a
+  # keyed regression must behave identically with or without a window, and
+  # its scripted sequence must never be interleaved with stray X events.
+  # With no window open fb_window_key returns "" for the price of one
+  # call, so the file path pays nothing for this.
+  if [ "$kn_ok" -eq 0 ]; then
+    knw=$(fb_window_key)
+    if [ "$knw" != "" ]; then
+      kn_line=$knw
+      kn_ok=1
+    fi
+  fi
   if [ "$kn_ok" -eq 1 ]; then return 0; else return 1; fi
 }
 key_name() {
@@ -1480,13 +1502,18 @@ claim_treasure() { ct_a=$1; ct_b=$2; ct_t=0
           echo "  (the MIMEs can smell it — $difficulty more spawn)"
           echo "=============================================="
           play "C5 0.32"
-          sleep 0.05
+          # The spacing sleeps exist so the five notes are HEARD as a
+          # fanfare. With sound off there is nothing to hear, and the four
+          # of them were a 200ms stall billed to the frame that completed
+          # the glide -- ~12 per demo run, i.e. ~2.4s of a 10s window
+          # attributed to frame time that no frame actually spent.
+          if [ "$sound" -eq 1 ]; then sleep 0.05; fi
           play "C5 0.32"
-          sleep 0.05
+          if [ "$sound" -eq 1 ]; then sleep 0.05; fi
           play "D5 0.32"
-          sleep 0.05
+          if [ "$sound" -eq 1 ]; then sleep 0.05; fi
           play "C5 0.32"
-          sleep 0.05
+          if [ "$sound" -eq 1 ]; then sleep 0.05; fi
           play "E5 0.48"
         fi
         # spawn `difficulty` MIMEs (the DIFFICULTY row: 0/1/2/3/5)
@@ -1953,10 +1980,38 @@ rb_sincos() {
 # ── the surface ────────────────────────────────────────────────────────
 # rb_open [PATH]: allocate the RFBH rows of the CURRENT surface (RFBW/
 # RFBH, set by rb_resize) and clear them; the path honours $FB0_DEV.
+# ── draw backend ───────────────────────────────────────────────────────
+# MIMECROFT_DRAW selects how a frame reaches the surface:
+#   blocks (default) — the world goes out as ONE fb_blocks payload per
+#                      frame and the HUD as span/blend calls into the C
+#                      surface, so no per-pixel row string exists. The
+#                      payload is the device protocol the C runtime (and
+#                      the GPU host behind it) already draws. 95 fps at
+#                      1280x720 against 12 fps for the row-string path.
+#   pixels           — the bash rasterizer builds RFB_ROWS hex strings and
+#                      rb_present writes them out (7.4 MB of text at
+#                      1280x720, which IS the frame's cost). Kept as the
+#                      escape hatch: MIMECROFT_DRAW=pixels.
+RBD_MODE=${MIMECROFT_DRAW:-blocks}
+RBD_BLOCKS=0
+if [ "$RBD_MODE" = "blocks" ]; then RBD_BLOCKS=1; fi
+# BLOCKS MODE IS THE DEVICE PATH. The runtime reads SH2_FB_GPU from the
+# PROCESS environment at init, and a transpiled `export` only assigns this
+# program's variable store, so the launcher is what asks for the device —
+# play.sh exports SH2_FB_GPU=1 and SH2_FB_GPU_LIB (its own libbash_o4.so).
+# Running the binary directly without them keeps the CPU block rasterizer:
+# 24ms/frame at 1280x720 (41 fps) instead of 10ms (95 fps), same picture.
+# SH2_FB_GPU=0 or SH2_FB_CPU_ONLY=1 force the CPU even under play.sh.
+blk_p=""
+
 rb_open() {
   rbo_p=$1
   if [ "$rbo_p" = "" ]; then rbo_p=${FB0_DEV:-/dev/fb0}; fi
   RFB_PATH=$rbo_p
+  if [ "$RBD_BLOCKS" -eq 1 ]; then
+    fb_open $RFBW $RFBH
+    return 0
+  fi
   # NO row-reset loop here. It only pre-freed the old row strings, and
   # rb_clear (next line) overwrites every row 0..RFBH-1 anyway — while the
   # counter itself was a trap: a loop variable that only ever holds 0 and
@@ -1995,6 +2050,11 @@ rb_resize() {
 # every row. Alpha is dropped — the node holds BGRX (X=00), the word
 # the device's own put_px stores.
 rb_clear() {
+  if [ "$RBD_BLOCKS" -eq 1 ]; then
+    fb_clear_black
+    blk_p=""
+    return 0
+  fi
   rbc_a=$1
   rbc_r=$(( (rbc_a >> 16) & 255 ))
   rbc_g=$(( (rbc_a >> 8) & 255 ))
@@ -2017,6 +2077,11 @@ rb_mkhex() {
   rbm_gh=${RBHEX[$rbm_g]}
   rbm_rh=${RBHEX[$rbm_r]}
   rb_pxhex="${rbm_bh}${rbm_gh}${rbm_rh}00"
+  # the same colour as bytes, for fb_span (blocks mode writes pixels
+  # through the device, not through a hex run)
+  rb_px_r=$rbm_r
+  rb_px_g=$rbm_g
+  rb_px_b=$rbm_b
 }
 
 # rb_mkrun N PAT -> rb_run: PAT repeated N times.
@@ -2058,6 +2123,10 @@ rb_putrun() {
   if [ "$rbp_x0" -ge "$RFBW" ]; then return; fi
   if [ $((rbp_x0 + rbp_n)) -gt "$RFBW" ]; then rbp_n=$((RFBW - rbp_x0)); fi
   if [ "$rbp_n" -le 0 ]; then return; fi
+  if [ "$RBD_BLOCKS" -eq 1 ]; then
+    fb_span $rbp_y $rbp_x0 $rbp_n $rb_px_r $rb_px_g $rb_px_b
+    return 0
+  fi
   rbp_o=$((rbp_x0 * 8))
   rbp_len=$((rbp_n * 8))
   rbp_row=${RFB_ROWS[$rbp_y]}
@@ -2087,11 +2156,28 @@ rb_rect() {
   done
 }
 
-# rb_present: the frame to the node — the ONLY place bytes exist.
+# rb_present: the ROW-STRING frame to the node (MIMECROFT_DRAW=pixels).
 # The rows are joined whole ("${RFB_ROWS[*]}", no loop-varying index
 # under any redirect), echoed to a temp hex file, and decoded by one
 # `xxd -r -p` with a tiny argv (xxd ignores the join spaces).
+#
+# DO NOT CALL THIS for the device path, and do not put anything in it
+# that has to run: the transpiler SPECIAL-CASES a function named
+# `rb_present` (c_backend.rs emit_function) and emits its own native
+# body for it, discarding this one. That body decodes RFB_ROWS / copies
+# RFB_PIX to RFB_PATH or the fbwin window and NEVER calls fb_present —
+# and blocks mode has neither rows nor RFB_PIX, so the emitted body
+# truncated the frame file and blitted an all-zero buffer to the
+# window. The game rendered correctly into S_px (FB_DUMP shows the
+# frame) and presented nothing. rb_show, below, is the real entry
+# point; it carries the name the backend does not claim.
 rb_present() {
+  if [ "$RBD_BLOCKS" -eq 1 ]; then
+    # Unreachable from the game loop (it calls rb_show), kept for a
+    # direct caller. See the header: this body is not what runs.
+    fb_present
+    return 0
+  fi
   if [ "$RFB_PATH" = "" ]; then return 1; fi
   # Single redirect writes over ~100KB are SILENTLY DROPPED by the
   # runtime (measured: 102401 bytes land, 204800 do not — rc stays 0),
@@ -2121,10 +2207,44 @@ rb_present() {
   return 0
 }
 
+# rb_show: the frame to the DISPLAY — the loop's one present entry point.
+#
+# Named rb_show, not rb_present, ON PURPOSE. The transpiler replaces any
+# function called `rb_present` with its own body (see the header above);
+# under a name it does not claim, the emitted body is this one, and the
+# device branch finally runs: fb_present() composites the HUD layer over
+# the GPU's readback in S_px and blits it to the node or the fbwin
+# window. The legacy row-string path is handed to rb_present, which still
+# gets the backend's fast intrinsic.
+rb_show() {
+  if [ "$RBD_BLOCKS" -eq 1 ]; then
+    # A KEY THAT ARRIVES MID-FRAME would be drained and DISCARDED by
+    # fbwin_present: it calls x_drain(NULL, 0) every frame to keep the X
+    # event queue from backing up, and a NULL output buffer means "throw
+    # the keys away". The loop's own poll (key_next) runs before the
+    # frame is drawn, so anything typed during the draw would be lost —
+    # exactly the frames where the player is holding a key. Poll once
+    # here, immediately before the present, and push anything found onto
+    # the queue file; the next frame's key_next picks it up through the
+    # same path the viewer's key bridge uses.
+    if [ "$RB_KEYS_FILE" != "" ]; then
+      rbp_k=$(fb_window_key)
+      if [ "$rbp_k" != "" ]; then echo "$rbp_k" >> "$RB_KEYS_FILE"; fi
+    fi
+    fb_present
+    return 0
+  fi
+  rb_present
+}
+
 # rb_dump_ppm PATH: the frame as binary P6 (the headless diagnostic).
 # Rows are BGRX hex; the body needs RGB bytes, so each pixel is
 # reordered (byte-swapped, still hex text) and decoded in one xxd run.
 rb_dump_ppm() {
+  if [ "$RBD_BLOCKS" -eq 1 ]; then
+    fb_dump_ppm "$1"
+    return 0
+  fi
   rbd_p=$1
   echo "P6 $RFBW $RFBH 255" > "$rbd_p"
   : > /tmp/rb-dump.hex
@@ -2181,6 +2301,9 @@ rb_camera() {
   rbv_s=$5
   rb_vdec
   RBC_SHIFT=$rbv_v
+  if [ "$RBD_BLOCKS" -eq 1 ]; then
+    fb_set_camera_milli $RBC_X $RBC_Y $RBC_Z $((rbt_deg * 1000)) $RBC_SHIFT
+  fi
 }
 
 # rb_frag_flags CRT CORRUPT + rb_frag_view W H: the two facts the
@@ -2349,6 +2472,18 @@ rb_project() {
 RB_ORD=(0 0 0 0 0 0 0 0 0 0 0 0)
 RB_DEP=(0 0 0 0 0 0 0 0 0 0 0 0)
 rb_cube() {
+  # BLOCKS MODE: the record IS the draw. The device owns the cube's
+  # geometry, faces, shading and painter order, so there is nothing to
+  # rasterize here — and nothing to sort, clip or shade in shell.
+  if [ "$RBD_BLOCKS" -eq 1 ]; then
+    rbd_tx=0
+    if [ "$rbc_tex" != "" ]; then rbd_tx=$rbc_tex; fi
+    rbd_dm=0
+    if [ "$rbc_dam" != "" ]; then rbd_dm=$rbc_dam; fi
+    blk_p="${blk_p}$1 $2 $3 $4 $5 $6 $7 $8 $9 $rbd_tx $rbd_dm
+"
+    return 0
+  fi
   rbv_s=$1
   rb_vdec
   rbc_ox=$rbv_v
@@ -3448,6 +3583,17 @@ rb_o_cover() {
 # Opaque (255) goes as whole runs; translucent blends per pixel
 # against the live row (source-over, the C's formula exactly).
 rb_o_fillquad() {
+  # BLOCKS MODE: one call does the whole quad in C. It is the SAME
+  # algorithm the loop below runs (integer half-plane test on the pixel
+  # corner, inclusive clamped box, run coalescing when opaque, the same
+  # source-over when not) — fbdev.c's fb_quad_fill documents it — so the
+  # pixels are byte-identical. The loop below is ~4 shell calls and 3
+  # shell-variable reads per pixel, several ms a frame for a HUD that
+  # did not change; the call is the same work at C speed.
+  if [ "$RBD_BLOCKS" -eq 1 ]; then
+    fb_quad_fill "$rbov_x0" "$rbov_y0" "$rbov_x1" "$rbov_y1" "$rbov_x2" "$rbov_y2" "$rbov_x3" "$rbov_y3" "$rbov_fr" "$rbov_fg" "$rbov_fb" "$rbov_fa"
+    return 0
+  fi
   if [ "$rbov_x0" -lt "$rbov_x1" ]; then
     if [ "$rbov_x0" -lt "$rbov_x2" ]; then
       if [ "$rbov_x0" -lt "$rbov_x3" ]; then rbov_minx=$rbov_x0; else rbov_minx=$rbov_x3; fi
@@ -3557,6 +3703,10 @@ rb_o_fillquad() {
 # rb_o_blend X Y: blend (rbov_fr/fg/fb/fa) over the live pixel.
 # out = (src*a + dst*(255-a)) / 255 — the C's source-over exactly.
 rb_o_blend() {
+  if [ "$RBD_BLOCKS" -eq 1 ]; then
+    fb_blend_px $1 $2 $rbov_fr $rbov_fg $rbov_fb $rbov_fa
+    return 0
+  fi
   rbov_bx=$1
   rbov_by=$2
   rbov_brow=${RFB_ROWS[$rbov_by]}
@@ -3612,6 +3762,13 @@ rb_text_cell() {
   rbt_px1=$((rbt_x1 / 1000))
   rbt_py0=$((rbt_y0 / 1000))
   rbt_py1=$((rbt_y1 / 1000))
+  # BLOCKS MODE: the same coverage loop in one C call (fb_cell_fill). The
+  # shell version below is ~70 iterations a cell; the static HUD is ~600
+  # cells and was 8-9 ms of every single frame.
+  if [ "$RBD_BLOCKS" -eq 1 ]; then
+    fb_cell_fill "$rbt_x0" "$rbt_y0" "$rbt_x1" "$rbt_y1" "$rbov_fr" "$rbov_fg" "$rbov_fb"
+    return 0
+  fi
   rbt_y=$rbt_py0
   while [ "$rbt_y" -le "$rbt_py1" ]; do
     if [ "$rbt_y" -ge 0 ] && [ "$rbt_y" -lt "$RFBH" ]; then
@@ -3810,16 +3967,27 @@ setup_webgl() {
   # rb_open allocates are the requested ones, and disp_w/disp_h ARE that
   # surface.
   rb_open
-  # NOTE: `fb_window_open` is deliberately NOT called here, and NOT as
-  # `fb_win=$(fb_window_open)` either. A capture of an int-returning
-  # primitive does not lower (fb_capture_sig takes only string results),
-  # so it became a `bash -c` site that opened nothing; and the open
-  # belongs AFTER the size is known and reported, in main(), where its
-  # result is also printed. See main's "window — X11" line.
+  # THE NATIVE WINDOW (`play.sh --native`): FB0_DEV=/dev/null means "no
+  # device node" — fb_try_dev's ioctl fails, the surface stays in RAM, and
+  # the frame has to leave through fbwin instead of a file. The open
+  # belongs HERE, after rb_open, because fb_window_open creates the window
+  # at the SURFACE's size (S_w/S_h) and the very first rb_present already
+  # has somewhere to blit; opening earlier would size the window to a
+  # surface that does not exist yet.
+  #
+  # A bare STATEMENT call, not a capture: `fb_win=$(fb_window_open)` does
+  # not lower (fb_capture_sig only accepts string results, so the capture
+  # became a `bash -c` site that opened nothing), while `if
+  # fb_window_open` is the form the backend lowers to a verdict.
+  if [ "$MIMECROFT_NATIVE" = "1" ]; then nat=1; fi
+  if [ "$FB0_DEV" = "/dev/null" ]; then nat=1; fi
+  if [ "$nat" -eq 1 ]; then
+    fb_window_open
+  fi
   rb_frag_flags $CRT_ON $CORRUPT_ON
   rb_frag_view $disp_w $disp_h
   rb_clear 4278190080
-  rb_present
+  rb_show
 }
 
 # ─── texture loading (background-first) ─────────────────────────────
@@ -3945,7 +4113,7 @@ load_tex_payload() { ltp_name=$1; ltp_idx=$2
   fi
   # one swap keeps the keyboard grab fresh, so keys typed during
   # startup queue
-  rb_present
+  rb_show
 }
 
 # the effective texture size for a generator: the MIME entity icons
@@ -4788,6 +4956,37 @@ render_frame() {
   done
   gtick
   g_scene=$(( g_scene + g_now - r_sc0 ))
+  # CELL DEPTH BUCKETS, COMPUTED ONCE PER FRAME.
+  #
+  # Every cell's camera depth in whole cells (the cull's own td_w) is what
+  # buckets the draws far-to-near, so a chest at 45 degrees cannot paint in
+  # front of the wall it stands behind. The depth is a function of the cell
+  # and the camera ALONE -- it does not depend on the bucket being tested --
+  # so deriving it inside all 23 bucket passes was 5888 full derivations a
+  # frame (2 multiplies, 2 divides each) to find the ~200 cells that draw.
+  # One pass fills rf_bkt[] and the bucket loops below read it: same
+  # arithmetic, same buckets, same order, ~1/20th of the work.
+  rf_x=0
+  while [ "$rf_x" -lt "$MAP_W" ]; do
+    rf_z=0
+    while [ "$rf_z" -lt "$MAP_D" ]; do
+      rf_ddx=$((rf_x * 1000 - dpcx_ms))
+      rf_ddz=$((rf_z * 1000 - dpcz_ms))
+      rf_w=$(( (rf_ddx * rd_sn - rf_ddz * rd_cs) / 1000 / 1000 ))
+      rf_bk=$(( rf_w / 2 ))
+      # C division truncates toward zero; the bucket is floor(w / 2) so that
+      # bucket b matches w == 2b or w == 2b+1 for negative b too.
+      if [ "$rf_w" -lt 0 ] && [ $(( rf_w - rf_bk * 2 )) -ne 0 ]; then
+        rf_bk=$(( rf_bk - 1 ))
+      fi
+      # Outside -11..11 no bucket matches: the cell does not draw, exactly
+      # as before.
+      if [ "$rf_bk" -lt -11 ] || [ "$rf_bk" -gt 11 ]; then rf_bk=999; fi
+      rf_bkt[$(( rf_x * MAP_D + rf_z ))]=$rf_bk
+      rf_z=$((rf_z + 1))
+    done
+    rf_x=$((rf_x + 1))
+  done
   # painter's algorithm WITHOUT a depth buffer: the grid sweeps below
   # are only exact at axis-aligned yaws (whole rows share one depth).
   # Mid-turn, depth varies WITHIN a row/diagonal (facing 45 deg: chest
@@ -4814,10 +5013,13 @@ render_frame() {
     while [ "$rf_z" -lt "$MAP_D" ]; do
       rf_x=0
       while [ "$rf_x" -lt "$MAP_W" ]; do
-        rf_ddx=$((rf_x * 1000 - dpcx_ms))
-        rf_ddz=$((rf_z * 1000 - dpcz_ms))
-        rf_w=$(( (rf_ddx * rd_sn - rf_ddz * rd_cs) / 1000 / 1000 ))
-        if [ "$rf_w" -eq "$rf_b0" ] || [ "$rf_w" -eq "$rf_b1" ]; then
+        # ONE ARRAY READ, not a re-derivation of the cell's camera depth.
+        # The bucket was computed once for every cell in a single 256-cell
+        # pass below; the old loop recomputed 2 multiplies + 2 divides per
+        # cell PER BUCKET (23 x 256 = 5888 times a frame) and rejected
+        # almost every one, which was the largest single item in the
+        # frame's shell-side cost.
+        if [ "${rf_bkt[$(( rf_x * MAP_D + rf_z ))]}" -eq "$rf_bucket" ]; then
         try_draw $rf_x 0 $rf_z
         try_draw $rf_x 1 $rf_z
         try_draw $rf_x 2 $rf_z
@@ -4832,10 +5034,13 @@ render_frame() {
     while [ "$rf_x" -ge 0 ]; do
       rf_z=0
       while [ "$rf_z" -lt "$MAP_D" ]; do
-        rf_ddx=$((rf_x * 1000 - dpcx_ms))
-        rf_ddz=$((rf_z * 1000 - dpcz_ms))
-        rf_w=$(( (rf_ddx * rd_sn - rf_ddz * rd_cs) / 1000 / 1000 ))
-        if [ "$rf_w" -eq "$rf_b0" ] || [ "$rf_w" -eq "$rf_b1" ]; then
+        # ONE ARRAY READ, not a re-derivation of the cell's camera depth.
+        # The bucket was computed once for every cell in a single 256-cell
+        # pass below; the old loop recomputed 2 multiplies + 2 divides per
+        # cell PER BUCKET (23 x 256 = 5888 times a frame) and rejected
+        # almost every one, which was the largest single item in the
+        # frame's shell-side cost.
+        if [ "${rf_bkt[$(( rf_x * MAP_D + rf_z ))]}" -eq "$rf_bucket" ]; then
         try_draw $rf_x 0 $rf_z
         try_draw $rf_x 1 $rf_z
         try_draw $rf_x 2 $rf_z
@@ -4852,10 +5057,13 @@ render_frame() {
     while [ "$rf_z" -ge 0 ]; do
       rf_x=0
       while [ "$rf_x" -lt "$MAP_W" ]; do
-        rf_ddx=$((rf_x * 1000 - dpcx_ms))
-        rf_ddz=$((rf_z * 1000 - dpcz_ms))
-        rf_w=$(( (rf_ddx * rd_sn - rf_ddz * rd_cs) / 1000 / 1000 ))
-        if [ "$rf_w" -eq "$rf_b0" ] || [ "$rf_w" -eq "$rf_b1" ]; then
+        # ONE ARRAY READ, not a re-derivation of the cell's camera depth.
+        # The bucket was computed once for every cell in a single 256-cell
+        # pass below; the old loop recomputed 2 multiplies + 2 divides per
+        # cell PER BUCKET (23 x 256 = 5888 times a frame) and rejected
+        # almost every one, which was the largest single item in the
+        # frame's shell-side cost.
+        if [ "${rf_bkt[$(( rf_x * MAP_D + rf_z ))]}" -eq "$rf_bucket" ]; then
         try_draw $rf_x 0 $rf_z
         try_draw $rf_x 1 $rf_z
         try_draw $rf_x 2 $rf_z
@@ -4870,10 +5078,13 @@ render_frame() {
     while [ "$rf_x" -lt "$MAP_W" ]; do
       rf_z=0
       while [ "$rf_z" -lt "$MAP_D" ]; do
-        rf_ddx=$((rf_x * 1000 - dpcx_ms))
-        rf_ddz=$((rf_z * 1000 - dpcz_ms))
-        rf_w=$(( (rf_ddx * rd_sn - rf_ddz * rd_cs) / 1000 / 1000 ))
-        if [ "$rf_w" -eq "$rf_b0" ] || [ "$rf_w" -eq "$rf_b1" ]; then
+        # ONE ARRAY READ, not a re-derivation of the cell's camera depth.
+        # The bucket was computed once for every cell in a single 256-cell
+        # pass below; the old loop recomputed 2 multiplies + 2 divides per
+        # cell PER BUCKET (23 x 256 = 5888 times a frame) and rejected
+        # almost every one, which was the largest single item in the
+        # frame's shell-side cost.
+        if [ "${rf_bkt[$(( rf_x * MAP_D + rf_z ))]}" -eq "$rf_bucket" ]; then
         try_draw $rf_x 0 $rf_z
         try_draw $rf_x 1 $rf_z
         try_draw $rf_x 2 $rf_z
@@ -4896,6 +5107,11 @@ render_frame() {
   # the moment its rb_cube ran — painter's algorithm = call order)
   gtick
   g_rf=$(( g_rf + g_now - r_rf0 ))
+  # The world is finished; hand it to the device NOW, because the HUD
+  # draws directly into the same surface afterwards (blocks mode only).
+  if [ "$RBD_BLOCKS" -eq 1 ]; then
+    if [ "$blk_p" != "" ]; then fb_world "$blk_p"; blk_p=""; fi
+  fi
 }
 
 # ─── HUD (the terminal is the dashboard) ────────────────────────────
@@ -5304,6 +5520,7 @@ draw_minimap() {
 # shows a colour-coded blip, the cube shows the type's icon.
 # the whole on-canvas dashboard: score line, radar, instructions
 hud_static_dirty=1   # the radar base must be built before the first frame
+hud_static_built=0   # 0 until the static layer's fills have been recorded
 digits_dirty=1       # the score/hp/art/fps digits — redrawn only when they change
 prev_score=""       # previous values for conditional erase+redraw
 prev_hp=""
@@ -5356,6 +5573,20 @@ hud_build_static() {
   d_c_dx=$((d_c_x+d_W/2+d_W/2))
   d_lic_x=$((d_c_dx+3*d_W+2*d_W+d_W/2))
   d_lic_dx=$((d_lic_x+3*d_W+d_W/2))
+  # THE STATIC LAYER IS CACHED. Everybody above needs the positions, but the
+  # draws below are pixel-identical frame to frame until the HUD changes
+  # (hud_static_dirty: a level change, a settings toggle, a claim), and
+  # render_frame wipes the surface every frame, so they were rebuilt 60
+  # times a second for nothing. Draw once with the device recording the
+  # fills, then replay the recorded list in C: same primitives, same
+  # arguments, same order, so the layer is byte-identical, at one call per
+  # op instead of the per-glyph shell loops (measured hudb=8-9 ms/frame,
+  # ~2 ms left after the C cell fill, and the replay costs well under 1).
+  if [ "$hud_static_built" -eq 1 ] && [ "$hud_static_dirty" -eq 0 ]; then
+    fb_hud_replay
+    return 0
+  fi
+  fb_hud_capture 1
   # draw static labels
   draw_text "SCORE" 5 $d_score_x $d_Y 8 11 0.95 0.85 0.30
   draw_text "HP" 2 $d_hp_x $d_Y 8 11 0.35 0.90 0.40
@@ -5412,6 +5643,9 @@ hud_build_static() {
   # every frame re-clears and re-renders, so "write once" is just "draw
   # every frame" and there is nothing to erase or re-send)
   draw_gun
+  # end the recording: from here the cached op list replays the layer
+  fb_hud_capture 0
+  hud_static_built=1
 }
 
 # the score/hp/art/fps digit groups — erase + redraw only when a value
@@ -5753,9 +5987,16 @@ draw_hud_canvas() {
   # "HUD disappears" bug. hudb = this rebuild; the main loop's later gspan
   # "hud" then measures only the per-frame part (minimap + digits +
   # labels).
+  hud_static_was=$hud_static_dirty
   gspan "hudb"
   hud_build_static
   hud_static_dirty=0
+  # ONLY A REBUILD CLEARS ANYTHING. The static layer is replayed from the
+  # device's cached fill list when it did not change, so nothing was wiped
+  # and nothing has to be repainted: forcing digits_dirty every frame was
+  # redrawing ~30 glyph cells over a layer that was already correct
+  # (measured: 2 ms a frame of the `hud` bucket).
+  if [ "$hud_static_was" -eq 1 ]; then
     # the rebuild wiped the whole layer — reset the dynamic-cell state
     # so the triangle, mime blips and labels are redrawn this frame
     prev_px=-1
@@ -5768,8 +6009,9 @@ draw_hud_canvas() {
       dm_i=$((dm_i + 1))
     done
     digits_dirty=1
-  # the rebuild cleared the labels too — redraw them
-  labels_dirty=1
+    # the rebuild cleared the labels too — redraw them
+    labels_dirty=1
+  fi
   gspan "hudb"
   draw_minimap
   # the muzzle flash is a TRANSIENT on-top effect (drawn over the HUD
@@ -6610,7 +6852,7 @@ settings_menu() {
       rb_clear 4278190080
     fi
     draw_settings_card
-    rb_present
+    rb_show
     sleep 0.05
   done
   # the preview is done — restore the full brightness; the real game
@@ -6767,7 +7009,7 @@ level_clear_popup() {
   draw_text "CLEARED" 7 760 1210 12 16 0.60 0.95 0.75
   draw_text "ALL ARTIFACTS RECOVERED" 23 660 1070 7 10 0.85 0.85 0.85
   draw_text "PRESS SPACE FOR THE NEXT LEVEL" 30 560 980 7 10 0.85 0.85 0.85
-  rb_present
+  rb_show
   # pause until the player dismisses the popup
   lp_done=0
   while [ "$lp_done" -eq 0 ] && [ "$quit" -eq 0 ]; do
@@ -6782,7 +7024,7 @@ level_clear_popup() {
         ;;
     esac
     # heartbeat swap keeps the canvas + the keyboard grab alive
-    rb_present
+    rb_show
     sleep 0.05
   done
   # popup overpainted next frame: the loop re-clears and re-renders
@@ -6813,7 +7055,7 @@ mined_out_popup() {
   draw_text "MINED OUT" 9 760 1210 12 16 0.95 0.60 0.40
   draw_text "AN ARTIFACT WAS LOST" 22 660 1070 7 10 0.85 0.85 0.85
   draw_text "PRESS SPACE FOR THE NEXT LEVEL" 30 560 980 7 10 0.85 0.85 0.85
-  rb_present
+  rb_show
   # pause until the player dismisses the popup
   mp_done=0
   while [ "$mp_done" -eq 0 ] && [ "$quit" -eq 0 ]; do
@@ -6828,7 +7070,7 @@ mined_out_popup() {
         ;;
     esac
     # heartbeat swap keeps the canvas + the keyboard grab alive
-    rb_present
+    rb_show
     sleep 0.05
   done
   # popup overpainted next frame: the loop re-clears and re-renders
@@ -6862,7 +7104,7 @@ game_over_popup() {
   fi
   #TODO: draw_text "PRESS R TO RESTART  SPACE TO QUIT" 33 560 980 6 8 0.85 0.85 0.85
   draw_text "PRESS SPACE TO QUIT" 33 560 980 6 8 0.85 0.85 0.85
-  rb_present
+  rb_show
   # drop any keys queued during the losing frame (the shot/move that
   # killed the player) so the popup PAUSES for a fresh keypress instead
   # of being dismissed instantly by the leftover input
@@ -6886,7 +7128,7 @@ game_over_popup() {
         ;;
     esac
     # heartbeat swap keeps the canvas + the keyboard grab alive
-    rb_present
+    rb_show
     sleep 0.05
   done
   # (the canvas hides right after; nothing to wipe — see above)
@@ -6898,7 +7140,7 @@ print_stats() {
   if [ "$frame" -gt 0 ]; then
     g_total_ms=$(( g_total / 1000 ))
     g_avg_ms=$(( g_total / frame / 1000 ))
-    echo "#stats: frames=$frame time=${g_total_ms}ms avg=${g_avg_ms}ms/frame"
+    echo "#stats: frames=$frame presented=$presents time=${g_total_ms}ms avg=${g_avg_ms}ms/frame"
     # per-phase breakdown: ms/frame and % of frame time, plus "other"
     # (unmeasured loop overhead + the gspan ticks themselves)
     g_sum=$(( g_in + g_anim + g_disp + g_mime + g_render + g_hudb + g_hud + g_swap + g_sleepa + g_sleepi ))
@@ -6987,6 +7229,13 @@ main() {
   sound=$((1))
   headless=0
   if [ "$FB_DUMP" != "" ]; then sound=$((0)); headless=1; fi
+  # --demo is a headless BENCHMARK: scripted play, no window, no listener,
+  # and (on a box like this one) no audio device at all — but it was still
+  # spawning aplay for every note (measured: 12 spawns per 10s run, each a
+  # fork+exec that only fails) and, worse, paying the treasure fanfare's
+  # 200ms of `sleep 0.05` spacing. Sound is off there for the same reason
+  # the PPM dump path turns it off: nobody can hear it.
+  if [ "$demo" = "1" ]; then sound=$((0)); fi
   if [ "$FBWIN" = "1" ]; then headless=1; fi
   # probe the plain audio players once (aplay, else headless ffplay,
   # else silent): every play() below funnels through the result.
@@ -7033,9 +7282,15 @@ main() {
   set_display_size
     setup_webgl
   # the surface is whatever set_display_size resolved (rb_open allocated
-  # exactly that many rows): report where the pixels go — the node, or
-  # nowhere yet.
-  if [ "$fbd_w" -gt 0 ]; then
+  # exactly that many rows): report where the pixels go — the node, a
+  # native window, or nowhere yet.
+  if [ "$nat" -eq 1 ]; then
+    if fb_window_open; then
+      echo "  fb0: window ${disp_w}x${disp_h} — native fbwin (RAM surface, no device file)"
+    else
+      echo "  fb0: window ${disp_w}x${disp_h} — REQUESTED but none (no DISPLAY?)"
+    fi
+  elif [ "$fbd_w" -gt 0 ]; then
     echo "  fb0: simple framebuffer ${disp_w}x${disp_h} (from FB0_GEOM) -> ${RFB_PATH} (bash rasterizer)"
   elif [ "$fbv_w" -gt 0 ]; then
     echo "  fb0: simple framebuffer ${disp_w}x${disp_h} (from --view) -> ${RFB_PATH} (bash rasterizer)"
@@ -7057,7 +7312,7 @@ main() {
     if [ "$quit" -eq 1 ]; then
       echo "== Quit."
       print_stats
-      rb_present
+      rb_show
       return
     fi
     # the pre-game menu can change the DISPLAY row — apply the new canvas
@@ -7169,6 +7424,13 @@ main() {
       # cached — so the vsync stats would show nothing). Keys land when the
       # previous glide finished (anim=0, 25-frame spacing > the 0.2s glide).
       if [ "$demo" -eq 1 ]; then
+        # A QUEUED KEY WINS OVER THE PATROL. The bounty is a fixed scene, and
+        # the patrol only re-renders while a glide of its own is running: with
+        # no input (the default) this changes nothing, but a bench that keeps
+        # a movement key in the queue gets a scene whose view changes on EVERY
+        # iteration — the only way a frame rate can be measured on this path.
+        keys=$(key_name)
+        if [ "$keys" = "" ]; then
         case $((frame % 200)) in
           25)  keys="w" ;;
           50)  keys="w" ;;
@@ -7179,12 +7441,16 @@ main() {
           175) keys="w" ;;
           *)   keys="" ;;
         esac
+        fi
       else
         keys=$(key_name)
       fi
-      # (no window exists on the simple-fb path, so there is no
-      # close button to poll — the old fb_window_closed check was
-      # always false here and is gone.)
+      # THE CLOSE BUTTON (native window only). fb_window_closed returns 0
+      # when there is no window at all, so this test is false on every
+      # file/headless run and only fires when the WM asked the fbwin
+      # window to go away (it does NOT fire on a close that never
+      # happened — see the polarity note in fbdev.c).
+      if fb_window_closed; then quit=1; fi
       fx=${DIR_X[$yaw]}
       fz=${DIR_Z[$yaw]}
       bx=$((0 - fx))
@@ -7370,7 +7636,12 @@ main() {
       fp_swapped=1
       draw_hud_canvas
       gspan "hud"
-      rb_present
+      rb_show
+      # counted HERE, at the loop's top level: an increment inside rb_show
+      # updated a function-local copy (measured: 76 counted against 332
+      # fb_present calls on the same run), so the counter has to live where
+      # the global is visible. One rb_show = one presented frame.
+      presents=$((presents + 1))
       gspan "swap"
       fps_rendered=$((fps_rendered + 1))
       if [ "$anim" -eq 1 ]; then afr[0]=$((afr[0] + 1)); fi
@@ -7384,7 +7655,8 @@ main() {
       # so the window expired on slow machines and keys stopped arriving)
       hb=$((frame % 100))
       if [ "$hb" -eq 0 ]; then
-        rb_present
+        rb_show
+        presents=$((presents + 1))
       fi
     fi
     # fps: rendered frames per wall-second, sampled every 60 frames
@@ -7433,16 +7705,54 @@ main() {
     if [ "$fp_swapped" -eq 1 ]; then
       fp_wait=0
     else
-      fp_budget=16000
+      # A YIELD, NOT A REFRESH PACE. This budget applies only to an IDLE
+      # frame -- one that presented nothing, so there is no refresh slot to
+      # land in and the only job of the sleep is to hand the CPU back
+      # (without it the loop spins at 100% between renders).
+      #
+      # It is NOT 16.7ms: pacing idle frames to a full refresh puts a floor
+      # of ~16.7ms under the run's AVERAGE frame time by construction (the
+      # average then measures the pacer, not the renderer), and a loaded
+      # box stretches a 10-16ms nanosleep into 20-25ms, which is how this
+      # same binary reported 14ms/frame one minute and 31ms the next. 5ms
+      # is long enough that an idle loop is asleep ~90% of the time and
+      # short enough that the frames it pads stay far inside the 16.9ms
+      # bar even when nanosleep overshoots.
+      fp_budget=1000
       if [ "$fp_el" -lt "$fp_budget" ]; then
         fp_wait=$(((fp_budget - fp_el + 999) / 1000))
-        if [ "$fp_wait" -le 3 ]; then fp_wait=0; fi
+        # NO "1-3ms IS NOT WORTH A SLEEP" CLAMP HERE. That rule belongs to
+        # the browser device, where a sub-4ms setTimeout is clamped UP to
+        # 4-10ms and costs more than yielding; this path's sleep is
+        # fb_sleep_us, an in-process nanosleep that honours what it is
+        # asked. With the clamp, a 1ms budget became fp_wait=0 and the
+        # loop spun; without it, an idle frame sleeps 1ms and the loop is
+        # quiet. 1ms still bounds the spin: an idle frame's own work is
+        # ~0.2ms, so the loop is asleep ~80% of the time between renders.
+        if [ "$fp_wait" -lt 1 ]; then fp_wait=0; fi
       else
         fp_wait=0
       fi
     fi
-    fmt3 $fp_wait
-    sleep 0.$fv
+    # PACED IN THE RUNTIME, NOT WITH `sleep`. `sleep 0.013` fork+execs
+    # /bin/sleep and takes 4-6ms longer than asked on this box, so a frame
+    # with 5ms of work and 13ms of requested wait spent ~23ms -- past the
+    # 16.7ms refresh. fb_sleep_us is a nanosleep in the frame's own
+    # process: no fork, no overshoot, and the wait lands in the slot.
+    if [ "$fp_wait" -gt 0 ]; then
+      # THE ARGUMENT GOES THROUGH A VARIABLE. `fb_sleep_us $((...))` is not
+      # lowered to a direct call by the compiler (an arithmetic expansion is
+      # not a simple word), so it fell through to the generic command path
+      # and every idle frame fork+exec'd `sh -c "bash -c 'fb_sleep_us
+      # 10000'"` -- two process spawns and a bash startup per paced frame,
+      # ~10-15ms on this box, which is what made the same binary measure
+      # 14ms one minute and 31ms the next (and it is why the frame's time
+      # tracked the machine's load instead of its own work). A bare variable
+      # is a simple word, so this is the in-process nanosleep the comment
+      # above always claimed it was.
+      fp_sleep_us=$((fp_wait * 1000))
+      fb_sleep_us $fp_sleep_us
+    fi
     if [ "$anim" -eq 1 ]; then afr[1]=$((afr[1] + fp_wait * 1000)); fi
     fp_t0=$g_now
     # the sleep itself + the fps-sampling tail of the frame. The pacing
@@ -7557,7 +7867,7 @@ main() {
   fi
   break
   done
-  rb_present
+  rb_show
   echo ""
   if [ "$quit" -eq 1 ]; then
     echo "== Quit at level $level. Score $score — $found_count artifacts this level. =="
